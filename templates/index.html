@@ -1,0 +1,2320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+  <title>ENPRIZON LINDI PROJECT</title>
+  <link rel="stylesheet" href="{{ static_url('css/style.css') }}?v={{ version }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js">
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js">
+</script>
+  <script src="{{ static_url('js/i18n.js') }}?v={{ version }}"></script>
+</head>
+<body>
+
+<!-- ═══ Toast ═══ -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══ 登录弹窗 ═══ -->
+<div class="modal-overlay" id="loginModal" style="display:none;">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <h3 id="loginModalTitle" data-i18n="login_title">管理员登录</h3>
+    </div>
+    <div class="modal-body">
+      <div id="loginSetupHint" style="display:none;margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:8px;font-size:12px;color:var(--accent);" data-i18n="login_setup_hint">
+        首次使用，请设置管理员账号
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;" data-i18n="login_username">用户名</label>
+        <input type="text" id="loginUsername" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box;" autocomplete="username">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;" data-i18n="login_password">密码</label>
+        <input type="password" id="loginPassword" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box;" autocomplete="current-password">
+      </div>
+      <div id="loginError" style="display:none;color:var(--danger);font-size:12px;margin-bottom:12px;"></div>
+      <button onclick="submitLogin()" style="width:100%;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;" data-i18n="btn_login">登录</button>
+      <button onclick="closeLoginModal()" style="width:100%;padding:8px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer;margin-top:8px;" data-i18n="btn_cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 修改密码弹窗 ═══ -->
+<div class="modal-overlay" id="changePwdModal" style="display:none;">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <h3 data-i18n="chgpwd_title">修改密码</h3>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;" data-i18n="chgpwd_old">当前密码</label>
+        <input type="password" id="oldPassword" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;" data-i18n="chgpwd_new">新密码</label>
+        <input type="password" id="newPassword" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;" data-i18n="chgpwd_confirm">确认新密码</label>
+        <input type="password" id="confirmPassword" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box;">
+      </div>
+      <div id="changePwdError" style="display:none;color:var(--danger);font-size:12px;margin-bottom:12px;"></div>
+      <button onclick="submitChangePwd()" style="width:100%;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;" data-i18n="chgpwd_submit">确认修改</button>
+      <button onclick="closeChangePwdModal()" style="width:100%;padding:8px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer;margin-top:8px;" data-i18n="btn_cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 顶部导航 ═══ -->
+<nav class="navbar" id="topNav">
+  <span class="brand">◈ ENPRIZON LINDI</span>
+  <button class="nav-btn active" data-page="dashboard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav_dashboard">数据台</span></button>
+  <button class="nav-btn" data-page="employees"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span data-i18n="nav_employees">员工</span></button>
+  <button class="nav-btn" data-page="salary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg><span data-i18n="nav_salary">薪资</span></button>
+  <button class="nav-btn" data-page="attendance"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg><span data-i18n="nav_attendance">出勤</span></button>
+  <button class="nav-btn" data-page="dailywages"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span data-i18n="nav_dailywages">日工资</span></button>
+
+  <button class="nav-btn" data-page="settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><span data-i18n="nav_settings">配置</span></button>
+
+  <span class="spacer"></span>
+
+  <!-- 用户状态 -->
+  <div id="userStatus" style="display:flex;align-items:center;gap:8px;margin-right:12px;">
+    <span id="userBadge" style="display:none;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);"></span>
+    <button id="loginBtn" class="nav-btn" onclick="openLoginModal()" style="font-size:12px;padding:4px 10px;" data-i18n="btn_login">登录</button>
+    <button id="changePwdBtn" class="nav-btn" onclick="openChangePwdModal()" style="font-size:12px;padding:4px 10px;display:none;" data-i18n="btn_change_pwd">改密</button>
+    <button id="logoutBtn" class="nav-btn" onclick="doLogout()" style="font-size:12px;padding:4px 10px;display:none;" data-i18n="btn_logout">退出</button>
+  </div>
+
+  <!-- 语言切换 -->
+  <div class="lang-toggle-group">
+    <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
+    <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
+  </div>
+
+  <div class="nav-info">
+    <div class="month-selector">
+      <select id="monthSelect" onchange="changeMonth(this.value)">
+        <option value="all" data-i18n="month_all">全部月份</option>
+      </select>
+    </div>
+    <button class="nav-btn admin-only" onclick="reloadSource()" data-i18n-title="toast_reload_data" title="重新加载源文件" style="font-size:14px;">↻</button>
+    <button class="nav-btn" id="exportBtn" onclick="exportAll()" data-i18n-title="toast_exporting" title="导出完整报表" style="font-size:14px;" data-i18n="btn_export">📥 导出报表</button>
+    <button class="recalc-btn" id="recalcBtn" onclick="recalculate()" data-i18n="btn_recalc">重新计算</button>
+  </div>
+</nav>
+
+<!-- ═══ 主内容 ═══ -->
+<div class="main">
+
+<!-- ─── 数据台 ─── -->
+<div class="page active" id="page-dashboard">
+  <div class="data-dashboard">
+    <!-- ═══ 数据概览 ═══ -->
+    <div class="card" id="dashboardStatsCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_overview">数据概览</h2>
+        <span class="source-badge" id="sourceBadge"><span class="dot online"></span> <span data-i18n="dash_connected">已连接</span></span>
+      </div>
+      <div id="headlessBannerDash" style="display:none;background:linear-gradient(135deg,rgba(251,191,36,0.1),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--warning);" data-i18n="headless_banner_dash">📋 预览模式 — 当月暂无源数据，仅支持出勤记录与奖金/罚款</div>
+      <div class="dashboard-grid" id="dashboardStats">
+        <div class="stat-glass loading-skeleton"><div class="value">—</div><div class="label" data-i18n="dash_loading">加载中</div></div>
+      </div>
+    </div>
+
+    <!-- ═══ 产量趋势 ═══ -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_trend">产量趋势 · NICKEL(H)(L) / MAWE</h2>
+      </div>
+      <div class="chart-box" style="border:none;padding:0;background:transparent;box-shadow:none;">
+        <div class="chart-toolbar" style="margin-bottom:8px;">
+          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" class="chart-label-toggle" data-chart="chartDailyProd" checked style="accent-color:var(--accent);"> <span data-i18n="dash_show_labels">显示标签</span>
+          </label>
+        </div>
+        <canvas id="chartDailyProd" height="240"></canvas>
+      </div>
+    </div>
+
+    <!-- ═══ 产量核验 ═══ -->
+    <div class="card" style="min-width:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_verify">产量核验 ⚡</h2>
+        <span id="verifyStatus" style="font-size:12px;"></span>
+      </div>
+      <div class="table-wrap verify-wrap">
+        <table class="data-table" id="verifyTable" style="font-size:10px;">
+          <thead id="verifyHead"></thead>
+          <tbody id="verifyBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ═══ 钻工排名 + 耗材 + 品类占比 ═══ -->
+    <div class="chart-grid">
+      <div class="chart-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="margin-bottom:0;" data-i18n="dash_driller_rank">钻工产量排名</h3>
+          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" class="chart-label-toggle" data-chart="chartDrillerProd" checked style="accent-color:var(--accent);"> <span data-i18n="dash_labels">标签</span>
+          </label>
+        </div>
+        <canvas id="chartDrillerProd" height="260"></canvas>
+      </div>
+      <div class="chart-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="margin-bottom:0;" data-i18n="dash_consumables">耗材统计</h3>
+          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" class="chart-label-toggle" data-chart="chartConsumables" checked style="accent-color:var(--accent);"> <span data-i18n="dash_labels">标签</span>
+          </label>
+        </div>
+        <canvas id="chartConsumables" height="260"></canvas>
+      </div>
+      <div class="chart-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="margin-bottom:0;" data-i18n="dash_category_pie">品类占比</h3>
+          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" class="chart-label-toggle" data-chart="chartProdPie" checked style="accent-color:var(--accent);"> <span data-i18n="dash_labels">标签</span>
+          </label>
+        </div>
+        <canvas id="chartProdPie" height="260"></canvas>
+      </div>
+    </div>
+
+    <!-- ═══ 源文件 + 操作 + 饼图 ═══ -->
+    <div class="dashboard-toolbar">
+      <div class="source-card" id="sourceInfo">
+        <div class="source-item">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <div class="info">
+            <div class="fname">加载中...</div>
+            <div class="fpath">data/source/</div>
+          </div>
+        </div>
+      </div>
+      <div class="quick-actions" style="margin-top:0;">
+        <button class="primary admin-only" onclick="reloadSource()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> <span data-i18n="dash_reload">重新加载</span></button>
+        <button class="admin-only" onclick="document.getElementById('recalcBtn').click()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> <span data-i18n="dash_recalc">重新计算</span></button>
+      </div>
+    </div>
+
+    <!-- ═══ 快捷入口 ═══ -->
+    <div class="dashboard-quick-grid">
+      <button onclick="switchPage('employees')" class="quick-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <span data-i18n="dash_emp_mgmt">员工管理</span>
+      </button>
+      <button onclick="switchPage('salary')" class="quick-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+        <span data-i18n="dash_salary_table">薪资总表</span>
+      </button>
+      <button onclick="switchPage('attendance')" class="quick-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><polyline points="9 16 11 18 15 14"/></svg>
+        <span data-i18n="dash_att_mgmt">出勤管理</span>
+      </button>
+
+    </div>
+  </div>
+</div>
+
+<!-- ─── 页面: 员工管理 ─── -->
+<div class="page" id="page-employees">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="emp_title">员工管理</h2>
+      <div style="display:flex;gap:8px;">
+        <span id="empCount" style="font-size:12px;color:var(--text-muted);align-self:center;"></span>
+      </div>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="empSearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="filterEmployeeTable()">
+      <select id="empFilterType" onchange="filterEmployeeTable()">
+        <option value="" data-i18n="emp_all_types">全部类型</option>
+        <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+        <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
+        <option value="monthly" data-i18n="emp_monthly">月薪</option>
+        <option value="both" data-i18n="emp_both">需指定</option>
+        <option value="advance_only" data-i18n="emp_advance_only">仅预支</option>
+      </select>
+      <select id="empFilterDept" onchange="filterEmployeeTable()">
+        <option value="" data-i18n="emp_all_depts">全部部门</option>
+      </select>
+      <button class="nav-btn" id="toggleDismissedBtn" onclick="toggleDismissedList()" style="font-size:11px;padding:4px 10px;" data-i18n="emp_show_dismissed">已离职</button>
+    </div>
+    <div id="dismissedSection" style="display:none;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h3 style="margin:0;font-size:13px;color:var(--text-muted);" data-i18n="emp_dismissed_title">已离职员工</h3>
+      </div>
+      <div class="table-wrap" style="max-height:300px;">
+        <table class="data-table" style="font-size:12px;">
+          <thead><tr><th data-i18n="th_name">姓名</th><th data-i18n="emp_all_depts">部门</th><th data-i18n="th_actions">操作</th></tr></thead>
+          <tbody id="dismissedBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="empTable">
+        <thead>
+            <th data-i18n="th_name">姓名</th>
+            <th data-i18n="th_dept">部门</th>
+            <th data-i18n="th_current_type">当前类型</th>
+            <th data-i18n="th_dayrate_base">日薪基数</th>
+            <th data-i18n="th_monthly_base">月薪基数</th>
+            <th data-i18n="th_advance">预支</th>
+            <th data-i18n="th_bonus">奖金</th>
+            <th data-i18n="th_penalty">罚款</th>
+            <th data-i18n="th_nssf">NSSF</th>
+            <th data-i18n="th_note">备注</th>
+            <th data-i18n="th_actions">操作</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 页面: 薪资 ─── -->
+<div class="page" id="page-salary">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="salary_title">全员工资表</h2>
+    </div>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="text" id="salarySearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+      <select id="salaryFilterType" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+        <option value="" data-i18n="salary_all_types">全部类型</option>
+        <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+        <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
+        <option value="monthly" data-i18n="emp_monthly">月薪</option>
+      </select>
+    </div>
+    <div class="stats-bar" id="salaryStats" style="display:none;"></div>
+
+    <!-- ═══ 双路径核对面板 ═══ -->
+    <div class="verify-panel" id="salaryVerifyPanel" style="display:none;">
+      <div class="verify-header" onclick="toggleVerifyDetail()" style="cursor:pointer;">
+        <h3 style="margin:0;font-size:14px;display:flex;align-items:center;gap:8px;">
+          🔍 <span data-i18n="salary_verify_title">薪资双路径核对</span>
+          <span id="verifyStatusBadge" class="verify-badge"></span>
+        </h3>
+        <span id="verifyToggleIcon" style="font-size:12px;color:var(--text-muted);" data-i18n="salary_verify_expand">▼ 展开明细</span>
+      </div>
+      <div class="verify-summary" id="verifySummary"></div>
+      <div class="verify-detail" id="verifyDetail" style="display:none;">
+        <div class="verify-tabs">
+          <button class="verify-tab active" onclick="switchVerifyTab('underground')" data-i18n="verify_ug_piece">井下计件</button>
+          <button class="verify-tab" onclick="switchVerifyTab('driller')" data-i18n="verify_dr_piece">钻工计件</button>
+        </div>
+        <div class="verify-tab-content" id="verifyTabUnderground">
+          <div class="verify-compare"></div>
+          <div class="verify-daily" id="verifyDailyUnderground"></div>
+        </div>
+        <div class="verify-tab-content" id="verifyTabDriller" style="display:none;">
+          <div class="verify-compare"></div>
+          <div class="verify-daily" id="verifyDailyDriller"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="duplicateWarnings" style="margin-bottom:12px;"></div>
+    <div class="table-wrap">
+      <table class="data-table" id="salaryTable">
+        <thead>
+          <tr>
+            <th data-i18n="th_name">姓名</th>
+            <th data-i18n="th_type">类型</th>
+            <th data-i18n="th_ug_piece">井下计件</th>
+            <th data-i18n="th_dr_piece">钻工计件</th>
+            <th data-i18n="th_dayrate">日薪</th>
+            <th data-i18n="th_monthly">月薪</th>
+            <th data-i18n="th_gross">应发</th>
+            <th data-i18n="th_bonus">奖金</th>
+            <th data-i18n="th_penalty">罚款</th>
+            <th data-i18n="th_advance">预支</th>
+            <th data-i18n="th_nssf">NSSF</th>
+            <th style="min-width:70px;" data-i18n="th_net">实发</th>
+            <th style="min-width:100px;color:var(--warning);font-size:10px;" data-i18n="th_temp_exception">临时例外</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 页面: 日工资 ─── -->
+<div class="page" id="page-dailywages">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="dw_title">逐日工资明细</h2>
+      <span id="dwCount" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="text" id="dwSearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+      <select id="dwFilterType" onchange="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+        <option value="" data-i18n="dw_all_types">全部类型</option>
+        <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+        <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
+        <option value="monthly" data-i18n="emp_monthly">月薪</option>
+      </select>
+      <select id="dwFilterDept" onchange="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+        <option value="" data-i18n="dw_all_depts">全部部门</option>
+      </select>
+    </div>
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table class="data-table" id="dwTable" style="font-size:11px;">
+        <thead id="dwHead"></thead>
+        <tbody id="dwBody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--text-muted);display:flex;gap:16px;">
+      <span data-i18n="dw_legend_dashed">黄色虚线 = 手动变更（临时例外/出勤更改）</span>
+      <span style="color:var(--text-dim);" data-i18n="dw_legend_gray">灰色数字 = 月薪默认</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 页面: 出勤 ─── -->
+<div class="page" id="page-attendance">
+  <div class="card">
+    <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="att_title">出勤网格</h2>
+    <div id="headlessBannerAtt" style="display:none;background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(96,165,250,0.04));border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--accent);" data-i18n="headless_banner_att">📋 预览模式 — 当月暂无源数据，可手动记录出勤（P/A/L）。上传源数据后手动标记不会被覆盖。</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="text" id="attSearch" data-i18n-placeholder="att_search_ph" placeholder="搜索姓名..." oninput="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+        <select id="attFilterType" onchange="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+          <option value="" data-i18n="att_all">全部</option>
+          <option value="井下计件" data-i18n="emp_ug_piece">井下计件</option>
+          <option value="钻工计件" data-i18n="emp_dr_piece">钻工计件</option>
+          <option value="日薪" data-i18n="emp_dayrate">日薪</option>
+          <option value="月薪" data-i18n="emp_monthly">月薪</option>
+        </select>
+      </div>
+      <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 黄色虚线=月薪默认更改</span>
+    </div>
+    <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
+      <table class="data-table" id="attTable" style="font-size:12px;">
+        <thead id="attHead"></thead>
+        <tbody id="attBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- ─── 页面: 配置 ─── -->
+<div class="page" id="page-settings">
+  <div class="card">
+    <h2>⚙ <span data-i18n="settings_title">计算参数配置</span></h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_desc">修改后自动重新计算</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div style="background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);">
+        <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="settings_ug_price">井下计件单价</h3>
+        <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(H)</label><input type="number" id="cfg_ug_nh" class="cfg-input" data-key="underground_prices.NICKEL（H）" data-section="underground_prices" onchange="saveConfig()"></div>
+        <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(L)</label><input type="number" id="cfg_ug_nl" class="cfg-input" data-key="underground_prices.NICKEL（L）" data-section="underground_prices" onchange="saveConfig()"></div>
+        <div class="form-row"><label style="min-width:90px;">MAWE</label><input type="number" id="cfg_ug_mw" class="cfg-input" data-key="underground_prices.MAWE" data-section="underground_prices" onchange="saveConfig()"></div>
+      </div>
+      <div style="background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);">
+        <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="settings_dr_price">钻工计件单价</h3>
+        <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(H)</label><input type="number" id="cfg_dr_nh" class="cfg-input" data-key="driller_prices.NICKEL（H）" data-section="driller_prices" onchange="saveConfig()"></div>
+        <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(L)</label><input type="number" id="cfg_dr_nl" class="cfg-input" data-key="driller_prices.NICKEL（L）" data-section="driller_prices" onchange="saveConfig()"></div>
+        <div class="form-row"><label style="min-width:90px;">MAWE</label><input type="number" id="cfg_dr_mw" class="cfg-input" data-key="driller_prices.MAWE" data-section="driller_prices" onchange="saveConfig()"></div>
+      </div>
+    </div>
+    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+      <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="settings_nssf_rate">NSSF 费率</h3>
+      <div class="form-row"><label style="min-width:90px;" data-i18n="settings_nssf_rate_pct">费率(%)</label><input type="number" id="cfg_nssf" class="cfg-input" data-key="nssf_rate" step="0.01" onchange="saveConfig()"></div>
+    </div>
+    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+      <h3 style="margin-bottom:8px;font-size:13px;">🚚 <span data-i18n="settings_driver_allowance_title">司机津贴</span></h3>
+      <div class="form-row"><label style="min-width:90px;" data-i18n="settings_driver_amount">金额(TZS)</label><input type="number" id="cfg_driver_allowance" class="cfg-input" data-key="driver_allowance" step="1" onchange="saveConfig()"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_driver_desc">企业级司机运输津贴，手工输入后加入实发合计</p>
+    </div>
+    <div class="quick-actions" style="margin-top:16px;">
+      <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default">↺ 恢复默认</button>
+    </div>
+  </div>
+
+  <!-- ═══ 审计日志 ═══ -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="audit_title">审计日志</h2>
+      <button class="nav-btn" onclick="loadAuditLog()" style="font-size:11px;padding:4px 10px;" data-i18n="audit_refresh">↻ 刷新</button>
+    </div>
+    <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+      <table class="data-table" style="font-size:11px;">
+        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
+        <tbody id="auditLogBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ 源文件管理 ═══ -->
+  <div class="card">
+    <h2 data-i18n="source_upload_title">📂 源文件管理</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;" data-i18n="source_upload_desc">上传 Excel 文件，自动覆盖旧文件并重新加载数据</p>
+    <div id="sourceUploadList" style="display:grid;gap:10px;">
+      <!-- JS 动态渲染 -->
+    </div>
+    <div id="sourceUploadMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+
+</div>
+
+<!-- ═══ 模态框: 例外管理 ═══ -->
+<div class="modal-overlay" id="modalOverride">
+  <div class="modal">
+    <h2 id="modalTitle" data-i18n="modal_title_override">例外管理</h2>
+
+    <!-- 板块1：薪资类型设置（永久生效） -->
+    <div style="padding:12px;background:var(--bg-secondary);border-radius:var(--radius);margin-bottom:12px;border:1px solid var(--border);">
+      <h3 style="font-size:13px;margin-bottom:8px;" data-i18n="modal_section1">① 薪资类型设置</h3>
+      <div class="form-row">
+        <label data-i18n="modal_emp">员工</label>
+        <span id="modalEmpName" style="font-weight:500;"></span>
+      </div>
+      <div class="form-row">
+        <label data-i18n="modal_new_type">新类型</label>
+        <select id="modalType" onchange="syncModalBaseField()">
+          <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
+          <option value="monthly" data-i18n="emp_monthly">月薪</option>
+          <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+          <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        </select>
+      </div>
+      <div class="form-row" id="modalDayRateRow">
+        <label data-i18n="modal_dayrate_base_label">日薪基数(TZS)</label>
+        <input type="number" id="modalDayRate" min="0" step="1000" placeholder="如: 15000">
+      </div>
+      <div class="form-row" id="modalMonthlyRow">
+        <label data-i18n="modal_monthly_base_label">月薪基数(TZS)</label>
+        <input type="number" id="modalMonthly" min="0" step="10000" placeholder="如: 500000">
+      </div>
+      <div class="form-row" id="modalTypeHint" style="display:none;">
+        <label style="min-width:auto;color:var(--text-muted);font-size:12px;" data-i18n="modal_piece_hint">计件类型不需要设置基数</label>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveTypeOverride()" data-i18n="modal_save_type">保存类型</button>
+      </div>
+    </div>
+
+    <!-- 板块2：临时例外（当月生效，下月恢复） -->
+    <div style="padding:12px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);">
+      <h3 style="font-size:13px;margin-bottom:8px;" data-i18n="modal_section2">② 临时例外 ⏳</h3>
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px;" data-i18n="modal_temp_desc">在指定日期区间内暂时切换薪资类型，<strong>仅当月有效</strong>，下月自动恢复。</p>
+      <div class="form-row">
+        <label data-i18n="modal_temp_type">临时类型</label>
+        <select id="modalTempType" onchange="syncTempFields()">
+          <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
+          <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+          <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        </select>
+      </div>
+      <div class="form-row" id="tempDayRateRow">
+        <label data-i18n="modal_temp_dayrate">日薪基数</label>
+        <input type="number" id="modalTempRate" min="0" step="1000" placeholder="如: 15000">
+      </div>
+      <div class="form-row" id="tempShiftRow" style="display:none;">
+        <label data-i18n="modal_temp_shift">班次</label>
+        <select id="modalTempShift">
+          <option value="D" data-i18n="modal_shift_day">白班 (D)</option>
+          <option value="N" data-i18n="modal_shift_night">夜班 (N)</option>
+        </select>
+      </div>
+      <div class="form-row" id="tempCaptainRow" style="display:none;">
+        <label data-i18n="modal_temp_captain">所属队长</label>
+        <select id="modalTempCaptain">
+          <option value="" data-i18n="modal_select_captain">选择队长</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label data-i18n="modal_temp_start">开始日期</label>
+        <input type="date" id="modalTempStart">
+      </div>
+      <div class="form-row">
+        <label data-i18n="modal_temp_end">结束日期</label>
+        <input type="date" id="modalTempEnd">
+      </div>
+      <div class="form-row">
+        <label data-i18n="modal_temp_note">备注</label>
+        <input type="text" id="modalTempNote" data-i18n-placeholder="modal_temp_note_ph" placeholder="如: 临时调去地面">
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn-primary" onclick="saveTempOverride()" data-i18n="modal_save_temp">保存临时例外</button>
+      </div>
+    </div>
+
+    <!-- 板块③：已有临时例外（预览+删除） -->
+    <div style="padding:12px;background:var(--bg-secondary);border-radius:var(--radius);margin-bottom:12px;border:1px solid var(--border);">
+      <h3 style="font-size:13px;margin-bottom:8px;" data-i18n="modal_section3">③ 已有临时例外</h3>
+      <div id="modalExistingTemps" style="font-size:12px;max-height:200px;overflow-y:auto;">
+        <span style="color:var(--text-muted);" data-i18n="modal_temp_loading">加载中…</span>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:12px;">
+      <button class="btn-cancel" onclick="closeModal()" data-i18n="modal_close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 模态框: 排除（兼容旧代码） ═══ -->
+<div class="modal-overlay" id="modalExclude" style="display:none;"></div>
+
+<script>
+Chart.register(ChartDataLabels);
+
+// ════════════════════════════════════════════════
+//  全局状态
+// ════════════════════════════════════════════════
+const STATE = {
+  employees: [],
+  salaryResult: null,
+  productionData: null,
+  charts: {},
+  currentOverrideEmp: null,
+  currentExcludeEmp: null,
+  _empAll: [],
+};
+
+// ════════════════════════════════════════════════
+//  工具
+// ════════════════════════════════════════════════
+const API_BASE = (function() {
+  const p = window.location.pathname;
+  const i = p.indexOf('/', 1);
+  return i > 0 ? p.substring(0, i) : '';
+})();
+
+function api(path) { return API_BASE + path; }
+
+function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = typeof msg === 'string' ? msg : msg;
+  t.className = 'toast ' + type + ' show';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+/* ── 登录系统 ── */
+let _authState = { logged_in: false, username: '', role: '', has_admin: false };
+
+async function checkAuth() {
+  try {
+    const res = await fetch(api('/api/auth/status'));
+    _authState = await res.json();
+    updateAuthUI();
+  } catch(e) { console.error('auth check failed', e); }
+}
+
+function updateAuthUI() {
+  const loginBtn = document.getElementById('loginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const changePwdBtn = document.getElementById('changePwdBtn');
+  const userBadge = document.getElementById('userBadge');
+  if (_authState.logged_in) {
+    loginBtn.style.display = 'none';
+    logoutBtn.style.display = '';
+    changePwdBtn.style.display = '';
+    userBadge.style.display = '';
+    userBadge.textContent = _authState.username;
+  } else {
+    loginBtn.style.display = '';
+    logoutBtn.style.display = 'none';
+    changePwdBtn.style.display = 'none';
+    userBadge.style.display = 'none';
+  }
+  // 未登录隐藏非数据台导航按钮
+  const exportBtn = document.getElementById('exportBtn');
+  if (exportBtn) exportBtn.style.display = _authState.logged_in ? '' : 'none';
+  document.querySelectorAll(
+    '.nav-btn[data-page="employees"], .nav-btn[data-page="salary"], ' +
+    '.nav-btn[data-page="attendance"], .nav-btn[data-page="dailywages"], ' +
+    '.nav-btn[data-page="settings"]'
+  ).forEach(btn => {
+    btn.style.display = _authState.logged_in ? '' : 'none';
+  });
+
+  // viewer 用户隐藏所有编辑相关操作
+  const isAdmin = _authState.role === 'admin';
+  const recalcBtn = document.getElementById('recalcBtn');
+  if (recalcBtn) recalcBtn.style.display = isAdmin ? '' : 'none';
+  document.querySelectorAll('.admin-only').forEach(el => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+  // 配置页输入框只读
+  document.querySelectorAll('.cfg-input').forEach(el => {
+    el.disabled = !isAdmin;
+  });
+}
+
+function openLoginModal() {
+  document.getElementById('loginModal').style.display = 'flex';
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').style.display = 'none';
+  const setupHint = document.getElementById('loginSetupHint');
+  const title = document.getElementById('loginModalTitle');
+  if (!_authState.has_admin) {
+    setupHint.style.display = 'block';
+    title.textContent = '设置管理员账号';
+  } else {
+    setupHint.style.display = 'none';
+    title.textContent = '管理员登录';
+  }
+  document.getElementById('loginUsername').focus();
+}
+
+function closeLoginModal() {
+  document.getElementById('loginModal').style.display = 'none';
+}
+
+function openChangePwdModal() {
+  document.getElementById('changePwdModal').style.display = 'flex';
+  document.getElementById('oldPassword').value = '';
+  document.getElementById('newPassword').value = '';
+  document.getElementById('confirmPassword').value = '';
+  document.getElementById('changePwdError').style.display = 'none';
+  document.getElementById('oldPassword').focus();
+}
+
+function closeChangePwdModal() {
+  document.getElementById('changePwdModal').style.display = 'none';
+}
+
+async function submitChangePwd() {
+  const oldPwd = document.getElementById('oldPassword').value;
+  const newPwd = document.getElementById('newPassword').value;
+  const confirmPwd = document.getElementById('confirmPassword').value;
+  const errEl = document.getElementById('changePwdError');
+
+  if (!oldPwd || !newPwd || !confirmPwd) {
+    errEl.textContent = t('err_fill_all');
+    errEl.style.display = 'block';
+    return;
+  }
+  if (newPwd.length < 4) {
+    errEl.textContent = t('err_pwd_too_short');
+    errEl.style.display = 'block';
+    return;
+  }
+  if (newPwd !== confirmPwd) {
+    errEl.textContent = t('err_pwd_mismatch');
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const res = await fetch(api('/api/admin/change-password'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeChangePwdModal();
+      showToast(t('chgpwd_title') + ' ✓');
+    } else {
+      errEl.textContent = data.error === 'invalid_old_password' ? t('err_invalid_old_pwd') :
+                          data.error === 'password_too_short' ? t('err_pwd_too_short') : t('err_modify_failed');
+      errEl.style.display = 'block';
+    }
+  } catch(e) {
+    errEl.textContent = t('err_network');
+    errEl.style.display = 'block';
+  }
+}
+
+async function submitLogin() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  if (!username || !password) {
+    errEl.textContent = t('err_username_required');
+    errEl.style.display = 'block';
+    return;
+  }
+  const url = _authState.has_admin ? api('/api/login') : api('/api/admin/setup');
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeLoginModal();
+      await checkAuth();
+      showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
+    } else {
+      errEl.textContent = data.error === 'invalid_credentials' ? t('err_invalid_credentials') :
+                          data.error === 'password_too_short' ? t('err_pwd_too_short') :
+                          data.error === 'admin_exists' ? 'Admin exists' :
+                          data.error === 'missing_fields' ? t('err_fill_all') : t('err_modify_failed');
+      errEl.style.display = 'block';
+    }
+  } catch(e) {
+    errEl.textContent = t('err_network');
+    errEl.style.display = 'block';
+  }
+}
+
+async function doLogout() {
+  await fetch(api('/api/logout'), {method: 'POST'});
+  await checkAuth();
+  showToast(t('logout_success'));
+}
+
+/* 拦截 401 响应，弹出登录框 */
+function authFetch(url, opts = {}) {
+  return fetch(url, opts).then(res => {
+    if (res.status === 401) {
+      res.clone().json().then(d => {
+        if (d.need_login) openLoginModal();
+      });
+    }
+    if (res.status === 403) {
+      showToast(t('toast_admin_only'), 'error');
+    }
+    return res;
+  });
+}
+
+/* TYPE_LABELS 使用动态翻译 */
+function getTYPE_LABELS() {
+  return {
+    piece_underground: '<span class="badge badge-green">' + t('type_ug_piece') + '</span>',
+    piece_driller: '<span class="badge badge-purple">' + t('type_dr_piece') + '</span>',
+    day_rate: '<span class="badge badge-blue">' + t('type_dayrate') + '</span>',
+    monthly: '<span class="badge badge-yellow">' + t('type_monthly') + '</span>',
+    both: '<span class="badge badge-red">' + t('type_both') + '</span>',
+    advance_only: '<span class="badge badge-yellow">' + t('type_advance_only') + '</span>',
+  };
+}
+
+/* 兼容旧代码：getTypeLabels 别名 */
+function getTypeLabels() { return getTYPE_LABELS(); }
+
+function switchPage(name) {
+  // 未登录用户只能访问数据台
+  if (name !== 'dashboard' && !_authState.logged_in) {
+    openLoginModal();
+    return;
+  }
+  document.querySelectorAll('.nav-btn[data-page]').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector(`.nav-btn[data-page="${name}"]`);
+  if (btn) btn.classList.add('active');
+  const page = document.getElementById('page-' + name);
+  if (page) page.classList.add('active');
+  if (name === 'attendance') loadAttendance();
+  if (name === 'dailywages') loadDailyWages();
+  if (name === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
+  if (name === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); }
+  if (name === 'employees') {
+    // populate dept filter on first view
+    const sel = document.getElementById('empFilterDept');
+    if (sel.options.length === 1) {
+      const depts = new Set();
+      STATE._empAll.forEach(e => { if (e.department) depts.add(e.department); });
+      [...depts].sort().forEach(d => { sel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+    }
+  }
+}
+
+document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => switchPage(btn.dataset.page));
+});
+
+// ════════════════════════════════════════════════
+//  页面加载: 检查自动加载数据
+// ════════════════════════════════════════════════
+(async function init() {
+  checkAuth();
+  try {
+    const res = await fetch(api('/salary'));
+    const data = await res.json();
+    if (data.result && data.result.employees) {
+      STATE.salaryResult = data.result;
+      STATE._headless = data.headless || false;
+      const r2 = await fetch(api('/employees'));
+      const d2 = await r2.json();
+      STATE._empAll = STATE.employees = d2.employees;
+      STATE._headless = d2.headless || STATE._headless;
+      renderDashboard(data.result);
+      renderSalaryTable(data.result);
+      document.getElementById('recalcBtn').disabled = false;
+      renderEmployeeTable();
+      loadProductionData();
+      loadSourceInfo();
+      populateMonthSelect(data.result);
+    }
+  } catch(e) { showToast(t('toast_load_fail') + e.message, 'error'); }
+})();
+
+// ════════════════════════════════════════════════
+//  数据台 Dashboard
+// ════════════════════════════════════════════════
+function renderDashboard(result) {
+  const typeLabels = getTYPE_LABELS();
+
+  const driverAllowance = result.driver_allowance || 0;
+  document.getElementById('dashboardStats').innerHTML = `
+    <div class="stat-glass">
+      <div class="value">${result.employees.length}</div>
+      <div class="label">${t('dash_total_emp')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--success)">${fmtNum(result.total_gross)}</div>
+      <div class="label">${t('dash_total_gross')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--success)">+${fmtNum(result.total_bonus||0)}</div>
+      <div class="label">${t('dash_total_bonus')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--danger)">-${fmtNum(result.total_penalty||0)}</div>
+      <div class="label">${t('dash_total_penalty')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div>
+      <div class="label">${t('dash_advance_deduct')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div>
+      <div class="label">${t('dash_nssf_deduct')}</div>
+    </div>
+    <div class="stat-glass driver-allowance-card" onclick="editDriverAllowance(event)" title="${t('dash_edit_driver_allowance')}">
+      <div class="value" style="color:var(--success)">${fmtNum(driverAllowance)}</div>
+      <div class="label">${t('dash_driver_allowance')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--accent)">${fmtNum(result.total_net)}</div>
+      <div class="label">${t('dash_total_net')}</div>
+    </div>
+    <div class="stat-glass">
+      <div class="value" style="font-size:16px;">
+        ${result.employees.filter(e => e.salary_type === 'piece_underground').length}
+        <span style="font-size:13px;color:var(--text-muted);">/ ${result.employees.filter(e => e.salary_type === 'piece_driller').length}
+        / ${result.employees.filter(e => e.salary_type === 'day_rate').length}</span>
+      </div>
+      <div class="label">${t('dash_ug_dr_dayrate')}</div>
+    </div>
+  `;
+  // Headless banner
+  const banner = document.getElementById('headlessBannerDash');
+  if (banner) banner.style.display = STATE._headless ? 'block' : 'none';
+}
+
+// ════════════════════════════════════════════════
+//  月份选择
+// ════════════════════════════════════════════════
+function populateMonthSelect() {
+  const sel = document.getElementById('monthSelect');
+  const now = new Date();
+  const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  sel.innerHTML = '<option value="all">' + t('month_all') + '</option>';
+  // 从数据库获取历史月份
+  fetch(api('/available-months')).then(r=>r.json()).then(months => {
+    months.forEach(m => {
+      sel.innerHTML += `<option value="${m}">${m}</option>`;
+    });
+    // 默认选中当前真实月份
+    if (months.includes(currentMonth)) {
+      sel.value = currentMonth;
+    }
+  }).catch(() => {
+    // fallback: 当前月份
+    const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    sel.innerHTML += `<option value="${ym}">${ym}</option>`;
+    sel.value = ym;
+  });
+}
+
+async function changeMonth(month) {
+  showToast(t('toast_month_switch'), 'loading');
+  try {
+    const res = await authFetch(api('/set-month'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({month}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      STATE._headless = data.headless || false;
+      STATE.salaryResult = data.salary;
+      renderDashboard(data.salary);
+      renderSalaryTable(data.salary);
+      // reload employees
+      const r2 = await fetch(api('/employees'));
+      const d2 = await r2.json();
+      STATE.employees = d2.employees;
+      STATE._empAll = STATE.employees;
+      STATE._headless = d2.headless || STATE._headless;
+      renderEmployeeTable();
+      loadProductionData();
+      showToast(data.message || t('toast_month_switched'));
+    }
+  } catch(e) { showToast(t('toast_month_fail'), 'error'); }
+}
+
+// ════════════════════════════════════════════════
+//  源文件信息
+// ════════════════════════════════════════════════
+async function loadSourceInfo() {
+  try {
+    const res = await fetch(api('/source-info'));
+    const info = await res.json();
+    const container = document.getElementById('sourceInfo');
+    if (!info.main) {
+      container.innerHTML = '<div class="source-item"><div class="icon">⚠️</div><div class="info"><div class="fname">' + t('source_no_file') + '</div><div class="fpath">' + t('source_please_add') + '</div></div></div>';
+      return;
+    }
+    const icons = {
+      main: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+      advance: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+      addressbook: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    };
+    const labels = {main: t('source_main'), advance: t('source_advance'), addressbook: t('source_addressbook')};
+    container.innerHTML = ['main', 'advance', 'addressbook'].map(k => {
+      if (!info[k]) return '';
+      return `<div class="source-item">
+        ${icons[k]}
+        <div class="info">
+          <div class="fname">${escHtml(labels[k])}</div>
+          <div class="fpath">${escHtml(info[k])}</div>
+        </div>
+      </div>`;
+    }).filter(Boolean).join('');
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════════
+//  重新加载
+// ════════════════════════════════════════════════
+async function reloadSource() {
+  showToast(t('toast_reload_data'), 'loading');
+  try {
+    const res = await authFetch(api('/reload'), { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      STATE._empAll = STATE.employees = data.employees;
+      STATE.salaryResult = data.salary;
+      renderDashboard(data.salary);
+      renderSalaryTable(data.salary);
+      renderEmployeeTable();
+      document.getElementById('recalcBtn').disabled = false;
+      loadProductionData();
+      loadSourceInfo();
+      showToast(data.message || t('toast_reload_done'));
+    } else {
+      showToast(data.error, 'error');
+    }
+  } catch(e) { showToast(t('toast_reload_fail'), 'error'); }
+}
+
+// ════════════════════════════════════════════════
+//  员工管理
+// ════════════════════════════════════════════════
+function renderEmployeeTable() {
+  STATE._empAll = STATE.employees;
+  filterEmployeeTable();
+}
+
+function filterEmployeeTable() {
+  const q = (document.getElementById('empSearch').value||'').toLowerCase();
+  const t = document.getElementById('empFilterType').value;
+  const d = document.getElementById('empFilterDept').value;
+  const filtered = STATE._empAll.filter(e => {
+    const effType = e.override_type || e.default_type;
+    if (q && !e.name.toLowerCase().includes(q)) return false;
+    if (t && effType !== t) return false;
+    if (d && (e.department||'') !== d) return false;
+    return true;
+  });
+  _renderEmpTable(filtered);
+}
+
+/* TYPE_LABELS 已改为 getTYPE_LABELS() 函数，在 i18n.js 下方定义 */
+
+function _renderEmpTable(emps) {
+  const TYPE_LABELS = getTYPE_LABELS();
+  const tbody = document.querySelector('#empTable tbody');
+  document.getElementById('empCount').textContent = emps.length + '/' + STATE._empAll.length;
+  tbody.innerHTML = emps.map(emp => {
+    const overs = (emp.overrides||[]).map((o,i) => {
+      const info = o.salary_type === 'day_rate' ? t('emp_dayrate') + ' '+(o.day_rate||'?')+'/天' :
+                   o.salary_type === 'monthly' ? t('emp_monthly') + ' '+(o.monthly_salary||'?')+'/月' : '';
+      return `<span style="background:var(--bg-secondary);padding:1px 6px;border-radius:3px;margin:1px;font-size:11px;">${o.start_date||''}~${o.end_date||''} ${info} <a href="#" onclick="removeOverride('${emp.id}',${i});return false;" style="color:var(--danger);text-decoration:none;">×</a></span>`;
+    }).join(' ') || '';
+    const note = emp._note || overs;
+    const monthEl = document.getElementById('monthSelect');
+    const currentMonth = monthEl ? monthEl.value : '';
+    const bonus = emp.bonus || 0;
+    const penalty = emp.penalty || 0;
+    return `<tr>
+      <td class="left">${escHtml(emp.name)}</td>
+      <td class="left" style="font-size:12px;color:var(--text-muted);">${escHtml(emp.department||'—')}</td>
+      <td>${TYPE_LABELS[emp.override_type||emp.default_type]||(emp.override_type||emp.default_type)}</td>
+      <td class="num" style="font-family:var(--font-mono);font-size:12px;">${emp.day_rate?fmtNum(emp.day_rate):''}</td>
+      <td class="num" style="font-family:var(--font-mono);font-size:12px;">${emp.monthly_salary?fmtNum(emp.monthly_salary):''}</td>
+      <td class="num" style="color:${emp.advance_total>0?'var(--danger)':'var(--text-dim)'}">${fmtNum(emp.advance_total||0)}</td>
+      <td class="num"><input type="number" class="bp-input" value="${bonus||''}" placeholder="0" data-eid="${emp.id}" data-field="bonus" data-month="${currentMonth}" onchange="saveBonusPenalty(this)" style="width:80px;"></td>
+      <td class="num"><input type="number" class="bp-input" value="${penalty||''}" placeholder="0" data-eid="${emp.id}" data-field="penalty" data-month="${currentMonth}" onchange="saveBonusPenalty(this)" style="width:80px;"></td>
+      <td><button class="nav-btn" style="font-size:10px;padding:2px 6px;${emp.nssf_enrolled?'background:var(--accent);color:white;':'opacity:0.5'}" onclick="toggleNssf('${emp.id}', ${!emp.nssf_enrolled})">${emp.nssf_enrolled?'✓':'○'}</button></td>
+      <td class="left" style="font-size:11px;color:${emp._note?'var(--warning)':'inherit'}">${escHtml(emp._note||'')}</td>
+      <td style="white-space:nowrap;">
+        <button class="nav-btn" style="font-size:11px;padding:3px 8px;" onclick="showOverrideModal('${emp.id}')">⚙</button>
+        <button class="nav-btn" style="font-size:11px;padding:3px 6px;color:var(--danger);" onclick="dismissEmployee('${emp.id}','${escHtml(emp.name).replace(/'/g,"\\'")}')" title="${t('emp_dismiss')}">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function removeOverride(eid, idx) {
+  if (!confirm(t('confirm_delete_override'))) return;
+  await authFetch(api('/employees/remove-override'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({employee_id:eid,index:idx}),
+  });
+  const r = await fetch(api('/employees'));
+  STATE.employees = (await r.json()).employees;
+  renderEmployeeTable();
+}
+
+// ── 离职管理 ──
+async function dismissEmployee(eid, name) {
+  if (!confirm(t('emp_dismiss_confirm'))) return;
+  try {
+    const res = await authFetch(api('/employees/dismiss'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({employee_id: eid, note: ''}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // 从本地列表中移除
+      STATE._empAll = STATE._empAll.filter(e => e.id !== eid);
+      STATE.employees = STATE.employees.filter(e => e.id !== eid);
+      renderEmployeeTable();
+      document.getElementById('recalcBtn').click();
+      showToast(t('emp_dismiss') + ': ' + name);
+    }
+  } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+}
+
+async function restoreEmployee(eid) {
+  try {
+    const res = await authFetch(api('/employees/restore'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({employee_id: eid}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // 重新加载员工列表
+      const r = await fetch(api('/employees'));
+      const d = await r.json();
+      STATE._empAll = STATE.employees = d.employees;
+      STATE._headless = d.headless || false;
+      renderEmployeeTable();
+      loadDismissed(); // 刷新已离职列表
+      document.getElementById('recalcBtn').click();
+      showToast(t('emp_restore') + ' ✓');
+    }
+  } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+}
+
+async function loadDismissed() {
+  try {
+    const res = await fetch(api('/employees/dismissed'));
+    STATE._dismissed = await res.json();
+    renderDismissedList();
+  } catch(e) {}
+}
+
+function renderDismissedList() {
+  const tbody = document.getElementById('dismissedBody');
+  const dismissed = STATE._dismissed || [];
+  const btn = document.getElementById('toggleDismissedBtn');
+  if (btn) btn.textContent = t('emp_show_dismissed') + ' (' + dismissed.length + ')';
+  if (!dismissed.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">' + t('emp_no_dismissed') + '</td></tr>';
+    return;
+  }
+  tbody.innerHTML = dismissed.map(d => `<tr>
+    <td class="left">${escHtml(d.name||d.employee_id)}</td>
+    <td class="left" style="font-size:12px;color:var(--text-muted);">${escHtml(d.note||'—')}</td>
+    <td><button class="nav-btn" style="font-size:11px;padding:3px 8px;color:var(--success);" onclick="restoreEmployee('${d.employee_id}')">↩ ${t('emp_restore')}</button></td>
+  </tr>`).join('');
+}
+
+function toggleDismissedList() {
+  const section = document.getElementById('dismissedSection');
+  const btn = document.getElementById('toggleDismissedBtn');
+  if (section.style.display === 'none') {
+    section.style.display = 'block';
+    btn.textContent = t('emp_hide_dismissed');
+    loadDismissed();
+  } else {
+    section.style.display = 'none';
+    loadDismissed(); // refresh count
+  }
+}
+
+// ── 奖金/罚款保存 ──
+let _bpSaveTimer = null;
+async function saveBonusPenalty(input) {
+  const eid = input.dataset.eid;
+  const field = input.dataset.field;
+  const month = input.dataset.month;
+  const val = parseInt(input.value) || 0;
+  if (!month || month === 'all') { showToast(t('toast_select_month_first'), 'error'); return; }
+
+  clearTimeout(_bpSaveTimer);
+  _bpSaveTimer = setTimeout(async () => {
+    try {
+      const body = { employee_id: eid, month: month };
+      body[field] = val;
+      await authFetch(api('/employees/bonus-penalty'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      // 同步本地员工列表
+      const emp = STATE._empAll.find(e => e.id === eid);
+      if (emp) emp[field] = val;
+      // 触发重新计算以更新薪资页 & 数据台
+      document.getElementById('recalcBtn').click();
+      showToast(t('toast_saved'));
+    } catch (e) { showToast(t('toast_operation_fail'), 'error'); }
+  }, 400);
+}
+
+// ════════════════════════════════════════════════
+//  模态框
+// ════════════════════════════════════════════════
+function showOverrideModal(eid) {
+  const emp = STATE.employees.find(e => e.id === eid);
+  if (!emp) return;
+  STATE.currentOverrideEmp = emp;
+  document.getElementById('modalEmpName').textContent = emp.name;
+  document.getElementById('modalTitle').textContent = t('modal_title_override') + ' — ' + emp.name;
+  // 清空字段
+  ['modalDayRate','modalMonthly','modalTempRate','modalTempStart','modalTempEnd','modalTempNote'].forEach(
+    id => document.getElementById(id).value='');
+  // 默认临时日期为当月
+  const today = new Date();
+  const ym = today.toISOString().slice(0,7);
+  document.getElementById('modalTempStart').value = ym + '-01';
+  document.getElementById('modalTempEnd').value = ym + '-' + new Date(today.getFullYear(), today.getMonth()+1, 0).getDate().toString().padStart(2,'0');
+  // 加载钻工队长列表
+  fetch(api('/driller-captains?date=' + document.getElementById('modalTempStart').value)).then(r=>r.json()).then(caps=>{
+    const sel = document.getElementById('modalTempCaptain');
+    sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
+    caps.forEach(c => { sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; });
+  }).catch(()=>{});
+  // 加载并展示已有临时例外
+  renderExistingTemps(emp);
+  document.getElementById('modalOverride').classList.add('show');
+}
+
+function renderExistingTemps(emp) {
+  const container = document.getElementById('modalExistingTemps');
+  const tempOvers = (emp.overrides||[]).filter(o => o.start_date || o.end_date);
+  if (!tempOvers.length) {
+    container.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">' + t('modal_no_temp') + '</span>';
+    return;
+  }
+  const labels = {'piece_underground': t('emp_ug_piece'), 'piece_driller': t('emp_dr_piece'), 'day_rate': t('emp_dayrate'), 'monthly': t('emp_monthly')};
+  container.innerHTML = tempOvers.map((o, i) => {
+    const typeLabel = labels[o.salary_type] || o.salary_type;
+    const dates = (o.start_date||'') + (o.end_date ? ' ~ ' + o.end_date : '');
+    const extra = [];
+    if (o.shift) extra.push(t('modal_temp_shift') + ':' + o.shift);
+    if (o.captain) extra.push(t('modal_temp_captain') + ':' + o.captain);
+    if (o.note) extra.push(o.note);
+    const extraStr = extra.length ? ' | ' + extra.join(' · ') : '';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);">
+      <span style="color:var(--text);">📌 <b>${typeLabel}</b> &nbsp;${dates}<span style="color:var(--text-muted);font-size:11px;">${extraStr}</span></span>
+      <button onclick="deleteExistingTemp(${o.id})" title="${t('modal_temp_delete')}" 
+        style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:11px;padding:2px 6px;">${t('modal_temp_delete')}</button>
+    </div>`;
+  }).join('');
+}
+
+async function deleteExistingTemp(overrideId) {
+  if (!confirm(t('confirm_delete_temp'))) return;
+  try {
+    const res = await authFetch(api('/employees/remove-override-by-id'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({override_id: overrideId})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(t('toast_deleted'));
+      // 重新加载员工列表并刷新模态框
+      const r = await fetch(api('/employees'));
+      STATE.employees = (await r.json()).employees;
+      STATE._empAll = STATE.employees;
+      renderEmployeeTable();
+      await recalculate();
+      // 刷新模态框中的列表
+      const updated = STATE.employees.find(e => e.id === STATE.currentOverrideEmp.id);
+      if (updated) renderExistingTemps(updated);
+    } else {
+      showToast(t('toast_delete_fail'), 'error');
+    }
+  } catch(e) {
+    showToast(t('toast_network_error') + e.message, 'error');
+  }
+}
+
+function closeModal() {
+  document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show'));
+}
+
+function syncModalBaseField() {
+  const v = document.getElementById('modalType').value;
+  document.getElementById('modalDayRateRow').style.display = v==='day_rate'?'flex':'none';
+  document.getElementById('modalMonthlyRow').style.display = v==='monthly'?'flex':'none';
+  document.getElementById('modalTypeHint').style.display = (v==='piece_underground'||v==='piece_driller')?'flex':'none';
+}
+
+function syncTempFields() {
+  const v = document.getElementById('modalTempType').value;
+  document.getElementById('tempDayRateRow').style.display = v==='day_rate'?'flex':'none';
+  document.getElementById('tempShiftRow').style.display = v==='piece_underground'?'flex':'none';
+  document.getElementById('tempCaptainRow').style.display = v==='piece_driller'?'flex':'none';
+}
+
+// 板块1：保存类型设置（永久），自动清零不相关基数
+async function saveTypeOverride() {
+  const emp = STATE.currentOverrideEmp;
+  const st = document.getElementById('modalType').value;
+  const dr = parseFloat(document.getElementById('modalDayRate').value)||0;
+  const ms = parseFloat(document.getElementById('modalMonthly').value)||0;
+  // 计件类型强制基数归零
+  const finalDr = (st==='day_rate') ? dr : 0;
+  const finalMs = (st==='monthly') ? ms : 0;
+  await authFetch(api('/employees/override'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      employee_id: emp.id,
+      salary_type: st,
+      day_rate: finalDr,
+      monthly_salary: finalMs,
+      start_date: '', end_date: '', note: '', type: '',
+    }),
+  });
+  closeModal();
+  const typeNames = {'day_rate': t('emp_dayrate'), 'monthly': t('emp_monthly'), 'piece_underground': t('emp_ug_piece'), 'piece_driller': t('emp_dr_piece')};
+  showToast(t('toast_type_set_pre') + (typeNames[st] || st));
+  const r = await fetch(api('/employees'));
+  STATE.employees = (await r.json()).employees;
+  STATE._empAll = STATE.employees;
+  renderEmployeeTable();
+  await recalculate();
+  // 重新打开模态框以刷新已有临时例外列表
+  showOverrideModal(emp.id);
+}
+
+// 板块2：保存临时例外
+async function saveTempOverride() {
+  const emp = STATE.currentOverrideEmp;
+  const st = document.getElementById('modalTempType').value;
+  const dr = parseFloat(document.getElementById('modalTempRate').value)||0;
+  const shift = document.getElementById('modalTempShift').value;
+  const captain = document.getElementById('modalTempCaptain').value;
+
+  // 加载当天钻工队长列表
+  if (st === 'piece_driller') {
+    try {
+      const start = document.getElementById('modalTempStart').value;
+      const res = await fetch(api('/driller-captains?date=' + start));
+      const caps = await res.json();
+      const sel = document.getElementById('modalTempCaptain');
+      sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
+      caps.forEach(c => {
+        sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>';
+      });
+    } catch(e) {}
+  }
+
+  await authFetch(api('/employees/override'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      employee_id: emp.id,
+      salary_type: st,
+      day_rate: dr,
+      monthly_salary: 0,
+      start_date: document.getElementById('modalTempStart').value,
+      end_date: document.getElementById('modalTempEnd').value,
+      note: document.getElementById('modalTempNote').value,
+      shift: st === 'piece_underground' ? shift : '',
+      captain: st === 'piece_driller' ? captain : '',
+    }),
+  });
+  closeModal();
+  showToast(t('toast_temp_saved'));
+  const r = await fetch(api('/employees'));
+  STATE.employees = (await r.json()).employees;
+  renderEmployeeTable();
+  await recalculate();
+  // 重新打开模态框以刷新已有临时例外列表
+  showOverrideModal(emp.id);
+}
+
+// 旧函数保留空壳不报错
+function saveOverride() {}
+function showExcludeModal() {}
+function saveExclusion() {}
+
+// ════════════════════════════════════════════════
+//  重新计算
+// ════════════════════════════════════════════════
+
+// 涟漪效果
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('button');
+  if (!btn || btn.disabled || btn.classList.contains('nav-btn') || btn.closest('.navbar')) return;
+  const ripple = document.createElement('span');
+  ripple.className = 'ripple';
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  ripple.style.width = ripple.style.height = size + 'px';
+  ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+  ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+  btn.appendChild(ripple);
+  ripple.addEventListener('animationend', () => ripple.remove());
+});
+
+async function recalculate() {
+  const btn = document.getElementById('recalcBtn');
+  btn.disabled = true; btn.textContent = t('btn_recalc_loading');
+  try {
+    const res = await authFetch(api('/recalculate'), {method:'POST'});
+    const data = await res.json();
+    if (!data.ok) { showToast(data.error, 'error'); return; }
+    STATE.salaryResult = data.result;
+    renderSalaryTable(data.result);
+    renderDashboard(data.result);
+    loadProductionData();
+    // 日工资页面联动：如当前在日工资标签页，自动刷新
+    if (document.getElementById('page-dailywages').classList.contains('active')) {
+      loadDailyWages();
+    }
+    showToast(t('toast_calc_done'));
+  } finally { btn.disabled=false; btn.textContent=t('btn_recalc'); }
+}
+
+// ════════════════════════════════════════════════
+//  薪资表
+// ════════════════════════════════════════════════
+function renderSalaryTable(result) {
+  STATE._salaryResult = result;
+  const tbody = document.querySelector('#salaryTable tbody');
+  const salaryDa = result.driver_allowance || 0;
+  document.getElementById('salaryStats').innerHTML = `
+    <div class="stat-glass"><div class="value">${result.employees.length}</div><div class="label">${t('salary_stats_emp')}</div></div>
+    <div class="stat-glass"><div class="value">${fmtNum(result.total_gross)}</div><div class="label">${t('salary_stats_gross')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--success)">${fmtNum(result.total_bonus||0)}</div><div class="label">${t('salary_stats_bonus')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_penalty||0)}</div><div class="label">${t('salary_stats_penalty')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div><div class="label">${t('salary_stats_advance')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div><div class="label">${t('salary_stats_nssf')}</div></div>
+    <div class="stat-glass driver-allowance-card" onclick="editDriverAllowance(event)" title="${t('dash_edit_driver_allowance')}">
+      <div class="value" style="color:var(--success)">${fmtNum(salaryDa)}</div>
+      <div class="label">${t('salary_stats_driver')}</div>
+    </div>
+    <div class="stat-glass"><div class="value" style="color:var(--success)">${fmtNum(result.total_net)}</div><div class="label">${t('salary_stats_net')}</div></div>
+  `;
+  document.getElementById('salaryStats').style.display = 'flex';
+
+  const dupDiv = document.getElementById('duplicateWarnings');
+  dupDiv.style.display = 'none';
+
+  filterSalaryTable();
+  loadSalaryVerification();
+}
+
+function filterSalaryTable() {
+  const result = STATE._salaryResult;
+  if (!result) return;
+  const TYPE_LABELS = getTYPE_LABELS();
+  const q = (document.getElementById('salarySearch').value||'').toLowerCase();
+  const ft = document.getElementById('salaryFilterType').value;
+  const filtered = result.employees.filter(e => {
+    if (q && !e.name.toLowerCase().includes(q)) return false;
+    if (ft && e.salary_type !== ft) return false;
+    return true;
+  });
+  const tbody = document.querySelector('#salaryTable tbody');
+  tbody.innerHTML = filtered.map(emp => {
+    const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.day_rate||0)+(emp.monthly||0);
+    const bonus = emp.bonus || 0;
+    const penalty = emp.penalty || 0;
+    const n = g + bonus - (emp.advance||0) - (emp.nssf||0) - penalty;
+    return `<tr>
+      <td class="left">${escHtml(emp.name)}</td>
+      <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
+      <td class="num">${fmtNum(emp.piece_underground||0)}</td>
+      <td class="num">${fmtNum(emp.piece_driller||0)}</td>
+      <td class="num">${fmtNum(emp.day_rate||0)}</td>
+      <td class="num">${fmtNum(emp.monthly||0)}</td>
+      <td class="num bold">${fmtNum(g)}</td>
+      <td class="num" style="color:var(--success)">${bonus ? '+' + fmtNum(bonus) : '—'}</td>
+      <td class="num" style="color:var(--danger)">${penalty ? '-' + fmtNum(penalty) : '—'}</td>
+      <td class="num" style="color:var(--danger)">${fmtNum(emp.advance||0)}</td>
+      <td class="num" style="color:var(--warning)">${fmtNum(emp.nssf||0)}</td>
+      <td class="num bold" style="color:var(--success)">${fmtNum(n)}</td>
+      <td style="font-size:10px;color:var(--text-muted);max-width:180px;">
+        ${(emp.temp_overrides||[]).map(to => 
+          '<span class="temp-tag" style="display:inline-flex;align-items:center;background:var(--bg-surface);border-radius:3px;padding:0 4px;margin:1px 2px;white-space:nowrap;color:var(--text);">' +
+          escHtml(to.label) +
+          '</span>'
+        ).join('') || '—'}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════
+//  薪资双路径核对
+// ════════════════════════════════════════════════
+async function loadSalaryVerification() {
+  try {
+    const res = await fetch(api('/salary/verify'));
+    if (!res.ok) {
+      document.getElementById('salaryVerifyPanel').style.display = 'none';
+      return;
+    }
+    const json = await res.json();
+    if (!json.ok) {
+      document.getElementById('salaryVerifyPanel').style.display = 'none';
+      return;
+    }
+    STATE._verifyData = json.data;
+    renderSalaryVerification(json.data);
+  } catch(e) {
+    document.getElementById('salaryVerifyPanel').style.display = 'none';
+  }
+}
+
+function renderSalaryVerification(data) {
+  const panel = document.getElementById('salaryVerifyPanel');
+  const summary = document.getElementById('verifySummary');
+  const badge = document.getElementById('verifyStatusBadge');
+
+  // 状态徽章
+  if (data.overall_match) {
+    badge.className = 'verify-badge verify-pass';
+    badge.textContent = t('salary_verify_pass');
+  } else {
+    badge.className = 'verify-badge verify-fail';
+    badge.textContent = t('salary_verify_fail');
+  }
+
+  // 汇总对比卡片
+  summary.innerHTML = `
+    <div class="verify-cards">
+      <div class="verify-card">
+        <div class="verify-card-title">${t('verify_ug_piece')}</div>
+        <div class="verify-card-row">
+          <span class="verify-label">${t('verify_path1')}</span>
+          <span class="verify-val">${fmtNum(data.underground.path1)}</span>
+        </div>
+        <div class="verify-card-row">
+          <span class="verify-label">${t('verify_path2')}</span>
+          <span class="verify-val">${fmtNum(data.underground.path2)}</span>
+        </div>
+        <div class="verify-card-row verify-diff-row ${data.underground.match ? '' : 'has-diff'}">
+          <span class="verify-label">${t('verify_diff')}</span>
+          <span class="verify-val ${data.underground.match ? 'diff-zero' : 'diff-warn'}">${data.underground.match ? '0' : (data.underground.diff > 0 ? '+' : '') + fmtNum(data.underground.diff)}</span>
+        </div>
+      </div>
+      <div class="verify-card">
+        <div class="verify-card-title">${t('verify_dr_piece')}</div>
+        <div class="verify-card-row">
+          <span class="verify-label">${t('verify_path1')}</span>
+          <span class="verify-val">${fmtNum(data.driller.path1)}</span>
+        </div>
+        <div class="verify-card-row">
+          <span class="verify-label">${t('verify_path2')}</span>
+          <span class="verify-val">${fmtNum(data.driller.path2)}</span>
+        </div>
+        <div class="verify-card-row verify-diff-row ${data.driller.match ? '' : 'has-diff'}">
+          <span class="verify-label">${t('verify_diff')}</span>
+          <span class="verify-val ${data.driller.match ? 'diff-zero' : 'diff-warn'}">${data.driller.match ? '0' : (data.driller.diff > 0 ? '+' : '') + fmtNum(data.driller.diff)}</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  panel.style.display = 'block';
+
+  // 预渲染明细（默认隐藏）
+  renderVerifyDetail(data, 'underground');
+  renderVerifyDetail(data, 'driller');
+}
+
+function toggleVerifyDetail() {
+  const detail = document.getElementById('verifyDetail');
+  const icon = document.getElementById('verifyToggleIcon');
+  if (detail.style.display === 'none') {
+    detail.style.display = 'block';
+    icon.textContent = t('salary_verify_collapse');
+  } else {
+    detail.style.display = 'none';
+    icon.textContent = t('salary_verify_expand');
+  }
+}
+
+function switchVerifyTab(tab) {
+  document.querySelectorAll('.verify-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.verify-tab-content').forEach(c => c.style.display = 'none');
+  document.querySelector(`.verify-tab:nth-child(${tab === 'underground' ? '1' : '2'})`).classList.add('active');
+  document.getElementById(`verifyTab${tab === 'underground' ? 'Underground' : 'Driller'}`).style.display = 'block';
+}
+
+function renderVerifyDetail(data, type) {
+  const container = document.getElementById(type === 'underground' ? 'verifyTabUnderground' : 'verifyTabDriller');
+  const details = data.path1_details[type] || [];
+
+  // 路径一 逐日/逐队明细
+  const isUnderground = type === 'underground';
+  let path1Rows = '';
+  if (isUnderground) {
+    path1Rows = details.map(d => `<tr>
+      <td>${d.date}</td>
+      <td class="num">${fmtNum(d.nh)}</td>
+      <td class="num">${fmtNum(d.nl)}</td>
+      <td class="num">${fmtNum(d.mw)}</td>
+      <td class="num">${fmtNum(d.day_total)}</td>
+      <td class="num">${fmtNum(d.night_total)}</td>
+      <td class="num bold">${fmtNum(d.combined)}</td>
+    </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">'+t('verify_no_data_row')+'</td></tr>';
+  } else {
+    path1Rows = details.map(d => `<tr>
+      <td>${d.date}</td>
+      <td>${escHtml(d.captain)}</td>
+      <td class="num">${fmtNum(d.nh)}</td>
+      <td class="num">${fmtNum(d.nl)}</td>
+      <td class="num">${fmtNum(d.mw)}</td>
+      <td class="num bold">${fmtNum(d.total)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">'+t('verify_no_data_row')+'</td></tr>';
+  }
+
+  // ── 逐日对比（路径一 vs 路径二按日对齐，替换原路径二位置） ──
+  const dc = (data.daily_comparison || {})[type] || [];
+  let rightContent = '';
+  if (dc.length > 0) {
+    const realDiffs = dc.filter(r => r.diff !== 0);
+    const onlyRounding = realDiffs.length === 0;
+    const dailyRows = dc.map(r => {
+      const isBad = r.diff !== 0;
+      const cls = isBad ? 'diff-highlight' : '';
+      const diffCls = r.diff < 0 ? 'diff-neg' : r.diff > 0 ? 'diff-pos' : '';
+      const diffText = r.diff === 0 ? '0' : (r.diff > 0 ? '+' : '') + fmtNum(r.diff);
+      const note = r.is_rounding && isBad ? ' <span style="font-size:10px;color:#9ca3af;">' + t('verify_rounding') + '</span>' : '';
+      return `<tr class="${cls}">
+        <td>${r.date}</td>
+        <td class="num">${fmtNum(r.path1)}</td>
+        <td class="num">${fmtNum(r.path2)}</td>
+        <td class="num ${diffCls}">${diffText}${note}</td>
+      </tr>`;
+    }).join('');
+    const status = onlyRounding
+      ? '<span style="font-size:11px;color:var(--success);font-weight:normal;">' + t('verify_perfect') + '</span>'
+      : '<span style="font-size:11px;color:var(--danger);font-weight:normal;">⚠ ' + realDiffs.length + ' ' + t('verify_day_diff') + '</span>';
+    rightContent = `
+      <h4>${t('verify_daily_compare')}${status}</h4>
+      <table class="data-table verify-mini-table verify-daily-table">
+        <thead>
+          <tr><th>${t('verify_col_date')}</th><th>${t('verify_col_path1')}</th><th>${t('verify_col_path2')}</th><th>${t('verify_col_diff')}</th></tr>
+        </thead>
+        <tbody>${dailyRows}</tbody>
+      </table>`;
+  } else {
+    rightContent = '<p style="text-align:center;color:var(--text-muted);padding:20px;">' + t('verify_no_data') + '</p>';
+  }
+
+  container.querySelector('.verify-compare').innerHTML = `
+    <div class="verify-dual-table">
+      <div class="verify-half">
+        <h4>${t('verify_path1_title')}</h4>
+        <table class="data-table verify-mini-table">
+          <thead>
+            ${isUnderground
+              ? t('verify_ug_headers')
+              : t('verify_dr_headers')}
+          </thead>
+          <tbody>${path1Rows}</tbody>
+        </table>
+      </div>
+      <div class="verify-half">
+        ${rightContent}
+      </div>
+    </div>
+  `;
+
+  // ── 清空原逐日对比区域（已移至右侧）──
+  const dailyContainer = document.getElementById(`verifyDaily${type === 'underground' ? 'Underground' : 'Driller'}`);
+  if (dailyContainer) dailyContainer.innerHTML = '';
+}
+
+async function toggleNssf(eid, enrolled) {
+  try {
+    await authFetch(api('/nssf/toggle'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({employee_id:eid, enrolled}),
+    });
+    // Reload employee list
+    const r = await fetch(api('/employees'));
+    STATE.employees = (await r.json()).employees;
+    STATE._empAll = STATE.employees;
+    renderEmployeeTable();
+    document.getElementById('recalcBtn').click();
+  } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+}
+
+// ════════════════════════════════════════════════
+//  逐日工资
+// ════════════════════════════════════════════════
+async function loadDailyWages() {
+  try {
+    const res = await fetch(api('/daily-wages'));
+    STATE._dailyWages = await res.json();
+    // Populate department filter
+    const depts = new Set();
+    for (const eid in STATE._dailyWages) {
+      const d = STATE._dailyWages[eid].department;
+      if (d) depts.add(d);
+    }
+    const sel = document.getElementById('dwFilterDept');
+    if (sel.options.length === 1) {
+      [...depts].sort().forEach(d => {
+        sel.innerHTML += '<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>';
+      });
+    }
+    renderDailyWages();
+  } catch(e) {}
+}
+
+function renderDailyWages() {
+  const data = STATE._dailyWages;
+  if (!data) return;
+  const q = (document.getElementById('dwSearch').value||'').toLowerCase();
+  const ft = document.getElementById('dwFilterType').value;
+  const fd = document.getElementById('dwFilterDept').value;
+  // 初始化/获取按日期独立的班次筛选状态
+  if (!STATE._dwShiftFilters) STATE._dwShiftFilters = {};
+  const shiftFilters = STATE._dwShiftFilters;
+  const dates = new Set();
+  const entries = [];
+  for (const eid in data) {
+    const e = data[eid];
+    if (q && !e.name.toLowerCase().includes(q)) continue;
+    if (ft && e.salary_type !== ft) continue;
+    if (fd && e.department !== fd) continue;
+    // 按日期独立的班次筛选：只要员工有 D/N 标识即可匹配，不限薪资类型
+    const sfDates = Object.keys(shiftFilters).filter(d => shiftFilters[d]);
+    if (sfDates.length > 0) {
+      const shifts = e.daily_shifts || {};
+      const hasAny = sfDates.some(d => (shifts[d] || '').includes(shiftFilters[d]));
+      if (!hasAny) continue;
+    }
+    entries.push(e);
+    for (const dt in e.daily) dates.add(dt);
+  }
+  const sortedDates = [...dates].sort();
+  document.getElementById('dwCount').textContent = entries.length + ' ' + t('dw_person');
+  // 第一行：日期表头
+  let headHtml = '<tr><th data-i18n="th_name">' + t('th_name') + '</th>';
+  sortedDates.forEach(d => {
+    headHtml += '<th style="min-width:36px;font-size:10px;">' + d.slice(5) + '</th>';
+  });
+  headHtml += '<th style="min-width:50px;">' + t('dw_total') + '</th></tr>';
+  // 第二行：按日期独立的班次筛选按钮（始终显示，基于数据中实际 D/N 标识匹配）
+  headHtml += '<tr style="background:var(--bg-surface);"><td style="font-size:10px;color:var(--text-muted);text-align:right;padding-right:6px;">' + t('dw_shift_col') + '</td>';
+  sortedDates.forEach(d => {
+    const cur = shiftFilters[d] || '';
+    const btnStyle = 'border:none;border-radius:2px;padding:1px 3px;font-size:9px;cursor:pointer;margin:0 1px;';
+    const allCls = !cur ? 'background:var(--accent);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    const dCls = cur === 'D' ? 'background:var(--accent);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    const nCls = cur === 'N' ? 'background:var(--cyan);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    headHtml += '<td style="text-align:center;padding:2px;">'
+      + '<button onclick="toggleDateShift(\'' + d + '\',\'\')" style="' + btnStyle + allCls + '">' + t('dw_shift_all') + '</button>'
+      + '<button onclick="toggleDateShift(\'' + d + '\',\'D\')" style="' + btnStyle + dCls + '">D</button>'
+      + '<button onclick="toggleDateShift(\'' + d + '\',\'N\')" style="' + btnStyle + nCls + '">N</button>'
+      + '</td>';
+  });
+  headHtml += '<td></td></tr>';
+  document.getElementById('dwHead').innerHTML = headHtml;
+  let bodyHtml = '';
+  entries.sort((a,b) => (b.total||0) - (a.total||0));
+  entries.forEach(e => {
+    const overrideDates = new Set([...(e.override_dates||[]), ...(e.att_override_dates||[])]);
+    const isMonthly = e.salary_type === 'monthly';
+    const shifts = e.daily_shifts || {};
+    bodyHtml += '<tr><td class="left" style="white-space:nowrap;">' + escHtml(e.name) + '</td>';
+    sortedDates.forEach(d => {
+      const fs = shiftFilters[d] || '';
+      let amt = e.daily[d] || 0;
+      const shift = (shifts[d] || '');
+      // 按日期独立的班次筛选：有 D/N 标识则匹配，不限薪资类型
+      if (fs) {
+        if (!shift.includes(fs)) amt = 0;
+      }
+      const isOverridden = overrideDates.has(d);
+      let style = '';
+      if (isOverridden) {
+        style = 'text-decoration:underline;text-decoration-style:dashed;text-underline-offset:3px;text-decoration-color:#F59E0B;';
+      } else if (isMonthly) {
+        style = 'color:var(--text-dim);';
+      }
+      let label = amt > 0 ? fmtNum(amt) : '-';
+      if (amt > 0 && shift && !fs) label += ' ' + shift;
+      bodyHtml += '<td class="num" style="' + style + '">' + label + '</td>';
+    });
+    bodyHtml += '<td class="num bold">' + fmtNum(e.total||0) + '</td></tr>';
+  });
+  document.getElementById('dwBody').innerHTML = bodyHtml || '<tr><td colspan="99" style="text-align:center;color:var(--text-muted);">' + t('dw_no_data') + '</td></tr>';
+}
+
+function toggleDateShift(date, shift) {
+  if (!STATE._dwShiftFilters) STATE._dwShiftFilters = {};
+  if (!shift || STATE._dwShiftFilters[date] === shift) {
+    delete STATE._dwShiftFilters[date];  // 再次点击相同班次或选择"全部"→清除筛选
+  } else {
+    STATE._dwShiftFilters[date] = shift;
+  }
+  renderDailyWages();
+}
+
+// ════════════════════════════════════════════════
+//  导出
+// ════════════════════════════════════════════════
+//  统一导出
+// ════════════════════════════════════════════════
+async function exportAll() {
+  if (!STATE.salaryResult) { showToast(t('toast_need_calc'), 'error'); return; }
+  showToast(t('toast_exporting'));
+  try {
+    const res = await fetch(api('/export/all'), {method:'POST'});
+    if (!res.ok) throw new Error();
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const disp = decodeURIComponent(res.headers.get('Content-Disposition') || '');
+    const m = disp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    a.download = m ? m[1].replace(/['"]/g,'') : t('export_filename');
+    a.href = url; a.click(); URL.revokeObjectURL(url);
+    showToast(t('toast_export_done'));
+  } catch(e) { showToast(t('toast_export_fail'), 'error'); }
+}
+
+// ════════════════════════════════════════════════
+//  图表
+// ════════════════════════════════════════════════
+async function loadProductionData() {
+  const res = await fetch(api('/production'));
+  STATE.productionData = await res.json();
+  renderProductionCharts(STATE.productionData);
+
+  // 产量核验
+  const v_res = await fetch(api('/production-verify'));
+  STATE._verifyData = await v_res.json();
+  renderVerifyTable();
+}
+
+function renderVerifyTable() {
+  const data = STATE._verifyData;
+  if (!data) return;
+  const dates = Object.keys(data).sort();
+  let allMatch = true;
+
+  // 收集钻工队长（按首次出现顺序）
+  const captains = new Set();
+  for (const dt of dates) {
+    for (const g of data[dt].driller_groups || []) {
+      captains.add(g.captain);
+    }
+  }
+
+  // 表头
+  let headHtml = '<tr><th style="min-width:60px;">' + t('verify_captain_col') + '</th>';
+  for (const dt of dates) {
+    headHtml += `<th style="min-width:28px;font-size:9px;" colspan="3">${dt.slice(5)}</th>`;
+  }
+  headHtml += '</tr>';
+  headHtml += '<tr><th style="min-width:60px;"></th>';
+  for (const dt of dates) {
+    headHtml += '<th style="font-size:8px;">NH</th><th style="font-size:8px;">NL</th><th style="font-size:8px;">MW</th>';
+  }
+  headHtml += '</tr>';
+  document.getElementById('verifyHead').innerHTML = headHtml;
+
+  // 表体
+  let bodyHtml = '';
+  for (const cap of captains) {
+    bodyHtml += `<tr><td class="left" style="white-space:nowrap;">${escHtml(cap)}</td>`;
+    for (const dt of dates) {
+      const g = (data[dt].driller_groups || []).find(c => c.captain === cap);
+      bodyHtml += `<td class="num">${g ? fmtNum(g.nh) : '-'}</td>`;
+      bodyHtml += `<td class="num">${g ? fmtNum(g.nl) : '-'}</td>`;
+      bodyHtml += `<td class="num">${g ? fmtNum(g.mw) : '-'}</td>`;
+    }
+    bodyHtml += '</tr>';
+  }
+
+  // 分隔行
+  bodyHtml += '<tr style="border-top:2px solid var(--accent);"><td class="left" style="font-weight:600;">' + t('verify_driller_total') + '</td>';
+  for (const dt of dates) {
+    const dtot = data[dt].driller_total || {};
+    bodyHtml += `<td class="num bold">${fmtNum(dtot.nh)}</td>`;
+    bodyHtml += `<td class="num bold">${fmtNum(dtot.nl)}</td>`;
+    bodyHtml += `<td class="num bold">${fmtNum(dtot.mw)}</td>`;
+  }
+  bodyHtml += '</tr>';
+
+  bodyHtml += '<tr><td class="left" style="font-weight:600;">' + t('verify_ug_total') + '</td>';
+  for (const dt of dates) {
+    const st = data[dt].shift_total || {};
+    bodyHtml += `<td class="num bold">${fmtNum(st.nh)}</td>`;
+    bodyHtml += `<td class="num bold">${fmtNum(st.nl)}</td>`;
+    bodyHtml += `<td class="num bold">${fmtNum(st.mw)}</td>`;
+  }
+  bodyHtml += '</tr>';
+
+  // 核验行
+  bodyHtml += '<tr><td class="left" style="font-weight:600;">' + t('verify_check') + '</td>';
+  for (const dt of dates) {
+    const m = data[dt].match;
+    if (!m) allMatch = false;
+    const color = m ? 'var(--success)' : 'var(--danger)';
+    bodyHtml += `<td style="text-align:center;color:${color};font-size:12px;" colspan="3">${m ? '✅' : '❌'}</td>`;
+  }
+  bodyHtml += '</tr>';
+  document.getElementById('verifyBody').innerHTML = bodyHtml;
+  document.getElementById('verifyStatus').textContent = allMatch ? t('verify_all_match') : t('verify_mismatch');
+  document.getElementById('verifyStatus').style.color = allMatch ? 'var(--success)' : 'var(--danger)';
+}
+
+function getChartOpts(showLabels) {
+  return {
+    plugins: {
+      datalabels: {
+        display: showLabels,
+        color: '#94A3B8',
+        font: {size: 10, weight: '500'},
+        anchor: 'end', align: 'end',
+        formatter: v => v ? fmtNum(Math.round(v)) : '',
+      },
+      legend: {
+        position: 'bottom',
+        labels: {
+          boxWidth: 12, padding: 12, font: {size: 11, color: '#94A3B8'},
+          usePointStyle: true, pointStyle: 'circle',
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: {color: 'rgba(37,99,235,0.08)', drawBorder: false},
+        ticks: {color: '#64748B', font: {size: 10}},
+      },
+      y: {
+        grid: {color: 'rgba(37,99,235,0.06)', drawBorder: false},
+        ticks: {color: '#64748B', font: {size: 10}},
+      },
+    },
+  };
+}
+
+function renderProductionCharts(data) {
+  const show = () => document.querySelector('#chartDailyProd').closest('.chart-box').querySelector('.chart-label-toggle').checked;
+
+  if (data.shift_production && data.shift_production.length) {
+    const dates = data.shift_production.map(d => d.date);
+    renderChart('chartDailyProd', 'line', {
+      labels: dates,
+      datasets: [
+        {label:'NH', data: data.shift_production.map(d=>d.nh||0), borderColor:'#60A5FA', backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(96,165,250,0.25)');g.addColorStop(1,'rgba(96,165,250,0.02)');return g;}, fill:true, tension:.35, borderWidth:2, pointRadius:3, pointBackgroundColor:'#60A5FA', pointBorderColor:'#0A0F1A', pointBorderWidth:1},
+        {label:'NL', data: data.shift_production.map(d=>d.nl||0), borderColor:'#34D399', backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(52,211,153,0.25)');g.addColorStop(1,'rgba(52,211,153,0.02)');return g;}, fill:true, tension:.35, borderWidth:2, pointRadius:3, pointBackgroundColor:'#34D399', pointBorderColor:'#0A0F1A', pointBorderWidth:1},
+        {label:'MW', data: data.shift_production.map(d=>d.mw||0), borderColor:'#F472B6', backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(244,114,182,0.2)');g.addColorStop(1,'rgba(244,114,182,0.02)');return g;}, fill:true, tension:.35, borderWidth:2, pointRadius:3, pointBackgroundColor:'#F472B6', pointBorderColor:'#0A0F1A', pointBorderWidth:1},
+      ]
+    }, {responsive:true, maintainAspectRatio:false, ...getChartOpts(show())});
+  } else {
+    destroyChart('chartDailyProd');
+    destroyChart('chartProdPie');
+  }
+
+  if (data.driller_production && data.driller_production.length) {
+    const labels = data.driller_production.map(d=>d.name||d.captain);
+    renderChart('chartDrillerProd', 'bar', {
+      labels,
+      datasets: [
+        {label:'NH', data:data.driller_production.map(d=>d.nh||0), backgroundColor:'rgba(96,165,250,0.7)', borderRadius:4},
+        {label:'NL', data:data.driller_production.map(d=>d.nl||0), backgroundColor:'rgba(52,211,153,0.7)', borderRadius:4},
+        {label:'MW', data:data.driller_production.map(d=>d.mw||0), backgroundColor:'rgba(244,114,182,0.7)', borderRadius:4},
+      ]
+    }, {responsive:true, maintainAspectRatio:false, scales:{x:{grid:{color:'rgba(37,99,235,0.06)'},ticks:{color:'#64748B'}},y:{stacked:true,grid:{color:'rgba(37,99,235,0.06)'},ticks:{color:'#64748B'}}}, ...getChartOpts(show())});
+  } else {
+    destroyChart('chartDrillerProd');
+  }
+
+  if (data.driller_consumables && data.driller_consumables.length) {
+    const labels = data.driller_consumables.map(d=>d.name||d.captain);
+    renderChart('chartConsumables', 'bar', {
+      labels,
+      datasets: [
+        {label:'FUTA', data:data.driller_consumables.map(d=>(d.futa||0)/164), backgroundColor:'rgba(167,139,250,0.7)', borderRadius:4},
+        {label:'WAYA', data:data.driller_consumables.map(d=>d.waya||0), backgroundColor:'rgba(251,191,36,0.7)', borderRadius:4},
+        {label:'KIBIRITI', data:data.driller_consumables.map(d=>d.kibiriti||0), backgroundColor:'rgba(251,113,133,0.7)', borderRadius:4},
+      ]
+    }, {responsive:true, maintainAspectRatio:false, ...getChartOpts(show())});
+  } else {
+    destroyChart('chartConsumables');
+  }
+
+  if (data.shift_production && data.shift_production.length) {
+    const nh = data.shift_production.reduce((s,d)=>s+(d.nh||0),0);
+    const nl = data.shift_production.reduce((s,d)=>s+(d.nl||0),0);
+    const mw = data.shift_production.reduce((s,d)=>s+(d.mw||0),0);
+    renderChart('chartProdPie', 'doughnut', {
+      labels:['NICKEL(H)','NICKEL(L)','MAWE'],
+      datasets:[{data:[nh,nl,mw], backgroundColor:['#60A5FA','#34D399','#F472B6'], borderColor:'#121A2B', borderWidth:2, hoverOffset:8}]
+    }, {responsive:true, maintainAspectRatio:false, plugins:{...getChartOpts(show()).plugins, datalabels:{...getChartOpts(show()).plugins.datalabels, formatter:(v,ctx)=>ctx.chart.data.labels[ctx.dataIndex]+'\n'+fmtNum(Math.round(v))}}});
+  }
+}
+
+function destroyChart(canvasId) {
+  if (STATE.charts[canvasId]) { STATE.charts[canvasId].destroy(); delete STATE.charts[canvasId]; }
+}
+
+// ════════════════════════════════════════════════
+//  通用图表
+// ════════════════════════════════════════════════
+function renderChart(canvasId, type, data, opts) {
+  if (STATE.charts[canvasId]) STATE.charts[canvasId].destroy();
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  STATE.charts[canvasId] = new Chart(ctx, {type, data, options: opts});
+}
+
+// ════════════════════════════════════════════════
+//  出勤网格
+// ════════════════════════════════════════════════
+async function loadAttendance() {
+  try {
+    const res = await fetch(api('/attendance'));
+    const data = await res.json();
+    STATE.attendanceData = data;
+    // Headless banner
+    const banner = document.getElementById('headlessBannerAtt');
+    if (banner) banner.style.display = STATE._headless ? 'block' : 'none';
+    renderAttendance();
+  } catch(e) {}
+}
+
+function renderAttendance() {
+  const data = STATE.attendanceData;
+  if (!data) return;
+  const q = (document.getElementById('attSearch').value||'').toLowerCase();
+  const ft = document.getElementById('attFilterType').value;
+
+  const filtered = data.rows.filter(r => {
+    if (q && !r.name.toLowerCase().includes(q)) return false;
+    if (ft && r.type !== ft) return false;
+    return true;
+  });
+
+  // 表头
+  document.getElementById('attHead').innerHTML = '<tr><th>' + t('th_name') + '</th><th>' + t('th_type') + '</th>' +
+    data.dates.map(d => `<th style="font-size:10px;">${d.slice(-2)}</th>`).join('') + '</tr>';
+
+  // 状态颜色：手动改过的用虚线下划线标识
+  const statusStyle = {
+    'D': {color: 'var(--accent)', label: t('shift_D_label'), desc: t('shift_D_desc')},
+    'N': {color: 'var(--cyan)', label: t('shift_N_label'), desc: t('shift_N_desc')},
+    'B': {color: 'var(--purple)', label: t('shift_B_label'), desc: t('shift_B_desc')},
+    'P': {color: 'var(--success)', label: t('shift_P_label'), desc: t('shift_P_desc')},
+    'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
+    'L': {color: 'var(--warning)', label: t('shift_L_label'), desc: t('shift_L_desc')},
+    '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
+    '': {color: 'var(--text-dim)', label: '', desc: ''},
+  };
+
+  document.getElementById('attBody').innerHTML = filtered.map(r => {
+    return '<tr><td class="left" style="font-size:12px;">' + escHtml(r.name) + '</td>' +
+      '<td style="font-size:11px;"><span class="badge badge-blue">' + escHtml(r.type) + '</span></td>' +
+      data.dates.map(d => {
+        const st = r.days[d] || '';
+        const autoVal = r.auto ? r.auto[d] : '';
+        const style = statusStyle[st] || statusStyle[''];
+        const isEditable = r.editable;
+        // 与原始数据不同才显示下划线（包含从空值手动改为P/A/L）
+        const isChanged = st !== autoVal && !(autoVal === '' && st === '');
+        // 月薪默认 (P) 改为手动时用不同的下划线
+        const isMonthlyDefault = autoVal === '(P)';
+        const onClick = isEditable ? ` onclick="toggleAttDay('${r.id}','${d}','${st}','${autoVal}')"` : '';
+        const cursor = isEditable ? 'cursor:pointer;' : '';
+        let decor = '';
+        if (isChanged && isMonthlyDefault) {
+          decor = 'text-decoration:underline;text-decoration-style:dashed;text-underline-offset:3px;text-decoration-color:#F59E0B;';
+        } else if (isChanged) {
+          decor = 'text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;';
+        }
+        return `<td style="color:${style.color};font-size:11px;font-weight:500;${cursor}${decor}"${onClick}>${style.label}</td>`;
+      }).join('') + '</tr>';
+  }).join('');
+}
+
+async function toggleAttDay(eid, date, currentStatus, autoVal) {
+  // 原始为空：'' → P → A → L → ''（可回到空值）
+  // 原始非空：D/N → A → L → ''（回到原始）  /  P → A → L → ''（回到自动值）
+  let nextStatus;
+  if (autoVal === '' || autoVal === undefined) {
+    const cycle = {'':'P', 'P':'A', 'A':'L', 'L':''};
+    nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
+  } else {
+    const cycle = {'':'P', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A'};
+    nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
+  }
+  try {
+    await authFetch(api('/attendance/toggle'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({employee_id:eid, date, status: nextStatus}),
+    });
+    loadAttendance();
+    document.getElementById('recalcBtn').click();
+  } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+}
+
+// ════════════════════════════════════════════════
+//  配置面板
+// ════════════════════════════════════════════════
+//  源文件上传管理
+// ════════════════════════════════════════════════
+
+const UPLOAD_TYPE_INFO = {
+  main: { label: 'source_upload_main', icon: '🗂' },
+  advance: { label: 'source_upload_advance', icon: '💰' },
+  addressbook: { label: 'source_upload_addressbook', icon: '📋' },
+  nssf: { label: 'source_upload_nssf', icon: '🏦' },
+};
+
+async function loadSourceUploadList() {
+  const container = document.getElementById('sourceUploadList');
+  if (!container) return;
+  try {
+    const res = await fetch(api('/source-info'));
+    const info = await res.json();
+    container.innerHTML = Object.entries(UPLOAD_TYPE_INFO).map(([type, meta]) => {
+      const fname = info[type] || t('source_upload_none');
+      const cls = info[type] ? '' : ' style="color:var(--text-muted);"';
+      const downloadBtn = (type === 'addressbook' && info[type])
+        ? `<a href="${api('/download-source/addressbook')}" class="nav-btn" style="font-size:11px;padding:4px 12px;text-decoration:none;margin-right:4px;" data-i18n="source_upload_download">${t('source_upload_download')}</a>`
+        : '';
+      return `<div class="upload-row" style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <span style="font-size:18px;">${meta.icon}</span>
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:500;" data-i18n="${meta.label}">${t(meta.label)}</div>
+            <div class="upload-fname"${cls} style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;">${escHtml(fname)}</div>
+          </div>
+        </div>
+        <div style="flex-shrink:0;">
+          ${downloadBtn}
+          <input type="file" id="fileInput_${type}" accept=".xlsx" style="display:none;" onchange="handleFileUpload('${type}', this.files[0])">
+          <button onclick="document.getElementById('fileInput_${type}').click()" class="nav-btn admin-only" style="font-size:11px;padding:4px 12px;" data-i18n="source_upload_select">${t('source_upload_select')}</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+async function handleFileUpload(fileType, file) {
+  if (!file) return;
+  const msgEl = document.getElementById('sourceUploadMsg');
+  msgEl.innerHTML = '<span style="color:var(--accent);">' + t('source_upload_uploading') + '</span>';
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('file_type', fileType);
+
+  try {
+    const res = await authFetch(api('/upload-source'), { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.ok) {
+      STATE._empAll = STATE.employees = data.employees;
+      STATE.salaryResult = data.salary;
+      renderDashboard(data.salary);
+      renderSalaryTable(data.salary);
+      renderEmployeeTable();
+      document.getElementById('recalcBtn').disabled = false;
+      loadProductionData();
+      loadSourceInfo();
+      loadSourceUploadList();
+      msgEl.innerHTML = '<span style="color:var(--success);">✓ ' + t('source_upload_success') + '</span>';
+      showToast(t('source_upload_success'));
+    } else {
+      msgEl.innerHTML = '<span style="color:var(--danger);">✗ ' + escHtml(data.error || t('source_upload_fail')) + '</span>';
+    }
+  } catch(e) {
+    msgEl.innerHTML = '<span style="color:var(--danger);">✗ ' + t('source_upload_fail') + '</span>';
+  }
+}
+
+// ════════════════════════════════════════════════
+//  配置
+// ════════════════════════════════════════════════
+async function loadConfig() {
+  try {
+    const res = await fetch(api('/config'));
+    const cfg = await res.json();
+    STATE._config = cfg;
+
+    // 填充输入框
+    document.getElementById('cfg_ug_nh').value = cfg.underground_prices['NICKEL（H）'];
+    document.getElementById('cfg_ug_nl').value = cfg.underground_prices['NICKEL（L）'];
+    document.getElementById('cfg_ug_mw').value = cfg.underground_prices['MAWE'];
+    document.getElementById('cfg_dr_nh').value = cfg.driller_prices['NICKEL（H）'];
+    document.getElementById('cfg_dr_nl').value = cfg.driller_prices['NICKEL（L）'];
+    document.getElementById('cfg_dr_mw').value = cfg.driller_prices['MAWE'];
+    document.getElementById('cfg_nssf').value = cfg.nssf_rate * 100;
+    document.getElementById('cfg_driver_allowance').value = cfg.driver_allowance || 0;
+  } catch(e) {}
+}
+
+let _cfgTimer = null;
+async function saveConfig() {
+  clearTimeout(_cfgTimer);
+  _cfgTimer = setTimeout(async () => {
+    const config = {
+      underground_prices: {
+        'NICKEL（H）': parseInt(document.getElementById('cfg_ug_nh').value) || 6000,
+        'NICKEL（L）': parseInt(document.getElementById('cfg_ug_nl').value) || 5000,
+        'MAWE': parseInt(document.getElementById('cfg_ug_mw').value) || 4000,
+      },
+      driller_prices: {
+        'NICKEL（H）': parseInt(document.getElementById('cfg_dr_nh').value) || 5000,
+        'NICKEL（L）': parseInt(document.getElementById('cfg_dr_nl').value) || 4000,
+        'MAWE': parseInt(document.getElementById('cfg_dr_mw').value) || 3000,
+      },
+      nssf_rate: (parseFloat(document.getElementById('cfg_nssf').value) || 10) / 100,
+      driver_allowance: parseInt(document.getElementById('cfg_driver_allowance').value) || 0,
+    };
+    const res = await authFetch(api('/config'), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(config),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // 自动重新计算
+      document.getElementById('recalcBtn').click();
+      showToast(t('toast_saved'));
+    }
+  }, 500);
+}
+
+async function editDriverAllowance(e) {
+  e.stopPropagation();
+  const da = (STATE._config || {}).driver_allowance || 0;
+  const input = prompt(t('confirm_driver_allowance'), da);
+  if (input === null) return;
+  const val = parseInt(input);
+  if (isNaN(val) || val < 0) { showToast(t('confirm_invalid_number')); return; }
+  // 保持原有 config 不变，仅更新 driver_allowance
+  const config = { ...(STATE._config || {}), driver_allowance: val };
+  const res = await authFetch(api('/config'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    STATE._config = config;
+    // 触发重新计算以更新 total_net
+    document.getElementById('recalcBtn').click();
+    showToast(t('toast_driver_updated'));
+  }
+}
+
+async function resetConfig() {
+  const defaults = {
+    underground_prices: {'NICKEL（H）':6000,'NICKEL（L）':5000,'MAWE':4000},
+    driller_prices: {'NICKEL（H）':5000,'NICKEL（L）':4000,'MAWE':3000},
+    nssf_rate: 0.10,
+    driver_allowance: 0,
+  };
+  await authFetch(api('/config'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(defaults),
+  });
+  loadConfig();
+  document.getElementById('recalcBtn').click();
+  showToast(t('toast_reset_done'));
+}
+
+// ════════════════════════════════════════════════
+//  审计日志
+// ════════════════════════════════════════════════
+async function loadAuditLog() {
+  try {
+    const res = await fetch(api('/audit-log'));
+    const logs = await res.json();
+    const actionLabels = {
+      override_save: t('audit_override_save'),
+      attendance_toggle: t('audit_attendance_toggle'),
+      attendance_reset: t('audit_attendance_reset'),
+      nssf_toggle: t('audit_nssf_toggle'),
+      recalculate: t('audit_recalculate'),
+      reload_source: t('audit_reload_source'),
+      config_update: t('audit_config_update'),
+      bonus_penalty_update: t('audit_bonus_penalty_update'),
+      dismiss_employee: t('audit_dismiss_employee'),
+      restore_employee: t('audit_restore_employee'),
+    };
+    document.getElementById('auditLogBody').innerHTML = logs.map(l => {
+      let detail = '';
+      try { const d = JSON.parse(l.detail);
+        detail = Object.entries(d).map(([k,v]) => `${k}=${v}`).join(' '); } catch(e) { detail = l.detail; }
+      return `<tr>
+        <td style="white-space:nowrap;font-size:10px;color:var(--text-muted)">${l.timestamp}</td>
+        <td style="white-space:nowrap;">${actionLabels[l.action]||l.action}</td>
+        <td style="white-space:nowrap;">${l.employee_id||''}</td>
+        <td style="font-size:10px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;">${escHtml(detail)}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// 标签切换
+document.querySelectorAll('.chart-label-toggle').forEach(cb => {
+  cb.addEventListener('change', function() {
+    const chartId = this.dataset.chart;
+    if (STATE.charts[chartId]) {
+      const show = this.checked;
+      STATE.charts[chartId].options.plugins.datalabels.display = show;
+      STATE.charts[chartId].update();
+    }
+  });
+});
+</script>
+</body>
+</html>
