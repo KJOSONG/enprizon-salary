@@ -3,7 +3,10 @@ __pycache__/
 *.pyc
 .env
 *.log
+data/*.db
 data/*.db-journal
+_work/
 uploads/*
 !uploads/.gitkeep
 .DS_Store
+*.bak.*
