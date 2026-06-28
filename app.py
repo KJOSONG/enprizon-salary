@@ -55,12 +55,40 @@ def login_required(f):
     return decorated
 
 def admin_required(f):
-    """仅允许 admin 角色执行的操作（viewer 不可用）"""
+    """仅允许 admin 及以上角色执行的操作（editor/viewer 不可用）"""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('logged_in'):
             return jsonify({'ok': False, 'error': 'unauthorized', 'need_login': True}), 401
-        if session.get('role') != 'admin':
+        from core.database import ROLE_LEVELS
+        lvl = ROLE_LEVELS.get(session.get('role', ''), 0)
+        if lvl < ROLE_LEVELS['admin']:
+            return jsonify({'ok': False, 'error': 'forbidden', 'need_admin': True}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+def editor_required(f):
+    """仅允许 editor 及以上角色执行的操作（viewer 不可用）"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('logged_in'):
+            return jsonify({'ok': False, 'error': 'unauthorized', 'need_login': True}), 401
+        from core.database import ROLE_LEVELS
+        lvl = ROLE_LEVELS.get(session.get('role', ''), 0)
+        if lvl < ROLE_LEVELS['editor']:
+            return jsonify({'ok': False, 'error': 'forbidden', 'need_admin': True}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+def super_admin_required(f):
+    """仅允许 super_admin 执行的操作"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('logged_in'):
+            return jsonify({'ok': False, 'error': 'unauthorized', 'need_login': True}), 401
+        from core.database import ROLE_LEVELS
+        lvl = ROLE_LEVELS.get(session.get('role', ''), 0)
+        if lvl < ROLE_LEVELS['super_admin']:
             return jsonify({'ok': False, 'error': 'forbidden', 'need_admin': True}), 403
         return f(*args, **kwargs)
     return decorated
@@ -116,6 +144,7 @@ def admin_setup():
     set_admin_password(app.config['DATA_FOLDER'], username, password)
     session['logged_in'] = True
     session['username'] = username
+    session['role'] = 'super_admin'
     _audit('admin_setup', '', json.dumps({'user': username}))
     return jsonify({'ok': True})
 
@@ -133,6 +162,33 @@ def admin_change_password():
     set_admin_password(app.config['DATA_FOLDER'], session['username'], new_password)
     _audit('password_change', '', json.dumps({'user': session['username']}))
     return jsonify({'ok': True})
+
+# ═══════════════════════════════════════════════════════════
+#  API: 用户角色管理（仅 super_admin）
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/admin/users', methods=['GET'])
+@super_admin_required
+def list_users():
+    from core.database import list_all_users
+    users = list_all_users(app.config['DATA_FOLDER'])
+    return jsonify({'ok': True, 'users': users})
+
+@app.route('/admin/users/role', methods=['POST'])
+@super_admin_required
+def update_user_role():
+    from core.database import set_user_role, ROLE_LEVELS
+    data = request.get_json(silent=True) or {}
+    username = data.get('username', '').strip()
+    role = data.get('role', '').strip()
+    if not username or role not in ROLE_LEVELS:
+        return jsonify({'ok': False, 'error': '无效参数'}), 400
+    try:
+        set_user_role(app.config['DATA_FOLDER'], username, role)
+        _audit('role_change', username, json.dumps({'new_role': role}))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
 
 def strip_dept(dept):
     """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门"""
@@ -655,7 +711,7 @@ def upload_source():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/set-month', methods=['POST'])
-@admin_required
+@editor_required
 def set_month():
     """切换月份筛选，始终以当前覆盖重算。无源数据的月份自动进入 Headless 预览模式"""
     data = request.get_json()
@@ -745,7 +801,7 @@ def get_employees():
     return jsonify({'employees': APP_STATE.get('employees', []), 'headless': APP_STATE.get('headless', False)})
 
 @app.route('/employees/override', methods=['POST'])
-@admin_required
+@editor_required
 def save_override():
     data = request.get_json()
     eid = data.get('employee_id', '')
@@ -776,7 +832,7 @@ def save_override():
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-override', methods=['POST'])
-@admin_required
+@editor_required
 def remove_override():
     data = request.get_json()
     from core.exceptions import remove_override
@@ -784,7 +840,7 @@ def remove_override():
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-temp-override', methods=['POST'])
-@admin_required
+@editor_required
 def remove_temp_override():
     """删除指定员工的所有临时例外（有日期区间的 override），由薪资页面备注管理触发"""
     data = request.get_json()
@@ -801,7 +857,7 @@ def remove_temp_override():
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-override-by-id', methods=['POST'])
-@admin_required
+@editor_required
 def remove_override_by_id():
     """按数据库 ID 删除单条覆盖记录"""
     data = request.get_json()
@@ -818,7 +874,7 @@ def remove_override_by_id():
     return jsonify({'ok': True})
 
 @app.route('/employees/bonus-penalty', methods=['POST'])
-@admin_required
+@editor_required
 def save_bonus_penalty():
     """保存单个员工的奖金/罚款（当月独立）"""
     import json as _json
@@ -849,7 +905,7 @@ def get_dismissed_employees():
     return jsonify(dismissed)
 
 @app.route('/employees/dismiss', methods=['POST'])
-@admin_required
+@editor_required
 def dismiss_employee_api():
     """标记员工为离职（从列表中隐藏，可恢复）"""
     import json as _json
@@ -866,7 +922,7 @@ def dismiss_employee_api():
     return jsonify({'ok': True})
 
 @app.route('/employees/restore', methods=['POST'])
-@admin_required
+@editor_required
 def restore_employee_api():
     """恢复已离职员工"""
     data = request.get_json()
@@ -897,7 +953,7 @@ def get_nssf_list():
     })
 
 @app.route('/nssf/toggle', methods=['POST'])
-@admin_required
+@editor_required
 def toggle_nssf():
     """切换某人的 NSSF 参保状态"""
     data = request.get_json()
@@ -1273,7 +1329,7 @@ def get_attendance():
 
 
 @app.route('/attendance/toggle', methods=['POST'])
-@admin_required
+@editor_required
 def toggle_attendance():
     """手动标��某人某天的状态：P出勤 A旷工 L请假"""
     import json as _json
@@ -2112,9 +2168,11 @@ def find_free_port(start=8080, max_try=100):
     return start
 
 def _ensure_viewer_account():
-    """确保 viewer 账号存在（不存在则自动创建）"""
+    """确保默认账号存在 + KEJU 为 super_admin"""
     from core.database import get_conn, _hash_password
     conn = get_conn(app.config['DATA_FOLDER'])
+
+    # user 账号（viewer 角色）
     existing = conn.execute("SELECT username FROM admin_users WHERE username='user'").fetchone()
     if not existing:
         pwd_hash = _hash_password('qweasd')
@@ -2124,6 +2182,15 @@ def _ensure_viewer_account():
         )
         conn.commit()
         print('  ✓ 已创建 viewer 账号 (user / qweasd)')
+    else:
+        # 修正已存在的 user 角色为 viewer
+        conn.execute("UPDATE admin_users SET role='viewer' WHERE username='user' AND role!='viewer'")
+        conn.commit()
+
+    # KEJU 升级为 super_admin
+    conn.execute("UPDATE admin_users SET role='super_admin' WHERE username='KEJU' AND role!='super_admin'")
+    conn.commit()
+
     conn.close()
 
 def auto_load_source():
