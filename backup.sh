@@ -1,24 +1,17 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════
-# ENPRIZON LINDI PROJECT — 一键备份脚本（覆盖模式）
+# Enprizon Salary — 数据库自动备份脚本
 # ═══════════════════════════════════════════════
 set -e
 
-BACKUP_DIR="${1:-$HOME/Desktop/enprizon_backups}"
-DB_FILE="$HOME/WorkBuddy/kilwa-system/data/kilwa.db"
+BACKUP_DIR="/root/salary-backup"
+DB="/root/enprizon-salary/data/kilwa.db"
+DATE=$(date +%Y%m%d)
 
-mkdir -p "$BACKUP_DIR"
+# 备份数据库
+cp "$DB" "$BACKUP_DIR/kilwa.$DATE.db"
 
-echo "📦 正在备份 ENPRIZON LINDI PROJECT..."
+# 删除30天前的旧备份
+find "$BACKUP_DIR" -name 'kilwa.*.db' -mtime +30 -delete
 
-if [ -f "$DB_FILE" ]; then
-    cp "$DB_FILE" "$BACKUP_DIR/kilwa_latest.db"
-    echo "   ✅ 数据库已备份: kilwa_latest.db ($(du -h "$DB_FILE" | cut -f1))"
-else
-    echo "   ⚠️  未找到数据库文件，无法备份"
-    exit 1
-fi
-
-echo ""
-echo "✅ 备份完成！路径: $BACKUP_DIR"
-echo "   恢复命令: cp $BACKUP_DIR/kilwa_latest.db $HOME/WorkBuddy/kilwa-system/data/kilwa.db"
+echo "薪资系统备份完成: $DATE  |  数据库: $(du -sh $BACKUP_DIR/kilwa.$DATE.db | cut -f1)"

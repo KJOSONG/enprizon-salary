@@ -370,11 +370,14 @@ def delete_attendance_override(data_folder, employee_id, date):
 # ── 审计日志 ──────────────────────────────────
 
 def log_audit(data_folder, action, employee_id='', detail='{}'):
-    """写入一条审计日志"""
+    """写入一条审计日志（UTC+3 坦桑尼亚时间）"""
+    from datetime import datetime, timezone, timedelta
+    tz_tz = timezone(timedelta(hours=3))
+    now = datetime.now(tz_tz).strftime('%Y-%m-%d %H:%M:%S')
     conn = get_conn(data_folder)
     conn.execute(
-        "INSERT INTO audit_log (action, employee_id, detail) VALUES (?,?,?)",
-        (action, employee_id, detail)
+        "INSERT INTO audit_log (timestamp, action, employee_id, detail) VALUES (?,?,?,?)",
+        (now, action, employee_id, detail)
     )
     conn.commit()
     conn.close()
@@ -564,11 +567,29 @@ def _verify_password(password, stored_hash):
     return hashlib.sha256((salt + password).encode()).hexdigest() == h
 
 def get_user_role(data_folder, username):
-    """返回用户的角色: 'admin' | 'viewer' | None"""
+    """返回用户的角色: 'super_admin' | 'admin' | 'editor' | 'viewer' | None"""
     conn = get_conn(data_folder)
     row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
     conn.close()
     return row['role'] if row else None
+
+ROLE_LEVELS = {'super_admin': 3, 'admin': 2, 'editor': 1, 'viewer': 0}
+
+def list_all_users(data_folder):
+    """返回所有用户列表 [{username, role, created_at}]"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("SELECT username, role, created_at FROM admin_users ORDER BY created_at").fetchall()
+    conn.close()
+    return [{'username': r['username'], 'role': r['role'], 'created_at': r['created_at']} for r in rows]
+
+def set_user_role(data_folder, username, role):
+    """修改用户角色"""
+    if role not in ROLE_LEVELS:
+        raise ValueError(f'未知角色: {role}')
+    conn = get_conn(data_folder)
+    conn.execute("UPDATE admin_users SET role=? WHERE username=?", (role, username))
+    conn.commit()
+    conn.close()
 
 def set_admin_password(data_folder, username, password):
     conn = get_conn(data_folder)

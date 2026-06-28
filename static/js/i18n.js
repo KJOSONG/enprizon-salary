@@ -232,6 +232,18 @@ const I18N_DICT = {
     source_upload_fail: '上传失败',
     source_upload_uploading: '上传中...',
 
+    /* ── 用户权限管理 ── */
+    user_mgmt_title: '用户权限管理',
+    user_mgmt_desc: '设置各用户的角色和操作权限',
+    user_mgmt_th_username: '用户名',
+    user_mgmt_th_role: '角色',
+    user_mgmt_th_actions: '操作',
+    user_mgmt_saved: '已保存',
+    role_super_admin: '超级管理员',
+    role_admin: '管理员',
+    role_editor: '编辑员',
+    role_viewer: '访客',
+
     /* ── Toast ── */
     toast_calc_done: '计算完成',
     toast_load_fail: '加载失败: ',
@@ -567,6 +579,18 @@ const I18N_DICT = {
     source_upload_success: 'Uploaded and data reloaded',
     source_upload_fail: 'Upload failed',
     source_upload_uploading: 'Uploading...',
+
+    /* ── User Permission Management ── */
+    user_mgmt_title: 'User Permission Management',
+    user_mgmt_desc: 'Set role and permissions for each user',
+    user_mgmt_th_username: 'Username',
+    user_mgmt_th_role: 'Role',
+    user_mgmt_th_actions: 'Actions',
+    user_mgmt_saved: 'Saved',
+    role_super_admin: 'Super Admin',
+    role_admin: 'Admin',
+    role_editor: 'Editor',
+    role_viewer: 'Viewer',
 
     /* ── Toast ── */
     toast_calc_done: 'Calculation complete',
