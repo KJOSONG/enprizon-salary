@@ -1063,7 +1063,10 @@ def verify_salary():
         return jsonify({'error': '数据尚未就绪，请先加载源文件并执行计算'}), 400
 
     try:
-        result = do_verify(main_data, salary_result, PRICES_UNDERGROUND, PRICES_DRILLER)
+        config = APP_STATE.get('config') or {}
+        up = config.get('underground_prices') or PRICES_UNDERGROUND
+        dp = config.get('driller_prices') or PRICES_DRILLER
+        result = do_verify(main_data, salary_result, up, dp)
         return jsonify({'ok': True, 'data': result})
     except Exception as e:
         return jsonify({'error': f'核对失败: {str(e)}'}), 500
@@ -1424,16 +1427,8 @@ def export_salary():
     ws.cell(total_row, 1, '合计').font = Font(bold=True, size=11)
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
-    # 井下(C3), 钻工(D4) → 使用后端汇总值（用于核验）
-    ws.cell(total_row, 3, int(result.get('total_piece_underground', 0))).font = Font(bold=True)
-    ws.cell(total_row, 3).fill = total_fill; ws.cell(total_row, 3).border = thin_border
-    ws.cell(total_row, 3).number_format = '#,##0'
-    ws.cell(total_row, 4, int(result.get('total_piece_driller', 0))).font = Font(bold=True)
-    ws.cell(total_row, 4).fill = total_fill; ws.cell(total_row, 4).border = thin_border
-    ws.cell(total_row, 4).number_format = '#,##0'
-
-    # 日薪(E5), 月薪(F6), 应发(G7), 奖金(H8), 罚款(I9), 预支(J10), NSSF(K11) → SUM公式
-    for ci in [5, 6, 7, 8, 9, 10, 11]:
+    # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM公式
+    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11]:
         letter = chr(64 + ci)
         cell = ws.cell(total_row, ci, f'=SUM({letter}2:{letter}{total_row-1})')
         cell.font = Font(bold=True); cell.fill = total_fill; cell.border = thin_border
@@ -1802,13 +1797,8 @@ def export_all():
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, '合计').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
-        # 井下(C3), 钻工(D4)
-        for ci, key in [(3, 'total_piece_underground'), (4, 'total_piece_driller')]:
-            ws2.cell(tr, ci, int(result.get(key, 0))).font = Font(bold=True)
-            ws2.cell(tr, ci).fill = total_fill; ws2.cell(tr, ci).border = tb
-            ws2.cell(tr, ci).number_format = '#,##0'
-        # 日薪/月薪/应发/奖金/罚款/预支/NSSF → SUM
-        for ci in [5, 6, 7, 8, 9, 10, 11]:
+        # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM
+        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
