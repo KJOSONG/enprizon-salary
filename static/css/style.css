@@ -208,6 +208,24 @@ body {
   box-shadow: none;
 }
 
+/* ── 出勤保存按钮脏状态高亮 ── */
+.att-save-dirty {
+  animation: attBtnPulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.5) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+}
+
+@keyframes attBtnPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.7); }
+}
+
+.att-save-dirty:disabled {
+  animation: none;
+  box-shadow: none !important;
+  opacity: 0.4;
+}
+
 /* ── 语言切换按钮 ── */
 .lang-toggle-group {
   display: flex;

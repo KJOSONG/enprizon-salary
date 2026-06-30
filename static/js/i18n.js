@@ -137,7 +137,10 @@ const I18N_DICT = {
     att_all: '全部',
     att_search_ph: '搜索姓名...',
     att_reset: '↺ 复位',
-    att_legend: 'D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 黄色虚线=月薪默认更改',
+    att_save_btn: '保存并计算',
+    att_save_btn_loading: '保存中...',
+    att_unsaved: '有未保存的修改',
+    att_legend: 'D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 ��色虚线=月薪默认更改',
     shift_D_label: 'D',
     shift_N_label: 'N',
     shift_B_label: 'B',
@@ -485,6 +488,9 @@ const I18N_DICT = {
     att_all: 'All',
     att_search_ph: 'Search name...',
     att_reset: '↺ Reset',
+    att_save_btn: 'Save & Calculate',
+    att_save_btn_loading: 'Saving...',
+    att_unsaved: 'Unsaved changes',
     att_legend: 'D=Day N=Night B=Both P=Present A=Absent L=Leave (P)=Monthly Default Dashed underline=Manual change Yellow dashed=Monthly default change',
     shift_D_label: 'D',
     shift_N_label: 'N',
@@ -814,6 +820,11 @@ function switchLang(lang) {
   const recalcBtn = document.getElementById('recalcBtn');
   if (recalcBtn && !recalcBtn.disabled) {
     recalcBtn.textContent = t('btn_recalc');
+  }
+  /* 更新出勤保存按钮文字 */
+  const attSaveBtn = document.getElementById('attSaveBtn');
+  if (attSaveBtn && !attSaveBtn.disabled) {
+    attSaveBtn.textContent = t('att_save_btn');
   }
 
   /* 重新渲染产量核验表 */

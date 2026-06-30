@@ -403,7 +403,10 @@
           <option value="月薪" data-i18n="emp_monthly">月薪</option>
         </select>
       </div>
-      <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 黄色虚线=月薪默认更改</span>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="attSaveBtn" class="editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" style="display:none;padding:6px 16px;background:var(--accent-gradient);color:white;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all var(--transition-normal);">保存并计算</button>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 黄色虚线=月薪默认更改</span>
+      </div>
     </div>
     <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
       <table class="data-table" id="attTable" style="font-size:12px;" translate="no">
@@ -608,6 +611,7 @@ const STATE = {
   currentOverrideEmp: null,
   currentExcludeEmp: null,
   _empAll: [],
+  _attendanceDirty: false,
 };
 
 // ════════════════════════════════════════════════
@@ -676,11 +680,15 @@ function updateAuthUI() {
   const roleLevels = { super_admin: 3, admin: 2, editor: 1, viewer: 0 };
   const userLevel = roleLevels[_authState.role] || 0;
   const isAdmin = userLevel >= 2;
+  const isEditor = userLevel >= 1;
   const isSuperAdmin = userLevel >= 3;
   const recalcBtn = document.getElementById('recalcBtn');
   if (recalcBtn) recalcBtn.style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('.admin-only').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
+  });
+  document.querySelectorAll('.editor-only').forEach(el => {
+    el.style.display = isEditor ? '' : 'none';
   });
   // 配置页输入框只读
   document.querySelectorAll('.cfg-input').forEach(el => {
@@ -2053,6 +2061,7 @@ async function loadAttendance() {
     // Headless banner
     const banner = document.getElementById('headlessBannerAtt');
     if (banner) banner.style.display = STATE._headless ? 'block' : 'none';
+    STATE._attendanceDirty = false;
     renderAttendance();
   } catch(e) {}
 }
@@ -2105,9 +2114,22 @@ function renderAttendance() {
         } else if (isChanged) {
           decor = 'text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;';
         }
-        return `<td style="color:${style.color};font-size:11px;font-weight:500;${cursor}${decor}"${onClick}>${style.label}</td>`;
+        let dirtyCell = '';
+        if (STATE._attendanceDirty && isChanged && isEditable) {
+          dirtyCell = 'box-shadow:inset 0 0 0 2px rgba(245,158,11,0.5);background:rgba(245,158,11,0.06);';
+        }
+        return `<td style="color:${style.color};font-size:11px;font-weight:500;${cursor}${decor}${dirtyCell}"${onClick}>${style.label}</td>`;
       }).join('') + '</tr>';
   }).join('');
+  // 脏状态时高亮保存按钮
+  const saveBtn = document.getElementById('attSaveBtn');
+  if (saveBtn) {
+    if (STATE._attendanceDirty) {
+      saveBtn.classList.add('att-save-dirty');
+    } else {
+      saveBtn.classList.remove('att-save-dirty');
+    }
+  }
 }
 
 async function toggleAttDay(eid, date, currentStatus, autoVal) {
@@ -2126,9 +2148,34 @@ async function toggleAttDay(eid, date, currentStatus, autoVal) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({employee_id:eid, date, status: nextStatus}),
     });
-    loadAttendance();
-    document.getElementById('recalcBtn').click();
+    const data = STATE.attendanceData;
+    if (data && data.rows) {
+      const row = data.rows.find(r => r.id === eid);
+      if (row) {
+        row.days[date] = nextStatus;
+      }
+    }
+    STATE._attendanceDirty = true;
+    renderAttendance();
   } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+}
+
+async function saveAttendance() {
+  const btn = document.getElementById('attSaveBtn');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = t('att_save_btn_loading');
+  try {
+    await loadAttendance();
+    await recalculate();
+  } catch(e) {
+    showToast(t('toast_operation_fail'), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+    renderAttendance();
+  }
 }
 
 // ════════════════════════════════════════════════
