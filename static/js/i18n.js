@@ -131,6 +131,8 @@ const I18N_DICT = {
     dw_no_data: '无数据',
     dw_shift_col: '班次▼',
     dw_shift_all: '全',
+    dw_salary_gross: '薪资应发',
+    dw_verify: '核对',
 
     /* ── 出勤 ── */
     att_title: '出勤网格',
@@ -482,6 +484,8 @@ const I18N_DICT = {
     dw_no_data: 'No Data',
     dw_shift_col: 'Shift▼',
     dw_shift_all: 'All',
+    dw_salary_gross: 'Salary Gross',
+    dw_verify: 'Verify',
 
     /* ── Attendance ── */
     att_title: 'Attendance Grid',

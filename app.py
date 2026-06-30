@@ -1238,6 +1238,14 @@ def get_attendance():
         list(set(d.get('date', '') for d in attendance_data)) +
         list(md.get('dates', []))
     ))
+    # 补全当月全部自然日（确保没有数据时也能看到所有日期）
+    if all_dates:
+        from calendar import monthrange
+        ym = all_dates[0][:7]
+        if ym and len(ym) == 7:
+            y, m = int(ym[:4]), int(ym[5:7])
+            _, last_day = monthrange(y, m)
+            all_dates = sorted(set(all_dates) | set(f"{ym}-{d:02d}" for d in range(1, last_day + 1)))
 
     # 收集每人每天的状态（原始来源）
     day_status = defaultdict(dict)
