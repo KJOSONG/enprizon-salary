@@ -738,13 +738,6 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 conn3.close()
                 for r in p_rows:
                     present_dates.add(r[0])
-            # 顶层部门（无子部门归属）的员工默认全勤
-            if emp.get('_full_attendance') and month_prefix:
-                from datetime import datetime as _dtfd, timedelta as _tdfd
-                _fd_start = _dtfd.strptime(month_prefix + '-01', '%Y-%m-%d')
-                for _i in range(calendar_days_global):
-                    _fd = _fd_start + _tdfd(days=_i)
-                    present_dates.add(_fd.strftime('%Y-%m-%d'))
             # 临时例外中切换为计件的日期（这些天拿计件工资）
             piece_dates_set = set()
             if eid in has_date_range:
@@ -1086,9 +1079,6 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                             _present.add(r[0])
                         conn_p.close()
                 # 顶层部门（无子部门归属）的员工默认��勤
-                if emp.get('_full_attendance') and _ym:
-                    _present = set(ms_dates)
-                # 统计计件覆盖天数
                 _pds = set()
                 if eid in overrides:
                     for o in overrides[eid]:
