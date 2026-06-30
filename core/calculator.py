@@ -642,11 +642,11 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
     for emp in employees:
         eid = emp['id']
-        default_type = emp['default_type']
+        eff_type = emp.get('override_type') or emp['default_type']
         pu = pd_val = dr_total = ms_total = 0.0
 
         for dt in final_dates:
-            dtype = per_date_type.get(eid, {}).get(dt, default_type)
+            dtype = per_date_type.get(eid, {}).get(dt, eff_type)
             absent = att_overrides.get((eid, dt)) in ('A', 'L')
 
             if dtype == 'piece_underground' and not absent:
@@ -692,7 +692,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 })
 
         result_employees.append({
-            'employee_id': eid, 'name': emp['name'], 'salary_type': default_type,
+            'employee_id': eid, 'name': emp['name'], 'salary_type': eff_type,
             'piece_underground': pu, 'piece_driller': pd_val,
             'day_rate': dr_total, 'monthly': ms_total,
             'gross': gross, 'bonus': bonus, 'penalty': penalty,
@@ -943,7 +943,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if not _ym or base <= 0: continue
             per_day = base / _cal_days
             for dt in sorted(ms_dates_set):
-                dtype = per_date_type.get(eid, {}).get(dt, emp_map.get(eid, {}).get('default_type', ''))
+                dtype = per_date_type.get(eid, {}).get(dt, emp_map.get(eid, {}).get('override_type') or emp_map.get(eid, {}).get('default_type', ''))
                 if dtype == 'monthly' and dt in present[eid]:
                     ms_daily[eid][dt] += per_day
 
@@ -954,7 +954,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         result = {}
         for emp in employees:
             eid = emp['id']
-            eff = emp['default_type']
+            eff = emp.get('override_type') or emp['default_type']
             if eid in overrides:
                 for o in overrides[eid]:
                     if not (o.get('start_date') or o.get('end_date')) and o.get('salary_type') in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
