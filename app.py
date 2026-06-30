@@ -391,6 +391,16 @@ def _run_pipeline(files, month_filter=None):
                 })
                 existing_ids.add(eid)
 
+    # ── 顶层部门人员（仅通讯录中存在但不在主数据/预支中的人，不设默认全勤）──
+    for eid, info in address_book.items():
+        if eid not in existing_ids and info.get("department") == "ENPRIZON LINDI PROJECT":
+            employees.append({
+                "id": eid, "name": info["name"], "default_type": "day_rate",
+                "source": "top_department", "override_type": None, "overrides": [],
+                "day_rate": 0, "monthly_salary": 0,
+                "advance_total": advance_data.get(eid, {}).get("total", 0) if advance_data else 0,
+                "department": "ENPRIZON LINDI PROJECT", "phone": info.get("phone", ""),
+            })
 
     # ── 硬排除过滤 ──
     employees = [e for e in employees if e['id'] not in HARD_EXCLUDE_IDS]
@@ -1318,15 +1328,11 @@ def get_attendance():
                 origin_row[dt] = 'manual'
             else:
                 auto_val = day_status.get(eid, {}).get(dt, '')
-                # 月薪没数据的默认为P
-                if not auto_val and (emp.get('default_type') == 'monthly' or emp.get('override_type') == 'monthly'):
-                    auto_val = 'P'
                 status_row[dt] = auto_val
                 origin_row[dt] = 'auto' if auto_val else ''
             # 原始自动值（用于前端判断是否与手动不同）
             raw_auto = day_status.get(eid, {}).get(dt, '')
-            if not raw_auto and (emp.get('default_type') == 'monthly' or emp.get('override_type') == 'monthly'):
-                raw_auto = '(P)'
+
             auto_row[dt] = raw_auto
 
         rows.append({
