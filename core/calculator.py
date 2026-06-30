@@ -601,14 +601,23 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 list(driller_daily.get(eid, {}).keys())
             ))
             pu = pd = 0
+            piece_days = 0
             ug_ed = ug_daily.get(eid, {})
             dr_ed = driller_daily.get(eid, {})
             for dt in all_dt:
                 dtype = dt_map.get(dt, default)
                 if dtype == 'piece_underground':
                     pu += round(ug_ed.get(dt, 0))
+                    piece_days += 1
                 elif dtype == 'piece_driller':
                     pd += round(dr_ed.get(dt, 0))
+                    piece_days += 1
+            # 永久月薪 + 临时计件例外：月薪按比例扣减计件覆盖天数，避免重复计酬
+            if piece_days > 0 and effective_type == 'monthly' and ms > 0:
+                _wd_set = set(d['date'] for d in list(shift_data) + list(attendance_data) if d.get('date'))
+                _total_wd = len(_wd_set) or 30
+                _ratio = max(0, _total_wd - piece_days) / _total_wd
+                ms = round(ms * _ratio)
             # 日期区间覆盖涉及 day_rate/monthly 时，零化对方轨道
             _has_dr_date_range = any(
                 o.get('salary_type') == 'day_rate' and (o.get('start_date') or o.get('end_date'))
