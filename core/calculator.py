@@ -507,6 +507,31 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         if end and dt > end: continue
                         date_type_map[eid][dt] = st
 
+        # 对于有临时计件例外的员工，排除无出勤记录的日期
+        for eid in has_date_range:
+            dt_map = date_type_map.get(eid, {})
+            for dt, dtype in dt_map.items():
+                if dtype in ('piece_underground', 'piece_driller'):
+                    # 检查 shift_production 中当天是否有此员工
+                    in_shift = False
+                    for d in shift_data:
+                        if d.get('date') == dt:
+                            for emp in d.get('day_emps', []) + d.get('night_emps', []):
+                                if emp.get('employee_id') == eid:
+                                    in_shift = True; break
+                            if in_shift: break
+                    # 检查 attendance 中当天是否有此员工
+                    in_att = False
+                    if not in_shift:
+                        for d in attendance_data:
+                            if d.get('date') == dt:
+                                for emp in d.get('normal', []):
+                                    if emp.get('employee_id') == eid:
+                                        in_att = True; break
+                                if in_att: break
+                    if not in_shift and not in_att:
+                        att_exclusions.add((eid, dt))
+
         # 合并计件排除 + 出勤排除 + 日期区间排除
         combined_exclusions = exclusions | att_exclusions | range_exclusions
 
