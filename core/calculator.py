@@ -526,7 +526,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         for d in attendance_data:
                             if d.get('date') == dt:
                                 for emp in d.get('normal', []):
-                                    if emp.get('employee_id') == eid:
+                                    if (emp.get('employee_id') if isinstance(emp, dict) else emp) == eid:
                                         in_att = True; break
                                 if in_att: break
                     if not in_shift and not in_att:
