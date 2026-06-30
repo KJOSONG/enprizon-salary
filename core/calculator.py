@@ -647,22 +647,25 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             piece_days_for_ms = 0
             if eid in has_date_range:
                 dt_map = date_type_map.get(eid, {})
-                piece_days_for_ms = sum(1 for dtype in dt_map.values() if dtype in ('piece_underground', 'piece_driller'))
-            # 统计 A/L 天数
+                piece_dates_set = set(dt for dt, dtype in dt_map.items() if dtype in ('piece_underground', 'piece_driller'))
+                piece_days_for_ms = len(piece_dates_set)
+            # 统计 A/L 天数（含具体日期，用于与计件日取并集）
             absent_days = 0
+            absent_dates_set = set()
             if data_folder and os.path.exists(os.path.join(data_folder, 'kilwa.db')) and month_prefix:
                 import sqlite3
                 conn2 = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
-                abs_rows = conn2.execute(
-                    "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND status IN ('A','L') AND date LIKE ?",
+                abs_date_rows = conn2.execute(
+                    "SELECT date FROM attendance_overrides WHERE employee_id=? AND status IN ('A','L') AND date LIKE ?",
                     (eid, month_prefix + '%')
-                ).fetchone()
+                ).fetchall()
                 conn2.close()
-                if abs_rows and abs_rows[0] > 0:
-                    absent_days = abs_rows[0]
-            # 统一扣减
+                absent_dates_set = set(r[0] for r in abs_date_rows)
+                absent_days = len(absent_dates_set)
+            # 统一扣减：取计件日与缺勤日的并集，防止重叠时双重扣除
             if piece_days_for_ms > 0 or absent_days > 0:
-                paid_days = max(0, calendar_days - piece_days_for_ms - absent_days)
+                all_excluded = piece_dates_set | absent_dates_set
+                paid_days = max(0, calendar_days - len(all_excluded))
                 ms = round(ms * paid_days / calendar_days)
 
         gross = pu + pd + dr + ms
@@ -948,41 +951,44 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         ms_absent[r[0]].add(r[1])
                 except: pass
                 conn.close()
-        # 构建与 calculate_all 对齐的 adjusted month_sal（含 A/L 比例扣减）
+        # 构建与 calculate_all 对齐的 adjusted month_sal（含计件+缺勤比例扣减）
         adjusted_month_sal = {}
+        piece_days_for_emp = {}  # {eid: set of piecework dates}
         for eid, base_total in month_sal.items():
             emp = emp_map.get(eid)
             if emp:
                 eff_type = emp.get('override_type') or emp.get('default_type', '')
+                # 统计计件覆盖天数
+                _pds = set()
+                if eid in overrides:
+                    for o in overrides[eid]:
+                        st = o.get('salary_type', '')
+                        s = o.get('start_date', '') or ''
+                        e = o.get('end_date', '') or ''
+                        if st in ('piece_underground', 'piece_driller') and (s or e):
+                            for dt in ms_dates:
+                                if (not s or dt >= s) and (not e or dt <= e):
+                                    _pds.add(dt)
+                piece_days_for_emp[eid] = _pds
                 if eff_type == 'monthly' and base_total > 0 and _ym:
-                    # 完全复用 calculate_all 的 A/L 扣减逻辑
-                    absent_in_data = 0
-                    if data_folder:
-                        import sqlite3 as _sq3b, os as _osb
-                        _dbp2 = _osb.path.join(data_folder, 'kilwa.db')
-                        if _osb.path.exists(_dbp2):
-                            _conn2 = _sq3b.connect(_dbp2)
-                            try:
-                                _abs = _conn2.execute(
-                                    "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND status IN ('A','L') AND date LIKE ?",
-                                    (eid, _ym + '%')
-                                ).fetchone()
-                                if _abs: absent_in_data = _abs[0]
-                            except: pass
-                            _conn2.close()
-                    if absent_in_data > 0:
-                        _ratio = max(0, (_calendar_days - absent_in_data) / _calendar_days)
-                        base_total = round(base_total * _ratio)
+                    # 计件日与缺勤日取并集（防止重叠双重扣除）
+                    _absent_set = ms_absent.get(eid, set()) & ms_dates
+                    _all_excluded = _pds | _absent_set
+                    if _all_excluded:
+                        _paid_days = max(0, _calendar_days - len(_all_excluded))
+                        base_total = round(base_total * _paid_days / _calendar_days)
             adjusted_month_sal[eid] = base_total
-        # 按自然月日历均摊（A/L 日 = 0）
+        # 按自然月日历均摊（A/L 日、计件日 = 0）
         for eid, total in adjusted_month_sal.items():
-            absent_days = len(ms_absent.get(eid, set()) & ms_dates)
-            adj_days = max(len(ms_dates) - absent_days, 1)
+            absent_days_set = ms_absent.get(eid, set()) & ms_dates
+            piece_days_set = piece_days_for_emp.get(eid, set())
+            all_excluded = absent_days_set | piece_days_set  # 取并集防止双重扣减
+            adj_days = max(len(ms_dates) - len(all_excluded), 1)
             per_base = total // adj_days
             remainder = total % adj_days
             day_idx = 0
             for dt in sorted(ms_dates):
-                if dt in ms_absent.get(eid, set()):
+                if dt in all_excluded:
                     ms_daily[eid][dt] = 0
                 else:
                     extra = 1 if day_idx < remainder else 0
