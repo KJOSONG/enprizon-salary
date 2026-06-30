@@ -1328,10 +1328,16 @@ def get_attendance():
                 origin_row[dt] = 'manual'
             else:
                 auto_val = day_status.get(eid, {}).get(dt, '')
+                # 顶层部门月薪人员：数据为空时默认全勤
+                if not auto_val and emp.get('department') == 'ENPRIZON LINDI PROJECT' and (emp.get('override_type') == 'monthly' or emp.get('default_type') == 'monthly'):
+                    auto_val = 'P'
                 status_row[dt] = auto_val
                 origin_row[dt] = 'auto' if auto_val else ''
             # 原始自动值（用于前端判断是否与手动不同）
             raw_auto = day_status.get(eid, {}).get(dt, '')
+            # 顶层部门月薪人员：标记(P)显示灰色背景
+            if not raw_auto and emp.get('department') == 'ENPRIZON LINDI PROJECT' and (emp.get('override_type') == 'monthly' or emp.get('default_type') == 'monthly'):
+                raw_auto = '(P)'
 
             auto_row[dt] = raw_auto
 
