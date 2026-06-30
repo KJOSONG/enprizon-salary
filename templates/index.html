@@ -1827,7 +1827,7 @@ function renderDailyWages() {
       let style = '';
       if (isOverridden) {
         style = 'text-decoration:underline;text-decoration-style:dashed;text-underline-offset:3px;text-decoration-color:#F59E0B;';
-      } else if (isMonthly) {
+      } else if (isMonthly && e.department === 'ENPRIZON LINDI PROJECT') {
         style = 'color:var(--text-dim);';
       }
       let label = amt > 0 ? fmtNum(amt) : '-';
