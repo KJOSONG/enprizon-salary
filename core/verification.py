@@ -251,6 +251,7 @@ def _build_daily_comparison(production_data, path2_daily, prices, track):
     track: 'underground' | 'driller'
     返回: [{date, path1, path2, diff}, ...]
     """
+    SHORT_KEY_MAP = {'nh': 'NICKEL（H）', 'nl': 'NICKEL（L）', 'mw': 'MAWE'}
     # 路径一按日汇总
     path1_by_date = defaultdict(float)
     if track == 'underground':
@@ -262,12 +263,19 @@ def _build_daily_comparison(production_data, path2_daily, prices, track):
                 path1_by_date[dt] += sum((dp.get(k, 0) or 0) * prices.get(k, 0) for k in prices)
             if np:
                 path1_by_date[dt] += sum((np.get(k, 0) or 0) * prices.get(k, 0) for k in prices)
-    else:  # driller
+    else:  # driller — 按(日期,队长)分组合并多slot，避免重复计算
+        dr_groups = defaultdict(lambda: {'nh': 0, 'nl': 0, 'mw': 0})
         for d in production_data:
             dt = d.get('date', '')
+            key = (dt, d.get('captain', ''))
+            dr_groups[key]['nh'] += d.get('nh', 0) or 0
+            dr_groups[key]['nl'] += d.get('nl', 0) or 0
+            dr_groups[key]['mw'] += d.get('mw', 0) or 0
+        for (dt, _cap), g in dr_groups.items():
             total = 0
-            for short_k, long_k in [('nh', 'NICKEL（H）'), ('nl', 'NICKEL（L）'), ('mw', 'MAWE')]:
-                total += (d.get(short_k, 0) or 0) * prices.get(long_k, 0)
+            for short_k in ['nh', 'nl', 'mw']:
+                price_k = SHORT_KEY_MAP[short_k]
+                total += g[short_k] * prices.get(price_k, 0)
             path1_by_date[dt] += total
 
     # 合并所有日期
