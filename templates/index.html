@@ -1449,10 +1449,8 @@ async function recalculate() {
     renderSalaryTable(data.result);
     renderDashboard(data.result);
     loadProductionData();
-    // 日工资页面联动：如当前在日工资标签页，自动刷新
-    if (document.getElementById('page-dailywages').classList.contains('active')) {
-      loadDailyWages();
-    }
+    // 日工资页面联动：出勤变更后清除缓存，确保下次打开强制刷新
+    STATE._dailyWages = null;
     showToast(t('toast_calc_done'));
   } finally { btn.disabled=false; btn.textContent=t('btn_recalc'); }
 }
@@ -2194,6 +2192,7 @@ async function saveAttendance() {
   try {
     await loadAttendance();
     await recalculate();
+    STATE._dailyWages = null;
   } catch(e) {
     showToast(t('toast_operation_fail'), 'error');
   } finally {
