@@ -8,6 +8,7 @@
 from collections import defaultdict
 from calendar import monthrange
 from datetime import datetime, date
+import os
 from .namematch import canonical, make_employee_id, is_driller_leader, DRILLER_LEADERS
 
 # ── 单价 ─────────────────────────────────────────────────
@@ -31,7 +32,6 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
     result = defaultdict(float)
     daily = defaultdict(lambda: defaultdict(float))
     daily_shifts = defaultdict(lambda: defaultdict(set))  # daily_shifts[eid][date] = {'D','N'}
-    total_production = defaultdict(float)
 
     # 加载手动加入计件分配（从 overrides 表读取，展开日期区间）
     shift_adds = {}
@@ -54,6 +54,15 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
             except: pass
             conn.close()
 
+    # 构建出勤日集合（用于过滤临时例外中的空出勤日期——原始出勤为空且无手动覆盖则不纳入分配）
+    attendance_pairs = set()
+    for day in shift_data:
+        dt = day.get('date', '')
+        for e in day.get('day_emps', []) + day.get('night_emps', []):
+            eid_check = make_employee_id(e)
+            if eid_check:
+                attendance_pairs.add((eid_check, dt))
+
     for day in shift_data:
         date_str = day['date']
         day_emps = day.get('day_emps', [])
@@ -74,10 +83,12 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     seen.add(eid)
                     deduped.append(e)
             valid = deduped
-            # 手动加入白班的人（排除 A/L：请假/旷工人不加入分配）
+            # 手动加入白班的人（排除 A/L：请假/旷工人不加入分配，且必须有出勤记录）
             existing_ids = {make_employee_id(e) for e in valid if make_employee_id(e)}
             for (eid, dt), sh in shift_adds.items():
-                if dt == date_str and sh == 'D' and eid not in existing_ids and (eid, date_str) not in exclusions:
+                if dt == date_str and sh == 'D' and eid not in existing_ids \
+                        and (eid, date_str) not in exclusions \
+                        and (eid, date_str) in attendance_pairs:
                     valid.append(eid)
                     existing_ids.add(eid)
             if valid and total > 0:
@@ -88,9 +99,6 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                         result[eid] += per
                         daily[eid][date_str] += per
                         daily_shifts[eid][date_str].add('D')
-                        total_production['nh'] += day_prod.get('NICKEL（H）', 0) / len(valid)
-                        total_production['nl'] += day_prod.get('NICKEL（L）', 0) / len(valid)
-                        total_production['mw'] += day_prod.get('MAWE', 0) / len(valid)
 
         # 夜班
         if night_emps and night_prod:
@@ -105,10 +113,12 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     seen.add(eid)
                     deduped.append(e)
             valid = deduped
-            # 手动加入夜班的人（排除 A/L）
+            # 手动加入夜班的人（排除 A/L，且必须有出勤记录）
             existing_ids = {make_employee_id(e) for e in valid if make_employee_id(e)}
             for (eid, dt), sh in shift_adds.items():
-                if dt == date_str and sh == 'N' and eid not in existing_ids and (eid, date_str) not in exclusions:
+                if dt == date_str and sh == 'N' and eid not in existing_ids \
+                        and (eid, date_str) not in exclusions \
+                        and (eid, date_str) in attendance_pairs:
                     valid.append(eid)
                     existing_ids.add(eid)
             if valid and total > 0:
@@ -140,7 +150,7 @@ def _filter_valid(emps, exclusions, override_excludes, date_str):
 #  2. 钻工计件计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_driller_piece(driller_data, data_folder=None, exclusions=None):
+def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_exclusions=None):
     """
     计算钻工计件工资
     - 同队长同天多槽位 → 合并产量，成员合并去重
@@ -152,19 +162,10 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None):
     import sqlite3, os
     result = defaultdict(float)
     daily = defaultdict(lambda: defaultdict(float))  # daily[employee_id][date] = amount
-    duplications = []
     exclusions = exclusions or set()
 
-    # 加载 A/L 排除
-    att_exclusions = set()
-    if data_folder:
-        db_path = os.path.join(data_folder, 'kilwa.db')
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            rows = conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L')").fetchall()
-            conn.close()
-            for r in rows:
-                att_exclusions.add((r[0], r[1]))
+    # 使用传入的 A/L 排除（避免重复查询数据库）
+    att_exclusions = att_exclusions or set()
 
     # 合并 A/L 排除 + 外部排除（含日期区间 override）
     combined_exclusions = exclusions | att_exclusions
@@ -212,6 +213,15 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None):
             except: pass
             conn.close()
 
+    # 构建出勤日集合（基于 driller_data 中的 members，手动加入者需有实际出勤记录）
+    driller_attendance = set()
+    for d in driller_data:
+        dt = d.get('date', '')
+        for m in d.get('members', []):
+            mid = make_employee_id(m)
+            if mid:
+                driller_attendance.add((mid, dt))
+
     for (date_str, captain), g in groups.items():
         total_salary = g['nh'] * PRICES_DRILLER['NICKEL（H）'] + \
                        g['nl'] * PRICES_DRILLER['NICKEL（L）'] + \
@@ -233,9 +243,11 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None):
         if cap_member and not cap_excluded and cap_norm not in existing_ids:
             all_members.append(cap_member)
 
-        # 统计手动加入钻工组的人数
+        # 统计手动加入钻工组的人数（排除 A/L 缺勤者 + 空出勤者）
         driller_add_count = sum(1 for (eid, dt), cp in driller_adds.items()
-                                if dt == date_str and cp == captain and eid != cap_norm)
+                                if dt == date_str and cp == captain and eid != cap_norm
+                                and (eid, date_str) not in combined_exclusions
+                                and (eid, date_str) in driller_attendance)
 
         headcount = len(all_members)
         # 分母 = 成员人数 + 队长额外份额(+1, 因队长拿双倍) + 手动加入的人
@@ -254,14 +266,16 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None):
                 result[mn_id] += amt
                 daily[mn_id][date_str] += amt
 
-        # 手动加入钻工组的人
+        # 手动加入钻工组的人（排除 A/L 缺勤者 + 空出勤者）
         for (eid, dt), cp in driller_adds.items():
-            if dt == date_str and cp == captain and eid != cap_norm:
+            if dt == date_str and cp == captain and eid != cap_norm \
+                    and (eid, date_str) not in combined_exclusions \
+                    and (eid, date_str) in driller_attendance:
                 amt = per_share * 1
                 result[eid] += amt
                 daily[eid][dt] += amt
 
-    return dict(result), duplications, {eid: dict(d) for eid, d in daily.items()}
+    return dict(result), [], {eid: dict(d) for eid, d in daily.items()}
 
 # ═══════════════════════════════════════════════════════════
 #  3. 日薪计算
@@ -456,11 +470,6 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
     try:
         override_excludes = {'permanent': set()}
-        import os
-        for eid, ovs in overrides.items():
-            for o in ovs:
-                if o.get('type') == 'exclusion' and o.get('action') == 'add':
-                    pass
 
         # 加载出勤覆盖（A/L不计入计件分配）
         att_exclusions = set()
@@ -568,7 +577,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     dr_type_excl.add((eid, dt))
 
         underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, override_excludes, data_folder)
-        driller_sal, duplications, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl)
+        driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions)
         day_sal = calc_day_salary(attendance_data, employees, overrides, data_folder, shift_data, date_range_overrides)
         monthly_sal = calc_monthly_salary(employees, overrides)
     finally:
@@ -631,6 +640,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 pu = pd = ms = 0
             elif effective_type == 'monthly':
                 pu = pd = dr = 0
+            else:
+                # advance_only / both / 未识别类型：全部清零，仅显示预支
+                pu = pd = dr = ms = 0
         else:
             # 有日期区间：逐日确定类型，只统计对应轨道的金额
             dt_map = date_type_map.get(eid, {})
@@ -660,76 +672,94 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 o.get('salary_type') == 'monthly' and (o.get('start_date') or o.get('end_date'))
                 for o in overrides.get(eid, [])
             )
-            # 统计 day_rate / monthly 临时例外覆盖的天数（用于比例扣减）
+            # 统计 monthly 临时例外覆盖的天数（用于日薪比例扣减）
             if _has_dr_date_range or _has_ms_date_range:
-                _dr_temp_days = 0
+                from datetime import datetime as _dtp, timedelta as __td
+                _month_start = _dtp.strptime(month_prefix + '-01', '%Y-%m-%d')
+                _month_end = _month_start + __td(days=calendar_days_global - 1)
                 _ms_temp_days = 0
+                _ms_cal_days = set()
                 for o in overrides.get(eid, []):
                     st = o.get('salary_type', '')
                     s = o.get('start_date', '') or ''
                     e = o.get('end_date', '') or ''
                     if s or e:
-                        for dt in all_shift_dates:
-                            if (not s or dt >= s) and (not e or dt <= e):
-                                if st == 'day_rate':
-                                    _dr_temp_days += 1
-                                elif st == 'monthly':
-                                    _ms_temp_days += 1
-                if _dr_temp_days > 0 and not _has_ms_date_range:
-                    dr_days_set = set()
-                    for o in overrides.get(eid, []):
-                        st = o.get('salary_type', '')
-                        s = o.get('start_date', '') or ''
-                        e = o.get('end_date', '') or ''
-                        if st == 'day_rate' and (s or e):
-                            for dt in all_shift_dates:
-                                if (not s or dt >= s) and (not e or dt <= e):
-                                    dr_days_set.add(dt)
-                    if dr_days_set:
-                        _ratio = max(0, calendar_days_global - len(dr_days_set)) / calendar_days_global
-                        ms = round(ms * _ratio)
+                        s_dt = _dtp.strptime(s, '%Y-%m-%d') if s else _month_start
+                        e_dt = _dtp.strptime(e, '%Y-%m-%d') if e else _month_end
+                        _ov_start = max(s_dt, _month_start)
+                        _ov_end = min(e_dt, _month_end)
+                        _ov_days = max(0, (_ov_end - _ov_start).days + 1)
+                        if st == 'monthly':
+                            _ms_temp_days = _ov_days
+                            _d = _ov_start
+                            while _d <= _ov_end:
+                                _ms_cal_days.add(_d.strftime('%Y-%m-%d'))
+                                _d += __td(days=1)
                 if _ms_temp_days > 0 and not _has_dr_date_range:
-                    ms_days_set = set()
-                    for o in overrides.get(eid, []):
-                        st = o.get('salary_type', '')
-                        s = o.get('start_date', '') or ''
-                        e = o.get('end_date', '') or ''
-                        if st == 'monthly' and (s or e):
-                            for dt in all_shift_dates:
-                                if (not s or dt >= s) and (not e or dt <= e):
-                                    ms_days_set.add(dt)
-                    if ms_days_set:
-                        _ratio = max(0, calendar_days_global - len(ms_days_set)) / calendar_days_global
+                    if _ms_cal_days:
+                        _ratio = max(0, calendar_days_global - len(_ms_cal_days)) / calendar_days_global
                         dr = round(dr * _ratio)
 
-        # ── 月薪统一扣减：计件覆盖天数 + A/L缺勤天数，按自然日比例扣除 ──
+        # ── 月薪统一计算：按实际出勤日（不再默认全勤）──
         if ms > 0 and effective_type == 'monthly':
-            calendar_days = calendar_days_global
-            # 统计计件覆盖天数（仅限有日期区间的临时计件例外）
-            piece_dates_set = set()
-            piece_days_for_ms = 0
-            if eid in has_date_range:
-                dt_map = date_type_map.get(eid, {})
-                piece_dates_set = set(dt for dt, dtype in dt_map.items() if dtype in ('piece_underground', 'piece_driller'))
-                piece_days_for_ms = len(piece_dates_set)
-            # 统计 A/L 天数（含具体日期，用于与计件日取并集）
-            absent_days = 0
-            absent_dates_set = set()
-            if data_folder and os.path.exists(os.path.join(data_folder, 'kilwa.db')) and month_prefix:
+            # 统计出勤日（考勤表 normal 列 + 手动 P 覆盖）
+            present_dates = set()
+            for d in attendance_data:
+                dt = d.get('date', '')
+                if month_prefix and not dt.startswith(month_prefix):
+                    continue
+                for emp_name in d.get('normal', []):
+                    nid = make_employee_id(emp_name)
+                    if nid == eid:
+                        present_dates.add(dt)
+            # 手动 P 覆盖（手动确认出勤）
+            if data_folder and month_prefix:
                 import sqlite3
-                conn2 = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
-                abs_date_rows = conn2.execute(
-                    "SELECT date FROM attendance_overrides WHERE employee_id=? AND status IN ('A','L') AND date LIKE ?",
+                conn3 = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
+                p_rows = conn3.execute(
+                    "SELECT date FROM attendance_overrides WHERE employee_id=? AND status='P' AND date LIKE ?",
                     (eid, month_prefix + '%')
                 ).fetchall()
-                conn2.close()
-                absent_dates_set = set(r[0] for r in abs_date_rows)
-                absent_days = len(absent_dates_set)
-            # 统一扣减：取计件日与缺勤日的并集，防止重叠时双重扣除
-            if piece_days_for_ms > 0 or absent_days > 0:
-                all_excluded = piece_dates_set | absent_dates_set
-                paid_days = max(0, calendar_days - len(all_excluded))
-                ms = round(ms * paid_days / calendar_days)
+                conn3.close()
+                for r in p_rows:
+                    present_dates.add(r[0])
+            # 顶层部门（无子部门归属）的员工默认全勤
+            if emp.get('_full_attendance') and month_prefix:
+                from datetime import datetime as _dtfd, timedelta as _tdfd
+                _fd_start = _dtfd.strptime(month_prefix + '-01', '%Y-%m-%d')
+                for _i in range(calendar_days_global):
+                    _fd = _fd_start + _tdfd(days=_i)
+                    present_dates.add(_fd.strftime('%Y-%m-%d'))
+            # 临时例外中切换为计件的日期（这些天拿计件工资）
+            piece_dates_set = set()
+            if eid in has_date_range:
+                dt_map = date_type_map.get(eid, {})
+                piece_dates_set = set(dt for dt, dtype in dt_map.items()
+                                      if dtype in ('piece_underground', 'piece_driller'))
+            # 临时例外中切换为日薪的日期（这些天拿日薪工资）
+            dr_temp_dates_set = set()
+            for o in overrides.get(eid, []):
+                st = o.get('salary_type', '')
+                if st != 'day_rate':
+                    continue
+                s = o.get('start_date', '') or ''
+                e = o.get('end_date', '') or ''
+                if not (s or e):
+                    continue
+                s_dt = _dtp.strptime(s, '%Y-%m-%d') if s else _month_start
+                e_dt = _dtp.strptime(e, '%Y-%m-%d') if e else _month_end
+                ov_start = max(s_dt, _month_start)
+                ov_end = min(e_dt, _month_end)
+                d = ov_start
+                while d <= ov_end:
+                    dr_temp_dates_set.add(d.strftime('%Y-%m-%d'))
+                    d += __td(days=1)
+            # 有效月薪日 = 出勤日 - 计件日 - 日薪日
+            pure_monthly_days = present_dates - piece_dates_set - dr_temp_dates_set
+            if pure_monthly_days:
+                ms = round(ms * len(pure_monthly_days) / calendar_days_global)
+            else:
+                ms = 0
 
         gross = pu + pd + dr + ms
         bp = bonus_penalties.get(eid, {})
@@ -798,7 +828,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         'total_advance': round(total_advance),
         'total_nssf': round(total_nssf),
         'total_net': round(total_net),
-        'duplications': duplications,
+        'duplications': [],
         # 逐日计件原始数据（用于核对面板逐日对比）
         'ug_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in ug_daily.items()},
         'driller_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in driller_daily.items()},
@@ -986,7 +1016,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dr > 0:
                     ds_daily[eid][dt] += dr * count  # count>1 表示同日多班次
 
-        # 月薪的逐日分摊（按自然月日历天数，与 calculate_all 对齐）
+        # 月薪的逐日分摊（按实际出勤日，不再默认全勤）
         ms_daily = defaultdict(lambda: defaultdict(float))
         # 确定当月自然月全部日期
         _all_data_dates = sorted(set(
@@ -1002,25 +1032,38 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             ms_dates = set()
         # 当月自然日数（与 calculate_all 一致，用于 A/L ��例计算）
         _calendar_days = _last_day if _ym else 30
-        # 加载当月 A/L 覆盖
-        ms_absent = defaultdict(set)
-        if data_folder:
-            import sqlite3 as _sq3, os as _os
-            dbp = _os.path.join(data_folder, 'kilwa.db')
-            if _os.path.exists(dbp):
-                conn = _sq3.connect(dbp)
-                try:
-                    for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L')").fetchall():
-                        ms_absent[r[0]].add(r[1])
-                except: pass
-                conn.close()
-        # 构建与 calculate_all 对齐的 adjusted month_sal（含计件+缺勤比例扣减）
+
+        # 构建与 calculate_all 对齐的 adjusted month_sal（按实际出勤日）
         adjusted_month_sal = {}
         piece_days_for_emp = {}  # {eid: set of piecework dates}
         for eid, base_total in month_sal.items():
             emp = emp_map.get(eid)
             if emp:
                 eff_type = emp.get('override_type') or emp.get('default_type', '')
+                # 统计出勤日（考勤表 normal 列）
+                _present = set()
+                for d in attendance_data:
+                    dt = d.get('date', '')
+                    if _ym and not dt.startswith(_ym):
+                        continue
+                    for emp_name in d.get('normal', []):
+                        nid = make_employee_id(emp_name)
+                        if nid == eid:
+                            _present.add(dt)
+                # 手动 P 覆盖
+                if data_folder and _ym:
+                    dbp2 = os.path.join(data_folder, 'kilwa.db')
+                    if os.path.exists(dbp2):
+                        conn_p = sqlite3.connect(dbp2)
+                        for r in conn_p.execute(
+                            "SELECT date FROM attendance_overrides WHERE employee_id=? AND status='P' AND date LIKE ?",
+                            (eid, _ym + '%')
+                        ).fetchall():
+                            _present.add(r[0])
+                        conn_p.close()
+                # 顶层部门（无子部门归属）的员工默认��勤
+                if emp.get('_full_attendance') and _ym:
+                    _present = set(ms_dates)
                 # 统计计件覆盖天数
                 _pds = set()
                 if eid in overrides:
@@ -1033,25 +1076,58 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                                 if (not s or dt >= s) and (not e or dt <= e):
                                     _pds.add(dt)
                 piece_days_for_emp[eid] = _pds
-                if eff_type == 'monthly' and base_total > 0 and _ym:
-                    # 计件日与缺勤日取并集（防止重叠双重扣除）
-                    _absent_set = ms_absent.get(eid, set()) & ms_dates
-                    _all_excluded = _pds | _absent_set
-                    if _all_excluded:
-                        _paid_days = max(0, _calendar_days - len(_all_excluded))
-                        base_total = round(base_total * _paid_days / _calendar_days)
+                # 日薪临时例外日
+                _dr_temp = set()
+                if eid in overrides:
+                    for o in overrides[eid]:
+                        st = o.get('salary_type', '')
+                        if st != 'day_rate':
+                            continue
+                        s = o.get('start_date', '') or ''
+                        e = o.get('end_date', '') or ''
+                        if not (s or e):
+                            continue
+                        for dt in ms_dates:
+                            if (not s or dt >= s) and (not e or dt <= e):
+                                _dr_temp.add(dt)
+                # 有效月薪日 = 出勤日 - 计件日 - 日薪日
+                _pure = _present - _pds - _dr_temp
+                if eff_type == 'monthly' and base_total > 0 and _ym and _pure:
+                    base_total = round(base_total * len(_pure) / _calendar_days)
+                elif eff_type == 'monthly' and base_total > 0 and not _pure:
+                    base_total = 0
             adjusted_month_sal[eid] = base_total
-        # 按自然月日历均摊（A/L 日、计件日 = 0）
+        # 按纯月薪日均摊
         for eid, total in adjusted_month_sal.items():
-            absent_days_set = ms_absent.get(eid, set()) & ms_dates
+            _present = set()
+            for d in attendance_data:
+                dt = d.get('date', '')
+                for emp_name in d.get('normal', []):
+                    nid = make_employee_id(emp_name)
+                    if nid == eid:
+                        _present.add(dt)
             piece_days_set = piece_days_for_emp.get(eid, set())
-            all_excluded = absent_days_set | piece_days_set  # 取并集防止双重扣减
-            adj_days = max(len(ms_dates) - len(all_excluded), 1)
+            _dr_temp = set()
+            if eid in overrides:
+                for o in overrides[eid]:
+                    st = o.get('salary_type', '')
+                    if st != 'day_rate':
+                        continue
+                    s = o.get('start_date', '') or ''
+                    e = o.get('end_date', '') or ''
+                    if not (s or e):
+                        continue
+                    for dt in ms_dates:
+                        if (not s or dt >= s) and (not e or dt <= e):
+                            _dr_temp.add(dt)
+            all_excluded = piece_days_set | _dr_temp
+            pure_days = sorted(_present - all_excluded)
+            adj_days = max(len(pure_days), 1)
             per_base = total // adj_days
             remainder = total % adj_days
             day_idx = 0
             for dt in sorted(ms_dates):
-                if dt in all_excluded:
+                if dt in all_excluded or dt not in _present:
                     ms_daily[eid][dt] = 0
                 else:
                     extra = 1 if day_idx < remainder else 0

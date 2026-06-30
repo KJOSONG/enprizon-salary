@@ -337,12 +337,24 @@ def _run_pipeline(files, month_filter=None):
         address_book = parse_address_book(files['addressbook'])
     APP_STATE['address_book'] = address_book
 
+    # 通讯录加载后重建硬排除名单（基于账号）
+    global HARD_EXCLUDE_IDS
+    HARD_EXCLUDE_IDS = set()
+    for raw_name in ['Eric Wang QM', 'JIMMY', 'Set sail', '宋家成（Daria）', '宋科举KEJU', '宋科举']:
+        from core.namematch import make_employee_id
+        eid = make_employee_id(raw_name)
+        if eid:
+            HARD_EXCLUDE_IDS.add(eid)
+
     for emp in employees:
         eid = emp['id']
         if eid in address_book:
             info = address_book[eid]
-            emp['department'] = strip_dept(info.get('department', ''))
+            raw_dept = info.get('department', '')
+            emp['department'] = strip_dept(raw_dept)
             emp['phone'] = info.get('phone', '')
+            # 顶层部门（ENPRIZON LINDI PROJECT 无子部门）默认全勤
+            emp['_full_attendance'] = (raw_dept == 'ENPRIZON LINDI PROJECT')
             if info.get('guessed_type') and emp['default_type'] in ('both', 'day_rate', 'piece_underground', 'piece_driller'):
                 gtype = info['guessed_type']
                 if gtype in ('piece_driller', 'piece_underground') and emp['default_type'] == 'both':

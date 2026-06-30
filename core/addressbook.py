@@ -3,7 +3,7 @@
 解析 ENPRIZON LINDI PROJECT通讯录.xlsx 和 员工基础信息表.xlsx
 """
 import openpyxl
-from .namematch import canonical, make_employee_id
+from .namematch import canonical, make_employee_id, load_address_book_index, strip_alias, display_name
 
 # ── 部门映射（用于批量设置薪资类型） ──────────────
 DEPT_PATTERNS = {
@@ -46,44 +46,44 @@ def parse_address_book(filepath):
         return {}
 
     ws = wb[sheet_name]
+    # 从通讯录加载员工索引
+    load_address_book_index(filepath)
     book = {}
     header_row = None
-
     # Find header row
-    for row in range(1, ws.max_row + 1):
+    for row in range(1, (ws.max_row or 0) + 1):
         v = ws.cell(row, 1).value
         if v and '姓名' in str(v):
             header_row = row
             break
-
     if not header_row:
         wb.close()
         return {}
-
-    for row in range(header_row + 1, ws.max_row + 1):
+    for row in range(header_row + 1, (ws.max_row or 0) + 1):
         name_raw = ws.cell(row, 1).value
         if not name_raw:
             continue
         name_str = str(name_raw).strip()
         if not name_str:
             continue
-
+        acct = ws.cell(row, 2).value
+        alias = ws.cell(row, 3).value
         department = ws.cell(row, 5).value
         phone = ws.cell(row, 7).value
-
-        eid = make_employee_id(name_str)
-        if not eid:
+        # 使用账号作为 key
+        acct_str = str(acct).strip() if acct else ''
+        if not acct_str:
             continue
-
+        eid = acct_str
+        alias_str = str(alias).strip() if alias else ''
+        disp = alias_str if alias_str else strip_alias(name_str)
         guessed = guess_pay_type(str(department)) if department else None
-
-        # If already in book, prefer non-empty department
         if eid in book:
             if department and not book[eid].get('department'):
                 book[eid]['department'] = str(department).strip()
         else:
             book[eid] = {
-                'name': name_str,
+                'name': disp,
                 'department': str(department).strip() if department else '',
                 'phone': str(phone).strip() if phone else '',
                 'guessed_type': guessed,
