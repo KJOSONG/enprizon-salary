@@ -644,6 +644,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         if ms > 0 and effective_type == 'monthly':
             calendar_days = calendar_days_global
             # 统计计件覆盖天数（仅限有日期区间的临时计件例外）
+            piece_dates_set = set()
             piece_days_for_ms = 0
             if eid in has_date_range:
                 dt_map = date_type_map.get(eid, {})
