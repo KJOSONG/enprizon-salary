@@ -23,7 +23,7 @@ CURRENT_YEAR = TODAY.year
 #  1. 井下计件计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None):
+def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None):
     """
     计算井下工人计件工资
     白班+夜班合并，总金额均分给出勤人员
@@ -54,14 +54,17 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
             except: pass
             conn.close()
 
-    # 构建出勤日集合（用于过滤临时例外中的空出勤日期——原始出勤为空且无手动覆盖则不纳入分配）
-    attendance_pairs = set()
-    for day in shift_data:
-        dt = day.get('date', '')
-        for e in day.get('day_emps', []) + day.get('night_emps', []):
-            eid_check = make_employee_id(e)
-            if eid_check:
-                attendance_pairs.add((eid_check, dt))
+    # 构建出勤日集合（使用外部传入的全局集合，或内部构建）
+    if all_attendance_pairs is not None:
+        attendance_pairs = all_attendance_pairs
+    else:
+        attendance_pairs = set()
+        for day in shift_data:
+            dt = day.get('date', '')
+            for e in day.get('day_emps', []) + day.get('night_emps', []):
+                eid_check = make_employee_id(e)
+                if eid_check:
+                    attendance_pairs.add((eid_check, dt))
 
     for day in shift_data:
         date_str = day['date']
@@ -150,7 +153,7 @@ def _filter_valid(emps, exclusions, override_excludes, date_str):
 #  2. 钻工计件计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_exclusions=None):
+def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_exclusions=None, all_attendance_pairs=None):
     """
     计算钻工计件工资
     - 同队长同天多槽位 → 合并产量，成员合并去重
@@ -213,14 +216,20 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
             except: pass
             conn.close()
 
-    # 构建出勤日集合（基于 driller_data 中的 members，手动加入者需有实际出勤记录）
-    driller_attendance = set()
-    for d in driller_data:
-        dt = d.get('date', '')
-        for m in d.get('members', []):
-            mid = make_employee_id(m)
-            if mid:
-                driller_attendance.add((mid, dt))
+    # 构建出勤日集合（使用外部传入的全局集合，或内部构建）
+    if all_attendance_pairs is not None:
+        driller_attendance = all_attendance_pairs
+    else:
+        driller_attendance = set()
+        for d in driller_data:
+            dt = d.get('date', '')
+            cap_id = make_employee_id(d.get('captain', ''))
+            if cap_id:
+                driller_attendance.add((cap_id, dt))
+            for m in d.get('members', []):
+                mid = make_employee_id(m)
+                if mid:
+                    driller_attendance.add((mid, dt))
 
     for (date_str, captain), g in groups.items():
         total_salary = g['nh'] * PRICES_DRILLER['NICKEL（H）'] + \
@@ -281,7 +290,7 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
 #  3. 日薪计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shift_data=None, date_range_overrides=None):
+def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shift_data=None, date_range_overrides=None, month_prefix=None):
     """
     计算日薪工资
     根据 Daily Salary 表找出勤天数，乘以日薪基数
@@ -379,18 +388,21 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                     counted_pairs.add((eid, dt))
                     day_counts[eid] += 1
 
-    # 来源3：手动 P 覆盖（仅限当月，与来源1/2的月份一致）
+    # 来源3：手动 P 覆盖（仅限当月）
     _month_prefixes = set()
     for d in list(attendance_data) + list(shift_data or []):
         dt = d.get('date', '')
         if dt:
             _month_prefixes.add(dt[:7])
+    _effective_prefixes = _month_prefixes
+    if not _effective_prefixes and month_prefix:
+        _effective_prefixes = {month_prefix}
     for key, status in att_overrides.items():
         if status == 'P':
             parts = key.split('|')
             if len(parts) == 2:
                 eid, dt = parts[0], parts[1]
-                if _month_prefixes and dt[:7] not in _month_prefixes:
+                if _effective_prefixes and dt[:7] not in _effective_prefixes:
                     continue
                 if (eid, dt) not in counted_pairs:
                     day_counts[eid] += 1
@@ -471,11 +483,42 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         driller_data = main_data.get('driller_production', [])
         attendance_data = main_data.get('attendance', [])
 
+        # ── 构建全局出勤集合（包含三个数据源）──
+        all_attendance_pairs = set()
+        for day in shift_data:
+            dt = day.get('date', '')
+            if not dt: continue
+            for e in day.get('day_emps', []) + day.get('night_emps', []):
+                eid_check = make_employee_id(e)
+                if eid_check:
+                    all_attendance_pairs.add((eid_check, dt))
+        for d in driller_data:
+            dt = d.get('date', '')
+            if not dt: continue
+            cap_id = make_employee_id(d.get('captain', ''))
+            if cap_id:
+                all_attendance_pairs.add((cap_id, dt))
+            for m in d.get('members', []):
+                mid = make_employee_id(m)
+                if mid:
+                    all_attendance_pairs.add((mid, dt))
+        for day in attendance_data:
+            dt = day.get('date', '')
+            if not dt: continue
+            for e in day.get('normal', []):
+                if isinstance(e, dict):
+                    eid_check = e.get('employee_id')
+                else:
+                    eid_check = make_employee_id(e)
+                if eid_check:
+                    all_attendance_pairs.add((eid_check, dt))
+
         # ── 统一逐日类型映射 per_date_type[eid][date] = salary_type ──
         per_date_type = defaultdict(dict)
         range_exclusions = set()
         all_dates = sorted(set(
             list(d['date'] for d in shift_data if d.get('date')) +
+            list(d['date'] for d in driller_data if d.get('date')) +
             list(d['date'] for d in attendance_data if d.get('date'))
         ))
         for eid, ovs in overrides.items():
@@ -498,22 +541,12 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         if end and dt > end: continue
                         range_exclusions.add((eid, dt))
 
+        # 临时计件例外：检查该员工当天是否有实际出勤记录（三个数据源都查）
         for eid in list(per_date_type.keys()):
             for dt, dtype in list(per_date_type[eid].items()):
                 if dtype in ('piece_underground', 'piece_driller'):
-                    in_shift = any(
-                        make_employee_id(e) == eid
-                        for d in shift_data if d.get('date') == dt
-                        for e in d.get('day_emps', []) + d.get('night_emps', [])
-                    )
-                    if not in_shift:
-                        in_att = any(
-                            (make_employee_id(e) if not isinstance(e, dict) else e.get('employee_id')) == eid
-                            for d in attendance_data if d.get('date') == dt
-                            for e in d.get('normal', [])
-                        )
-                        if not in_att:
-                            att_exclusions.add((eid, dt))
+                    if (eid, dt) not in all_attendance_pairs:
+                        att_exclusions.add((eid, dt))
 
         combined_exclusions = exclusions | att_exclusions | range_exclusions
 
@@ -533,9 +566,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 if dtype != 'piece_underground': ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
 
-        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder)
-        driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions)
-        day_sal_total = calc_day_salary(attendance_data, employees, overrides, data_folder, shift_data)
+        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
+        driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         monthly_base = calc_monthly_salary(employees, overrides)
     finally:
         mod.PRICES_UNDERGROUND = old_up
@@ -578,15 +610,28 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     for d in attendance_data:
         dt = d.get('date', '')
         for e in d.get('normal', []):
-            eid = make_employee_id(e)
+            if isinstance(e, dict):
+                eid = e.get('employee_id')
+            else:
+                eid = make_employee_id(e)
             if eid: present_dates[eid].add(dt)
     for d in shift_data:
         dt = d.get('date', '')
         for e in d.get('day_emps', []) + d.get('night_emps', []):
             eid = make_employee_id(e)
             if eid: present_dates[eid].add(dt)
+    for d in driller_data:
+        dt = d.get('date', '')
+        cap_id = make_employee_id(d.get('captain', ''))
+        if cap_id: present_dates[cap_id].add(dt)
+        for m in d.get('members', []):
+            mid = make_employee_id(m)
+            if mid: present_dates[mid].add(dt)
     for eid, dates in manual_p.items():
-        present_dates[eid] |= dates
+        if month_prefix:
+            present_dates[eid] |= {dt for dt in dates if dt[:7] == month_prefix}
+        else:
+            present_dates[eid] |= dates
 
     final_dates = sorted(set(
         list(d['date'] for d in shift_data + attendance_data + driller_data if d.get('date'))
@@ -701,10 +746,37 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
+        # ── 构建全局出勤集合（包含三个数据源）──
+        all_attendance_pairs = set()
+        for day in shift_data:
+            dt = day.get('date', '')
+            if not dt: continue
+            for e in day.get('day_emps', []) + day.get('night_emps', []):
+                eid_check = make_employee_id(e)
+                if eid_check: all_attendance_pairs.add((eid_check, dt))
+        for d in driller_data:
+            dt = d.get('date', '')
+            if not dt: continue
+            cap_id = make_employee_id(d.get('captain', ''))
+            if cap_id: all_attendance_pairs.add((cap_id, dt))
+            for m in d.get('members', []):
+                mid = make_employee_id(m)
+                if mid: all_attendance_pairs.add((mid, dt))
+        for day in attendance_data:
+            dt = day.get('date', '')
+            if not dt: continue
+            for e in day.get('normal', []):
+                if isinstance(e, dict):
+                    eid_check = e.get('employee_id')
+                else:
+                    eid_check = make_employee_id(e)
+                if eid_check: all_attendance_pairs.add((eid_check, dt))
+
         per_date_type = defaultdict(dict)
         range_exclusions = set()
         all_dates = sorted(set(
             list(d['date'] for d in shift_data if d.get('date')) +
+            list(d['date'] for d in driller_data if d.get('date')) +
             list(d['date'] for d in attendance_data if d.get('date'))
         ))
         for eid, ovs in overrides.items():
@@ -725,14 +797,18 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         if start and dt < start: continue
                         if end and dt > end: continue
                         range_exclusions.add((eid, dt))
+        # 临时计件例外：检查全局出勤集合
         for eid in list(per_date_type.keys()):
             for dt, dtype in list(per_date_type[eid].items()):
                 if dtype in ('piece_underground', 'piece_driller'):
-                    if not any(make_employee_id(e) == eid for d in shift_data if d.get('date') == dt for e in d.get('day_emps', []) + d.get('night_emps', [])):
+                    if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
         combined_excl = exclusions | att_exclusions | range_exclusions
 
-        all_shift_dates = sorted(set(d['date'] for d in shift_data if d.get('date')))
+        all_shift_dates = sorted(set(
+            list(d['date'] for d in shift_data if d.get('date')) +
+            list(d['date'] for d in driller_data if d.get('date'))
+        ))
         ug_type_excl = set()
         dr_type_excl = set()
         for emp in employees:
@@ -748,9 +824,21 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dtype != 'piece_underground': ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
 
-        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder)
-        dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl)
-        day_sal = calc_day_salary(attendance_data, employees, overrides, data_folder, shift_data)
+        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
+        dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
+
+        # 提前检测月份前缀（供 calc_day_salary 和月薪计算使用）
+        _ym = ''
+        _alld = sorted(set(d['date'] for d in shift_data + attendance_data + driller_data if d.get('date')))
+        if _alld:
+            _ym = _alld[0][:7]
+        elif 'dates' in main_data:
+            for _dt in main_data.get('dates', []):
+                if _dt:
+                    _ym = _dt[:7]
+                    break
+
+        day_sal = calc_day_salary(attendance_data, employees, overrides, data_folder, shift_data, month_prefix=_ym)
         month_sal = calc_monthly_salary(employees, overrides)
 
         # 出勤覆盖
@@ -817,30 +905,39 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
 
         # 月薪逐日分摊
         ms_daily = defaultdict(lambda: defaultdict(float))
-        _ym = ''
-        _alld = sorted(set(d['date'] for d in shift_data + attendance_data + driller_data if d.get('date')))
-        if _alld:
-            _ym = _alld[0][:7]
+        if _ym:
             _y, _m = int(_ym[:4]), int(_ym[5:7])
             _, _last = monthrange(_y, _m)
             ms_dates_set = set(f"{_y}-{_m:02d}-{d:02d}" for d in range(1, _last + 1))
         else:
             ms_dates_set = set()
+            _last = 30
         _cal_days = _last if _ym else 30
 
         present = defaultdict(set)
         for d in attendance_data:
             dt = d.get('date', '')
             for e in d.get('normal', []):
-                eid = make_employee_id(e)
+                if isinstance(e, dict):
+                    eid = e.get('employee_id')
+                else:
+                    eid = make_employee_id(e)
                 if eid: present[eid].add(dt)
         for d in shift_data:
             dt = d.get('date', '')
             for e in d.get('day_emps', []) + d.get('night_emps', []):
                 eid = make_employee_id(e)
                 if eid: present[eid].add(dt)
+        for d in driller_data:
+            dt = d.get('date', '')
+            cap_id = make_employee_id(d.get('captain', ''))
+            if cap_id: present[cap_id].add(dt)
+            for m in d.get('members', []):
+                mid = make_employee_id(m)
+                if mid: present[mid].add(dt)
         for (peid, pdt), st in att_all.items():
-            if st == 'P': present[peid].add(pdt)
+            if st == 'P' and (not _ym or pdt[:7] == _ym):
+                present[peid].add(pdt)
 
         for eid, base in month_sal.items():
             if not _ym or base <= 0: continue
@@ -867,7 +964,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if eid in overrides:
                 for o in overrides[eid]:
                     s, e = o.get('start_date', '') or '', o.get('end_date', '') or ''
-                    if s or e and o.get('salary_type', '') in ('piece_underground', 'piece_driller', 'day_rate', 'monthly'):
+                    if (s or e) and o.get('salary_type', '') in ('piece_underground', 'piece_driller', 'day_rate', 'monthly'):
                         for dt in final_dates:
                             if (not s or dt >= s) and (not e or dt <= e):
                                 pdt[dt] = o['salary_type']
