@@ -633,6 +633,16 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         else:
             present_dates[eid] |= dates
 
+    # top department monthly: add all calendar days for full attendance
+    if month_prefix:
+        _y2, _m2 = int(month_prefix[:4]), int(month_prefix[5:7])
+        _, _last2 = monthrange(_y2, _m2)
+        for emp in employees:
+            if emp.get("department") == "ENPRIZON LINDI PROJECT" and (emp.get("override_type") == "monthly" or emp.get("default_type") == "monthly"):
+                eid = emp["id"]
+                for d_day in range(1, _last2 + 1):
+                    present_dates[eid].add(f"{_y2}-{_m2:02d}-{d_day:02d}")
+
     final_dates = sorted(set(
         list(d['date'] for d in shift_data + attendance_data + driller_data if d.get('date'))
     ))
@@ -938,6 +948,15 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         for (peid, pdt), st in att_all.items():
             if st == 'P' and (not _ym or pdt[:7] == _ym):
                 present[peid].add(pdt)
+
+        # top department monthly: add all calendar days for full attendance
+        if _ym:
+            for emp in employees:
+                if emp.get("department") == "ENPRIZON LINDI PROJECT" and (emp.get("override_type") == "monthly" or emp.get("default_type") == "monthly"):
+                    eid = emp["id"]
+                    for d_day in range(1, _last + 1):
+                        present[eid].add(f"{_y}-{_m:02d}-{d_day:02d}")
+
 
         for eid, base in month_sal.items():
             if not _ym or base <= 0: continue
