@@ -392,6 +392,16 @@ def _run_pipeline(files, month_filter=None):
                 })
                 existing_ids.add(eid)
 
+    # ── 顶层部门人员（无考勤/计件数据但 department == 'ENPRIZON LINDI PROJECT' 的默认全勤）──
+    for eid, info in address_book.items():
+        if eid not in existing_ids and info.get('department') == 'ENPRIZON LINDI PROJECT':
+            employees.append({
+                'id': eid, 'name': info['name'], 'default_type': 'day_rate',
+                'source': 'top_department', 'override_type': None, 'overrides': [],
+                'day_rate': 0, 'monthly_salary': 0, 'advance_total': advance_data.get(eid, {}).get('total', 0) if advance_data else 0,
+                'department': 'ENPRIZON LINDI PROJECT', 'phone': info.get('phone', ''),
+                '_full_attendance': True,
+            })
 
     # ── 硬排除过滤 ──
     employees = [e for e in employees if e['id'] not in HARD_EXCLUDE_IDS]
