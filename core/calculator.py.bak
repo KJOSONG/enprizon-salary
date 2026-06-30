@@ -700,12 +700,6 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         _ratio = max(0, calendar_days_global - len(_ms_cal_days)) / calendar_days_global
                         dr = round(dr * _ratio)
 
-            # 基础类型为日薪且有计件临时例外：扣除计件日的日薪（避免双重计薪）
-            if piece_days > 0 and effective_type == "day_rate" and dr > 0:
-                dr_per_day = emp.get("day_rate", 0)
-                if dr_per_day > 0:
-                    dr = round(max(0, dr - piece_days * dr_per_day))
-
         # ── 月薪统一计算：按实际出勤日（不再默认全勤）──
         if ms > 0 and effective_type == 'monthly':
             # 统计出勤日（考勤表 normal 列 + 手动 P 覆盖）
