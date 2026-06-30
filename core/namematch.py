@@ -88,6 +88,13 @@ def load_address_book_index(filepath):
             key_sa = re.sub(r'\s+', '', sa).upper()
             if key_sa and key_sa != key_name:
                 _AB_INDEX[key_sa] = (acct_str, display)
+        # 去最后一个词的键（用于匹配短名如 ADHIRUDIN SIJAE RASHID -> ADHIRUDINSIJAE）
+        sa_words = sa.split()
+        if len(sa_words) > 1:
+            short_name = ' '.join(sa_words[:-1])
+            short_key = re.sub(r'\s+', '', short_name).upper()
+            if short_key and short_key not in _AB_INDEX:
+                _AB_INDEX[short_key] = (acct_str, display)
     wb.close()
     # 自动计算钻工队长账号（修改列表内容而非重新赋值，确保外部 import 可见）
     DRILLER_LEADERS.clear()
