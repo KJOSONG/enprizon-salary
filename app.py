@@ -391,15 +391,6 @@ def _run_pipeline(files, month_filter=None):
                 })
                 existing_ids.add(eid)
 
-    for eid, info in address_book.items():
-        if eid not in existing_ids:
-            employees.append({
-                'id': eid, 'name': info['name'], 'default_type': 'day_rate',
-                'source': 'address_book_only', 'override_type': None, 'overrides': [],
-                'day_rate': 0, 'monthly_salary': 0, 'advance_total': advance_data.get(eid, {}).get('total', 0) if advance_data else 0,
-                'department': strip_dept(info.get('department', '')), 'phone': info.get('phone', ''),
-                '_note': '本月无考勤',
-            })
 
     # ── 硬排除过滤 ──
     employees = [e for e in employees if e['id'] not in HARD_EXCLUDE_IDS]
