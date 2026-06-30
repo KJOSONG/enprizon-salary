@@ -718,6 +718,15 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     nid = make_employee_id(emp_name)
                     if nid == eid:
                         present_dates.add(dt)
+            # 产量表（计件）出勤日
+            for d in shift_data:
+                dt = d.get('date', '')
+                if month_prefix and not dt.startswith(month_prefix):
+                    continue
+                for emp_name in d.get('day_emps', []) + d.get('night_emps', []):
+                    nid = make_employee_id(emp_name)
+                    if nid == eid:
+                        present_dates.add(dt)
             # 手动 P 覆盖（手动确认出勤）
             if data_folder and month_prefix:
                 import sqlite3
@@ -1056,6 +1065,15 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         nid = make_employee_id(emp_name)
                         if nid == eid:
                             _present.add(dt)
+                # 产量表（计件）出勤日
+                for d in shift_data:
+                    dt = d.get('date', '')
+                    if _ym and not dt.startswith(_ym):
+                        continue
+                    for emp_name in d.get('day_emps', []) + d.get('night_emps', []):
+                        nid = make_employee_id(emp_name)
+                        if nid == eid:
+                            _present.add(dt)
                 # 手动 P 覆盖
                 if data_folder and _ym:
                     dbp2 = os.path.join(data_folder, 'kilwa.db')
@@ -1109,6 +1127,13 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for d in attendance_data:
                 dt = d.get('date', '')
                 for emp_name in d.get('normal', []):
+                    nid = make_employee_id(emp_name)
+                    if nid == eid:
+                        _present.add(dt)
+            # 产量表（计件）出勤日
+            for d in shift_data:
+                dt = d.get('date', '')
+                for emp_name in d.get('day_emps', []) + d.get('night_emps', []):
                     nid = make_employee_id(emp_name)
                     if nid == eid:
                         _present.add(dt)
