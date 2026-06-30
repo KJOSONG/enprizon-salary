@@ -313,6 +313,12 @@ def _run_pipeline(files, month_filter=None):
 
     if not files.get('main'):
         return False, '未找到主文件（缺少产量/考勤数据表）'
+    # ── 通讯录（必须在 build_master_list 之前加载，使 make_employee_id 使用通讯录账号）──
+    address_book = {}
+    if files.get('addressbook'):
+        address_book = parse_address_book(files['addressbook'])
+    APP_STATE['address_book'] = address_book
+
 
     main_data = parse_all(files['main'])
     employees = build_master_list(main_data)
@@ -331,11 +337,6 @@ def _run_pipeline(files, month_filter=None):
             eid = make_employee_id(e)
             if eid: attendance_ids.add(eid)
 
-    # ── 通讯录 ──
-    address_book = {}
-    if files.get('addressbook'):
-        address_book = parse_address_book(files['addressbook'])
-    APP_STATE['address_book'] = address_book
 
     # 通讯录加载后重建硬排除名单（基于账号）
     global HARD_EXCLUDE_IDS
