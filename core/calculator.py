@@ -517,7 +517,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     for d in shift_data:
                         if d.get('date') == dt:
                             for emp in d.get('day_emps', []) + d.get('night_emps', []):
-                                if emp.get('employee_id') == eid:
+                                e = emp.get('employee_id') if isinstance(emp, dict) else emp
+                                if e == eid:
                                     in_shift = True; break
                             if in_shift: break
                     # 检查 attendance 中当天是否有此员工
@@ -526,7 +527,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         for d in attendance_data:
                             if d.get('date') == dt:
                                 for emp in d.get('normal', []):
-                                    if emp.get('employee_id') == eid:
+                                    e = emp.get('employee_id') if isinstance(emp, dict) else emp
+                                    if e == eid:
                                         in_att = True; break
                                 if in_att: break
                     if not in_shift and not in_att:
