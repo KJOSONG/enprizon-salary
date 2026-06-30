@@ -517,8 +517,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     for d in shift_data:
                         if d.get('date') == dt:
                             for emp in d.get('day_emps', []) + d.get('night_emps', []):
-                                e = emp.get('employee_id') if isinstance(emp, dict) else emp
-                                if e == eid:
+                                if make_employee_id(emp) == eid:
                                     in_shift = True; break
                             if in_shift: break
                     # 检查 attendance 中当天是否有此员工
@@ -527,8 +526,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         for d in attendance_data:
                             if d.get('date') == dt:
                                 for emp in d.get('normal', []):
-                                    e = emp.get('employee_id') if isinstance(emp, dict) else emp
-                                    if e == eid:
+                                    if emp.get('employee_id') == eid:
                                         in_att = True; break
                                 if in_att: break
                     if not in_shift and not in_att:
@@ -653,7 +651,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 elif dtype == 'piece_driller':
                     pd += round(dr_ed.get(dt, 0))
                     piece_days += 1
-            # 日期区间覆盖涉及 day_rate/monthly 时，零化对方轨道
+            # 日期区间覆盖涉及 day_rate/monthly 时，按比例扣减对方轨道
             _has_dr_date_range = any(
                 o.get('salary_type') == 'day_rate' and (o.get('start_date') or o.get('end_date'))
                 for o in overrides.get(eid, [])
@@ -662,10 +660,47 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 o.get('salary_type') == 'monthly' and (o.get('start_date') or o.get('end_date'))
                 for o in overrides.get(eid, [])
             )
-            if _has_dr_date_range and not _has_ms_date_range:
-                ms = 0
-            if _has_ms_date_range and not _has_dr_date_range:
-                dr = 0
+            # 统计 day_rate / monthly 临时例外覆盖的天数（用于比例扣减）
+            if _has_dr_date_range or _has_ms_date_range:
+                _dr_temp_days = 0
+                _ms_temp_days = 0
+                for o in overrides.get(eid, []):
+                    st = o.get('salary_type', '')
+                    s = o.get('start_date', '') or ''
+                    e = o.get('end_date', '') or ''
+                    if s or e:
+                        for dt in all_shift_dates:
+                            if (not s or dt >= s) and (not e or dt <= e):
+                                if st == 'day_rate':
+                                    _dr_temp_days += 1
+                                elif st == 'monthly':
+                                    _ms_temp_days += 1
+                if _dr_temp_days > 0 and not _has_ms_date_range:
+                    dr_days_set = set()
+                    for o in overrides.get(eid, []):
+                        st = o.get('salary_type', '')
+                        s = o.get('start_date', '') or ''
+                        e = o.get('end_date', '') or ''
+                        if st == 'day_rate' and (s or e):
+                            for dt in all_shift_dates:
+                                if (not s or dt >= s) and (not e or dt <= e):
+                                    dr_days_set.add(dt)
+                    if dr_days_set:
+                        _ratio = max(0, calendar_days_global - len(dr_days_set)) / calendar_days_global
+                        ms = round(ms * _ratio)
+                if _ms_temp_days > 0 and not _has_dr_date_range:
+                    ms_days_set = set()
+                    for o in overrides.get(eid, []):
+                        st = o.get('salary_type', '')
+                        s = o.get('start_date', '') or ''
+                        e = o.get('end_date', '') or ''
+                        if st == 'monthly' and (s or e):
+                            for dt in all_shift_dates:
+                                if (not s or dt >= s) and (not e or dt <= e):
+                                    ms_days_set.add(dt)
+                    if ms_days_set:
+                        _ratio = max(0, calendar_days_global - len(ms_days_set)) / calendar_days_global
+                        dr = round(dr * _ratio)
 
         # ── 月薪统一扣减：计件覆盖天数 + A/L缺勤天数，按自然日比例扣除 ──
         if ms > 0 and effective_type == 'monthly':
