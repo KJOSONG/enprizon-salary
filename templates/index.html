@@ -1745,6 +1745,14 @@ async function loadDailyWages() {
         sel.innerHTML += '<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>';
       });
     }
+    // 构建薪资应发映射（日工资合计与薪资应发核对用）
+    const salaryMap = {};
+    if (STATE._salaryResult && STATE._salaryResult.employees) {
+      STATE._salaryResult.employees.forEach(emp => {
+        salaryMap[emp.employee_id] = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.day_rate||0)+(emp.monthly||0);
+      });
+    }
+    STATE._salaryMap = salaryMap;
     renderDailyWages();
   } catch(e) {}
 }
@@ -1772,6 +1780,7 @@ function renderDailyWages() {
       const hasAny = sfDates.some(d => (shifts[d] || '').includes(shiftFilters[d]));
       if (!hasAny) continue;
     }
+    e.id = eid;
     entries.push(e);
     for (const dt in e.daily) dates.add(dt);
   }
@@ -1782,7 +1791,9 @@ function renderDailyWages() {
   sortedDates.forEach(d => {
     headHtml += '<th style="min-width:36px;font-size:10px;">' + d.slice(5) + '</th>';
   });
-  headHtml += '<th style="min-width:50px;">' + t('dw_total') + '</th></tr>';
+  headHtml += '<th style="min-width:50px;">' + t('dw_total') + '</th>'
+    + '<th style="min-width:55px;" data-i18n="dw_salary_gross">' + t('dw_salary_gross') + '</th>'
+    + '<th style="min-width:45px;" data-i18n="dw_verify">' + t('dw_verify') + '</th></tr>';
   // 第二行：按日期独立的班次筛选按钮（始终显示，基于数据中实际 D/N 标识匹配）
   headHtml += '<tr style="background:var(--bg-surface);"><td style="font-size:10px;color:var(--text-muted);text-align:right;padding-right:6px;">' + t('dw_shift_col') + '</td>';
   sortedDates.forEach(d => {
@@ -1797,7 +1808,7 @@ function renderDailyWages() {
       + '<button onclick="toggleDateShift(\'' + d + '\',\'N\')" style="' + btnStyle + nCls + '">N</button>'
       + '</td>';
   });
-  headHtml += '<td></td></tr>';
+  headHtml += '<td></td><td></td><td></td></tr>';
   document.getElementById('dwHead').innerHTML = headHtml;
   let bodyHtml = '';
   entries.sort((a,b) => (b.total||0) - (a.total||0));
@@ -1825,7 +1836,21 @@ function renderDailyWages() {
       if (amt > 0 && shift && !fs) label += ' ' + shift;
       bodyHtml += '<td class="num" style="' + style + '">' + label + '</td>';
     });
-    bodyHtml += '<td class="num bold">' + fmtNum(e.total||0) + '</td></tr>';
+    bodyHtml += '<td class="num bold">' + fmtNum(e.total||0) + '</td>';
+    // 薪资应发列
+    const salaryGross = STATE._salaryMap ? (STATE._salaryMap[e.id] || 0) : 0;
+    bodyHtml += '<td class="num bold">' + fmtNum(salaryGross) + '</td>';
+    // 核对列
+    const diff = (e.total || 0) - salaryGross;
+    let diffDisplay, diffStyle;
+    if (diff === 0) {
+      diffDisplay = '✓';
+      diffStyle = 'color:var(--success);';
+    } else {
+      diffDisplay = (diff > 0 ? '+' : '') + fmtNum(diff);
+      diffStyle = 'color:var(--danger);font-weight:bold;';
+    }
+    bodyHtml += '<td class="num" style="' + diffStyle + '">' + diffDisplay + '</td></tr>';
   });
   document.getElementById('dwBody').innerHTML = bodyHtml || '<tr><td colspan="99" style="text-align:center;color:var(--text-muted);">' + t('dw_no_data') + '</td></tr>';
 }

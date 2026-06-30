@@ -564,6 +564,20 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     total_nssf = 0
     total_net = 0
 
+    # ── 提取当月年月前缀（循环前计算一次）──
+    month_prefix = ''
+    for d in list(shift_data) + list(attendance_data):
+        dt = d.get('date', '')
+        if dt: month_prefix = dt[:7]; break
+    if not month_prefix:
+        for dt in main_data.get('dates', []):
+            if dt: month_prefix = dt[:7]; break
+    calendar_days_global = 30
+    if month_prefix:
+        from calendar import monthrange
+        _y, _m = int(month_prefix[:4]), int(month_prefix[5:7])
+        _, calendar_days_global = monthrange(_y, _m)
+
     for emp in employees:
         eid = emp['id']
         name = emp['name']
@@ -612,12 +626,6 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 elif dtype == 'piece_driller':
                     pd += round(dr_ed.get(dt, 0))
                     piece_days += 1
-            # 永久月薪 + 临时计件例外：月薪按比例扣减计件覆盖天数，避免重复计酬
-            if piece_days > 0 and effective_type == 'monthly' and ms > 0:
-                _wd_set = set(d['date'] for d in list(shift_data) + list(attendance_data) if d.get('date'))
-                _total_wd = len(_wd_set) or 30
-                _ratio = max(0, _total_wd - piece_days) / _total_wd
-                ms = round(ms * _ratio)
             # 日期区间覆盖涉及 day_rate/monthly 时，零化对方轨道
             _has_dr_date_range = any(
                 o.get('salary_type') == 'day_rate' and (o.get('start_date') or o.get('end_date'))
@@ -632,34 +640,30 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if _has_ms_date_range and not _has_dr_date_range:
                 dr = 0
 
-        # 月薪员工：扣除当月 A/L 天数的比例
+        # ── 月薪统一扣减：计件覆盖天数 + A/L缺勤天数，按自然日比例扣除 ──
         if ms > 0 and effective_type == 'monthly':
-            if data_folder and os.path.exists(os.path.join(data_folder, 'kilwa.db')):
+            calendar_days = calendar_days_global
+            # 统计计件覆盖天数（仅限有日期区间的临时计件例外）
+            piece_days_for_ms = 0
+            if eid in has_date_range:
+                dt_map = date_type_map.get(eid, {})
+                piece_days_for_ms = sum(1 for dtype in dt_map.values() if dtype in ('piece_underground', 'piece_driller'))
+            # 统计 A/L 天数
+            absent_days = 0
+            if data_folder and os.path.exists(os.path.join(data_folder, 'kilwa.db')) and month_prefix:
                 import sqlite3
                 conn2 = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
-                # 限制在当月（优先从 shift/attendance 数据提取，回退到 dates 列表）
-                month_prefix = ''
-                for d in list(shift_data) + list(attendance_data):
-                    dt = d.get('date', '')
-                    if dt: month_prefix = dt[:7]; break
-                if not month_prefix:
-                    for dt in main_data.get('dates', []):
-                        if dt: month_prefix = dt[:7]; break
-                if month_prefix:
-                    abs_rows = conn2.execute(
-                        "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND status IN ('A','L') AND date LIKE ?",
-                        (eid, month_prefix + '%')
-                    ).fetchone()
-                else:
-                    abs_rows = None
+                abs_rows = conn2.execute(
+                    "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND status IN ('A','L') AND date LIKE ?",
+                    (eid, month_prefix + '%')
+                ).fetchone()
                 conn2.close()
                 if abs_rows and abs_rows[0] > 0:
-                    absent = abs_rows[0]
-                    # 按当月实际工作天数扣除（非硬编码 30 天）
-                    working_days = len(set(d['date'] for d in list(shift_data) + list(attendance_data) if d.get('date')))
-                    working_days = max(working_days, 1)
-                    ratio = max(0, (working_days - absent) / working_days)
-                    ms = round(ms * ratio)
+                    absent_days = abs_rows[0]
+            # 统一扣减
+            if piece_days_for_ms > 0 or absent_days > 0:
+                paid_days = max(0, calendar_days - piece_days_for_ms - absent_days)
+                ms = round(ms * paid_days / calendar_days)
 
         gross = pu + pd + dr + ms
         bp = bonus_penalties.get(eid, {})
@@ -930,9 +934,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             ms_dates = set(f"{_year}-{_month:02d}-{_day:02d}" for _day in range(1, _last_day + 1))
         else:
             ms_dates = set()
-        # 数据工作天数（与 calculate_all 一致，用于 A/L 比例计算）
-        _data_wd = len(set(d['date'] for d in list(shift_data) + list(attendance_data) if d.get('date')))
-        _data_wd = max(_data_wd, 1)
+        # 当月自然日数（与 calculate_all 一致，用于 A/L ��例计算）
+        _calendar_days = _last_day if _ym else 30
         # 加载当月 A/L 覆盖
         ms_absent = defaultdict(set)
         if data_folder:
@@ -968,7 +971,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                             except: pass
                             _conn2.close()
                     if absent_in_data > 0:
-                        _ratio = max(0, (_data_wd - absent_in_data) / _data_wd)
+                        _ratio = max(0, (_calendar_days - absent_in_data) / _calendar_days)
                         base_total = round(base_total * _ratio)
             adjusted_month_sal[eid] = base_total
         # 按自然月日历均摊（A/L 日 = 0）
