@@ -185,7 +185,7 @@ def split_names(raw_str):
     """拆分名称字符串（逗号/分号分隔）→ 标准化姓名列表（显示名）"""
     if not raw_str or _is_na(raw_str):
         return []
-    parts = re.split(r'\s*[;,]\s*', str(raw_str))
+    parts = re.split(r'\s*[;,、\n]\s*', str(raw_str))
     result = []
     for p in parts:
         c = canonical(p.strip())

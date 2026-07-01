@@ -58,6 +58,7 @@ def init_db(data_folder):
             salary_type TEXT DEFAULT '',
             piece_underground REAL DEFAULT 0,
             piece_driller REAL DEFAULT 0,
+            piece_crush REAL DEFAULT 0,
             day_rate REAL DEFAULT 0,
             monthly REAL DEFAULT 0,
             gross REAL DEFAULT 0,
@@ -123,6 +124,12 @@ def init_db(data_folder):
         conn.commit()
     except Exception:
         pass  # 列已存在则跳过
+
+    # 迁移：新增 piece_crush 列
+    for col in ['piece_crush']:
+        try:
+            conn.execute(f"ALTER TABLE monthly_data ADD COLUMN {col} REAL DEFAULT 0")
+        except: pass
 
     # 迁移：清理旧的重复覆盖记录（按人员+类型+日期区间去重，保留最新一条，排除记录不受影响）
     conn.executescript("""
@@ -321,6 +328,7 @@ def load_config(data_folder):
     return {
         'underground_prices': {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAWE': 4000},
         'driller_prices': {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000},
+        'crush_price': 300,
         'nssf_rate': 0.10,
     }
 
@@ -472,10 +480,11 @@ def save_monthly_result(data_folder, month, result):
     for emp in result.get('employees', []):
         conn.execute(
             """INSERT INTO monthly_data (month, employee_id, salary_type,
-               piece_underground, piece_driller, day_rate, monthly,
-               gross, advance, nssf, net) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+               piece_underground, piece_driller, piece_crush, day_rate, monthly,
+               gross, advance, nssf, net) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (month, emp.get('employee_id') or emp.get('name',''), emp.get('salary_type',''),
              emp.get('piece_underground',0), emp.get('piece_driller',0),
+             emp.get('piece_crush',0),
              emp.get('day_rate',0), emp.get('monthly',0),
              emp.get('gross',0), emp.get('advance',0),
              emp.get('nssf',0), emp.get('net',0))
@@ -546,7 +555,7 @@ def load_monthly_result(data_folder, month):
         employees.append({
             'name': name, 'employee_id': eid, 'salary_type': r['salary_type'] or '',
             'piece_underground': r['piece_underground'], 'piece_driller': r['piece_driller'],
-            'day_rate': r['day_rate'], 'monthly': r['monthly'],
+            'piece_crush': r['piece_crush'], 'day_rate': r['day_rate'], 'monthly': r['monthly'],
             'gross': r['gross'], 'advance': r['advance'],
             'nssf': r['nssf'], 'net': r['net'],
         })

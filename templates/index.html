@@ -241,6 +241,7 @@
         <option value="" data-i18n="emp_all_types">全部类型</option>
         <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
         <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
         <option value="monthly" data-i18n="emp_monthly">月薪</option>
         <option value="both" data-i18n="emp_both">需指定</option>
@@ -296,6 +297,7 @@
         <option value="" data-i18n="salary_all_types">全部类型</option>
         <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
         <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
         <option value="monthly" data-i18n="emp_monthly">月薪</option>
       </select>
@@ -337,6 +339,7 @@
             <th data-i18n="th_type">类型</th>
             <th data-i18n="th_ug_piece">井下计件</th>
             <th data-i18n="th_dr_piece">钻工计件</th>
+            <th data-i18n="th_crush_piece">破碎计件</th>
             <th data-i18n="th_dayrate">日薪</th>
             <th data-i18n="th_monthly">月薪</th>
             <th data-i18n="th_gross">应发</th>
@@ -367,6 +370,7 @@
         <option value="" data-i18n="dw_all_types">全部类型</option>
         <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
         <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+        <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
         <option value="monthly" data-i18n="emp_monthly">月薪</option>
       </select>
@@ -436,6 +440,10 @@
         <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(H)</label><input type="number" id="cfg_dr_nh" class="cfg-input" data-key="driller_prices.NICKEL（H）" data-section="driller_prices" onchange="saveConfig()"></div>
         <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(L)</label><input type="number" id="cfg_dr_nl" class="cfg-input" data-key="driller_prices.NICKEL（L）" data-section="driller_prices" onchange="saveConfig()"></div>
         <div class="form-row"><label style="min-width:90px;">MAWE</label><input type="number" id="cfg_dr_mw" class="cfg-input" data-key="driller_prices.MAWE" data-section="driller_prices" onchange="saveConfig()"></div>
+      </div>
+      <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+        <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="settings_crush_price">破碎计件单价</h3>
+        <div class="form-row"><label style="min-width:90px;">BAG (TZS)</label><input type="number" id="cfg_crush_price" class="cfg-input" data-key="crush_price" step="1" onchange="saveConfig()"></div>
       </div>
     </div>
     <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
@@ -516,6 +524,7 @@
           <option value="monthly" data-i18n="emp_monthly">月薪</option>
           <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
           <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+          <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         </select>
       </div>
       <div class="form-row" id="modalDayRateRow">
@@ -544,6 +553,7 @@
           <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
           <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
           <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+          <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         </select>
       </div>
       <div class="form-row" id="tempDayRateRow">
@@ -836,6 +846,7 @@ function getTYPE_LABELS() {
   return {
     piece_underground: '<span class="badge badge-green">' + t('type_ug_piece') + '</span>',
     piece_driller: '<span class="badge badge-purple">' + t('type_dr_piece') + '</span>',
+    piece_crush: '<span class="badge badge-orange">' + t('type_crush_piece') + '</span>',
     day_rate: '<span class="badge badge-blue">' + t('type_dayrate') + '</span>',
     monthly: '<span class="badge badge-yellow">' + t('type_monthly') + '</span>',
     both: '<span class="badge badge-red">' + t('type_both') + '</span>',
@@ -1274,7 +1285,7 @@ function renderExistingTemps(emp) {
     container.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">' + t('modal_no_temp') + '</span>';
     return;
   }
-  const labels = {'piece_underground': t('emp_ug_piece'), 'piece_driller': t('emp_dr_piece'), 'day_rate': t('emp_dayrate'), 'monthly': t('emp_monthly')};
+  const labels = {'piece_underground': t('emp_ug_piece'), 'piece_driller': t('emp_dr_piece'), 'piece_crush': t('emp_crush_piece'), 'day_rate': t('emp_dayrate'), 'monthly': t('emp_monthly')};
   container.innerHTML = tempOvers.map((o, i) => {
     const typeLabel = labels[o.salary_type] || o.salary_type;
     const dates = (o.start_date||'') + (o.end_date ? ' ~ ' + o.end_date : '');
@@ -1327,7 +1338,7 @@ function syncModalBaseField() {
   const v = document.getElementById('modalType').value;
   document.getElementById('modalDayRateRow').style.display = v==='day_rate'?'flex':'none';
   document.getElementById('modalMonthlyRow').style.display = v==='monthly'?'flex':'none';
-  document.getElementById('modalTypeHint').style.display = (v==='piece_underground'||v==='piece_driller')?'flex':'none';
+  document.getElementById('modalTypeHint').style.display = (v==='piece_underground'||v==='piece_driller'||v==='piece_crush')?'flex':'none';
 }
 
 function syncTempFields() {
@@ -1497,7 +1508,7 @@ function filterSalaryTable() {
   });
   const tbody = document.querySelector('#salaryTable tbody');
   tbody.innerHTML = filtered.map(emp => {
-    const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.day_rate||0)+(emp.monthly||0);
+    const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0);
     const bonus = emp.bonus || 0;
     const penalty = emp.penalty || 0;
     const n = g + bonus - (emp.advance||0) - (emp.nssf||0) - penalty;
@@ -1506,6 +1517,7 @@ function filterSalaryTable() {
       <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
       <td class="num">${fmtNum(emp.piece_underground||0)}</td>
       <td class="num">${fmtNum(emp.piece_driller||0)}</td>
+      <td class="num">${fmtNum(emp.piece_crush||0)}</td>
       <td class="num">${fmtNum(emp.day_rate||0)}</td>
       <td class="num">${fmtNum(emp.monthly||0)}</td>
       <td class="num bold">${fmtNum(g)}</td>
@@ -2343,6 +2355,7 @@ async function loadConfig() {
     document.getElementById('cfg_dr_mw').value = cfg.driller_prices['MAWE'];
     document.getElementById('cfg_nssf').value = cfg.nssf_rate * 100;
     document.getElementById('cfg_driver_allowance').value = cfg.driver_allowance || 0;
+    document.getElementById('cfg_crush_price').value = cfg.crush_price || 300;
   } catch(e) {}
 }
 
@@ -2362,6 +2375,7 @@ async function saveConfig() {
         'MAWE': parseInt(document.getElementById('cfg_dr_mw').value) || 3000,
       },
       nssf_rate: (parseFloat(document.getElementById('cfg_nssf').value) || 10) / 100,
+      crush_price: parseInt(document.getElementById('cfg_crush_price').value) || 300,
       driver_allowance: parseInt(document.getElementById('cfg_driver_allowance').value) || 0,
     };
     const res = await authFetch(api('/config'), {
@@ -2404,6 +2418,7 @@ async function resetConfig() {
     underground_prices: {'NICKEL（H）':6000,'NICKEL（L）':5000,'MAWE':4000},
     driller_prices: {'NICKEL（H）':5000,'NICKEL（L）':4000,'MAWE':3000},
     nssf_rate: 0.10,
+    crush_price: 300,
     driver_allowance: 0,
   };
   await authFetch(api('/config'), {
