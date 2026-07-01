@@ -2172,13 +2172,13 @@ function renderAttendance() {
 
 async function toggleAttDay(eid, date, currentStatus, autoVal) {
   // 原始为空：'' → P → A → L → ''（可回到空值）
-  // 原始非空：D/N → A → L → ''（回到原始）  /  P → A → L → ''（回到自动值）
+  // 原始非空：C/R/D/N/B/P → A → L → ''（回到原始自动值）
   let nextStatus;
   if (autoVal === '' || autoVal === undefined) {
     const cycle = {'':'P', 'P':'A', 'A':'L', 'L':''};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   } else {
-    const cycle = {'':'P', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'R':'A', 'C':'A'};
+    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   }
   try {
