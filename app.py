@@ -1273,10 +1273,12 @@ def get_attendance():
     attendance_data = md.get('attendance', [])
     employees = APP_STATE.get('employees', [])
 
-    # 收集所有日期
+    # 收集所有日期（含钻工+破碎计件日期）
     all_dates = sorted(set(
         list(set(d['date'] for d in shift_prod)) +
+        list(set(d['date'] for d in driller_prod)) +
         list(set(d.get('date', '') for d in attendance_data)) +
+        list(set(d.get('date', '') for d in (md.get('crush_production') or []))) +
         list(md.get('dates', []))
     ))
     # 补全当月全部自然日（确保没有数据时也能看到所有日期）
@@ -1591,10 +1593,12 @@ def export_attendance():
     attendance_data = md.get('attendance', [])
     employees = APP_STATE.get('employees', [])
 
-    # ── 收集所有日期 ──
+    # ── 收集所有日期（含钻工+破碎计件日期）──
     all_dates = sorted(set(
         list(set(d['date'] for d in shift_prod)) +
+        list(set(d['date'] for d in driller_prod)) +
         list(set(d.get('date', '') for d in attendance_data)) +
+        list(set(d.get('date', '') for d in (md.get('crush_production') or []))) +
         list(md.get('dates', []))
     ))
 
@@ -1891,6 +1895,7 @@ def _do_export_all():
         attendance_data = md.get('attendance', [])
         all_dates = sorted(set(
             list(set(d['date'] for d in shift_prod)) +
+            list(set(d['date'] for d in driller_prod)) +
             list(set(d.get('date', '') for d in attendance_data)) +
             list(set(d.get('date', '') for d in (md.get('crush_production') or []))) +
             list(md.get('dates', []))
@@ -2235,19 +2240,25 @@ def _do_export_all():
     #  Sheet 7: 钻工计件出勤明细
     # ═══════════════════════════════════════════════════════
     if md and md.get('driller_production'):
-        # ── 队长名规范化映射（与 core/namematch.py 一致）──
-        _captain_canonical = {
-            'SHEDRACK': 'SHEDRACK PINIEL LAIZER',
-            'SHEDRACKPINIELLAIZER': 'SHEDRACK PINIEL LAIZER',
-            'JOHN': 'JOHN BOAY BURA',
-            'JOHNBOAYBURA': 'JOHN BOAY BURA',
-            'BARAKALAIZER': 'BARAKA LAIZER',
-            'JOSEPH': 'JOSEPH DONALD',
-            'JOSEPHDONALD': 'JOSEPH DONALD',
-        }
+        # ── 队长名规范化（通过员工账号匹配，避免通讯录别名差异）──
+        from core.namematch import make_employee_id as _neid
+
         def _norm_captain(name):
-            key = re.sub(r'\s+', '', re.sub(r'\s*\([^)]*\)\s*', '', str(name))).upper()
-            return _captain_canonical.get(key, str(name))
+            """标准化队长名称为统一格式，通过 make_employee_id 匹配"""
+            import re as _re
+            eid = _neid(name)
+            # 已知钻工队长 (账号 → 标准显示名)
+            _leader_map = {
+                _neid('SHEDRACK PINIEL LAIZER'): 'SHEDRACK PINIEL LAIZER',
+                _neid('JOHN BOAY BURA'): 'JOHN BOAY BURA',
+                _neid('BARAKA LAIZER'): 'BARAKA LAIZER',
+                _neid('JOSEPH DONALD'): 'JOSEPH DONALD',
+            }
+            if eid and eid in _leader_map:
+                return _leader_map[eid]
+            # 回退：去空格大写匹配
+            key = _re.sub(r'\s+', '', _re.sub(r'\s*\([^)]*\)\s*', '', str(name))).upper()
+            return key
 
         from collections import defaultdict
         captain_groups = defaultdict(list)
