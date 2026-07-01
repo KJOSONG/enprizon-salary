@@ -144,7 +144,7 @@ const I18N_DICT = {
     att_save_btn: '保存并计算',
     att_save_btn_loading: '保存中...',
     att_unsaved: '有未保存的修改',
-    att_legend: 'D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 ��色虚线=月薪默认更改',
+    att_legend: 'D=白班 N=夜班 B=全天 P=出勤 R=钻工 C=破碎 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 黄色虚线=月薪默认更改',
     shift_D_label: 'D',
     shift_N_label: 'N',
     shift_B_label: 'B',
@@ -158,6 +158,10 @@ const I18N_DICT = {
     shift_P_desc: '出勤',
     shift_A_desc: '旷工',
     shift_L_desc: '请假',
+    shift_R_label: 'R',
+    shift_R_desc: '钻工计件出勤',
+    shift_C_label: 'C',
+    shift_C_desc: '破碎计件出勤',
     shift_DP_desc: '月薪默认',
 
     /* ── 配置 ── */
@@ -501,7 +505,7 @@ const I18N_DICT = {
     att_save_btn: 'Save & Calculate',
     att_save_btn_loading: 'Saving...',
     att_unsaved: 'Unsaved changes',
-    att_legend: 'D=Day N=Night B=Both P=Present A=Absent L=Leave (P)=Monthly Default Dashed underline=Manual change Yellow dashed=Monthly default change',
+    att_legend: 'D=Day N=Night B=Both P=Present R=Driller C=Crush A=Absent L=Leave (P)=Monthly Default Dashed underline=Manual change Yellow dashed=Monthly default change',
     shift_D_label: 'D',
     shift_N_label: 'N',
     shift_B_label: 'B',
@@ -515,6 +519,10 @@ const I18N_DICT = {
     shift_P_desc: 'Present',
     shift_A_desc: 'Absent',
     shift_L_desc: 'Leave',
+    shift_R_label: 'R',
+    shift_R_desc: 'Driller',
+    shift_C_label: 'C',
+    shift_C_desc: 'Crush',
     shift_DP_desc: 'Monthly Default',
 
     /* ── Settings ── */
