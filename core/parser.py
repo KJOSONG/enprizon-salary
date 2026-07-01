@@ -233,6 +233,57 @@ def parse_daily_salary_sheet(ws):
     return {'daily_salary_people': people, 'attendance': attendance}
 
 # ═══════════════════════════════════════════════════════════
+#  破碎计件文件解析 (CRUSH TEAM Production Data)
+# ═══════════════════════════════════════════════════════════
+
+def parse_crush_sheet(filepath):
+    """
+    解析破碎计件文件 (CRUSH TEAM Production Data_精简.xlsx)
+    Sheet: CRUSH TEAM Production Data
+    列: Date | How many Bgas | Attendance personnel
+    单价: 300 TZS/bag (由 calculator 端统一处理)
+    返回: [{date, bags, personnel}, ...]
+    """
+    wb = openpyxl.load_workbook(filepath, data_only=True)
+    sheet_names = wb.sheetnames
+    ws = None
+    if sheet_names and sheet_names[0]:
+        ws = wb[sheet_names[0]]
+    if ws is None:
+        wb.close()
+        return []
+
+    cm = _build_col_map(ws)
+    date_col = _get_col(cm, 'DATE', fallback=1)
+    bags_col = _get_col(cm, 'HOWMANYBGAS', 'BAGAS', 'BAGS', fallback=2)
+    person_col = _get_col(cm, 'ATTENDANCEPERSONNEL', fallback=3)
+
+    result = []
+    for row in range(2, ws.max_row + 1):
+        date_val = ws.cell(row, date_col).value
+        if not date_val:
+            continue
+        date_str = str(date_val)[:10] if not isinstance(date_val, str) else date_val
+
+        bags = ws.cell(row, bags_col).value
+        try:
+            bags = int(bags) if bags else 0
+        except (ValueError, TypeError):
+            bags = 0
+
+        person_str = ws.cell(row, person_col).value
+        personnel = split_names(person_str) if person_str else []
+
+        result.append({
+            'date': date_str,
+            'bags': bags,
+            'personnel': personnel,
+        })
+
+    wb.close()
+    return result
+
+# ═══════════════════════════════════════════════════════════
 #  主解析入口
 # ═══════════════════════════════════════════════════════════
 

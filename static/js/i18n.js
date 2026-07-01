@@ -55,6 +55,7 @@ const I18N_DICT = {
     emp_monthly: '月薪',
     emp_both: '需指定',
     emp_advance_only: '仅预支',
+    emp_crush_piece: '破碎计件',
     emp_all_depts: '全部部门',
     th_name: '姓名',
     th_dept: '部门',
@@ -77,6 +78,7 @@ const I18N_DICT = {
     th_dr_piece: '钻工计件',
     th_dayrate: '日薪',
     th_monthly: '月薪',
+    th_crush_piece: '破碎计件',
     th_gross: '应发',
     th_net: '实发',
     th_temp_exception: '临时例外',
@@ -163,6 +165,7 @@ const I18N_DICT = {
     settings_desc: '修改后自动重新计算',
     settings_ug_price: '井下计件单价',
     settings_dr_price: '钻工计件单价',
+    settings_crush_price: '破碎计件单价',
     settings_nssf_rate: 'NSSF 费率',
     settings_nssf_rate_pct: '费率(%)',
     settings_driver_allowance_title: '司机津贴',
@@ -214,6 +217,7 @@ const I18N_DICT = {
     type_monthly: '月薪',
     type_both: '需指定',
     type_advance_only: '仅预支',
+    type_crush_piece: '破碎计件',
 
     /* ── 来源文件 ── */
     source_no_file: '无源文件',
@@ -408,6 +412,7 @@ const I18N_DICT = {
     emp_monthly: 'Monthly',
     emp_both: 'Need Spec',
     emp_advance_only: 'Advance Only',
+    emp_crush_piece: 'Crush Piece',
     emp_all_depts: 'All Departments',
     th_name: 'Name',
     th_dept: 'Department',
@@ -430,6 +435,7 @@ const I18N_DICT = {
     th_dr_piece: 'Driller Piece',
     th_dayrate: 'Day Rate',
     th_monthly: 'Monthly',
+    th_crush_piece: 'Crush Piece',
     th_gross: 'Gross',
     th_net: 'Net',
     th_temp_exception: 'Temp Exception',
@@ -516,6 +522,7 @@ const I18N_DICT = {
     settings_desc: 'Auto-recalculate after changes',
     settings_ug_price: 'Underground Piece Rates',
     settings_dr_price: 'Driller Piece Rates',
+    settings_crush_price: 'Crush Piece Rate',
     settings_nssf_rate: 'NSSF Rate',
     settings_nssf_rate_pct: 'Rate(%)',
     settings_driver_allowance_title: 'Driver Allowance',
@@ -567,6 +574,7 @@ const I18N_DICT = {
     type_monthly: 'Monthly',
     type_both: 'Need Spec',
     type_advance_only: 'Advance Only',
+    type_crush_piece: 'Crush Piece',
 
     /* ── Source Files ── */
     source_no_file: 'No source file',

@@ -14,6 +14,7 @@ from .namematch import canonical, make_employee_id, is_driller_leader, DRILLER_L
 # ── 单价 ─────────────────────────────────────────────────
 PRICES_UNDERGROUND = {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAWE': 4000}
 PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000}
+PRICE_CRUSH = 300  # TZS/bag
 
 TODAY = date.today()
 CURRENT_MONTH = TODAY.month
@@ -148,6 +149,63 @@ def _filter_valid(emps, exclusions, override_excludes, date_str):
             continue
         valid.append(e)
     return valid
+
+# ═══════════════════════════════════════════════════════════
+#  1b. 破碎计件计算
+# ═══════════════════════════════════════════════════════════
+
+def calc_crush_piece(crush_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None):
+    """
+    计算破碎计件工资
+    - 同一天多条记录：各自独立均分，人员当日金额为各记录分摊之和
+    - A/L 排除：被标记 A/L 的破碎队成员从当日计件分配中排除
+    返回: (result_dict, daily_dict, daily_shifts_dict)
+    """
+    result = defaultdict(float)
+    daily = defaultdict(lambda: defaultdict(float))
+    daily_shifts = defaultdict(lambda: defaultdict(set))
+
+    if all_attendance_pairs is not None:
+        attendance_pairs = all_attendance_pairs
+    else:
+        attendance_pairs = set()
+        for day in crush_data:
+            dt = day.get('date', '')
+            for e in day.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid:
+                    attendance_pairs.add((eid, dt))
+
+    for day in crush_data:
+        date_str = day['date']
+        bags = day.get('bags', 0) or 0
+        personnel = day.get('personnel', [])
+
+        if not personnel or bags <= 0:
+            continue
+
+        total = bags * PRICE_CRUSH
+        valid = _filter_valid(personnel, exclusions, override_excludes, date_str)
+        # 按 eid 去重
+        seen = set()
+        deduped = []
+        for e in valid:
+            eid = make_employee_id(e)
+            if eid and eid not in seen:
+                seen.add(eid)
+                deduped.append(e)
+        valid = deduped
+
+        if valid and total > 0:
+            per = total / len(valid)
+            for e in valid:
+                eid = make_employee_id(e)
+                if eid:
+                    result[eid] += per
+                    daily[eid][date_str] += per
+                    daily_shifts[eid][date_str].add('C')
+
+    return dict(result), {eid: dict(d) for eid, d in daily.items()}, {eid: {dt: ''.join(sorted(s)) for dt, s in sh.items()} for eid, sh in daily_shifts.items()}
 
 # ═══════════════════════════════════════════════════════════
 #  2. 钻工计件计算
@@ -465,9 +523,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
     import sys, sqlite3
     mod = sys.modules[__name__]
-    old_up, old_dp = mod.PRICES_UNDERGROUND, mod.PRICES_DRILLER
+    old_up, old_dp, old_cr = mod.PRICES_UNDERGROUND, mod.PRICES_DRILLER, mod.PRICE_CRUSH
     mod.PRICES_UNDERGROUND = up
     mod.PRICES_DRILLER = dp
+    mod.PRICE_CRUSH = pricing.get('crush_price', PRICE_CRUSH)
 
     try:
         att_exclusions = set()
@@ -482,6 +541,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         shift_data = main_data.get('shift_production', [])
         driller_data = main_data.get('driller_production', [])
         attendance_data = main_data.get('attendance', [])
+        crush_data = main_data.get('crush_production', [])
 
         # ── 构建全局出勤集合（包含三个数据源）──
         all_attendance_pairs = set()
@@ -513,6 +573,14 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 if eid_check:
                     all_attendance_pairs.add((eid_check, dt))
 
+        for day in crush_data:
+            dt = day.get('date', '')
+            if not dt: continue
+            for e in day.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid:
+                    all_attendance_pairs.add((eid, dt))
+
         # ── 统一逐日类型映射 per_date_type[eid][date] = salary_type ──
         per_date_type = defaultdict(dict)
         range_exclusions = set()
@@ -526,7 +594,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 st = o.get('salary_type', '')
                 start = o.get('start_date') or ''
                 end = o.get('end_date') or ''
-                if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
+                if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                     continue
                 if not (start or end):
                     continue
@@ -544,34 +612,41 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         # 临时计件例外：检查该员工当天是否有实际出勤记录（三个数据源都查）
         for eid in list(per_date_type.keys()):
             for dt, dtype in list(per_date_type[eid].items()):
-                if dtype in ('piece_underground', 'piece_driller'):
+                if dtype in ('piece_underground', 'piece_driller', 'piece_crush'):
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
 
         combined_exclusions = exclusions | att_exclusions | range_exclusions
 
-        all_shift_dates = sorted(set(d['date'] for d in shift_data if d.get('date')))
+        all_shift_dates = sorted(set(
+            list(d['date'] for d in shift_data if d.get('date')) +
+            list(d['date'] for d in crush_data if d.get('date'))
+        ))
         ug_type_excl = set()
         dr_type_excl = set()
+        cr_type_excl = set()
         for emp in employees:
             eid = emp['id']
             perm_type = emp['default_type']
             if eid in overrides:
                 for o in overrides[eid]:
                     st = o.get('salary_type', ''); s, e = o.get('start_date') or '', o.get('end_date') or ''
-                    if st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller') and not (s or e):
+                    if st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush') and not (s or e):
                         perm_type = st
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
                 if dtype != 'piece_underground': ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
+                if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
         underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
+        crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_exclusions | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         monthly_base = calc_monthly_salary(employees, overrides)
     finally:
         mod.PRICES_UNDERGROUND = old_up
         mod.PRICES_DRILLER = old_dp
+        mod.PRICE_CRUSH = old_cr
 
     month_prefix = ''
     for d in list(shift_data) + list(attendance_data):
@@ -627,6 +702,13 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         for m in d.get('members', []):
             mid = make_employee_id(m)
             if mid: present_dates[mid].add(dt)
+
+    for d in crush_data:
+        dt = d.get('date', '')
+        for e in d.get('personnel', []):
+            eid = make_employee_id(e)
+            if eid: present_dates[eid].add(dt)
+
     for eid, dates in manual_p.items():
         if month_prefix:
             present_dates[eid] |= {dt for dt in dates if dt[:7] == month_prefix}
@@ -644,7 +726,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     present_dates[eid].add(f"{_y2}-{_m2:02d}-{d_day:02d}")
 
     final_dates = sorted(set(
-        list(d['date'] for d in shift_data + attendance_data + driller_data if d.get('date'))
+        list(d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date'))
     ))
 
     bonus_penalties = bonus_penalties or {}
@@ -653,7 +735,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     for emp in employees:
         eid = emp['id']
         eff_type = emp.get('override_type') or emp['default_type']
-        pu = pd_val = dr_total = ms_total = 0.0
+        pu = pd_val = dr_total = ms_total = cr_total = 0.0
 
         for dt in final_dates:
             dtype = per_date_type.get(eid, {}).get(dt, eff_type)
@@ -663,6 +745,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 pu += ug_daily.get(eid, {}).get(dt, 0)
             elif dtype == 'piece_driller' and not absent:
                 pd_val += driller_daily.get(eid, {}).get(dt, 0)
+            elif dtype == 'piece_crush' and not absent:
+                cr_total += crush_daily.get(eid, {}).get(dt, 0)
             elif dtype == 'day_rate' and not absent and dt in present_dates[eid]:
                 dr_total += day_rate_map.get(eid, 0)
             elif dtype == 'monthly' and not absent and dt in present_dates[eid]:
@@ -670,8 +754,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 if mb > 0:
                     ms_total += mb / calendar_days
 
-        pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total)
-        gross = pu + pd_val + dr_total + ms_total
+        pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
+        gross = pu + pd_val + dr_total + ms_total + cr_total
         advance = emp.get('advance_total', 0)
         bp = bonus_penalties.get(eid, {})
         bonus = int(bp.get('bonus', 0) or 0)
@@ -692,7 +776,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     month_end = f'{month_prefix}-{_last:02d}'
                     if (s and s > month_end) or (e and e < month_start):
                         continue
-                st_label = {'day_rate': '日薪', 'monthly': '月薪', 'piece_underground': '井下', 'piece_driller': '钻工'}.get(o.get('salary_type', ''), '')
+                st_label = {'day_rate': '日薪', 'monthly': '月薪', 'piece_underground': '井下', 'piece_driller': '钻工', 'piece_crush': '破碎'}.get(o.get('salary_type', ''), '')
                 note = f' {o.get("note", "")}' if o.get('note') else ''
                 temp_exception += f'{st_label} {s}~{e}{note}  '
                 temp_overrides.append({
@@ -704,7 +788,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         result_employees.append({
             'employee_id': eid, 'name': emp['name'], 'salary_type': eff_type,
             'piece_underground': pu, 'piece_driller': pd_val,
-            'day_rate': dr_total, 'monthly': ms_total,
+            'piece_crush': cr_total, 'day_rate': dr_total, 'monthly': ms_total,
             'gross': gross, 'bonus': bonus, 'penalty': penalty,
             'advance': round(advance), 'nssf': nssf, 'net': net,
             'temp_exception': temp_exception, 'temp_overrides': temp_overrides,
@@ -721,6 +805,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         'duplications': [],
         'ug_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in ug_daily.items()},
         'driller_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in driller_daily.items()},
+        'crush_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in crush_daily.items()},
     }
 
 
@@ -738,13 +823,15 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
 
     import sys, os, sqlite3
     mod = sys.modules[__name__]
-    old_up, old_dp = mod.PRICES_UNDERGROUND, mod.PRICES_DRILLER
+    old_up, old_dp, old_cr = mod.PRICES_UNDERGROUND, mod.PRICES_DRILLER, mod.PRICE_CRUSH
     mod.PRICES_UNDERGROUND = up
     mod.PRICES_DRILLER = dp
+    mod.PRICE_CRUSH = pricing.get('crush_price', PRICE_CRUSH)
 
     shift_data = main_data.get('shift_production', [])
     driller_data = main_data.get('driller_production', [])
     attendance_data = main_data.get('attendance', [])
+    crush_data = main_data.get('crush_production', [])
 
     try:
         att_exclusions = set()
@@ -782,19 +869,28 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     eid_check = make_employee_id(e)
                 if eid_check: all_attendance_pairs.add((eid_check, dt))
 
+        for day in crush_data:
+            dt = day.get('date', '')
+            if not dt: continue
+            for e in day.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid:
+                    all_attendance_pairs.add((eid, dt))
+
         per_date_type = defaultdict(dict)
         range_exclusions = set()
         all_dates = sorted(set(
             list(d['date'] for d in shift_data if d.get('date')) +
             list(d['date'] for d in driller_data if d.get('date')) +
-            list(d['date'] for d in attendance_data if d.get('date'))
+            list(d['date'] for d in attendance_data if d.get('date')) +
+            list(d['date'] for d in crush_data if d.get('date'))
         ))
         for eid, ovs in overrides.items():
             for o in ovs:
                 st = o.get('salary_type', '')
                 start = o.get('start_date') or ''
                 end = o.get('end_date') or ''
-                if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
+                if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                     continue
                 if not (start or end): continue
                 for dt in all_dates:
@@ -810,36 +906,42 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         # 临时计件例外：检查全局出勤集合
         for eid in list(per_date_type.keys()):
             for dt, dtype in list(per_date_type[eid].items()):
-                if dtype in ('piece_underground', 'piece_driller'):
+                if dtype in ('piece_underground', 'piece_driller', 'piece_crush'):
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
         combined_excl = exclusions | att_exclusions | range_exclusions
 
         all_shift_dates = sorted(set(
             list(d['date'] for d in shift_data if d.get('date')) +
-            list(d['date'] for d in driller_data if d.get('date'))
+            list(d['date'] for d in driller_data if d.get('date')) +
+            list(d['date'] for d in crush_data if d.get('date'))
         ))
         ug_type_excl = set()
         dr_type_excl = set()
+        cr_type_excl = set()
         for emp in employees:
             eid = emp['id']
             perm_type = emp['default_type']
             if eid in overrides:
                 for o in overrides[eid]:
                     st = o.get('salary_type', ''); s, e = o.get('start_date') or '', o.get('end_date') or ''
-                    if st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller') and not (s or e):
+                    if st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush') and not (s or e):
                         perm_type = st
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
                 if dtype != 'piece_underground': ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
+                if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
         ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
+        crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_excl | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
 
         # 提前检测月份前缀（供 calc_day_salary 和月薪计算使用）
         _ym = ''
-        _alld = sorted(set(d['date'] for d in shift_data + attendance_data + driller_data if d.get('date')))
+        _alld = sorted(set(
+            list(d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date'))
+        ))
         if _alld:
             _ym = _alld[0][:7]
         elif 'dates' in main_data:
@@ -945,6 +1047,13 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for m in d.get('members', []):
                 mid = make_employee_id(m)
                 if mid: present[mid].add(dt)
+
+        for d in crush_data:
+            dt = d.get('date', '')
+            for e in d.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid: present[eid].add(dt)
+
         for (peid, pdt), st in att_all.items():
             if st == 'P' and (not _ym or pdt[:7] == _ym):
                 present[peid].add(pdt)
@@ -968,7 +1077,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
 
         # 最终逐日结果
         final_dates = sorted(ms_dates_set | set(
-            d['date'] for d in shift_data + attendance_data + driller_data if d.get('date')
+            d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date')
         ))
         result = {}
         for emp in employees:
@@ -976,14 +1085,14 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             eff = emp.get('override_type') or emp['default_type']
             if eid in overrides:
                 for o in overrides[eid]:
-                    if not (o.get('start_date') or o.get('end_date')) and o.get('salary_type') in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
+                    if not (o.get('start_date') or o.get('end_date')) and o.get('salary_type') in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                         eff = o['salary_type']
 
             pdt = {}
             if eid in overrides:
                 for o in overrides[eid]:
                     s, e = o.get('start_date', '') or '', o.get('end_date', '') or ''
-                    if (s or e) and o.get('salary_type', '') in ('piece_underground', 'piece_driller', 'day_rate', 'monthly'):
+                    if (s or e) and o.get('salary_type', '') in ('piece_underground', 'piece_driller', 'piece_crush', 'day_rate', 'monthly'):
                         for dt in final_dates:
                             if (not s or dt >= s) and (not e or dt <= e):
                                 pdt[dt] = o['salary_type']
@@ -1001,7 +1110,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                             _y2, _m2 = int(_mb[:4]), int(_mb[5:7])
                             _, _last2 = _cal2.monthrange(_y2, _m2)
                             if (s and s > f'{_mb}-{_last2:02d}') or (e and e < f'{_mb}-01'): continue
-                        st_label = {'day_rate': '日薪', 'monthly': '月薪', 'piece_underground': '井下', 'piece_driller': '钻工'}.get(o.get('salary_type', ''), '')
+                        st_label = {'day_rate': '日薪', 'monthly': '月薪', 'piece_underground': '井下', 'piece_driller': '钻工', 'piece_crush': '破碎'}.get(o.get('salary_type', ''), '')
                         note = f' {o.get("note", "")}' if o.get('note') else ''
                         temp_list.append({
                             'id': o.get('id'), 'salary_type': o.get('salary_type', ''),
@@ -1022,6 +1131,12 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 elif dt_eff == 'piece_driller':
                     amt = dr_daily.get(eid, {}).get(dt, 0)
                     if amt > 0: daily[dt] = round(amt)
+                elif dt_eff == 'piece_crush':
+                    amt = crush_daily.get(eid, {}).get(dt, 0)
+                    if amt > 0:
+                        daily[dt] = round(amt)
+                        s = crush_shifts.get(eid, {}).get(dt, '')
+                        if s: shifts_info[dt] = s
                 elif dt_eff == 'day_rate':
                     amt = ds_daily.get(eid, {}).get(dt, 0)
                     if amt > 0: daily[dt] = round(amt)
@@ -1041,4 +1156,5 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
     finally:
         mod.PRICES_UNDERGROUND = old_up
         mod.PRICES_DRILLER = old_dp
+        mod.PRICE_CRUSH = old_cr
     return result

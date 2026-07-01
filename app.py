@@ -242,7 +242,7 @@ def scan_source_files():
         return {}
 
     import openpyxl
-    files = {'main': None, 'advance': None, 'addressbook': None, 'nssf': None}
+    files = {'main': None, 'advance': None, 'addressbook': None, 'nssf': None, 'crush': None}
     found = []
 
     for fname in os.listdir(SOURCE_DIR):
@@ -268,6 +268,8 @@ def scan_source_files():
             files['addressbook'] = fpath
         elif not files['nssf'] and 'Tanzania Mainland' in sheets and 'SDL' in fname.upper():
             files['nssf'] = fpath
+        elif not files['crush'] and 'CRUSH TEAM Production Data' in sheets:
+            files['crush'] = fpath
 
     # 回退：按文件名关键词
     if not files['main']:
@@ -291,6 +293,11 @@ def scan_source_files():
             if 'sdl' in fname.lower() or 'nssf' in fname.lower():
                 files['nssf'] = fpath
                 break
+    if not files['crush']:
+        for fname, fpath, sheets in found:
+            if 'crush' in fname.lower():
+                files['crush'] = fpath
+                break
 
     return files
 
@@ -305,7 +312,7 @@ def _run_pipeline(files, month_filter=None):
     month_filter: "2026-05" 或 None（全部）
     返回: (ok, msg)
     """
-    from core.parser import parse_all
+    from core.parser import parse_all, parse_crush_sheet
     from core.namematch import build_master_list, make_employee_id, canonical
     from core.advance import parse_advance
     from core.addressbook import parse_address_book
@@ -321,6 +328,12 @@ def _run_pipeline(files, month_filter=None):
 
 
     main_data = parse_all(files['main'])
+
+    # ── 破碎计件数据（非必需）──
+    crush_production = []
+    if files.get('crush'):
+        crush_production = parse_crush_sheet(files['crush'])
+    main_data['crush_production'] = crush_production
     employees = build_master_list(main_data)
 
     # 收集考勤中实际出现的人
@@ -334,6 +347,11 @@ def _run_pipeline(files, month_filter=None):
             if eid: attendance_ids.add(eid)
     for sp in main_data.get('attendance', []):
         for e in sp.get('normal', []):
+            eid = make_employee_id(e)
+            if eid: attendance_ids.add(eid)
+
+    for cp in crush_production:
+        for e in cp.get('personnel', []):
             eid = make_employee_id(e)
             if eid: attendance_ids.add(eid)
 
@@ -440,7 +458,7 @@ def _run_pipeline(files, month_filter=None):
                 has_range = bool(o.get('start_date', '') or o.get('end_date', ''))
                 st = o.get('salary_type', '')
                 # 仅永久覆盖（无日期区间）更新 override_type，临时例外不影响基础类型
-                if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
+                if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                     emp['override_type'] = st
                 # 日薪/月薪基数（临时例外也需要用于 calc_day_salary）
                 if st == 'day_rate' and o.get('day_rate', 0) > 0:
@@ -453,13 +471,13 @@ def _run_pipeline(files, month_filter=None):
             emp['monthly_salary'] = 0
         elif ot == 'monthly':
             emp['day_rate'] = 0
-        elif ot in ('piece_underground', 'piece_driller'):
+        elif ot in ('piece_underground', 'piece_driller', 'piece_crush'):
             emp['day_rate'] = 0
             emp['monthly_salary'] = 0
 
     # ── 月份筛选（过滤所有数据源，不仅仅是 dates） ──
     if month_filter:
-        for key in ('dates', 'shift_production', 'driller_production', 'attendance'):
+        for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
             if main_data.get(key):
                 if key == 'dates':
                     main_data[key] = [d for d in main_data[key] if d.startswith(month_filter)]
@@ -494,6 +512,7 @@ def _run_pipeline(files, month_filter=None):
         'main': os.path.basename(files['main']) if files.get('main') else None,
         'advance': os.path.basename(files['advance']) if files.get('advance') else None,
         'addressbook': os.path.basename(files['addressbook']) if files.get('addressbook') else None,
+        'crush': os.path.basename(files['crush']) if files.get('crush') else None,
     }
 
     # 保存当月结果到数据库（仅在有月份筛选时，确保数据准确）
@@ -572,6 +591,7 @@ def reload_source():
             'total_employees': len(APP_STATE['employees']),
             'piece_underground': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'piece_underground'),
             'piece_driller': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'piece_driller'),
+            'piece_crush': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'piece_crush'),
             'day_rate': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'day_rate'),
             'advance_only': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'advance_only'),
             'overlap_need_decision': sum(1 for e in APP_STATE['employees'] if e.get('source') in ('both',)),
@@ -585,7 +605,7 @@ def reload_source():
 #  API: 上传源文件
 # ═══════════════════════════════════════════════════════════
 
-ALLOWED_FILE_TYPES = {'main', 'advance', 'addressbook', 'nssf'}
+ALLOWED_FILE_TYPES = {'main', 'advance', 'addressbook', 'nssf', 'crush'}
 
 # ═══════════════════════════════════════════════════════════
 #  API: 下载源文件模板
@@ -638,6 +658,13 @@ def _validate_source_file(file_type, filepath):
             data = parse_sdl_list(filepath)
             if not data:
                 return False, 'NSSF 文件中未提取到任何参保记录，请确认 Sheet 名为「Tanzania Mainland」'
+            return True, ''
+
+        elif file_type == 'crush':
+            from core.parser import parse_crush_sheet
+            data = parse_crush_sheet(filepath)
+            if not data:
+                return False, '破碎计件文件中未找到有效数据，请确认 Sheet 名为「CRUSH TEAM Production Data」'
             return True, ''
 
     except Exception as e:
@@ -792,7 +819,7 @@ def get_employees():
         for o in emp['overrides']:
             has_range = bool(o.get('start_date', '') or o.get('end_date', ''))
             st = o.get('salary_type')
-            if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
+            if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                 emp['override_type'] = st
             if st == 'day_rate' and o.get('day_rate', 0) > 0:
                 emp['day_rate'] = o['day_rate']
@@ -804,7 +831,7 @@ def get_employees():
             emp['monthly_salary'] = 0
         elif ot == 'monthly':
             emp['day_rate'] = 0
-        elif ot in ('piece_underground', 'piece_driller'):
+        elif ot in ('piece_underground', 'piece_driller', 'piece_crush'):
             emp['day_rate'] = 0
             emp['monthly_salary'] = 0
         # 附加当月奖金/罚款
@@ -829,7 +856,7 @@ def save_override():
             if emp['id'] == eid:
                 has_range = bool(data.get('start_date', '') or data.get('end_date', ''))
                 st = data.get('salary_type')
-                if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller'):
+                if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                     emp['override_type'] = st
                 if st == 'day_rate' and data.get('day_rate', 0) > 0:
                     emp['day_rate'] = data['day_rate']
@@ -1404,7 +1431,7 @@ def export_salary():
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                           top=Side(style='thin'), bottom=Side(style='thin'))
 
-    headers = ['姓名', '薪资类型', '井下计件(TZS)', '钻工计件(TZS)',
+    headers = ['姓名', '薪资类型', '井下计件(TZS)', '钻工计件(TZS)', '破碎计件(TZS)',
                '日薪工资(TZS)', '月薪工资(TZS)', '应发合计(TZS)',
                '奖金(TZS)', '罚款(TZS)', '预支扣除(TZS)', 'NSSF(TZS)', '实发工资(TZS)']
     for col, h in enumerate(headers, 1):
@@ -1412,13 +1439,14 @@ def export_salary():
         cell.font = header_font; cell.fill = header_fill
         cell.alignment = header_align; cell.border = thin_border
 
-    type_map = {'piece_underground': '井下计件', 'piece_driller': '钻工计件',
+    type_map = {'piece_crush': '破碎计件', 'piece_underground': '井下计件', 'piece_driller': '钻工计件',
                 'day_rate': '日薪', 'monthly': '月薪', 'both': '需指定', 'advance_only': '仅预支'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
     for i, emp in enumerate(result['employees'], 2):
         gross = (emp.get('piece_underground', 0) or 0) + \
                 (emp.get('piece_driller', 0) or 0) + \
+                (emp.get('piece_crush', 0) or 0) + \
                 (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0)
         bonus = int(emp.get('bonus', 0) or 0)
         penalty = int(emp.get('penalty', 0) or 0)
@@ -1427,6 +1455,7 @@ def export_salary():
         vals = [
             emp['name'] or '', type_map.get(emp.get('salary_type', ''), emp.get('salary_type', '')),
             int(emp.get('piece_underground', 0) or 0), int(emp.get('piece_driller', 0) or 0),
+            int(emp.get('piece_crush', 0) or 0),
             int(emp.get('day_rate', 0) or 0), int(emp.get('monthly', 0) or 0),
             int(gross), bonus, penalty, int(emp.get('advance', 0) or 0), int(nssf), int(net),
         ]
@@ -1440,7 +1469,7 @@ def export_salary():
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
     # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM公式
-    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11]:
+    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
         letter = chr(64 + ci)
         cell = ws.cell(total_row, ci, f'=SUM({letter}2:{letter}{total_row-1})')
         cell.font = Font(bold=True); cell.fill = total_fill; cell.border = thin_border
@@ -1453,7 +1482,7 @@ def export_salary():
     ws.cell(total_row, 12).fill = total_fill; ws.cell(total_row, 12).border = thin_border
     ws.cell(total_row, 12).number_format = '#,##0'
 
-    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
+    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     # Sheet 2: 产量
@@ -1594,7 +1623,7 @@ def export_attendance():
     manual = load_attendance_overrides(app.config['DATA_FOLDER'])
 
     # ── 构建行数据 ──
-    type_labels = {'piece_underground': '井下计件', 'piece_driller': '钻工计件',
+    type_labels = {'piece_crush': '破碎计件', 'piece_underground': '井下计件', 'piece_driller': '钻工计件',
                    'day_rate': '日薪', 'monthly': '月薪', 'advance_only': '仅预支'}
     rows = []
     for emp in employees:
@@ -1780,16 +1809,17 @@ def export_all():
     result = APP_STATE.get('salary_result')
     if result:
         ws2 = wb.create_sheet('薪资总表')
-        headers2 = ['姓名', '薪资类型', '井下计件(TZS)', '钻工计件(TZS)',
+        headers2 = ['姓名', '薪资类型', '井下计件(TZS)', '钻工计件(TZS)', '破碎计件(TZS)',
                     '日薪工资(TZS)', '月薪工资(TZS)', '应发合计(TZS)',
                     '奖金(TZS)', '罚款(TZS)', '预支扣除(TZS)', 'NSSF(TZS)', '实发工资(TZS)']
         for ci, h in enumerate(headers2, 1):
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
-        _type_map2 = {'piece_underground':'井下计件','piece_driller':'钻工计件',
+        _type_map2 = {'piece_crush':'破碎计件','piece_underground':'井下计件','piece_driller':'钻工计件',
                       'day_rate':'日薪','monthly':'月薪','both':'需指定','advance_only':'仅预支'}
         for i, emp in enumerate(result['employees'], 2):
             gross = (emp.get('piece_underground',0) or 0) + (emp.get('piece_driller',0) or 0) + \
+                    (emp.get('piece_crush',0) or 0) + \
                     (emp.get('day_rate',0) or 0) + (emp.get('monthly',0) or 0)
             bonus = int(emp.get('bonus', 0) or 0)
             penalty = int(emp.get('penalty', 0) or 0)
@@ -1798,6 +1828,7 @@ def export_all():
             vals = [
                 emp.get('name','') or '', _type_map2.get(emp.get('salary_type',''), emp.get('salary_type','')),
                 int(emp.get('piece_underground',0) or 0), int(emp.get('piece_driller',0) or 0),
+                int(emp.get('piece_crush',0) or 0),
                 int(emp.get('day_rate',0) or 0), int(emp.get('monthly',0) or 0),
                 int(gross), bonus, penalty, int(emp.get('advance',0) or 0), int(nssf), int(net),
             ]
@@ -1810,7 +1841,7 @@ def export_all():
         ws2.cell(tr, 1, '合计').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
         # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM
-        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11]:
+        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
@@ -1821,7 +1852,7 @@ def export_all():
         ws2.cell(tr, 12, net_f).font = Font(bold=True)
         ws2.cell(tr, 12).fill = total_fill; ws2.cell(tr, 12).border = tb
         ws2.cell(tr, 12).number_format = '#,##0'
-        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
+        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
             ws2.column_dimensions[chr(64+i)].width = w
         ws2.freeze_panes = 'A2'
 
