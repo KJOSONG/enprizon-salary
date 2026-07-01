@@ -2144,7 +2144,7 @@ function renderAttendance() {
         const isChanged = st !== autoVal && !(autoVal === '' && st === '');
         // 月薪默认 (P) 改为手动时用不同的下划线
         const isMonthlyDefault = autoVal === '(P)';
-        const onClick = isEditable ? ` onclick="toggleAttDay('${r.id}','${d}','${st}','${autoVal}')"` : '';
+        const onClick = isEditable ? ` onclick="toggleAttDay('${r.id}','${d}','${st}','${autoVal}','${r.type}')"` : '';
         const cursor = isEditable ? 'cursor:pointer;' : '';
         let decor = '';
         if (isChanged && isMonthlyDefault) {
@@ -2170,13 +2170,19 @@ function renderAttendance() {
   }
 }
 
-async function toggleAttDay(eid, date, currentStatus, autoVal) {
-  // 原始为空：'' → P → A → L → ''（可回到空值）
-  // 原始非空：C/R/D/N/B/P → A → L → ''（回到原始自动值）
+async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
+  // 原始为空 (无自动出勤):
+  //   破碎计件员工: '' → C → A → L → '' (手动标记破碎出勤后可旷工/请假/复位)
+  //   其他员工:     '' → P → A → L → '' (标记出勤后可旷工/请假/复位)
+  // 原始非空 (有自动出勤):
+  //   C/R/D/N/B/P → A → L → '' → 恢复原始自动值
   let nextStatus;
+  const isCrush = empType === '破碎计件';
   if (autoVal === '' || autoVal === undefined) {
-    const cycle = {'':'P', 'P':'A', 'A':'L', 'L':''};
-    nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
+    const cycle = isCrush
+      ? {'':'C', 'C':'A', 'A':'L', 'L':''}
+      : {'':'P', 'P':'A', 'A':'L', 'L':''};
+    nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : (isCrush ? 'C' : 'P');
   } else {
     const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';

@@ -169,11 +169,11 @@ def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
             crush_eids[emp['id']] = emp.get('name', '')
     if not crush_eids:
         return
-    # 查询 attendance_overrides 中 status='P' 的记录
+    # 查询 attendance_overrides 中 status='C' 或 'P' 的记录
     import sqlite3
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
-        "SELECT employee_id, date FROM attendance_overrides WHERE status='P'"
+        "SELECT employee_id, date FROM attendance_overrides WHERE status IN ('C','P')"
     ).fetchall()
     conn.close()
     # 按日期收集应加入的额外员工名称
