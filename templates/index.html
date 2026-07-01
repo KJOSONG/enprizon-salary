@@ -1269,7 +1269,7 @@ function showOverrideModal(eid) {
   document.getElementById('modalTempStart').value = ym + '-01';
   document.getElementById('modalTempEnd').value = ym + '-' + new Date(today.getFullYear(), today.getMonth()+1, 0).getDate().toString().padStart(2,'0');
   // 加载钻工队长列表
-  fetch(api('/driller-captains?date=' + document.getElementById('modalTempStart').value)).then(r=>r.json()).then(caps=>{
+  fetch(api('/driller-captains')).then(r=>r.json()).then(caps=>{
     const sel = document.getElementById('modalTempCaptain');
     sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
     caps.forEach(c => { sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; });
@@ -1387,20 +1387,6 @@ async function saveTempOverride() {
   const dr = parseFloat(document.getElementById('modalTempRate').value)||0;
   const shift = document.getElementById('modalTempShift').value;
   const captain = document.getElementById('modalTempCaptain').value;
-
-  // 加载当天钻工队长列表
-  if (st === 'piece_driller') {
-    try {
-      const start = document.getElementById('modalTempStart').value;
-      const res = await fetch(api('/driller-captains?date=' + start));
-      const caps = await res.json();
-      const sel = document.getElementById('modalTempCaptain');
-      sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
-      caps.forEach(c => {
-        sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>';
-      });
-    } catch(e) {}
-  }
 
   await authFetch(api('/employees/override'), {
     method:'POST', headers:{'Content-Type':'application/json'},

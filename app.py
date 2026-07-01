@@ -1251,13 +1251,11 @@ def get_daily_wages():
 
 @app.route('/driller-captains', methods=['GET'])
 def get_driller_captains():
-    """返回指定日期的钻工队长列表"""
-    date = request.args.get('date', '')
+    """返回所有钻工队长列表（不按日期过滤，用于临时例外弹窗）"""
     md = APP_STATE.get('main_data', {})
     captains = set()
     for d in md.get('driller_production', []):
-        if d['date'] == date:
-            captains.add(d['captain'])
+        captains.add(d['captain'])
     return jsonify(sorted(captains))
 
 # ═══════════════════════════════════════════════════════════
