@@ -1961,6 +1961,7 @@ def _do_export_all():
             att_rows.append({
                 'name': emp.get('name', ''),
                 'type': type_map.get(emp_type, emp_type),
+                'dept': emp.get('department', ''),
                 'days': row_days,
             })
 
@@ -1970,8 +1971,10 @@ def _do_export_all():
             ws3.cell(1, 1).alignment = ha; ws3.cell(1, 1).border = tb
             ws3.cell(1, 2, 'Type').font = hfont; ws3.cell(1, 2).fill = hfill
             ws3.cell(1, 2).alignment = ha; ws3.cell(1, 2).border = tb
+            ws3.cell(1, 3, 'Department').font = hfont; ws3.cell(1, 3).fill = hfill
+            ws3.cell(1, 3).alignment = ha; ws3.cell(1, 3).border = tb
             for di, dt in enumerate(all_dates):
-                c = ws3.cell(1, 3 + di, parse_dt(dt))
+                c = ws3.cell(1, 4 + di, parse_dt(dt))
                 c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
                 c.number_format = date_fmt
 
@@ -1979,9 +1982,10 @@ def _do_export_all():
                 ws3.cell(ri, 1, row['name']).border = tb
                 c_type = ws3.cell(ri, 2, row['type']); c_type.border = tb
                 c_type.alignment = Alignment(horizontal='center')
+                ws3.cell(ri, 3, row['dept']).border = tb
                 for di, dt in enumerate(all_dates):
                     status = row['days'].get(dt, '')
-                    c = ws3.cell(ri, 3 + di, status)
+                    c = ws3.cell(ri, 4 + di, status)
                     c.border = tb
                     c.alignment = Alignment(horizontal='center', vertical='center')
                     sf = fill_map.get(status)
@@ -1992,7 +1996,8 @@ def _do_export_all():
 
             ws3.column_dimensions['A'].width = 22
             ws3.column_dimensions['B'].width = 12
-            ws3.freeze_panes = 'C2'
+            ws3.column_dimensions['C'].width = 22
+            ws3.freeze_panes = 'D2'
 
     # ═══════════════════════════════════════════════════════
     #  Sheet 4: 日工资分布
