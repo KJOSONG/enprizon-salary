@@ -1863,18 +1863,18 @@ def _do_export_all():
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
-        # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM
+        # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 罚款(J), 预支(K), NSSF(L) → SUM
         for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
             c.number_format = '#,##0'
-        # 实发(L12) = G+H-I-J-K + 司机津贴
+        # 实发(M12) = 应发H + 奖金I - 罚款J - 预支K - NSSF L [+ 司机津贴]
         da_val = result.get('driver_allowance', 0)
-        net_f = f'=G{tr}+H{tr}-I{tr}-J{tr}-K{tr}+{int(da_val)}' if da_val else f'=G{tr}+H{tr}-I{tr}-J{tr}-K{tr}'
-        ws2.cell(tr, 12, net_f).font = Font(bold=True)
-        ws2.cell(tr, 12).fill = total_fill; ws2.cell(tr, 12).border = tb
-        ws2.cell(tr, 12).number_format = '#,##0'
+        net_f = f'=H{tr}+I{tr}-J{tr}-K{tr}-L{tr}+{int(da_val)}' if da_val else f'=H{tr}+I{tr}-J{tr}-K{tr}-L{tr}'
+        ws2.cell(tr, 13, net_f).font = Font(bold=True)
+        ws2.cell(tr, 13).fill = total_fill; ws2.cell(tr, 13).border = tb
+        ws2.cell(tr, 13).number_format = '#,##0'
         for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
             ws2.column_dimensions[chr(64+i)].width = w
         ws2.freeze_panes = 'A2'
