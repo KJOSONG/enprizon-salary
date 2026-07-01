@@ -407,6 +407,9 @@
           <option value="日薪" data-i18n="emp_dayrate">日薪</option>
           <option value="月薪" data-i18n="emp_monthly">月薪</option>
         </select>
+        <select id="attFilterDept" onchange="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+          <option value="" data-i18n="emp_all_depts">全部部门</option>
+        </select>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button id="attSaveBtn" class="editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" style="display:none;padding:6px 16px;background:var(--accent-gradient);color:white;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all var(--transition-normal);">保存并计算</button>
@@ -2094,10 +2097,20 @@ function renderAttendance() {
   if (!data) return;
   const q = (document.getElementById('attSearch').value||'').toLowerCase();
   const ft = document.getElementById('attFilterType').value;
+  const fd = document.getElementById('attFilterDept').value;
+
+  // 首次加载时动态填充部门下拉选项
+  const deptSel = document.getElementById('attFilterDept');
+  if (deptSel.options.length === 1) {
+    const depts = new Set();
+    data.rows.forEach(r => { if (r.department) depts.add(r.department); });
+    [...depts].sort().forEach(d => { deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+  }
 
   const filtered = data.rows.filter(r => {
     if (q && !r.name.toLowerCase().includes(q)) return false;
     if (ft && r.type !== ft) return false;
+    if (fd && (r.department||'') !== fd) return false;
     return true;
   });
 
