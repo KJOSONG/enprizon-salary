@@ -1956,6 +1956,7 @@ def _do_export_all():
             eid = emp.get('id', '')
             emp_type = emp.get('override_type') or emp.get('default_type', '')
             is_monthly = (emp_type == 'monthly')
+            is_top_dept_monthly = is_monthly and emp.get('department') == 'ENPRIZON LINDI PROJECT'
             row_days = {}
             for dt in all_dates:
                 kid = f"{eid}|{dt}"
@@ -1963,8 +1964,8 @@ def _do_export_all():
                     row_days[dt] = manual[kid]
                 elif eid in day_status and dt in day_status[eid]:
                     row_days[dt] = day_status[eid][dt]
-                elif is_monthly:
-                    row_days[dt] = '(P)'
+                elif is_top_dept_monthly:
+                    row_days[dt] = 'P'
                 else:
                     row_days[dt] = ''
             att_rows.append({
