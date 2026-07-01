@@ -1762,6 +1762,17 @@ def export_attendance():
 @login_required
 def export_all():
     """一次性导出：员工信息 → 薪资总表 → 出勤表 → 日工资分布 → 产量汇总"""
+    try:
+        return _do_export_all()
+    except Exception as e:
+        import traceback, sys
+        print(f'[EXPORT ERROR] {e}', file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e), 'ok': False}), 500
+
+
+def _do_export_all():
+    """导出逻辑体，方便包装错误处理"""
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from datetime import datetime
