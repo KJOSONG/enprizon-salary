@@ -1396,6 +1396,7 @@ def get_attendance():
             'id': eid,
             'name': emp.get('name', ''),
             'type': type_labels.get(emp.get('override_type') or emp.get('default_type', ''), emp.get('default_type', '')),
+            'department': emp.get('department', ''),
             'days': status_row,
             'origin': origin_row,
             'auto': auto_row,

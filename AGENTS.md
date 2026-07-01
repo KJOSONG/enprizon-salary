@@ -72,8 +72,11 @@ workers = 1                 # SQLite 要求单 worker（写操作串行化）
 threads = 2                 # 2 线程处理并发读取
 timeout = 120               # 应对长时间重算
 ```
+日志路径 `accesslog`、`errorlog` 硬编码为 `/root/enprizon-salary/`，本地开发时需注意。
 
 ### 测试工作流 (`test-workflow.sh`)
+
+**注意: 项目无自动化单元测试（无 `test_*.py`、`tests/` 目录），测试完全依赖以下手工测试工作流。**
 通过数据库替换实现安全测试，避免污染生产数据：
 ```bash
 cd /root/enprizon-salary
@@ -85,9 +88,18 @@ bash test-workflow.sh clean    # 删除测试库
 ```
 **警告**: `clean` 若发现 `prod_kilwa.db` 仍存在会拒绝执行，防止误删。
 
+### 备份与恢复 (`backup.sh`, `restore.sh`)
+服务器端脚本，确保数据安全：
+```bash
+bash backup.sh                    # 服务器端每日备份 (自动清理 30 天前)
+bash restore.sh [备份路径]         # 停服 → 恢复指定备份 → 重启
+```
+
 ---
 
 ## 架构
+
+> 详见 `ARCHITECTURE.md` 获取更完整的架构说明。
 
 ### 数据流水线
 ```
@@ -109,7 +121,7 @@ data/source/ (5 种文件) → scan_source_files() → _run_pipeline()
 | `parser.py` | Excel 解析 (3 Sheet → 结构化产量/出勤数据) |
 | `namematch.py` | 姓名标准化 → employee_id (通讯录账号) |
 | `addressbook.py` | 通讯录 Excel (ENPRIZON_LINDI_PROJECT.xlsx) 解析 |
-| `calculator.py` | 四轨薪资计算: 井下计件/钻工计件/日薪/月薪 + 逐日单轨合并 |
+| `calculator.py` | 五轨薪资计算: 井下计件/钻工计件/破碎计件/日薪/月薪 + 逐日单轨合并 |
 | `database.py` | SQLite ORM + 审计日志 (UTC+3), 含 10 张表 (见下方) |
 | `verification.py` | 双路径核对: 产量*单价 vs 计算结果求和, \|diff\| <= 10 视为舍入误差 |
 | `exceptions.py` | 例外覆盖标记 (永久/临时, JSON + DB 兼容) |
@@ -122,7 +134,7 @@ data/source/ (5 种文件) → scan_source_files() → _run_pipeline()
 - `static/css/style.css` — 深色工业主题 (1,300+ 行 CSS 变量驱动)
 - `static/js/chart.umd.min.js` — Chart.js 4.4.7 (本地打包，数据台图表依赖)
 - `static/js/chartjs-plugin-datalabels.min.js` — 图表示值标签插件
-- `static/js/i18n.js` — 中英双语切换 (通过 `data-i18n` 属性标记翻译键)
+- `static/js/i18n.js` — 中英双语切换 (通过 `data-i18n` 属性标记翻译键, `localStorage` 持久化语言选择). 翻译键以 `t('key.path')` 形式调用, 新增翻译需同时维护 `en` 和 `zh` 两棵翻译树
 - 前端通过 `authFetch()` 封装所有 API 调用，自动处理 401 重定向登录页
 
 ### 薪资计算五轨道 (calculator.py 核心)
@@ -132,11 +144,13 @@ data/source/ (5 种文件) → scan_source_files() → _run_pipeline()
 | 井下计件 | shift_production | 当日产量*井下单价 / 出勤人数, 人均平分 |
 | 钻工计件 | driller_production | 当日产量*钻工单价 / (队员+1队长份额), 队长*2份额 |
 | 破碎计件 | CRUSH TEAM 文件 | bags * 300TZS / 有效人数, 同日多条记录独立均分 |
+
+> **注意**: 破碎计件单价 `PRICE_CRUSH = 300` TZS/bag 在 `calculator.py` 中硬编码，与井下/钻工单价不同，**不可通过 `/config` API 修改**。
 | 日薪 | attendance | 日薪基数 * 出勤天数 |
 | 月薪 | monthly_salary | 月薪基数 / 26 × 实际出勤天数, >=26天封顶为满勤基薪 |
 
 税前总额 = 井下计件 + 钻工计件 + 破碎计件 + 日薪 + 月薪
-净额 = 税前总额 + 奖金 - 预支 - NSSF(税前总额*10%) - 罚款
+净额 = 税前总额 + 奖金 + 司机津贴 - 预支 - NSSF(税前总额*10%) - 罚款
 
 **关键设计**: 逐日单轨模式 — 任一日期只归属一个轨道，从根本上杜绝双重计薪 bug。
 
@@ -195,6 +209,18 @@ ERIC WANG QM, JIMMY, SET SAIL, 宋家成（Daria）, 宋科举KEJU, 宋科举
 ### APP_STATE 内存缓存
 `app.py` 全局 `APP_STATE = {}` 字典缓存所有解析结果（解析后的数据、员工、地址簿、源信息、当前月份）。`/reload` 端点会清空并重新填充此缓存。
 
+### 已知数据边界/特殊情况
+
+以下场景为源数据本身的正常边界，排查 bug 时不应误判:
+
+| # | 情况 | 说明 |
+|---|------|------|
+| 1 | 5/25 夜班产量无人领取 | 产量 156,000 TZS，源数据缺员工名单 → 永久路径一二差异 |
+| 2 | 钻工 5/1-5 无队员 | 部分队伍仅队长 1 人 |
+| 3 | 同名多槽位 | 同一队长同天多次出现 → 产量合并，成员去重 |
+| 4 | 跨 Sheet 人员 | 同时出现在产量表和日薪表 → 需手动指定类型 |
+| 5 | 仅预支表人员 | 通讯录外人员，仅出现在预支表中 |
+
 
 
 ---
@@ -204,27 +230,43 @@ ERIC WANG QM, JIMMY, SET SAIL, 宋家成（Daria）, 宋科举KEJU, 宋科举
 | 路由 | 方法 | 权限 | 说明 |
 |------|------|------|------|
 | `/api/login` | POST | - | 登录 |
+| `/api/logout` | POST | login | 登出 |
 | `/api/auth/status` | GET | - | 认证状态 |
 | `/api/admin/setup` | POST | - | 首次设置 admin |
+| `/api/admin/change-password` | POST | login | 修改密码 |
 | `/admin/users` | GET | super_admin | 用户管理 |
+| `/admin/users/role` | POST | super_admin | 修改用户角色 |
 | `/source-info` | GET | login | 源文件信息 |
-| `/reload` | POST | super_admin | 重新解析源文件 |
-| `/upload-source` | POST | super_admin | 上传源文件 |
-| `/set-month` | POST | super_admin | 设置当前月份 |
+| `/available-months` | GET | login | 可用月份列表 |
+| `/reload` | POST | admin | 重新解析源文件 |
+| `/upload-source` | POST | admin | 上传源文件 |
+| `/download-source/<file_type>` | GET | login | 下载源文件 |
+| `/set-month` | POST | editor | 设置当前月份 |
 | `/employees` | GET | login | 获取员工列表 |
 | `/employees/override` | POST | editor | 保存例外覆盖 |
 | `/employees/remove-override` | POST | editor | 移除永久覆盖 |
 | `/employees/remove-temp-override` | POST | editor | 移除临时例外 |
+| `/employees/remove-override-by-id` | POST | editor | 按 ID 移除覆盖 |
 | `/employees/bonus-penalty` | POST | editor | 奖惩记录 |
+| `/employees/dismissed` | GET | login | 离职员工列表 |
+| `/employees/dismiss` | POST | editor | 标记离职 |
+| `/employees/restore` | POST | editor | 恢复离职 |
 | `/nssf/toggle` | POST | editor | 切换 NSSF |
+| `/nssf/list` | GET | login | NSSF 列表 |
+| `/addressbook` | GET | login | 通讯录数据 |
 | `/attendance` | GET | login | 获取出勤数据 |
 | `/attendance/toggle` | POST | editor | 切换 A/L 状态 |
 | `/salary` | GET | login | 获取薪资结果 |
 | `/salary/verify` | GET | login | 薪资核对 |
+| `/production` | GET | login | 产量数据 |
+| `/production-verify` | GET | login | 产量核对 |
 | `/daily-wages` | GET | login | 日工资明细 |
+| `/driller-captains` | GET | login | 钻工队长列表 |
 | `/recalculate` | POST | editor | 重新计算 |
-| `/export` / `/export/all` | POST | login | 导出 Excel |
-| `/config` | GET/POST | admin | 系统配置 (单价等) |
+| `/export` / `/export/all` | POST | login | 导出 Excel (全表) |
+| `/export/employees` | POST | login | 导出员工列表 |
+| `/export/attendance` | GET | login | 导出出勤数据 |
+| `/config` | GET/POST | GET:login / POST:admin | 系统配置 (单价等) |
 | `/audit-log` | GET | login | 审计日志 |
 
 ### 统一导出报表 (`/export/all`) Sheet 结构
