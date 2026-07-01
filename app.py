@@ -1320,12 +1320,12 @@ def get_attendance():
         from core.namematch import make_employee_id, canonical
         cap_id = make_employee_id(d['captain'])
         if cap_id and dt not in day_status.get(cap_id, {}):
-            day_status[cap_id][dt] = 'P'
+            day_status[cap_id][dt] = 'R'
             day_origin[cap_id][dt] = 'auto'
         for m in d.get('members', []):
             mid = make_employee_id(m)
             if mid and dt not in day_status.get(mid, {}):
-                day_status[mid][dt] = 'P'
+                day_status[mid][dt] = 'R'
                 day_origin[mid][dt] = 'auto'
 
     # 破碎计件出勤
@@ -1335,7 +1335,7 @@ def get_attendance():
         for e in d.get('personnel', []):
             eid = make_employee_id(e)
             if eid and dt not in day_status.get(eid, {}):
-                day_status[eid][dt] = 'P'
+                day_status[eid][dt] = 'C'
                 day_origin[eid][dt] = 'auto'
 
     # 日薪出勤
@@ -1678,13 +1678,15 @@ def export_attendance():
 
     # 状态 → 颜色（与 UI 保持一致）
     fill_map = {
-        'D':  PatternFill('solid', fgColor='3B82F6'),   # 蓝色 白班
-        'N':  PatternFill('solid', fgColor='06B6D4'),   # 青色 夜班
-        'B':  PatternFill('solid', fgColor='8B5CF6'),   # 紫色 全天
-        'P':  PatternFill('solid', fgColor='10B981'),   # 绿色 出勤
-        'A':  PatternFill('solid', fgColor='EF4444'),   # 红色 旷工
-        'L':  PatternFill('solid', fgColor='F59E0B'),   # 橙色 请假
-        '(P)': PatternFill('solid', fgColor='9CA3AF'),  # 灰色 月薪默认
+        'D':  PatternFill('solid', fgColor='3B82F6'),   # Day Shift
+        'N':  PatternFill('solid', fgColor='06B6D4'),   # Night Shift
+        'B':  PatternFill('solid', fgColor='8B5CF6'),   # Both (Day+Night)
+        'P':  PatternFill('solid', fgColor='10B981'),   # Present
+        'A':  PatternFill('solid', fgColor='EF4444'),   # Absent
+        'L':  PatternFill('solid', fgColor='F59E0B'),   # Leave
+        'R':  PatternFill('solid', fgColor='14B8A6'),   # Driller
+        'C':  PatternFill('solid', fgColor='F97316'),   # Crush
+        '(P)': PatternFill('solid', fgColor='9CA3AF'),  # Monthly Default
     }
     text_color = Font(color='FFFFFF', bold=True)
 
@@ -1732,6 +1734,8 @@ def export_attendance():
         ('P', 'Present', '10B981'),
         ('A', 'Absent', 'EF4444'),
         ('L', 'Leave', 'F59E0B'),
+        ('R', 'Driller', '14B8A6'),
+        ('C', 'Crush', 'F97316'),
         ('(P)', 'Monthly Default', '9CA3AF'),
     ]
     ws2.cell(1, 1, 'Code').font = Font(bold=True)
@@ -1921,6 +1925,8 @@ def export_all():
             'P': PatternFill('solid', fgColor='10B981'),
             'A': PatternFill('solid', fgColor='EF4444'),
             'L': PatternFill('solid', fgColor='F59E0B'),
+            'R': PatternFill('solid', fgColor='14B8A6'),
+            'C': PatternFill('solid', fgColor='F97316'),
             '(P)': PatternFill('solid', fgColor='9CA3AF'),
         }
         white_bold = Font(color='FFFFFF', bold=True)

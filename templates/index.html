@@ -2126,6 +2126,8 @@ function renderAttendance() {
     'P': {color: 'var(--success)', label: t('shift_P_label'), desc: t('shift_P_desc')},
     'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
     'L': {color: 'var(--warning)', label: t('shift_L_label'), desc: t('shift_L_desc')},
+    'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
+    'C': {color: '#F97316', label: t('shift_C_label'), desc: t('shift_C_desc')},
     '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
     '': {color: 'var(--text-dim)', label: '', desc: ''},
   };
@@ -2176,7 +2178,7 @@ async function toggleAttDay(eid, date, currentStatus, autoVal) {
     const cycle = {'':'P', 'P':'A', 'A':'L', 'L':''};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   } else {
-    const cycle = {'':'P', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A'};
+    const cycle = {'':'P', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'R':'A', 'C':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   }
   try {
