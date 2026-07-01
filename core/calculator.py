@@ -584,6 +584,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         attendance_data = main_data.get('attendance', [])
         crush_data = main_data.get('crush_production', [])
 
+        # C/P 手动标记：先将人员注�� crush_data（必须在 all_attendance_pairs 构建之前，否则后续检查会误排除）
+        c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
+
         # ── 构建全局出勤集合（包含三个数据源）──
         all_attendance_pairs = set()
         for day in shift_data:
@@ -657,8 +660,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
 
-        # C/P 手动标记：将人员注入 crush_data 并将对应日期覆盖为 piece_crush
-        c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
+        # C/P 手动标记：将对应日期覆盖为 piece_crush（crush_data 已在构建 all_attendance_pairs 前注入人员）
         for eid, dates in c_overrides.items():
             for dt in dates:
                 per_date_type[eid][dt] = 'piece_crush'
@@ -891,7 +893,10 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
-        # ── 构建全局出勤集合（包含三个数据源）──
+        # C/P 手动标记：先将人员注入 crush_data（必须在 all_attendance_pairs 构建之前）
+        c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
+
+        # ── 构建全局出勤集合（包含三个数��源）──
         all_attendance_pairs = set()
         for day in shift_data:
             dt = day.get('date', '')
@@ -957,8 +962,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dtype in ('piece_underground', 'piece_driller', 'piece_crush'):
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
-        # C/P 手动标记：将人员注入 crush_data 并将对应日期覆盖为 piece_crush
-        c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
+        # C/P 手动标记：将对应日期覆盖为 piece_crush（crush_data 已在构建 all_attendance_pairs 前注入人员）
         for eid, dates in c_overrides.items():
             for dt in dates:
                 per_date_type[eid][dt] = 'piece_crush'
