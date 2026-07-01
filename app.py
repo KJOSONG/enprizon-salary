@@ -1892,6 +1892,7 @@ def _do_export_all():
         all_dates = sorted(set(
             list(set(d['date'] for d in shift_prod)) +
             list(set(d.get('date', '') for d in attendance_data)) +
+            list(set(d.get('date', '') for d in (md.get('crush_production') or []))) +
             list(md.get('dates', []))
         ))
 
@@ -1911,11 +1912,19 @@ def _do_export_all():
             dt = d['date']
             cap_id = make_employee_id(d['captain'])
             if cap_id and dt not in day_status.get(cap_id, {}):
-                day_status[cap_id][dt] = 'P'
+                day_status[cap_id][dt] = 'R'
             for m in d.get('members', []):
                 mid = make_employee_id(m)
                 if mid and dt not in day_status.get(mid, {}):
-                    day_status[mid][dt] = 'P'
+                    day_status[mid][dt] = 'R'
+        # 破碎计件出勤
+        crush_data = md.get('crush_production', [])
+        for d in crush_data:
+            dt = d['date']
+            for e in d.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid and dt not in day_status.get(eid, {}):
+                    day_status[eid][dt] = 'C'
         for d in attendance_data:
             dt = d['date']
             for e in d.get('normal', []):
