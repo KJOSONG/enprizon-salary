@@ -1433,7 +1433,7 @@ def export_salary():
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = '薪资总表'
+    ws.title = 'Salary Summary'
 
     header_font = Font(bold=True, color='FFFFFF', size=11)
     header_fill = PatternFill('solid', fgColor='185FA5')
@@ -1441,16 +1441,16 @@ def export_salary():
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                           top=Side(style='thin'), bottom=Side(style='thin'))
 
-    headers = ['姓名', '薪资类型', '井下计件(TZS)', '钻工计件(TZS)', '破碎计件(TZS)',
-               '日薪工资(TZS)', '月薪工资(TZS)', '应发合计(TZS)',
-               '奖金(TZS)', '罚款(TZS)', '预支扣除(TZS)', 'NSSF(TZS)', '实发工资(TZS)']
+    headers = ['Name', 'Type', 'Underground Piece(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
+               'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
+               'Bonus(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)', 'Net Salary(TZS)']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(1, col, h)
         cell.font = header_font; cell.fill = header_fill
         cell.alignment = header_align; cell.border = thin_border
 
-    type_map = {'piece_crush': '破碎计件', 'piece_underground': '井下计件', 'piece_driller': '钻工计件',
-                'day_rate': '日薪', 'monthly': '月薪', 'both': '需指定', 'advance_only': '仅预支'}
+    type_map = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece', 'piece_driller': 'Driller Piece',
+                'day_rate': 'Day Rate', 'monthly': 'Monthly', 'both': 'Unspecified', 'advance_only': 'Advance Only'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
     for i, emp in enumerate(result['employees'], 2):
@@ -1475,7 +1475,7 @@ def export_salary():
             if col > 1: cell.number_format = '#,##0'
 
     total_row = len(result['employees']) + 2
-    ws.cell(total_row, 1, '合计').font = Font(bold=True, size=11)
+    ws.cell(total_row, 1, 'Total').font = Font(bold=True, size=11)
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
     # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM公式
@@ -1496,8 +1496,8 @@ def export_salary():
         ws.column_dimensions[chr(64+i)].width = w
 
     # Sheet 2: 产量
-    ws2 = wb.create_sheet('产量汇总')
-    for ci, h in enumerate(['日期', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
+    ws2 = wb.create_sheet('Production Summary')
+    for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
         c = ws2.cell(1, ci, h); c.font = header_font; c.fill = header_fill
 
     md = APP_STATE.get('main_data', {})
@@ -1510,7 +1510,7 @@ def export_salary():
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True, download_name='ENPRIZON_LINDI_薪资总表.xlsx')
+                     as_attachment=True, download_name='ENPRIZON_LINDI_Salary.xlsx')
 
 # ═══════════════════════════════════════════════════════════
 #  API: 导出员工信息表
@@ -1532,7 +1532,7 @@ def export_employees():
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = '员工信息'
+    ws.title = 'Employee Info'
 
     hf = Font(bold=True, color='FFFFFF', size=11)
     hfill = PatternFill('solid', fgColor='185FA5')
@@ -1540,12 +1540,12 @@ def export_employees():
     tb = Border(left=Side(style='thin'), right=Side(style='thin'),
                 top=Side(style='thin'), bottom=Side(style='thin'))
 
-    headers = ['姓名', '部门', '薪资类型', '日薪基数(TZS)', '月薪基数(TZS)', '本月预支(TZS)', '备注']
+    headers = ['Name', 'Department', 'Type', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance This Month(TZS)', 'Notes']
     for ci, h in enumerate(headers, 1):
         c = ws.cell(1, ci, h); c.font = hf; c.fill = hfill; c.alignment = ha; c.border = tb
 
-    type_map = {'piece_underground':'井下计件','piece_driller':'钻工计件',
-                'day_rate':'日薪','monthly':'月薪','both':'需指定','advance_only':'仅预支'}
+    type_map = {'piece_underground':'Underground Piece','piece_driller':'Driller Piece',
+                'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
     for i, emp in enumerate(employees, 2):
@@ -1574,7 +1574,7 @@ def export_employees():
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True, download_name='ENPRIZON_LINDI_员工信息.xlsx')
+        as_attachment=True, download_name='ENPRIZON_LINDI_Employees.xlsx')
 
 # ═══════════════════════════════════════════════════════════
 #  API: 导出出勤表
@@ -1633,8 +1633,8 @@ def export_attendance():
     manual = load_attendance_overrides(app.config['DATA_FOLDER'])
 
     # ── 构建行数据 ──
-    type_labels = {'piece_crush': '破碎计件', 'piece_underground': '井下计件', 'piece_driller': '钻工计件',
-                   'day_rate': '日薪', 'monthly': '月薪', 'advance_only': '仅预支'}
+    type_labels = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece', 'piece_driller': 'Driller Piece',
+                   'day_rate': 'Day Rate', 'monthly': 'Monthly', 'advance_only': 'Advance Only'}
     rows = []
     for emp in employees:
         eid = emp.get('id', '')
@@ -1668,7 +1668,7 @@ def export_attendance():
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = '出勤表'
+    ws.title = 'Attendance'
 
     hfont = Font(bold=True, color='FFFFFF', size=11)
     hfill = PatternFill('solid', fgColor='185FA5')
@@ -1688,8 +1688,8 @@ def export_attendance():
     }
     text_color = Font(color='FFFFFF', bold=True)
 
-    # ── 表头 ──
-    headers = ['姓名', '类型'] + all_dates
+    # ── Headers ──
+    headers = ['Name', 'Type'] + all_dates
     for ci, h in enumerate(headers, 1):
         c = ws.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
@@ -1724,18 +1724,18 @@ def export_attendance():
             ws.column_dimensions[col_letter].width = 7
 
     # ── 添加图例 sheet ──
-    ws2 = wb.create_sheet('图例')
+    ws2 = wb.create_sheet('Legend')
     legend = [
-        ('D', '白班', '3B82F6'),
-        ('N', '夜班', '06B6D4'),
-        ('B', '全天（白班+夜班）', '8B5CF6'),
-        ('P', '出勤', '10B981'),
-        ('A', '旷工', 'EF4444'),
-        ('L', '请假', 'F59E0B'),
-        ('(P)', '月薪默认出勤', '9CA3AF'),
+        ('D', 'Day Shift', '3B82F6'),
+        ('N', 'Night Shift', '06B6D4'),
+        ('B', 'Both (Day+Night)', '8B5CF6'),
+        ('P', 'Present', '10B981'),
+        ('A', 'Absent', 'EF4444'),
+        ('L', 'Leave', 'F59E0B'),
+        ('(P)', 'Monthly Default', '9CA3AF'),
     ]
-    ws2.cell(1, 1, '状态代码').font = Font(bold=True)
-    ws2.cell(1, 2, '含义').font = Font(bold=True)
+    ws2.cell(1, 1, 'Code').font = Font(bold=True)
+    ws2.cell(1, 2, 'Meaning').font = Font(bold=True)
     ws2.column_dimensions['A'].width = 10
     ws2.column_dimensions['B'].width = 26
     for i, (code, meaning, color) in enumerate(legend, 2):
@@ -1747,7 +1747,7 @@ def export_attendance():
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     month = APP_STATE.get('month', '')
-    fname = f'ENPRIZON_LINDI_出勤表_{month}.xlsx' if month else 'ENPRIZON_LINDI_出勤表.xlsx'
+    fname = f'ENPRIZON_LINDI_Attendance_{month}.xlsx' if month else 'ENPRIZON_LINDI_Attendance.xlsx'
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True, download_name=fname)
@@ -1771,8 +1771,8 @@ def export_all():
     tb = Border(left=Side(style='thin'), right=Side(style='thin'),
                 top=Side(style='thin'), bottom=Side(style='thin'))
     total_fill = PatternFill('solid', fgColor='FFF3CD')
-    type_map = {'piece_underground':'井下计件','piece_driller':'钻工计件',
-                'day_rate':'日薪','monthly':'月薪','both':'需指定','advance_only':'仅预支'}
+    type_map = {'piece_underground':'Underground Piece','piece_driller':'Driller Piece',
+                'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only'}
 
     wb = openpyxl.Workbook()
     # 删除默认空 sheet
@@ -1790,8 +1790,8 @@ def export_all():
     if employees:
         from core.exceptions import load_overrides
         overrides = load_overrides(app.config['DATA_FOLDER'])
-        ws1 = wb.create_sheet('员工信息')
-        headers1 = ['姓名', '部门', '薪资类型', '日薪基数(TZS)', '月薪基数(TZS)', '本月预支(TZS)', '备注']
+        ws1 = wb.create_sheet('Employee Info')
+        headers1 = ['Name', 'Department', 'Type', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance(TZS)', 'Notes']
         for ci, h in enumerate(headers1, 1):
             c = ws1.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
         for i, emp in enumerate(employees, 2):
@@ -1818,15 +1818,15 @@ def export_all():
     # ═══════════════════════════════════════════════════════
     result = APP_STATE.get('salary_result')
     if result:
-        ws2 = wb.create_sheet('薪资总表')
-        headers2 = ['姓名', '薪资类型', '井下计件(TZS)', '钻工计件(TZS)', '破碎计件(TZS)',
-                    '日薪工资(TZS)', '月薪工资(TZS)', '应发合计(TZS)',
-                    '奖金(TZS)', '罚款(TZS)', '预支扣除(TZS)', 'NSSF(TZS)', '实发工资(TZS)']
+        ws2 = wb.create_sheet('Salary Summary')
+        headers2 = ['Name', 'Type', 'Underground Piece(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
+                    'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
+                    'Bonus(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)', 'Net Salary(TZS)']
         for ci, h in enumerate(headers2, 1):
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
-        _type_map2 = {'piece_crush':'破碎计件','piece_underground':'井下计件','piece_driller':'钻工计件',
-                      'day_rate':'日薪','monthly':'月薪','both':'需指定','advance_only':'仅预支'}
+        _type_map2 = {'piece_crush':'Crush Piece','piece_underground':'Underground Piece','piece_driller':'Driller Piece',
+                      'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only'}
         for i, emp in enumerate(result['employees'], 2):
             gross = (emp.get('piece_underground',0) or 0) + (emp.get('piece_driller',0) or 0) + \
                     (emp.get('piece_crush',0) or 0) + \
@@ -1848,7 +1848,7 @@ def export_all():
                 if ci > 1: c.number_format = '#,##0'
 
         tr = len(result['employees']) + 2
-        ws2.cell(tr, 1, '合计').font = Font(bold=True, size=11)
+        ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
         # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM
         for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
@@ -1950,10 +1950,10 @@ def export_all():
             })
 
         if att_rows:
-            ws3 = wb.create_sheet('出勤表')
-            ws3.cell(1, 1, '姓名').font = hfont; ws3.cell(1, 1).fill = hfill
+            ws3 = wb.create_sheet('Attendance')
+            ws3.cell(1, 1, 'Name').font = hfont; ws3.cell(1, 1).fill = hfill
             ws3.cell(1, 1).alignment = ha; ws3.cell(1, 1).border = tb
-            ws3.cell(1, 2, '类型').font = hfont; ws3.cell(1, 2).fill = hfill
+            ws3.cell(1, 2, 'Type').font = hfont; ws3.cell(1, 2).fill = hfill
             ws3.cell(1, 2).alignment = ha; ws3.cell(1, 2).border = tb
             for di, dt in enumerate(all_dates):
                 c = ws3.cell(1, 3 + di, parse_dt(dt))
@@ -2013,10 +2013,10 @@ def export_all():
         dw_dates = sorted(dw_all_dates)
 
         if dw_dates and dw_result:
-            ws4 = wb.create_sheet('日工资分布')
-            ws4.cell(1, 1, '姓名').font = hfont; ws4.cell(1, 1).fill = hfill
+            ws4 = wb.create_sheet('Daily Wages')
+            ws4.cell(1, 1, 'Name').font = hfont; ws4.cell(1, 1).fill = hfill
             ws4.cell(1, 1).alignment = ha; ws4.cell(1, 1).border = tb
-            ws4.cell(1, 2, '类型').font = hfont; ws4.cell(1, 2).fill = hfill
+            ws4.cell(1, 2, 'Type').font = hfont; ws4.cell(1, 2).fill = hfill
             ws4.cell(1, 2).alignment = ha; ws4.cell(1, 2).border = tb
             for di, dt in enumerate(dw_dates):
                 c = ws4.cell(1, 3 + di, parse_dt(dt))
@@ -2024,7 +2024,7 @@ def export_all():
                 c.number_format = date_fmt
             # 合计列
             total_col = 3 + len(dw_dates)
-            c = ws4.cell(1, total_col, '合计(TZS)')
+            c = ws4.cell(1, total_col, 'Total(TZS)')
             c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
             override_fill = PatternFill('solid', fgColor='FFF9C4')  # 黄色标记
@@ -2071,7 +2071,7 @@ def export_all():
                 ri += 1
 
             # 合计行
-            ws4.cell(ri, 1, '合计').font = Font(bold=True)
+            ws4.cell(ri, 1, 'Total').font = Font(bold=True)
             ws4.cell(ri, 1).fill = total_fill; ws4.cell(ri, 1).border = tb
             ws4.cell(ri, 2, '').fill = total_fill; ws4.cell(ri, 2).border = tb
             for di in range(len(dw_dates)):
@@ -2093,8 +2093,8 @@ def export_all():
     #  Sheet 5: 产量汇总
     # ═══════════════════════════════════════════════════════
     if md and md.get('shift_production'):
-        ws5 = wb.create_sheet('产量汇总')
-        for ci, h in enumerate(['日期', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
+        ws5 = wb.create_sheet('Production Summary')
+        for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
             c = ws5.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
         for i, d in enumerate(md.get('shift_production', []), 2):
             dp = d.get('day_prod') or {}; np = d.get('night_prod') or {}
@@ -2120,7 +2120,7 @@ def export_all():
             d_dc = ver.get('daily_comparison', {}).get('driller', [])
 
             if d_p1 or d_dc:
-                ws7 = wb.create_sheet('钻工计件核对')
+                ws7 = wb.create_sheet('Driller Verification')
                 diff_fill = PatternFill('solid', fgColor='FEF2F2')
                 diff_font = Font(color='DC2626', bold=True)
                 round_font = Font(color='9CA3AF', italic=True)
@@ -2129,9 +2129,9 @@ def export_all():
 
                 # ── 路径一：基准计算（产量 × 单价）──
                 ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
-                c = ws7.cell(r, 1, '钻工计件 · 路径一 基准计算（产量 × 单价）')
+                c = ws7.cell(r, 1, 'Path 1: Production x Price')
                 c.font = section_font; r += 1
-                for ci, h in enumerate(['日期', '队长', 'NH', 'NL', 'MW', '金额(TZS)'], 1):
+                for ci, h in enumerate(['Date', 'Captain', 'NH', 'NL', 'MW', 'Amount(TZS)'], 1):
                     c = ws7.cell(r, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
                 r += 1
                 for d in d_p1:
@@ -2146,7 +2146,7 @@ def export_all():
                     r += 1
 
                 # ── 路径一合计行 ──
-                c = ws7.cell(r, 1, '路径一合计')
+                c = ws7.cell(r, 1, 'Path 1 Total')
                 c.font = Font(bold=True); c.fill = total_fill; c.border = tb
                 for ci in range(2, 6): ws7.cell(r, ci, '').fill = total_fill; ws7.cell(r, ci).border = tb
                 c_total = ws7.cell(r, 6, f'=SUM(F{r-len(d_p1)}:F{r-1})')
@@ -2156,9 +2156,9 @@ def export_all():
 
                 # ── 逐日对比（路径一 vs 路径二）──
                 ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-                c = ws7.cell(r, 1, '钻工计件 · 逐日对比（路径一 vs 路径二，按日对齐）')
+                c = ws7.cell(r, 1, 'Driller Daily Comparison: Path 1 vs Path 2')
                 c.font = section_font; r += 1
-                for ci, h in enumerate(['日期', '路径一(TZS)', '路径二(TZS)', '差异(TZS)', '备注'], 1):
+                for ci, h in enumerate(['Date', 'Path 1(TZS)', 'Path 2(TZS)', 'Diff(TZS)', 'Note'], 1):
                     c = ws7.cell(r, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
                 r += 1
                 for dc_row in d_dc:
@@ -2170,7 +2170,7 @@ def export_all():
                     note = ''
                     if dc_row['diff'] != 0:
                         if dc_row.get('is_rounding'):
-                            note = '舍入'
+                            note = 'Rounding'
                             c_diff.font = round_font
                         else:
                             c_diff.font = diff_font
@@ -2183,14 +2183,14 @@ def export_all():
                     r += 1
 
                 # ── 汇总行 ──
-                c = ws7.cell(r, 1, '汇总')
+                c = ws7.cell(r, 1, 'Summary')
                 c.font = Font(bold=True); c.fill = total_fill; c.border = tb
                 for ci in [2, 3, 4]:
                     col_l = chr(64+ci)
                     c = ws7.cell(r, ci, f'=SUM({col_l}{r-len(d_dc)}:{col_l}{r-1})')
                     c.font = Font(bold=True); c.fill = total_fill; c.border = tb
                     c.number_format = '#,##0'
-                ws7.cell(r, 5, f'路径一={d_info.get("path1",0):,}  路径二={d_info.get("path2",0):,}').fill = total_fill
+                ws7.cell(r, 5, f'Path1={d_info.get("path1",0):,}  Path2={d_info.get("path2",0):,}').fill = total_fill
                 ws7.cell(r, 5).border = tb; ws7.cell(r, 5).font = Font(size=10)
 
                 for i, w in enumerate([14, 18, 8, 8, 8, 14, 6], 1):
@@ -2201,9 +2201,112 @@ def export_all():
             traceback.print_exc()
             pass  # 核对失败不影响导出
 
+    # ═══════════════════════════════════════════════════════
+    #  Sheet 7: 钻工计件出勤明细
+    # ═══════════════════════════════════════════════════════
+    if md and md.get('driller_production'):
+        # ── 队长名规范化映射（与 core/namematch.py 一致）──
+        _captain_canonical = {
+            'SHEDRACK': 'SHEDRACK PINIEL LAIZER',
+            'SHEDRACKPINIELLAIZER': 'SHEDRACK PINIEL LAIZER',
+            'JOHN': 'JOHN BOAY BURA',
+            'JOHNBOAYBURA': 'JOHN BOAY BURA',
+            'BARAKALAIZER': 'BARAKA LAIZER',
+            'JOSEPH': 'JOSEPH DONALD',
+            'JOSEPHDONALD': 'JOSEPH DONALD',
+        }
+        def _norm_captain(name):
+            key = re.sub(r'\s+', '', re.sub(r'\s*\([^)]*\)\s*', '', str(name))).upper()
+            return _captain_canonical.get(key, str(name))
+
+        from collections import defaultdict
+        captain_groups = defaultdict(list)
+        for d in md['driller_production']:
+            cap = _norm_captain(d['captain'])
+            captain_groups[cap].append(d)
+
+        captain_order = ['SHEDRACK PINIEL LAIZER', 'JOHN BOAY BURA', 'BARAKA LAIZER', 'JOSEPH DONALD']
+
+        if any(captain_groups.get(c) for c in captain_order):
+            ws7 = wb.create_sheet('Driller Team Details')
+            section_font = Font(bold=True, size=12, color='185FA5')
+            subtotal_fill = PatternFill('solid', fgColor='E8F4FD')
+
+            r = 1
+            grand_nh = grand_nl = grand_mw = grand_amt = 0
+
+            for cap_name in captain_order:
+                records = captain_groups.get(cap_name, [])
+                if not records:
+                    continue
+                records.sort(key=lambda d: d['date'])
+
+                # ── 队长标题行 ──
+                ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+                c = ws7.cell(r, 1, f'Captain: {cap_name} ({len(records)} days)')
+                c.font = section_font
+                r += 1
+
+                # ── 表头 ──
+                sub_headers = ['Date', 'NH', 'NL', 'MW', 'Amount(TZS)', 'Headcount', 'Personnel']
+                for ci, h in enumerate(sub_headers, 1):
+                    c = ws7.cell(r, ci, h)
+                    c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
+                r += 1
+
+                # ── 数据行 ──
+                cap_nh = cap_nl = cap_mw = cap_amt = 0
+                for rec in records:
+                    nh = rec.get('nh', 0) or 0
+                    nl = rec.get('nl', 0) or 0
+                    mw = rec.get('mw', 0) or 0
+                    amt = nh * 5000 + nl * 4000 + mw * 3000
+                    # 出勤人员列表（队长 + 成员）
+                    member_list = [_norm_captain(rec['captain'])] + (rec.get('members', []) or [])
+                    cap_nh += nh; cap_nl += nl; cap_mw += mw; cap_amt += amt
+
+                    ws7.cell(r, 1, parse_dt(rec['date'])).border = tb
+                    ws7.cell(r, 2, nh).border = tb
+                    ws7.cell(r, 3, nl).border = tb
+                    ws7.cell(r, 4, mw).border = tb
+                    c = ws7.cell(r, 5, amt); c.border = tb; c.number_format = '#,##0'
+                    ws7.cell(r, 6, len(member_list)).border = tb
+                    ws7.cell(r, 7, ', '.join(member_list)).border = tb
+                    r += 1
+
+                # ── 小计行 ──
+                ws7.cell(r, 1, f'{cap_name.split()[0]} Subtotal').font = Font(bold=True)
+                for ci in [1, 2, 3, 4, 5, 6, 7]:
+                    ws7.cell(r, ci).fill = subtotal_fill; ws7.cell(r, ci).border = tb
+                ws7.cell(r, 2, cap_nh).number_format = '#,##0'
+                ws7.cell(r, 3, cap_nl).number_format = '#,##0'
+                ws7.cell(r, 4, cap_mw).number_format = '#,##0'
+                ws7.cell(r, 5, cap_amt).number_format = '#,##0'
+                grand_nh += cap_nh; grand_nl += cap_nl; grand_mw += cap_mw; grand_amt += cap_amt
+                r += 2  # 空行分隔
+
+            # ── 总计行 ──
+            ws7.cell(r, 1, 'Grand Total').font = Font(bold=True, size=11)
+            for ci in [1, 2, 3, 4, 5, 6, 7]:
+                ws7.cell(r, ci).fill = total_fill; ws7.cell(r, ci).border = tb
+            ws7.cell(r, 2, grand_nh).number_format = '#,##0'
+            ws7.cell(r, 3, grand_nl).number_format = '#,##0'
+            ws7.cell(r, 4, grand_mw).number_format = '#,##0'
+            ws7.cell(r, 5, grand_amt).number_format = '#,##0'
+
+            # ── 列宽 ──
+            ws7.column_dimensions['A'].width = 14
+            ws7.column_dimensions['B'].width = 10
+            ws7.column_dimensions['C'].width = 10
+            ws7.column_dimensions['D'].width = 10
+            ws7.column_dimensions['E'].width = 18
+            ws7.column_dimensions['F'].width = 10
+            ws7.column_dimensions['G'].width = 60
+            ws7.freeze_panes = 'A2'
+
     # ── 文件名 ──
     month = APP_STATE.get('month', '')
-    fname = f'ENPRIZON_LINDI_{month}.xlsx' if month else 'ENPRIZON_LINDI_全月报表.xlsx'
+    fname = f'ENPRIZON_LINDI_{month}.xlsx' if month else 'ENPRIZON_LINDI_Report.xlsx'
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
