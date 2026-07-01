@@ -655,10 +655,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     if not month_prefix:
         for dt in main_data.get('dates', []):
             if dt: month_prefix = dt[:7]; break
-    calendar_days = 30
-    if month_prefix:
-        _y, _m = int(month_prefix[:4]), int(month_prefix[5:7])
-        _, calendar_days = monthrange(_y, _m)
+    working_days = 26  # 月薪按 26 天均分
 
     att_overrides = {}
     manual_p = defaultdict(set)
@@ -715,14 +712,13 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         else:
             present_dates[eid] |= dates
 
-    # top department monthly: add all calendar days for full attendance
+    # top department monthly: add 26 working days for full attendance
     if month_prefix:
         _y2, _m2 = int(month_prefix[:4]), int(month_prefix[5:7])
-        _, _last2 = monthrange(_y2, _m2)
         for emp in employees:
             if emp.get("department") == "ENPRIZON LINDI PROJECT" and (emp.get("override_type") == "monthly" or emp.get("default_type") == "monthly"):
                 eid = emp["id"]
-                for d_day in range(1, _last2 + 1):
+                for d_day in range(1, 27):
                     present_dates[eid].add(f"{_y2}-{_m2:02d}-{d_day:02d}")
 
     final_dates = sorted(set(
@@ -752,7 +748,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             elif dtype == 'monthly' and not absent and dt in present_dates[eid]:
                 mb = monthly_base.get(eid, 0)
                 if mb > 0:
-                    ms_total += mb / calendar_days
+                    ms_total += mb / working_days
 
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
         gross = pu + pd_val + dr_total + ms_total + cr_total
@@ -1024,7 +1020,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         else:
             ms_dates_set = set()
             _last = 30
-        _cal_days = _last if _ym else 30
+        _cal_days = 26  # 月薪按 26 天均分
 
         present = defaultdict(set)
         for d in attendance_data:
@@ -1058,12 +1054,12 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if st == 'P' and (not _ym or pdt[:7] == _ym):
                 present[peid].add(pdt)
 
-        # top department monthly: add all calendar days for full attendance
+        # top department monthly: add 26 working days for full attendance
         if _ym:
             for emp in employees:
                 if emp.get("department") == "ENPRIZON LINDI PROJECT" and (emp.get("override_type") == "monthly" or emp.get("default_type") == "monthly"):
                     eid = emp["id"]
-                    for d_day in range(1, _last + 1):
+                    for d_day in range(1, 27):
                         present[eid].add(f"{_y}-{_m:02d}-{d_day:02d}")
 
 
