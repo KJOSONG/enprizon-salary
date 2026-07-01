@@ -221,6 +221,7 @@ const I18N_DICT = {
     type_monthly: '月薪',
     type_both: '需指定',
     type_advance_only: '仅预支',
+    type_address_book: '通讯录',
     type_crush_piece: '破碎计件',
 
     /* ── 来源文件 ── */
@@ -582,6 +583,7 @@ const I18N_DICT = {
     type_monthly: 'Monthly',
     type_both: 'Need Spec',
     type_advance_only: 'Advance Only',
+    type_address_book: 'Address Book',
     type_crush_piece: 'Crush Piece',
 
     /* ── Source Files ── */
@@ -756,6 +758,7 @@ function getTypeLabels() {
     monthly: '<span class="badge badge-yellow">' + t('type_monthly') + '</span>',
     both: '<span class="badge badge-red">' + t('type_both') + '</span>',
     advance_only: '<span class="badge badge-yellow">' + t('type_advance_only') + '</span>',
+    address_book: '<span class="badge badge-gray">' + t('type_address_book') + '</span>',
   };
 }
 

@@ -419,6 +419,20 @@ def _run_pipeline(files, month_filter=None):
                 "advance_total": advance_data.get(eid, {}).get("total", 0) if advance_data else 0,
                 "department": "ENPRIZON LINDI PROJECT", "phone": info.get("phone", ""),
             })
+            existing_ids.add(eid)
+
+    # ── 通讯录中所有未匹配的子部门人员（无出勤数据，但索引到员工列表）──
+    for eid, info in address_book.items():
+        if eid not in existing_ids and info.get("department") and info["department"] != "ENPRIZON LINDI PROJECT":
+            employees.append({
+                "id": eid, "name": info["name"], "default_type": "day_rate",
+                "source": "address_book", "override_type": None, "overrides": [],
+                "day_rate": 0, "monthly_salary": 0,
+                "advance_total": advance_data.get(eid, {}).get("total", 0) if advance_data else 0,
+                "department": strip_dept(info.get("department", "")),
+                "phone": info.get("phone", ""),
+            })
+            existing_ids.add(eid)
 
     # ── 硬排除过滤 ──
     employees = [e for e in employees if e['id'] not in HARD_EXCLUDE_IDS]
@@ -1348,7 +1362,7 @@ def get_attendance():
                 day_origin[eid][dt] = 'auto'
 
     # 月薪默认出勤
-    type_labels = {'piece_crush': '破碎计件','piece_underground':'井下计件','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支'}
+    type_labels = {'piece_crush': '破碎计件','piece_underground':'井下计件','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支','address_book':'通讯录'}
     rows = []
 
     for emp in employees:
@@ -1450,7 +1464,7 @@ def export_salary():
         cell.alignment = header_align; cell.border = thin_border
 
     type_map = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece', 'piece_driller': 'Driller Piece',
-                'day_rate': 'Day Rate', 'monthly': 'Monthly', 'both': 'Unspecified', 'advance_only': 'Advance Only'}
+                'day_rate': 'Day Rate', 'monthly': 'Monthly', 'both': 'Unspecified', 'advance_only': 'Advance Only', 'address_book': 'Address Book'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
     for i, emp in enumerate(result['employees'], 2):
@@ -1545,7 +1559,7 @@ def export_employees():
         c = ws.cell(1, ci, h); c.font = hf; c.fill = hfill; c.alignment = ha; c.border = tb
 
     type_map = {'piece_underground':'Underground Piece','piece_driller':'Driller Piece',
-                'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only'}
+                'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
     for i, emp in enumerate(employees, 2):
@@ -1636,7 +1650,7 @@ def export_attendance():
 
     # ── 构建行数据 ──
     type_labels = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece', 'piece_driller': 'Driller Piece',
-                   'day_rate': 'Day Rate', 'monthly': 'Monthly', 'advance_only': 'Advance Only'}
+                   'day_rate': 'Day Rate', 'monthly': 'Monthly', 'advance_only': 'Advance Only', 'address_book': 'Address Book'}
     rows = []
     for emp in employees:
         eid = emp.get('id', '')
@@ -1789,7 +1803,7 @@ def _do_export_all():
                 top=Side(style='thin'), bottom=Side(style='thin'))
     total_fill = PatternFill('solid', fgColor='FFF3CD')
     type_map = {'piece_underground':'Underground Piece','piece_driller':'Driller Piece',
-                'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only'}
+                'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
 
     wb = openpyxl.Workbook()
     # 删除默认空 sheet
@@ -1843,7 +1857,7 @@ def _do_export_all():
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
         _type_map2 = {'piece_crush':'Crush Piece','piece_underground':'Underground Piece','piece_driller':'Driller Piece',
-                      'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only'}
+                      'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
         for i, emp in enumerate(result['employees'], 2):
             gross = (emp.get('piece_underground',0) or 0) + (emp.get('piece_driller',0) or 0) + \
                     (emp.get('piece_crush',0) or 0) + \

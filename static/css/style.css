@@ -780,6 +780,11 @@ table.data-table td.bold {
   color: #F97316;
   border: 1px solid rgba(249, 115, 22, 0.25);
 }
+.badge-gray {
+  background: rgba(107, 114, 128, 0.15);
+  color: #9CA3AF;
+  border: 1px solid rgba(107, 114, 128, 0.25);
+}
 
 /* ════════════════════════════════════════════════
    图表容器
