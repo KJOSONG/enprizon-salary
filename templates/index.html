@@ -403,6 +403,7 @@
           <option value="" data-i18n="att_all">全部</option>
           <option value="井下计件" data-i18n="emp_ug_piece">井下计件</option>
           <option value="钻工计件" data-i18n="emp_dr_piece">钻工计件</option>
+          <option value="破碎计件" data-i18n="emp_crush_piece">破碎计件</option>
           <option value="日薪" data-i18n="emp_dayrate">日薪</option>
           <option value="月薪" data-i18n="emp_monthly">月薪</option>
         </select>
@@ -1759,7 +1760,7 @@ async function loadDailyWages() {
     const salaryMap = {};
     if (STATE._salaryResult && STATE._salaryResult.employees) {
       STATE._salaryResult.employees.forEach(emp => {
-        salaryMap[emp.employee_id] = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.day_rate||0)+(emp.monthly||0);
+        salaryMap[emp.employee_id] = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0);
       });
     }
     STATE._salaryMap = salaryMap;

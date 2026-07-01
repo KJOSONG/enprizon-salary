@@ -1328,6 +1328,16 @@ def get_attendance():
                 day_status[mid][dt] = 'P'
                 day_origin[mid][dt] = 'auto'
 
+    # 破碎计件出勤
+    crush_data = md.get('crush_production', [])
+    for d in crush_data:
+        dt = d['date']
+        for e in d.get('personnel', []):
+            eid = make_employee_id(e)
+            if eid and dt not in day_status.get(eid, {}):
+                day_status[eid][dt] = 'P'
+                day_origin[eid][dt] = 'auto'
+
     # 日薪出勤
     for d in attendance_data:
         dt = d['date']
@@ -1338,7 +1348,7 @@ def get_attendance():
                 day_origin[eid][dt] = 'auto'
 
     # 月薪默认出勤
-    type_labels = {'piece_underground':'井下计件','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支'}
+    type_labels = {'piece_crush': '破碎计件','piece_underground':'井下计件','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支'}
     rows = []
 
     for emp in employees:
