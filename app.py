@@ -191,11 +191,11 @@ def update_user_role():
         return jsonify({'ok': False, 'error': str(e)}), 400
 
 def strip_dept(dept):
-    """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门"""
+    """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门；纯顶层部门保留原名"""
     if not dept:
         return ''
     if dept == 'ENPRIZON LINDI PROJECT':
-        return ''
+        return 'ENPRIZON LINDI PROJECT'
     return dept.replace('ENPRIZON LINDI PROJECT/', '')
 
 def _apply_driver_allowance(result):
