@@ -10,3 +10,5 @@ uploads/*
 !uploads/.gitkeep
 .DS_Store
 *.bak.*
+data/source/*.xlsx
+!data/source/.gitkeep
