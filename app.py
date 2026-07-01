@@ -1,7 +1,7 @@
 """
 ENPRIZON LINDI PROJECT — Flask 主入口
 """
-import json, os, sys, socket, io, time, secrets
+import json, os, sys, socket, io, time, secrets, re
 from flask import Flask, jsonify, request, send_from_directory, render_template, send_file, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
