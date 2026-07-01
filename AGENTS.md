@@ -133,7 +133,7 @@ data/source/ (5 种文件) → scan_source_files() → _run_pipeline()
 | 钻工计件 | driller_production | 当日产量*钻工单价 / (队员+1队长份额), 队长*2份额 |
 | 破碎计件 | CRUSH TEAM 文件 | bags * 300TZS / 有效人数, 同日多条记录独立均分 |
 | 日薪 | attendance | 日薪基数 * 出勤天数 |
-| 月薪 | monthly_salary | 月薪基数 - A/L天数比例扣减 |
+| 月薪 | monthly_salary | 月薪基数 / 26 × 实际出勤天数, >=26天封顶为满勤基薪 |
 
 税前总额 = 井下计件 + 钻工计件 + 破碎计件 + 日薪 + 月薪
 净额 = 税前总额 + 奖金 - 预支 - NSSF(税前总额*10%) - 罚款
@@ -144,6 +144,22 @@ data/source/ (5 种文件) → scan_source_files() → _run_pipeline()
 - `overrides` 表: start_date/end_date 均为空 → 永久覆盖; 有日期 → 临时例外 (只影响区间内)
 - `attendance_overrides` 表: (employee_id, date) 联合主键, status 为 P/A/L
 - 标记 A/L 的员工从当日计件分配中排除，当日总额由剩余人员平分（总额守恒）
+
+### 出勤状态字母 (`get_attendance()` API)
+
+| 字母 | 颜色 | 含义 |
+|------|------|------|
+| `D` | 蓝 | 井下白班 |
+| `N` | 青 | 井下夜班 |
+| `B` | 紫 | 井下全天(D+N) |
+| `R` | 青绿 | 钻工计件出勤 |
+| `C` | 橙 | 破碎计件出勤 |
+| `P` | 绿 | 日薪/月薪出勤 |
+| `A` | 红 | 旷工(手动) |
+| `L` | 黄 | 请假(手动) |
+| `(P)` | 灰 | 月薪默认出勤 |
+
+点击切换逻辑: R/C → A → L → 空 → P（与 D/N 一致，不可回到原始自动值）
 
 ### 权限模型
 `super_admin` > `admin` > `editor` > `viewer`
@@ -210,6 +226,17 @@ ERIC WANG QM, JIMMY, SET SAIL, 宋家成（Daria）, 宋科举KEJU, 宋科举
 | `/export` / `/export/all` | POST | login | 导出 Excel |
 | `/config` | GET/POST | admin | 系统配置 (单价等) |
 | `/audit-log` | GET | login | 审计日志 |
+
+### 统一导出报表 (`/export/all`) Sheet 结构
+| # | Sheet 名 | 内容 |
+|---|---------|------|
+| 1 | Employee Info | 员工信息: 姓名/部门/类型/基数/预支 |
+| 2 | Salary Summary | 薪资总表: 五轨道 + 奖金/罚款/NSSF/实发 |
+| 3 | Attendance | 出勤网格: 彩色状态单元格 D/N/B/R/C/P/A/L |
+| 4 | Daily Wages | 日工资分布: 每人每天各轨道金额 |
+| 5 | Production Summary | 产量汇总: 每日 NH/NL/MW 合计 |
+| 6 | Driller Verification | 钻工核对: 路径一(产量x单价) vs 路径二(实际汇���)逐日对比 |
+| 7 | Driller Team Details | 钻工出勤明细: 按队长分组, 每日产量/金额/人员 |
 
 ---
 
