@@ -155,20 +155,19 @@ def _filter_valid(emps, exclusions, override_excludes, date_str):
 # ═══════════════════════════════════════════════════════════
 
 def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
-    """将手动标记 P 的破碎计件员工加入到当日破碎队人员列表中"""
+    """将手动标记 C/P 的员工加入到当日破碎队人员列表中，并返回 C 标记覆盖用于 per_date_type"""
+    c_overrides = {}  # 返回: {eid: [date, ...]} 用于覆盖 per_date_type
     if not data_folder:
-        return
+        return c_overrides
     db_path = os.path.join(data_folder, 'kilwa.db')
     if not os.path.exists(db_path):
-        return
-    # 收集破碎计件类型的所有员工 ID→名称 映射
-    crush_eids = {}
+        return c_overrides
+    # 构建所有员工的 ID→名称 映射
+    all_eids = {}
     for emp in employees:
-        pt = emp.get('override_type') or emp.get('default_type', '')
-        if pt == 'piece_crush':
-            crush_eids[emp['id']] = emp.get('name', '')
-    if not crush_eids:
-        return
+        all_eids[emp['id']] = emp.get('name', '')
+    if not all_eids:
+        return c_overrides
     # 查询 attendance_overrides 中 status='C' 或 'P' 的记录
     import sqlite3
     conn = sqlite3.connect(db_path)
@@ -176,14 +175,15 @@ def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
         "SELECT employee_id, date FROM attendance_overrides WHERE status IN ('C','P')"
     ).fetchall()
     conn.close()
-    # 按日期收集应加入的额外员工名称
+    # 按日期收集应加入的额外员工名称，同时收集 C 覆盖
     extra_by_date = defaultdict(list)
     for eid, dt in rows:
-        name = crush_eids.get(eid)
+        name = all_eids.get(eid)
         if name:
             extra_by_date[dt].append(name)
+            c_overrides.setdefault(eid, []).append(dt)
     if not extra_by_date:
-        return
+        return c_overrides
     # 注入到 crush_data 的每条记录的 personnel 中
     for day in crush_data:
         dt = day.get('date', '')
@@ -193,6 +193,7 @@ def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
             for name in extra_names:
                 if name not in existing:
                     day['personnel'].append(name)
+    return c_overrides
 
 def calc_crush_piece(crush_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None):
     """
@@ -656,6 +657,12 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
 
+        # C/P 手动标记：将人员注入 crush_data 并将对应日期覆盖为 piece_crush
+        c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
+        for eid, dates in c_overrides.items():
+            for dt in dates:
+                per_date_type[eid][dt] = 'piece_crush'
+
         combined_exclusions = exclusions | att_exclusions | range_exclusions
 
         all_shift_dates = sorted(set(
@@ -681,7 +688,6 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
         underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
-        _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_exclusions | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         monthly_base = calc_monthly_salary(employees, overrides)
     finally:
@@ -951,6 +957,11 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dtype in ('piece_underground', 'piece_driller', 'piece_crush'):
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
+        # C/P 手动标记：将人员注入 crush_data 并将对应日期覆盖为 piece_crush
+        c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
+        for eid, dates in c_overrides.items():
+            for dt in dates:
+                per_date_type[eid][dt] = 'piece_crush'
         combined_excl = exclusions | att_exclusions | range_exclusions
 
         all_shift_dates = sorted(set(
@@ -977,7 +988,6 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
 
         ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
-        _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_excl | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
 
         # 提前检测月份前缀（供 calc_day_salary 和月薪计算使用）
