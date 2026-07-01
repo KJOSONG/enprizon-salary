@@ -732,6 +732,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         eid = emp['id']
         eff_type = emp.get('override_type') or emp['default_type']
         pu = pd_val = dr_total = ms_total = cr_total = 0.0
+        monthly_present_count = 0
 
         for dt in final_dates:
             dtype = per_date_type.get(eid, {}).get(dt, eff_type)
@@ -746,9 +747,13 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             elif dtype == 'day_rate' and not absent and dt in present_dates[eid]:
                 dr_total += day_rate_map.get(eid, 0)
             elif dtype == 'monthly' and not absent and dt in present_dates[eid]:
-                mb = monthly_base.get(eid, 0)
-                if mb > 0:
-                    ms_total += mb / working_days
+                monthly_present_count += 1
+
+        # 月薪：实际出勤 >= 26天封顶为满勤基薪
+        mb = monthly_base.get(eid, 0)
+        if mb > 0 and monthly_present_count > 0:
+            effective_days = min(monthly_present_count, working_days)
+            ms_total = effective_days * (mb / working_days)
 
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
         gross = pu + pd_val + dr_total + ms_total + cr_total
@@ -1065,11 +1070,15 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
 
         for eid, base in month_sal.items():
             if not _ym or base <= 0: continue
-            per_day = base / _cal_days
+            monthly_present_dates = []
             for dt in sorted(ms_dates_set):
                 dtype = per_date_type.get(eid, {}).get(dt, emp_map.get(eid, {}).get('override_type') or emp_map.get(eid, {}).get('default_type', ''))
                 if dtype == 'monthly' and dt in present[eid]:
-                    ms_daily[eid][dt] += per_day
+                    monthly_present_dates.append(dt)
+            effective_days = min(len(monthly_present_dates), 26)
+            per_day = base / 26
+            for dt in monthly_present_dates[:effective_days]:
+                ms_daily[eid][dt] += per_day
 
         # 最终逐日结果
         final_dates = sorted(ms_dates_set | set(
