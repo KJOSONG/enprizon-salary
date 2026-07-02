@@ -155,7 +155,7 @@ def _filter_valid(emps, exclusions, override_excludes, date_str):
 # ═══════════════════════════════════════════════════════════
 
 def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
-    """将手动标记 C/P 的员工加入到当日破碎队人员列表中，并返回 C 标记覆盖用于 per_date_type"""
+    """将手动标记 C 的员工加入到当日破碎队人员列表中，并返回 C 标记覆盖用于 per_date_type"""
     c_overrides = {}  # 返回: {eid: [date, ...]} 用于覆盖 per_date_type
     if not data_folder:
         return c_overrides
@@ -168,11 +168,11 @@ def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
         all_eids[emp['id']] = emp.get('name', '')
     if not all_eids:
         return c_overrides
-    # 查询 attendance_overrides 中 status='C' 或 'P' 的记录
+    # 仅查询 status='C'（破碎）的记录；'P'（出勤）应走日薪轨道，不应注入破碎队
     import sqlite3
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
-        "SELECT employee_id, date FROM attendance_overrides WHERE status IN ('C','P')"
+        "SELECT employee_id, date FROM attendance_overrides WHERE status = 'C'"
     ).fetchall()
     conn.close()
     # 按日期收集应加入的额外员工名称，同时收集 C 覆盖
@@ -1071,6 +1071,26 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dr == 0 and eid in emp_map:
                     dr = emp_map[eid].get('day_rate', 0)
                 if dr > 0: ds_daily[eid][dt] += dr * count
+
+        # 补充：仅有手动 P 标记、无 Excel 出勤记录的员工（day_sal 中不存在）
+        _p_month = set()
+        for _d in list(attendance_data) + list(shift_data):
+            _dd = _d.get('date', '')
+            if _dd: _p_month.add(_dd[:7])
+        for (peid, pdt), st in att_all.items():
+            if st != 'P' or peid in ds_daily: continue
+            if _ym and pdt[:7] != _ym: continue
+            if _p_month and pdt[:7] not in _p_month: continue
+            dr = 0
+            for o in overrides.get(peid, []):
+                if o.get('salary_type') == 'day_rate':
+                    s, e = o.get('start_date') or '', o.get('end_date') or ''
+                    if o.get('day_rate', 0) > 0:
+                        if (not s or pdt >= s) and (not e or pdt <= e):
+                            dr = o['day_rate']; break
+            if dr == 0 and peid in emp_map:
+                dr = emp_map[peid].get('day_rate', 0)
+            if dr > 0: ds_daily[peid][pdt] += dr
 
         # 月薪逐日分摊
         ms_daily = defaultdict(lambda: defaultdict(float))
