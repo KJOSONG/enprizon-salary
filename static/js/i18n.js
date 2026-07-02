@@ -19,6 +19,10 @@ const I18N_DICT = {
     lang_zh: '中文',
     lang_en: 'EN',
     month_all: '全部月份',
+    mp_title: '选择工作月份',
+    mp_hint: '请选择要查看的薪资月份，系统将加载对应月份的数据。',
+    mp_confirm: '确认进入',
+    mp_all: '查看全部',
 
     /* ── 数据台 ── */
     dash_overview: '数据概览',
@@ -381,6 +385,10 @@ const I18N_DICT = {
     lang_zh: '中文',
     lang_en: 'EN',
     month_all: 'All Months',
+    mp_title: 'Select Work Month',
+    mp_hint: 'Choose a salary month to view. The system will load data for that month.',
+    mp_confirm: 'Confirm',
+    mp_all: 'View All',
 
     /* ── Dashboard ── */
     dash_overview: 'Overview',

@@ -47,6 +47,23 @@
   </div>
 </div>
 
+<!-- ═══ 月份选择弹窗 ═══ -->
+<div class="modal-overlay" id="monthPickerModal" style="display:none;">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <h3 data-i18n="mp_title">选择工作月份</h3>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;" data-i18n="mp_hint">请选择要查看的薪资月份，系统将加载对应月份的数据。</p>
+      <div id="monthPickerGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="confirmMonthPicker()" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;" data-i18n="mp_confirm">确认进入</button>
+        <button onclick="confirmMonthPicker('all')" style="flex:1;padding:10px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer;" data-i18n="mp_all">查看全部</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ 修改密码弹窗 ═══ -->
 <div class="modal-overlay" id="changePwdModal" style="display:none;">
   <div class="modal" style="max-width:360px;">
@@ -897,7 +914,7 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
 //  页面加载: 检查自动加载数据
 // ════════════════════════════════════════════════
 (async function init() {
-  checkAuth();
+  await checkAuth();
   try {
     const res = await fetch(api('/salary'));
     const data = await res.json();
@@ -915,6 +932,7 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
       loadProductionData();
       loadSourceInfo();
       populateMonthSelect(data.result);
+      openMonthPicker();
     }
   } catch(e) { showToast(t('toast_load_fail') + e.message, 'error'); }
 })();
@@ -996,6 +1014,65 @@ function populateMonthSelect() {
     sel.innerHTML += `<option value="${ym}">${ym}</option>`;
     sel.value = ym;
   });
+}
+
+// ════════════════════════════════════════════════
+//  月份选择弹窗
+// ════════════════════════════════════════════════
+let _monthPickerValue = null;
+
+async function openMonthPicker() {
+  const grid = document.getElementById('monthPickerGrid');
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:13px;padding:20px;">加载中...</div>';
+  document.getElementById('monthPickerModal').style.display = 'flex';
+  try {
+    const res = await fetch(api('/available-months'));
+    const months = await res.json();
+    const now = new Date();
+    const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    // 优先选中有数据的月份，其次当前月
+    let defaultMonth = months.length > 0 ? months[0] : currentMonth;
+    grid.innerHTML = '';
+    months.forEach(m => {
+      const btn = document.createElement('button');
+      btn.textContent = m;
+      btn.dataset.value = m;
+      btn.style.cssText = 'padding:12px 8px;border:2px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;cursor:pointer;transition:all .15s;';
+      if (m === defaultMonth) {
+        btn.style.borderColor = 'var(--accent)';
+        btn.style.background = 'rgba(59,130,246,0.1)';
+        btn.style.color = 'var(--accent)';
+        btn.style.fontWeight = '600';
+      }
+      btn.onclick = () => {
+        grid.querySelectorAll('button').forEach(b => {
+          b.style.borderColor = 'var(--border)';
+          b.style.background = 'var(--bg)';
+          b.style.color = 'var(--text)';
+          b.style.fontWeight = '400';
+        });
+        btn.style.borderColor = 'var(--accent)';
+        btn.style.background = 'rgba(59,130,246,0.1)';
+        btn.style.color = 'var(--accent)';
+        btn.style.fontWeight = '600';
+        _monthPickerValue = m;
+      };
+      if (m === defaultMonth) _monthPickerValue = m;
+      grid.appendChild(btn);
+    });
+  } catch(e) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--danger);font-size:13px;padding:20px;">加载失败</div>';
+  }
+}
+
+async function confirmMonthPicker(monthOverride) {
+  const month = monthOverride || _monthPickerValue;
+  if (!month) return;
+  document.getElementById('monthPickerModal').style.display = 'none';
+  // 同步顶部下拉框
+  const sel = document.getElementById('monthSelect');
+  if (sel) sel.value = month;
+  await changeMonth(month);
 }
 
 async function changeMonth(month) {
