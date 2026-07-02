@@ -51,14 +51,14 @@
 <div class="modal-overlay" id="monthPickerModal" style="display:none;">
   <div class="modal" style="max-width:400px;">
     <div class="modal-header">
-      <h3 data-i18n="mp_title">选择工作月份</h3>
+      <h3>Select Work Month</h3>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;" data-i18n="mp_hint">请选择要查看的薪资月份，系统将加载对应月份的数据。</p>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Choose a salary month to view. The system will load data for that month.</p>
       <div id="monthPickerGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;"></div>
       <div style="display:flex;gap:8px;">
-        <button onclick="confirmMonthPicker()" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;" data-i18n="mp_confirm">确认进入</button>
-        <button onclick="confirmMonthPicker('all')" style="flex:1;padding:10px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer;" data-i18n="mp_all">查看全部</button>
+        <button onclick="confirmMonthPicker()" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;">Confirm</button>
+        <button onclick="confirmMonthPicker('all')" style="flex:1;padding:10px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer;">View All</button>
       </div>
     </div>
   </div>
