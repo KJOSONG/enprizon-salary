@@ -2274,11 +2274,14 @@ async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
   //   C/R/D/N/B/P → A → L → '' → 恢复原始自动值
   let nextStatus;
   const isCrush = empType === '破碎计件';
+  const isUnderground = empType === '井下计件';
   if (autoVal === '' || autoVal === undefined) {
     const cycle = isCrush
       ? {'':'C', 'C':'A', 'A':'L', 'L':''}
+      : isUnderground
+      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':''}
       : {'':'P', 'P':'A', 'A':'L', 'L':''};
-    nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : (isCrush ? 'C' : 'P');
+    nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : (isCrush ? 'C' : isUnderground ? 'D' : 'P');
   } else {
     const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';

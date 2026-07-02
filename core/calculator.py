@@ -154,6 +154,43 @@ def _filter_valid(emps, exclusions, override_excludes, date_str):
 #  1b. 破碎计件计算
 # ═══════════════════════════════════════════════════════════
 
+def _enrich_shift_with_dn_attendance(shift_data, employees, data_folder):
+    """将手动标记 D/N 的员工注入到 shift_production 的 day_emps/night_emps 中"""
+    if not data_folder or not shift_data:
+        return
+    db_path = os.path.join(data_folder, 'kilwa.db')
+    if not os.path.exists(db_path):
+        return
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT employee_id, date, status FROM attendance_overrides WHERE status IN ('D','N')"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return
+    all_eids = {emp['id']: emp.get('name', '') for emp in employees}
+    # 按日期分组
+    dn_by_date = defaultdict(lambda: {'D': [], 'N': []})
+    for eid, dt, status in rows:
+        name = all_eids.get(eid)
+        if name:
+            dn_by_date[dt][status].append(name)
+    for day in shift_data:
+        dt = day.get('date', '')
+        extra = dn_by_date.get(dt)
+        if not extra:
+            continue
+        existing_day = set(day.get('day_emps', []))
+        existing_night = set(day.get('night_emps', []))
+        for name in extra['D']:
+            if name not in existing_day:
+                day.setdefault('day_emps', []).append(name)
+        for name in extra['N']:
+            if name not in existing_night:
+                day.setdefault('night_emps', []).append(name)
+
+
 def _enrich_crush_with_p_attendance(crush_data, employees, data_folder):
     """将手动标记 C 的员工加入到当日破碎队人员列表中，并返回 C 标记覆盖用于 per_date_type"""
     c_overrides = {}  # 返回: {eid: [date, ...]} 用于覆盖 per_date_type
@@ -584,7 +621,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         attendance_data = main_data.get('attendance', [])
         crush_data = main_data.get('crush_production', [])
 
-        # C/P 手动标记：先将人员注�� crush_data（必须在 all_attendance_pairs 构建之前，否则后续检查会误排除）
+        # D/N 手动标记：将人员注入 shift_data（必须在 all_attendance_pairs 构建之前）
+        _enrich_shift_with_dn_attendance(shift_data, employees, data_folder)
+
+        # C/P 手动标记：先将人员注入 crush_data（必须在 all_attendance_pairs 构建之前，否则后续检查会误排除）
         c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
 
         # ── 构建全局出勤集合（包含三个数据源）──
@@ -892,6 +932,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
+
+        # D/N 手动标记：将人员注入 shift_data（必须在 all_attendance_pairs 构建之前）
+        _enrich_shift_with_dn_attendance(shift_data, employees, data_folder)
 
         # C/P 手动标记：先将人员注入 crush_data（必须在 all_attendance_pairs 构建之前）
         c_overrides = _enrich_crush_with_p_attendance(crush_data, employees, data_folder)
