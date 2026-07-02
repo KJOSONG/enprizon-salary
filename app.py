@@ -2415,10 +2415,41 @@ def auto_load_source():
     APP_STATE['advance_file'] = files.get('advance')
     APP_STATE['addressbook_file'] = files.get('addressbook')
 
-    # 默认加载当前真实月份，而非全部月份
+    # 快速扫描源文件中的可用月份（仅读 Date 列，避免提交时间戳干扰）
     from datetime import datetime
     current_month = datetime.now().strftime('%Y-%m')
-    ok, msg = _run_pipeline(files, month_filter=current_month)
+    chosen_month = current_month
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(files['main'], data_only=True)
+        months_found = set()
+        for sname in wb.sheetnames:
+            ws = wb[sname]
+            # 找到 Date 列（表头含 'DATE' 或 '日期' 的列）
+            date_col = None
+            for col in range(1, (ws.max_column or 0) + 1):
+                hdr = str(ws.cell(1, col).value or '').upper()
+                if 'DATE' in hdr and 'REAL' not in hdr and 'SUBMIT' not in hdr:
+                    date_col = col; break
+            if not date_col:
+                date_col = 4  # 默认第4列
+            for row in range(2, min((ws.max_row or 0) + 1, 200)):
+                cell = ws.cell(row, date_col).value
+                if cell and isinstance(cell, str) and len(cell) >= 10 and cell[4] == '-' and cell[7] == '-':
+                    months_found.add(cell[:7])
+                elif hasattr(cell, 'strftime'):
+                    try: months_found.add(cell.strftime('%Y-%m'))
+                    except: pass
+        wb.close()
+        if months_found:
+            if current_month in months_found:
+                chosen_month = current_month
+            else:
+                chosen_month = max(months_found)
+    except Exception:
+        pass
+
+    ok, msg = _run_pipeline(files, month_filter=chosen_month)
     print(f'  {msg}')
     _ensure_viewer_account()
     return ok
