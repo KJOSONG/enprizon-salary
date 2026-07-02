@@ -1078,26 +1078,45 @@ async function confirmMonthPicker(monthOverride) {
 async function changeMonth(month) {
   showToast(t('toast_month_switch'), 'loading');
   try {
+    // 先尝试 /set-month（需要 editor 权限）
     const res = await authFetch(api('/set-month'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({month}),
     });
-    const data = await res.json();
-    if (data.ok) {
-      STATE._headless = data.headless || false;
-      STATE.salaryResult = data.salary;
-      renderDashboard(data.salary);
-      renderSalaryTable(data.salary);
-      // reload employees
-      const r2 = await fetch(api('/employees'));
-      const d2 = await r2.json();
-      STATE.employees = d2.employees;
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok) {
+        STATE._headless = data.headless || false;
+        STATE.salaryResult = data.salary;
+        renderDashboard(data.salary);
+        renderSalaryTable(data.salary);
+        const r2 = await fetch(api('/employees'));
+        const d2 = await r2.json();
+        STATE.employees = d2.employees;
+        STATE._empAll = STATE.employees;
+        STATE._headless = d2.headless || STATE._headless;
+        renderEmployeeTable();
+        loadProductionData();
+        showToast(data.message || t('toast_month_switched'));
+        return;
+      }
+    }
+    // 权限不足或失败，降级用 /salary?month= 查询（viewer 可用）
+    const r2 = await fetch(api('/salary?month=' + encodeURIComponent(month)));
+    const d2 = await r2.json();
+    if (d2.result && d2.result.employees) {
+      STATE._headless = d2.headless || false;
+      STATE.salaryResult = d2.result;
+      renderDashboard(d2.result);
+      renderSalaryTable(d2.result);
+      const r3 = await fetch(api('/employees'));
+      const d3 = await r3.json();
+      STATE.employees = d3.employees;
       STATE._empAll = STATE.employees;
-      STATE._headless = d2.headless || STATE._headless;
       renderEmployeeTable();
       loadProductionData();
-      showToast(data.message || t('toast_month_switched'));
+      showToast(t('toast_month_switched'));
     }
   } catch(e) { showToast(t('toast_month_fail'), 'error'); }
 }

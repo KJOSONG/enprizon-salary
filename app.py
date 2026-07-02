@@ -1095,6 +1095,28 @@ def recalculate():
 
 @app.route('/salary', methods=['GET'])
 def get_salary():
+    month = request.args.get('month')
+    if month and APP_STATE.get('main_data') and APP_STATE.get('employees'):
+        # 按请求月份临时过滤计算，不修改 APP_STATE
+        from core.calculator import calculate_all
+        from core.exceptions import load_overrides, load_daily_exclusions
+        from core.database import load_bonus_penalties as _load_bp
+        import copy
+        md = copy.deepcopy(APP_STATE['main_data'])
+        for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
+            if md.get(key):
+                if key == 'dates':
+                    md[key] = [d for d in md[key] if d.startswith(month)]
+                else:
+                    md[key] = [d for d in md[key] if d.get('date', '').startswith(month)]
+        overrides = load_overrides(app.config['DATA_FOLDER'])
+        exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
+        bonus_penalties = _load_bp(app.config['DATA_FOLDER'], month)
+        result = calculate_all(md, APP_STATE['employees'], overrides=overrides, exclusions=exclusions,
+                               pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
+                               bonus_penalties=bonus_penalties)
+        _apply_driver_allowance(result)
+        return jsonify({'result': result, 'headless': not bool(md.get('dates'))})
     return jsonify({'result': APP_STATE.get('salary_result'), 'headless': APP_STATE.get('headless', False)})
 
 # ═══════════════════════════════════════════════════════════
