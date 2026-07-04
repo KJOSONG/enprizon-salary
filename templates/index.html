@@ -1604,10 +1604,15 @@ function filterSalaryTable() {
   const q = (document.getElementById('salarySearch').value||'').toLowerCase();
   const ft = document.getElementById('salaryFilterType').value;
   const fd = document.getElementById('salaryFilterDept').value;
+  // 从员工列表构建部门映射（缓存数据可能没有 department）
+  let deptMap = {};
+  if (fd && STATE._empAll) {
+    STATE._empAll.forEach(e => { deptMap[e.id] = e.department || ''; });
+  }
   const filtered = result.employees.filter(e => {
     if (q && !e.name.toLowerCase().includes(q)) return false;
     if (ft && e.salary_type !== ft) return false;
-    if (fd && (e.department||'') !== fd) return false;
+    if (fd && (deptMap[e.employee_id || e.id]||'') !== fd) return false;
     return true;
   });
   const tbody = document.querySelector('#salaryTable tbody');
