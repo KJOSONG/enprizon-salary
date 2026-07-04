@@ -5,8 +5,8 @@
 from .database import load_overrides as _db_load, save_override as _db_save
 from .database import remove_override as _db_remove, load_daily_exclusions as _db_excl
 
-def load_overrides(data_folder):
-    return _db_load(data_folder)
+def load_overrides(data_folder, month=None):
+    return _db_load(data_folder, month)
 
 def save_override(data_folder, data):
     _db_save(data_folder, data)

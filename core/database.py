@@ -82,6 +82,10 @@ def init_db(data_folder):
         try:
             conn.execute(f"ALTER TABLE overrides ADD COLUMN {col} TEXT DEFAULT ''")
         except: pass
+    # 月份隔离：新增 effective_from 列（"YYYY-MM"），空白=全局生效
+    try:
+        conn.execute("ALTER TABLE overrides ADD COLUMN effective_from TEXT DEFAULT ''")
+    except: pass
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS shift_additions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -204,7 +208,7 @@ def _migrate_json(conn, data_folder):
 
 # ── 员工例外 overrides ────────────────────────
 
-def load_overrides(data_folder):
+def load_overrides(data_folder, month=None):
     conn = get_conn(data_folder)
     rows = conn.execute("SELECT * FROM overrides ORDER BY id").fetchall()
     conn.close()
@@ -213,6 +217,10 @@ def load_overrides(data_folder):
         eid = r['employee_id']
         if eid not in result:
             result[eid] = []
+        # 按月过滤：跳过尚未生效的覆盖
+        eff = r['effective_from'] or ''
+        if month and eff and eff > month:
+            continue
         result[eid].append({
             'id': r['id'],
             'salary_type': r['salary_type'] or '',
@@ -224,7 +232,16 @@ def load_overrides(data_folder):
             'type': r['type'] or '',
             'shift': r['shift'] or '',
             'captain': r['captain'] or '',
+            'effective_from': eff,
         })
+    # 去重：同一员工的永久覆盖（无日期区间），只保留 effective_from 最大的
+    for eid in list(result.keys()):
+        perms = [o for o in result[eid] if not o['start_date'] and not o['end_date'] and o['salary_type'] and o['type'] != 'exclusion']
+        if len(perms) > 1:
+            # 保留 effective_from 最大的那条，删除其余的
+            perms.sort(key=lambda x: x['effective_from'], reverse=True)
+            keep_id = perms[0]['id']
+            result[eid] = [o for o in result[eid] if not (not o['start_date'] and not o['end_date'] and o['salary_type'] and o['type'] != 'exclusion') or o['id'] == keep_id]
     return result
 
 def save_override(data_folder, data):
@@ -233,6 +250,7 @@ def save_override(data_folder, data):
     st = data.get('salary_type', '')
     tp = data.get('type', '')
     action = data.get('action', 'add')
+    eff = data.get('effective_from', '')
     # 排除记录的日期存 start_date
     start = data.get('start_date', '')
     if tp == 'exclusion' and not start:
@@ -259,17 +277,17 @@ def save_override(data_folder, data):
                 (eid, st, tp, start, data.get('end_date',''))
             )
         else:
-            # 永久设置（无日期区间）：按 employee_id + salary_type 去重，不影响临时例外
-            conn.execute("DELETE FROM overrides WHERE employee_id=? AND salary_type=? AND type=?",
-                         (eid, st, tp))
-            conn.execute("DELETE FROM overrides WHERE employee_id=? AND type='' AND start_date='' AND salary_type!=?",
-                         (eid, st))
+            # 永久设置（无日期区间）：按 employee_id + salary_type + effective_from 去重，不同月保留独立记录
+            conn.execute("DELETE FROM overrides WHERE employee_id=? AND salary_type=? AND type=? AND COALESCE(effective_from,'')=?",
+                         (eid, st, tp, eff))
+            conn.execute("DELETE FROM overrides WHERE employee_id=? AND type='' AND start_date='' AND salary_type!=? AND COALESCE(effective_from,'')=?",
+                         (eid, st, eff))
 
     conn.execute(
-        "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (eid, st, data.get('day_rate',0), data.get('monthly_salary',0),
          start, data.get('end_date',''), data.get('note',''), tp,
-         data.get('shift',''), data.get('captain',''))
+         data.get('shift',''), data.get('captain',''), eff)
     )
     conn.commit()
     conn.close()

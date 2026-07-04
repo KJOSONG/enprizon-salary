@@ -51,6 +51,9 @@ bash test-workflow.sh clean       # 删除测试库（`prod_kilwa.db` 存在时�
 ```
 `test-workflow.sh` 使用 `$HOME/WorkBuddy/kilwa-system/data` 和 `$HOME/Desktop/enprizon_backups` 路径。
 
+### 代码风格
+项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~2458 lines, `calculator.py` ~1284 lines, `index.html` ~2488 lines），尽量避免增加不必要的模块拆分。
+
 ### 备份与恢复（服务器端）
 ```bash
 bash backup.sh                    # 每日备份，自动清理 30 天前
@@ -61,6 +64,13 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 
 `workers=1`（SQLite 要求单 worker），`threads=2`，`timeout=120`。
 日志路径硬编码为 `/root/enprizon-salary/`，本地开发会失败。
+
+## 会话与认证
+- Flask 默认 filesystem session（`data/flask_session/`），`KILWA_SECRET_KEY` 决定加密密钥
+- 不设 `KILWA_SECRET_KEY` → 每次重启随机生成 → 全部用户登出
+- 装饰器链：`@require_super_admin` → `@require_admin` → `@require_editor` → `@login_required`
+- 密码存储：SHA256(username + salt + password)，salt 随机生成存入 `admin_users`
+- 默认账号 `user/qweasd`（viewer），`KEJU` 首次登录自动升级为 super_admin
 
 ## 启动初始化
 
@@ -83,6 +93,19 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 全部 → calculator.calculate_all() → verification.verify_salary() → APP_STATE 缓存 → API
 ```
 文件匹配：按 Sheet 名优先，回退到文件名关键词。未匹配通讯录的姓名走旧格式（去空格大写）。
+
+### 目录约定
+
+| 目录 | 内容 | Git |
+|------|------|-----|
+| `data/` | `kilwa.db` 主数据库、Flask sessions/ | gitignored |
+| `data/source/` | 5 种源 Excel 文件 + 上传缓存 | gitignored |
+| `data/backups/` | 数据库备份（服务器端） | gitignored |
+| `_work/` | 临时分析脚本、调试报告 | gitignored |
+| `templates/` | Jinja2 模板（仅 `index.html`） | 跟踪 |
+| `static/css/` | 样式文件（`style.css`） | 跟踪 |
+| `static/js/` | 前端 JS（i18n + Chart.js CDN 缓存） | 跟踪 |
+| `core/` | 10 个后端模块 | 跟踪 |
 
 ### 薪资五轨道（`calculator.py`）
 
@@ -123,6 +146,14 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 - **图表**：Chart.js v4.4.7 + chartjs-plugin-datalabels，用于数据台产量趋势图和日工资分布图
 - **状态管理**：全局 `STATE` 对象缓存当前页数据，`recalculate()` 后自动刷新薪资/出勤/日工资相关页面
 - **暗系工业风 UI**：`static/css/style.css`（~1338 lines），CNPC 主题色系
+
+### 前端数据流
+
+- 所有 API 调用通过内联 `fetch()` 发送，浏览器自动携带 `session` cookie 认证
+- 全局 `STATE` 对象缓存当前月份薪资/出勤/产量等全部数据
+- 用户操作流程：表单交互 → `fetch` API 调用 → 后端更新 DB + 返回结果 → 前端局部更新 DOM 或调用 `recalculate()` 全面刷新
+- `recalculate()` 触发后端重算后，按需刷新薪资、出勤、日工资相关页面标签
+- `showPage(name)` 切换页面标签，优先从 `STATE` 读取缓存，其次 fetch
 
 ### 导出系统
 
@@ -179,17 +210,18 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 | 文件 | 职责 |
 |------|------|
-| `app.py` | Flask 路由 + 认证 + 会话 + 数据管线编排（~2458 lines, 41 个 API 端点） |
-| `core/calculator.py` | 五轨计算 + 逐日单轨合并 + 日工资明细（~1221 lines） |
-| `core/parser.py` | Excel 解析（表头扫描驱动，产量/日薪/破碎 3 个解析函数） |
-| `core/namematch.py` | 姓名标准化 + employee_id 生成 + 员工主列表 |
+| `app.py` | Flask 路由 + 认证 + 会话 + 数据管线编排（~2458 lines, 43 API 端点） |
+| `core/calculator.py` | 五轨计算 + 逐日单轨合并 + 日工资明细（~1284 lines） |
+| `core/parser.py` | Excel 解析（表头扫描驱动，产量/日薪/破碎 3 个解析函数，~302 lines） |
+| `core/verification.py` | 双路径核对（产量×单价 vs 实际分配，|diff|≤10 视为舍入，~297 lines） |
+| `core/namematch.py` | 姓名标准化 + employee_id 生成 + 员工主列表（~252 lines） |
 | `core/database.py` | SQLite ORM（11 张表）+ 审计日志（~623 lines） |
-| `core/verification.py` | 双路径核对（产量×单价 vs 实际分配，|diff|≤10 视为舍入） |
-| `core/addressbook.py` | 通讯录 Excel 解析 |
-| `core/advance.py` | 预支数据解析 |
-| `core/nssf.py` | NSSF SDL 社保名单解析 |
-| `core/pricing.py` | 单价配置代理（模块常量） |
-| `core/exceptions.py` | 例外覆盖标记加载（兼容 JSON + DB） |
+| `core/addressbook.py` | 通讯录 Excel 解析（~151 lines） |
+| `core/advance.py` | 预支数据解析（~77 lines） |
+| `core/nssf.py` | NSSF SDL 社保名单解析（~41 lines） |
+| `core/exceptions.py` | 例外覆盖标记加载，兼容 JSON + DB（~24 lines） |
+| `core/pricing.py` | 单价配置代理，模块常量（~10 lines） |
+| `core/__init__.py` | 包初始化（1 line） |
 
 ### 模块依赖层级
 
@@ -206,6 +238,46 @@ app.py (Flask 路由 / 认证 / 数据管线)
  ├── core/verification.py    (双路径核对)
  └── core/exceptions.py      (例外覆盖加载)
 ```
+
+### 关键 API 端点
+
+| 方法 | 路由 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/login` | 公开 | 登录，建立 session |
+| POST | `/api/logout` | 公开 | 登出 |
+| GET | `/api/auth/status` | 公开 | 当前用户登录状态 |
+| GET | `/` | 公开 | SPA 入口页面 |
+| GET | `/source-info` | editor+ | 当前加载的源文件列表 |
+| GET | `/available-months` | editor+ | 可用月份列表 |
+| POST | `/set-month` | editor+ | 切换到指定月份 |
+| POST | `/reload` | editor+ | 清空 APP_STATE，重新扫描源文件 + 计算 |
+| POST | `/recalculate` | editor+ | 触发重新计算（不重扫源文件） |
+| POST | `/upload-source` | admin+ | 上传 Excel 源文件 |
+| GET | `/download-source/<file_type>` | editor+ | 下载原始源文件 |
+| GET | `/salary` | editor+ | 薪资总表数据（含核对差异） |
+| GET | `/salary/verify` | editor+ | 双路径核对详情 |
+| GET | `/attendance` | editor+ | 出勤网格数据 |
+| POST | `/attendance/toggle` | editor+ | 手动标记出勤 P/A/L |
+| GET | `/employees` | editor+ | 员工列表 + 例外覆盖 |
+| POST | `/employees/override` | editor+ | 添加薪资例外（永久/临时） |
+| POST | `/employees/remove-override` | editor+ | 删除例外覆盖 |
+| POST | `/employees/bonus-penalty` | editor+ | 添加月度奖惩 |
+| GET | `/employees/dismissed` | editor+ | 离职员工列表 |
+| POST | `/employees/dismiss` | admin+ | 标记员工离职 |
+| GET/POST | `/config` | admin+ | 读取/修改定价、NSSF 费率 |
+| GET | `/nssf/list` | editor+ | NSSF 社保名单 |
+| GET | `/production` | editor+ | 产量数据 |
+| GET | `/production-verify` | editor+ | 钻工产量核对 |
+| GET | `/daily-wages` | editor+ | 日工资明细 |
+| GET | `/driller-captains` | editor+ | 钻工队长/队员列表 |
+| GET | `/audit-log` | admin+ | 审计日志 |
+| POST | `/export` | editor+ | 薪资 Excel（3 Sheet） |
+| POST | `/export/employees` | editor+ | 员工花名册 Excel |
+| GET | `/export/attendance` | editor+ | 出勤网格 Excel |
+| POST | `/export/all` | editor+ | 英文版全量导出（7 Sheet） |
+| GET | `/admin/users` | super_admin | 用户管理页面 |
+| POST | `/admin/users/role` | super_admin | 修改用户角色 |
+| POST | `/api/admin/change-password` | 登录用户 | 修改自身密码 |
 
 ### 前端文件
 

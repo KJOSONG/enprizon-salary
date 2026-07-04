@@ -464,7 +464,7 @@ def _run_pipeline(files, month_filter=None):
 
     # ── 加载持久化的日薪/月薪基数 + override_type ──
     from core.database import load_overrides as _load_ov
-    saved_overrides = _load_ov(app.config['DATA_FOLDER'])
+    saved_overrides = _load_ov(app.config['DATA_FOLDER'], month=month_filter)
     for emp in employees:
         eid = emp['id']
         if eid in saved_overrides:
@@ -506,7 +506,7 @@ def _run_pipeline(files, month_filter=None):
     # ── 计算（传入当前覆盖，确保手动调整生效） ──
     from core.exceptions import load_overrides as _load_override_ov, load_daily_exclusions as _load_excl
     from core.database import load_bonus_penalties as _load_bp
-    overrides = _load_override_ov(app.config['DATA_FOLDER'])
+    overrides = _load_override_ov(app.config['DATA_FOLDER'], month=month_filter)
     exclusions = _load_excl(app.config['DATA_FOLDER'])
     bonus_penalties = _load_bp(app.config['DATA_FOLDER'], month_filter) if month_filter else {}
     result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
@@ -797,7 +797,7 @@ def set_month():
     from core.calculator import calculate_all
     from core.exceptions import load_overrides, load_daily_exclusions
     from core.database import load_bonus_penalties as _load_bp2
-    overrides = load_overrides(app.config['DATA_FOLDER'])
+    overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
     exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
     bonus_penalties = _load_bp2(app.config['DATA_FOLDER'], month) if month else {}
     result = calculate_all(
@@ -822,8 +822,8 @@ def set_month():
 def get_employees():
     from core.exceptions import load_overrides
     from core.database import load_bonus_penalties as _load_bp_emp
-    overrides = load_overrides(app.config['DATA_FOLDER'])
-    month = APP_STATE.get('month')
+    month = request.args.get('month') or APP_STATE.get('month')
+    overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
     bonus_penalties = _load_bp_emp(app.config['DATA_FOLDER'], month) if month else {}
     for emp in APP_STATE.get('employees', []):
         eid = emp['id']
@@ -864,6 +864,9 @@ def save_override():
         save_exclusion(app.config['DATA_FOLDER'], data)
     else:
         from core.exceptions import save_override as _save
+        # 后端兜底：永久覆盖（无日期区间）自动注入 effective_from
+        if not data.get('effective_from') and not data.get('start_date') and not data.get('end_date'):
+            data['effective_from'] = APP_STATE.get('month', '')
         _save(app.config['DATA_FOLDER'], data)
         # 同步内存状态（临时例外不改变 override_type）
         for emp in APP_STATE.get('employees', []):
@@ -1074,9 +1077,9 @@ def recalculate():
     from core.calculator import calculate_all
     from core.exceptions import load_overrides, load_daily_exclusions
     from core.database import load_bonus_penalties as _load_bp3
-    overrides = load_overrides(app.config['DATA_FOLDER'])
-    exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
     month = APP_STATE.get('month')
+    overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
+    exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
     bonus_penalties = _load_bp3(app.config['DATA_FOLDER'], month) if month else {}
     result = calculate_all(
         main_data=APP_STATE.get('main_data', {}),
@@ -1109,7 +1112,7 @@ def get_salary():
                     md[key] = [d for d in md[key] if d.startswith(month)]
                 else:
                     md[key] = [d for d in md[key] if d.get('date', '').startswith(month)]
-        overrides = load_overrides(app.config['DATA_FOLDER'])
+        overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
         exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
         bonus_penalties = _load_bp(app.config['DATA_FOLDER'], month)
         result = calculate_all(md, APP_STATE['employees'], overrides=overrides, exclusions=exclusions,
@@ -1562,7 +1565,7 @@ def export_employees():
         return jsonify({'ok': False, 'error': '无员工数据'})
 
     from core.exceptions import load_overrides
-    overrides = load_overrides(app.config['DATA_FOLDER'])
+    overrides = load_overrides(app.config['DATA_FOLDER'], month=APP_STATE.get('month'))
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1843,7 +1846,7 @@ def _do_export_all():
     employees = APP_STATE.get('employees', [])
     if employees:
         from core.exceptions import load_overrides
-        overrides = load_overrides(app.config['DATA_FOLDER'])
+        overrides = load_overrides(app.config['DATA_FOLDER'], month=APP_STATE.get('month'))
         ws1 = wb.create_sheet('Employee Info')
         headers1 = ['Name', 'Department', 'Type', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance(TZS)', 'Notes']
         for ci, h in enumerate(headers1, 1):

@@ -1091,7 +1091,7 @@ async function changeMonth(month) {
         STATE.salaryResult = data.salary;
         renderDashboard(data.salary);
         renderSalaryTable(data.salary);
-        const r2 = await fetch(api('/employees'));
+        const r2 = await fetch(api('/employees?month=' + encodeURIComponent(month)));
         const d2 = await r2.json();
         STATE.employees = d2.employees;
         STATE._empAll = STATE.employees;
@@ -1110,7 +1110,7 @@ async function changeMonth(month) {
       STATE.salaryResult = d2.result;
       renderDashboard(d2.result);
       renderSalaryTable(d2.result);
-      const r3 = await fetch(api('/employees'));
+      const r3 = await fetch(api('/employees?month=' + encodeURIComponent(month)));
       const d3 = await r3.json();
       STATE.employees = d3.employees;
       STATE._empAll = STATE.employees;
@@ -1240,7 +1240,7 @@ async function removeOverride(eid, idx) {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({employee_id:eid,index:idx}),
   });
-  const r = await fetch(api('/employees'));
+  const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
   STATE.employees = (await r.json()).employees;
   renderEmployeeTable();
 }
@@ -1274,7 +1274,7 @@ async function restoreEmployee(eid) {
     const data = await res.json();
     if (data.ok) {
       // 重新加载员工列表
-      const r = await fetch(api('/employees'));
+      const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
       const d = await r.json();
       STATE._empAll = STATE.employees = d.employees;
       STATE._headless = d.headless || false;
@@ -1415,7 +1415,7 @@ async function deleteExistingTemp(overrideId) {
     if (data.ok) {
       showToast(t('toast_deleted'));
       // 重新加载员工列表并刷新模态框
-      const r = await fetch(api('/employees'));
+      const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
       STATE.employees = (await r.json()).employees;
       STATE._empAll = STATE.employees;
       renderEmployeeTable();
@@ -1458,6 +1458,7 @@ async function saveTypeOverride() {
   // 计件类型强制基数归零
   const finalDr = (st==='day_rate') ? dr : 0;
   const finalMs = (st==='monthly') ? ms : 0;
+  const currentMonth = document.getElementById('monthSelect').value;
   await authFetch(api('/employees/override'), {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
@@ -1466,12 +1467,13 @@ async function saveTypeOverride() {
       day_rate: finalDr,
       monthly_salary: finalMs,
       start_date: '', end_date: '', note: '', type: '',
+      effective_from: currentMonth,
     }),
   });
   closeModal();
   const typeNames = {'day_rate': t('emp_dayrate'), 'monthly': t('emp_monthly'), 'piece_underground': t('emp_ug_piece'), 'piece_driller': t('emp_dr_piece')};
   showToast(t('toast_type_set_pre') + (typeNames[st] || st));
-  const r = await fetch(api('/employees'));
+  const r = await fetch(api('/employees?month=' + encodeURIComponent(currentMonth)));
   STATE.employees = (await r.json()).employees;
   STATE._empAll = STATE.employees;
   renderEmployeeTable();
@@ -1504,7 +1506,7 @@ async function saveTempOverride() {
   });
   closeModal();
   showToast(t('toast_temp_saved'));
-  const r = await fetch(api('/employees'));
+  const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
   STATE.employees = (await r.json()).employees;
   renderEmployeeTable();
   await recalculate();
@@ -1815,7 +1817,7 @@ async function toggleNssf(eid, enrolled) {
       body: JSON.stringify({employee_id:eid, enrolled}),
     });
     // Reload employee list
-    const r = await fetch(api('/employees'));
+    const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
     STATE.employees = (await r.json()).employees;
     STATE._empAll = STATE.employees;
     renderEmployeeTable();
