@@ -1587,7 +1587,7 @@ function renderSalaryTable(result) {
   const deptSel = document.getElementById('salaryFilterDept');
   if (deptSel && deptSel.options.length === 1) {
     const depts = new Set();
-    result.employees.forEach(e => { if (e.department) depts.add(e.department); });
+    (STATE._empAll || result.employees).forEach(e => { if (e.department) depts.add(e.department); });
     [...depts].sort().forEach(d => {
       deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`;
     });
