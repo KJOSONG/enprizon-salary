@@ -646,6 +646,7 @@ const STATE = {
   currentExcludeEmp: null,
   _empAll: [],
   _attendanceDirty: false,
+  _attendancePending: {},
 };
 
 // ════════════════════════════════════════════════
@@ -2206,6 +2207,7 @@ async function loadAttendance() {
     const banner = document.getElementById('headlessBannerAtt');
     if (banner) banner.style.display = STATE._headless ? 'block' : 'none';
     STATE._attendanceDirty = false;
+    STATE._attendancePending = {};
     renderAttendance();
   } catch(e) {}
 }
@@ -2290,7 +2292,8 @@ function renderAttendance() {
 
 async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
   // 原始为空 (无自动出勤):
-  //   破碎计件员工: '' → C → A → L → '' (手动标记破碎出勤后可旷工/请假/复位)
+  //   破碎计件员工: '' → C → P → A → L → '' (手动标记后可旷工/请假/复位)
+  //   井下计件员工: '' → D → N → A → L → ''
   //   其他员工:     '' → P → A → L → '' (标记出勤后可旷工/请假/复位)
   // 原始非空 (有自动出勤):
   //   C/R/D/N/B/P → A → L → '' → 恢复原始自动值
@@ -2299,7 +2302,7 @@ async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
   const isUnderground = empType === '井下计件';
   if (autoVal === '' || autoVal === undefined) {
     const cycle = isCrush
-      ? {'':'C', 'C':'A', 'A':'L', 'L':''}
+      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':''}
       : isUnderground
       ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':''}
       : {'':'P', 'P':'A', 'A':'L', 'L':''};
@@ -2308,21 +2311,19 @@ async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
     const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   }
-  try {
-    await authFetch(api('/attendance/toggle'), {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({employee_id:eid, date, status: nextStatus}),
-    });
-    const data = STATE.attendanceData;
-    if (data && data.rows) {
-      const row = data.rows.find(r => r.id === eid);
-      if (row) {
-        row.days[date] = nextStatus;
-      }
+  // 仅更新本地状态，不持久化
+  const data = STATE.attendanceData;
+  if (data && data.rows) {
+    const row = data.rows.find(r => r.id === eid);
+    if (row) {
+      row.days[date] = nextStatus;
+      if (!STATE._attendancePending) STATE._attendancePending = {};
+      if (!STATE._attendancePending[eid]) STATE._attendancePending[eid] = {};
+      STATE._attendancePending[eid][date] = nextStatus;
     }
-    STATE._attendanceDirty = true;
-    renderAttendance();
-  } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+  }
+  STATE._attendanceDirty = true;
+  renderAttendance();
 }
 
 async function saveAttendance() {
@@ -2332,6 +2333,17 @@ async function saveAttendance() {
   const originalText = btn.textContent;
   btn.textContent = t('att_save_btn_loading');
   try {
+    // 批量保存待处理的出勤变更
+    const pending = STATE._attendancePending || {};
+    for (const [eid, dates] of Object.entries(pending)) {
+      for (const [date, status] of Object.entries(dates)) {
+        await authFetch(api('/attendance/toggle'), {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({employee_id: eid, date, status}),
+        });
+      }
+    }
+    STATE._attendancePending = {};
     await loadAttendance();
     await recalculate();
     STATE._dailyWages = null;
