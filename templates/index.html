@@ -318,6 +318,9 @@
         <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
         <option value="monthly" data-i18n="emp_monthly">月薪</option>
       </select>
+      <select id="salaryFilterDept" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+        <option value="" data-i18n="emp_all_depts">全部部门</option>
+      </select>
     </div>
     <div class="stats-bar" id="salaryStats" style="display:none;"></div>
 
@@ -1580,6 +1583,16 @@ function renderSalaryTable(result) {
   const dupDiv = document.getElementById('duplicateWarnings');
   dupDiv.style.display = 'none';
 
+  // 懒初始化：首次渲染薪资表时填充部门下拉框
+  const deptSel = document.getElementById('salaryFilterDept');
+  if (deptSel && deptSel.options.length === 1) {
+    const depts = new Set();
+    result.employees.forEach(e => { if (e.department) depts.add(e.department); });
+    [...depts].sort().forEach(d => {
+      deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`;
+    });
+  }
+
   filterSalaryTable();
   loadSalaryVerification();
 }
@@ -1590,9 +1603,11 @@ function filterSalaryTable() {
   const TYPE_LABELS = getTYPE_LABELS();
   const q = (document.getElementById('salarySearch').value||'').toLowerCase();
   const ft = document.getElementById('salaryFilterType').value;
+  const fd = document.getElementById('salaryFilterDept').value;
   const filtered = result.employees.filter(e => {
     if (q && !e.name.toLowerCase().includes(q)) return false;
     if (ft && e.salary_type !== ft) return false;
+    if (fd && (e.department||'') !== fd) return false;
     return true;
   });
   const tbody = document.querySelector('#salaryTable tbody');
