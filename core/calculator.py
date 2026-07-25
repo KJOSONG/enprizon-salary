@@ -700,6 +700,17 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
 
+        # 破碎计件文件即破碎出勤：将 crush_data 中出现的 (员工,日期) 自动标记为 piece_crush，
+        # 使出勤网格/日工资页筛选"破碎计件"可见（无需逐日手动标 C）。
+        for day in crush_data:
+            dt = day.get('date', '')
+            if not dt:
+                continue
+            for e in day.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid and dt not in per_date_type.get(eid, {}):
+                    per_date_type[eid][dt] = 'piece_crush'
+
         # C/P 手动标记：将对应日期覆盖为 piece_crush（crush_data 已在构建 all_attendance_pairs 前注入人员）
         for eid, dates in c_overrides.items():
             for dt in dates:
@@ -1005,6 +1016,17 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dtype in ('piece_underground', 'piece_driller', 'piece_crush'):
                     if (eid, dt) not in all_attendance_pairs:
                         att_exclusions.add((eid, dt))
+        # 破碎计件文件即破碎出勤：将 crush_data 中出现的 (员工,日期) 自动标记为 piece_crush，
+        # 使出勤网格/日工资页筛选"破碎计件"可见（无需逐日手动标 C）。
+        for day in crush_data:
+            dt = day.get('date', '')
+            if not dt:
+                continue
+            for e in day.get('personnel', []):
+                eid = make_employee_id(e)
+                if eid and dt not in per_date_type.get(eid, {}):
+                    per_date_type[eid][dt] = 'piece_crush'
+
         # C/P 手动标记：将对应日期覆盖为 piece_crush（crush_data 已在构建 all_attendance_pairs 前注入人员）
         for eid, dates in c_overrides.items():
             for dt in dates:
