@@ -236,6 +236,30 @@ def parse_daily_salary_sheet(ws):
 #  破碎计件文件解析 (CRUSH TEAM Production Data)
 # ═══════════════════════════════════════════════════════════
 
+def _normalize_crush_date(date_val):
+    """统一破碎计件日期为 YYYY-MM-DD 标准格式。
+
+    源文件日期可能是三种形态：
+    - Excel 原生日期序列号（float/int）→ 转标准格式
+    - 中文文本 '2026年7月4日' → '2026-07-04'
+    - 已是 '2026-07-04' 文本 → 原样返回
+    只取前 10 字符，避免时间戳干扰。
+    """
+    # Excel 原生日期序列号
+    if isinstance(date_val, (int, float)):
+        from datetime import datetime, timedelta
+        try:
+            return (datetime(1899, 12, 30) + timedelta(days=int(date_val))).strftime('%Y-%m-%d')
+        except (ValueError, OverflowError):
+            return str(date_val)[:10]
+    s = str(date_val).strip()
+    # 中文日期 '2026年7月4日' / '2026年07月04日'
+    m = re.match(r'^(\d{4})年(\d{1,2})月(\d{1,2})日', s)
+    if m:
+        return f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
+    return s[:10]
+
+
 def parse_crush_sheet(filepath):
     """
     解析破碎计件文件 (CRUSH TEAM Production Data_精简.xlsx)
@@ -263,7 +287,7 @@ def parse_crush_sheet(filepath):
         date_val = ws.cell(row, date_col).value
         if not date_val:
             continue
-        date_str = str(date_val)[:10] if not isinstance(date_val, str) else date_val
+        date_str = _normalize_crush_date(date_val)
 
         bags = ws.cell(row, bags_col).value
         try:
