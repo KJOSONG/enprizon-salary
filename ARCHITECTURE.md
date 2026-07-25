@@ -7,7 +7,7 @@
 
 ## 一、项目定位
 
-Web 薪资计算系统。用户上传 Excel 考勤数据 -> 自动解析 -> 四轨薪资计算 -> 可编辑出勤、例外覆盖 -> Web 页面展示。
+Web 薪资计算系统。用户上传 Excel 考勤数据 -> 自动解析 -> 五轨薪资计算 -> 可编辑出勤、例外覆盖 -> Web 页面展示。
 
 部署在阿里云新加坡服务器 (47.236.187.33)，Flask + gunicorn + Nginx 反代。
 
@@ -19,7 +19,7 @@ Web 薪资计算系统。用户上传 Excel 考勤数据 -> 自动解析 -> 四�
 Attendancedatadailyandpiecerate.xlsx --+
 ENPRIZON_LINDI_PROJECT.xlsx ----------+
                                        v
-  parser.py --> namematch.py --> calculator.py --> app.py (API) --> 前端三页面
+  parser.py --> namematch.py --> calculator.py --> app.py (API) --> 前端六页面
                     |                  |
             通讯录索引加载      逐日单轨合并
             employee_id 生成    总表 + 日明细
@@ -55,6 +55,7 @@ display_name 优先用通讯录中的别名列, 无别名则用去括号的姓�
 |------|--------|----------|
 | 井下计件 | shift_production (白/夜班) | 当日产量 * 单价 / 出勤人数, 人均平分 |
 | 钻工计件 | driller_production (队长制) | 当日产量 * 单价 / (队员+1队长份额), 队长*2份额 |
+| 破碎计件 | CRUSH TEAM 文件 | bags * 300 TZS / 有效人数, 同日多条记录独立均分 |
 | 日薪 | attendance | 日薪基数 * 出勤天数 |
 | 月薪 | employees.monthly_salary | 月薪基数 - A/L天数比例扣减 |
 
@@ -64,7 +65,7 @@ display_name 优先用通讯录中的别名列, 无别名则用去括号的姓�
 
 **新架构 (e6b9487)**:
 1. 构建 per_date_type[eid][date] - 统一的逐日类型映射, 将所有临时例外展开为逐日数组
-2. 四轨各自独立计算, 产生 ug_daily / driller_daily / day_salary / monthly_salary
+2. 五轨各自独立计算, 产生 ug_daily / driller_daily / crush_daily / day_salary / monthly_salary
 3. **逐日合并**: 对每个员工的每一天, 按 per_date_type 或永久类型选**一个**轨道取值求和
 4. 任一日期**只归属一个轨道**, 从根本上杜绝双重计薪
 
@@ -72,6 +73,7 @@ display_name 优先用通讯录中的别名列, 无别名则用去括号的姓�
 - 永久覆盖 (start_date 和 end_date 都为空) -> 改变 effective_type, 覆盖整月的默认轨道
 - 临时例外 (有日期区间) -> 只影响区间内的轨道选择, 不影响 salary_type 标签
 - 日薪/月薪轨道不产生每日产出 (不用 ug_daily/driller_daily), 在合并阶段直接取日薪/月薪计算结果
+- 破碎计件轨道 (crush_daily) 独立计算, 同日多条破碎记录各自均分, 合并阶段同样只取一个轨道
 
 ### 3.3 日工资明细 (compute_daily_breakdown)
 
@@ -141,18 +143,20 @@ A/L 标记的员工从当日计件分配中排除 (按日重新均分, 总额守
 
 ---
 
-## 七、前端三页面联动
+## 七、前端六页面联动
 
 ```
 +---------------------------------------------------+
+|  数据台(Dashboard) - 产量趋势图 + 日工资分布图      |
 |  员工页  - 例外管理 (永久/临时) + NSSF 开关         |
 |    | 保存后自动 recalculate()                       |
 |    v                                                |
 |  出勤页  - 点击格子 toggle P/A/L                    |
 |    | 自动 recalculate() + reload                    |
 |    v                                                |
-|  薪资页  - 总表四轨 + 核对面板 + 日工资明细         |
+|  薪资页  - 总表五轨 + 核对面板 + 日工资明细         |
 |          - 产量图表 + 导出 Excel                    |
+|  日工资明细页 / 系统配置页(审计/上传/定价/权限)     |
 +---------------------------------------------------+
 ```
 
@@ -189,14 +193,14 @@ A/L 标记的员工从当日计件分配中排除 (按日重新均分, 总额守
 | app.py | Flask 路由 + 认证 + 会话 |
 | core/parser.py | Excel 解析 (3 Sheet -> 结构化数据) |
 | core/namematch.py | 姓名标准化 + employee_id 生成 + 员工主列表 |
-| core/calculator.py | 四轨计算 + 逐日单轨合并 + 日明细 |
+| core/calculator.py | 五轨计算 + 逐日单轨合并 + 日明细 |
 | core/database.py | SQLite ORM + 审计日志 |
 | core/verification.py | 双路径核对 + 逐日对比 |
 | core/exceptions.py | 例外覆盖标记加载 (兼容 JSON + DB) |
 | core/advance.py | 预支数据解析 |
 | core/addressbook.py | 通讯录 Excel 解析 |
 | core/pricing.py | 单价配置 |
-| templates/index.html | 单页 SPA (约 6000 行 JS) |
+| templates/index.html | 单页 SPA (约 2621 行, 6 页面标签, 全部 JS 内联) |
 
 ---
 

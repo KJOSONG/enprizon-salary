@@ -526,6 +526,7 @@ def _run_pipeline(files, month_filter=None):
         'main': os.path.basename(files['main']) if files.get('main') else None,
         'advance': os.path.basename(files['advance']) if files.get('advance') else None,
         'addressbook': os.path.basename(files['addressbook']) if files.get('addressbook') else None,
+        'nssf': os.path.basename(files['nssf']) if files.get('nssf') else None,
         'crush': os.path.basename(files['crush']) if files.get('crush') else None,
     }
 

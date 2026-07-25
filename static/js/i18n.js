@@ -234,6 +234,8 @@ const I18N_DICT = {
     source_main: '主产量表',
     source_advance: '预支表',
     source_addressbook: '通讯录',
+    source_nssf: 'NSSF 社保名单',
+    source_crush: '破碎计件文件',
 
     /* ── 源文件上传 ── */
     source_upload_title: '源文件管理',
@@ -242,6 +244,7 @@ const I18N_DICT = {
     source_upload_advance: '预支汇总文件',
     source_upload_addressbook: '通讯录文件',
     source_upload_nssf: 'NSSF 社保名单',
+    source_upload_crush: '破碎计件文件（CRUSH TEAM）',
     source_upload_current: '当前文件',
     source_upload_none: '无文件',
     source_upload_select: '选择文件',
@@ -600,6 +603,8 @@ const I18N_DICT = {
     source_main: 'Production Table',
     source_advance: 'Advance Table',
     source_addressbook: 'Address Book',
+    source_nssf: 'NSSF SDL List',
+    source_crush: 'Crush Team File',
 
     /* ── Source File Upload ── */
     source_upload_title: 'Source File Management',
@@ -608,6 +613,7 @@ const I18N_DICT = {
     source_upload_advance: 'Advance Records',
     source_upload_addressbook: 'Address Book',
     source_upload_nssf: 'NSSF SDL List',
+    source_upload_crush: 'Crush Team File (CRUSH TEAM)',
     source_upload_current: 'Current',
     source_upload_none: 'No file',
     source_upload_select: 'Select File',
