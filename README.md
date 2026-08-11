@@ -108,7 +108,7 @@ bash test-workflow.sh clean    # remove test DB
 │       ├── i18n.js         # Chinese/English i18n (~864 lines)
 │       ├── chart.umd.min.js
 │       └── chartjs-plugin-datalabels.min.js
-├── backup.sh               # Server daily backup (30-day retention)
+├── backup.sh               # Server daily backup (7-day retention)
 ├── restore.sh              # Server stop → restore → restart
 ├── start.sh                # Local dev launcher
 ├── test-workflow.sh         # Test DB isolation workflow

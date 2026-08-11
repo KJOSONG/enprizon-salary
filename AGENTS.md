@@ -2,6 +2,11 @@
 
 薪资计算系统。上传 Excel → 五轨解析 → SPA 前端展示。部署在阿里云新加坡 (47.236.187.33)。
 
+## 相关文档
+
+- `README.md`：快速上手、五文件输入格式、部署与命令速查（面向新接手者）
+- `ARCHITECTURE.md`：设计决策与重构理由（单轨重构 e6b9487、employee_id 迁移、双路径核对逻辑），**代码会变、理由不变**，深挖架构优先读它
+
 ## 协作流程
 
 本地修改 → `git push` → 服务器 `git pull && systemctl restart enprizon-salary`
@@ -52,11 +57,11 @@ bash test-workflow.sh clean       # 删除测试库（`prod_kilwa.db` 存在时�
 `test-workflow.sh` 使用 `$HOME/WorkBuddy/kilwa-system/data` 和 `$HOME/Desktop/enprizon_backups` 路径。
 
 ### 代码风格
-项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~2458 lines, `calculator.py` ~1284 lines, `index.html` ~2488 lines），尽量避免增加不必要的模块拆分。
+项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~2515 lines, `calculator.py` ~1306 lines, `index.html` ~2622 lines），尽量避免增加不必要的模块拆分。
 
 ### 备份与恢复（服务器端）
 ```bash
-bash backup.sh                    # 每日备份，自动清理 30 天前
+bash backup.sh                    # 每日备份，自动清理 7 天前
 bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 ```
 
@@ -64,6 +69,9 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 
 `workers=1`（SQLite 要求单 worker），`threads=2`，`timeout=120`。
 日志路径硬编码为 `/root/enprizon-salary/`，本地开发会失败。
+
+- **数据库**：SQLite **WAL 模式**，文件 `data/kilwa.db`
+- **Nginx 反代**：`/salary/` → `127.0.0.1:8081`，对应环境变量 `KILWA_SCRIPT_NAME=/salary`
 
 ## 会话与认证
 - Flask 默认 filesystem session（`data/flask_session/`），`KILWA_SECRET_KEY` 决定加密密钥
@@ -92,7 +100,16 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
   └── 破碎队 → parser.parse_crush_sheet()
 全部 → calculator.calculate_all() → verification.verify_salary() → APP_STATE 缓存 → API
 ```
-文件匹配：按 Sheet 名优先，回退到文件名关键词。未匹配通讯录的姓名走旧格式（去空格大写）。
+文件匹配：按 Sheet 名优先，回退到文件名关键词。
+
+### employee_id 生成链路（`namematch.py`）
+
+`make_employee_id(name)` 三级匹配（调试姓名对不上时优先排查这一级）：
+1. 去空格/去括号/大写 → 查通讯录索引 `_AB_INDEX` → 返回**通讯录账号**（如 `111`、`128`、`005`）
+2. 未命中 → 查 `_LEGACY_CANONICAL`（短名→全名回退表）→ 再查通讯录
+3. 仍失败 → 回退姓名"去空格大写"（兼容离职 / 通讯录外人员，此类 employee_id 仍为旧格式）
+
+> 2026-06-30 起全部表 `employee_id` 已从"姓名格式"整体迁移为"通讯录账号"，但未匹配通讯录者可能保留旧格式。
 
 ### 目录约定
 
@@ -105,7 +122,7 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 | `templates/` | Jinja2 模板（仅 `index.html`） | 跟踪 |
 | `static/css/` | 样式文件（`style.css`） | 跟踪 |
 | `static/js/` | 前端 JS（i18n + Chart.js CDN 缓存） | 跟踪 |
-| `core/` | 10 个后端模块 | 跟踪 |
+| `core/` | 12 个后端模块（含 `__init__.py`） | 跟踪 |
 
 ### 薪资五轨道（`calculator.py`）
 
@@ -115,7 +132,7 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 | 钻工计件 | driller_production（队长制） | 当日产量 × 钻工单价 /（队员+1 队长份额），队长×2 份额 |
 | 破碎计件 | CRUSH TEAM 文件 | bags × 300 / 有效人数，同日多条记录独立均分 |
 | 日薪 | attendance | 日薪基数 × 出勤天数 |
-| 月薪 | employees.monthly_salary | 基数 / 26 × 实出勤，≥26 天封顶满薪 |
+| 月薪 | employees.monthly_salary | 基数 / 26 × 实出勤，A/L 按天比例扣减，≥26 天封顶满薪 |
 
 **单轨模式**：任一日期只归属一个轨道，杜绝双重计薪。
 
@@ -137,6 +154,14 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=破碎, P(绿)=日薪/月薪, A(红)=旷工, L(黄)=请假, (P)(灰)=月薪默认
 
 点按切换：R/C → A → L → 空 → P（不可回到原始自动值）
+
+### 代码修改关键不变量
+
+改 `calculator.py` / `app.py` 前务必遵守：
+
+- **单轨模式源于 v3.0 重构（commit e6b9487）**，目的是从架构上根除"双重计薪" bug。任何改动都必须保证 **任一日期只归属一个轨道**，不可让某员工某天同时被多个轨道计薪。
+- **日工资明细必须与薪资页一致**：`compute_daily_breakdown()` 与 `calculate_all()` 共用同一套 `per_date_type` + 四轨子函数结果，按相同逐日选轨逻辑生成明细。"日工资明细页"与"薪资总表应发金额"必须逐人逐日相等（总则硬性要求），改计算逻辑时两者要同步验证。
+- **总额守恒**：A/L 标记员工从当日计件分配排除后，剩余人员平分，当日计件总额不变（极端情况：队长 A/L 且无队员除外）。
 
 ### 前端技术栈
 
@@ -206,7 +231,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 ## 代码分工速查
 
-### 后端模块（`core/` 10 个文件）
+### 后端模块（`core/` 12 个文件，行数为约数会随版本漂移，仅供参考）
 
 | 文件 | 职责 |
 |------|------|
@@ -294,7 +319,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | 文件 | 用途 |
 |------|------|
 | `start.sh` | 本地开发启动（Python 路径硬编码） |
-| `backup.sh` | 服务器每日备份 kilwa.db，30 天自动清理 |
+| `backup.sh` | 服务器每日备份 kilwa.db，7 天自动清理 |
 | `restore.sh` | 服务器停服→恢复→重启 |
 | `test-workflow.sh` | 测试库安全隔离（start/swap/restore/clean） |
 | `gunicorn.conf.py` | 生产配置（127.0.0.1:8081, 1 worker, 2 threads, 120s timeout） |
