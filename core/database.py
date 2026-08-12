@@ -137,6 +137,24 @@ def init_db(data_folder):
             role TEXT NOT NULL DEFAULT 'admin',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS permissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module TEXT NOT NULL,
+            action TEXT NOT NULL,
+            scope_type TEXT NOT NULL DEFAULT 'all',
+            scope_value TEXT DEFAULT '',
+            UNIQUE(module, action, scope_type, scope_value)
+        );
+        CREATE TABLE IF NOT EXISTS user_grants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            permission_id INTEGER NOT NULL,
+            grant_type TEXT NOT NULL DEFAULT 'allow',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (username) REFERENCES admin_users(username),
+            FOREIGN KEY (permission_id) REFERENCES permissions(id),
+            UNIQUE(username, permission_id)
+        );
         CREATE TABLE IF NOT EXISTS employee_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id TEXT NOT NULL,
@@ -686,6 +704,185 @@ def get_user_role(data_folder, username):
     return row['role'] if row else None
 
 ROLE_LEVELS = {'super_admin': 3, 'admin': 2, 'editor': 1, 'viewer': 0}
+
+ROLE_DEFAULT_PERMISSIONS = {
+    'super_admin': {'*': ['*']},
+    'admin': {
+        'dashboard': ['view'],
+        'employees': ['view', 'edit'],
+        'oa': ['view', 'approve'],
+        'attendance': ['view', 'edit'],
+        'salary': ['view', 'export'],
+        'production': ['view', 'edit'],
+        'scoring': ['view', 'edit'],
+        'system': ['view'],
+    },
+    'editor': {
+        'dashboard': ['view'],
+        'employees': ['view'],
+        'oa': ['view'],
+        'attendance': ['view', 'edit'],
+        'salary': ['view'],
+        'production': ['view', 'edit'],
+        'scoring': ['view'],
+    },
+    'viewer': {
+        'dashboard': ['view'],
+        'salary': ['view'],
+    },
+}
+
+ALL_MODULES = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system']
+ALL_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage']
+
+def init_default_permissions(data_folder):
+    """初始化默认权限数据到 permissions 表（幂等）"""
+    conn = get_conn(data_folder)
+    for role, grants in ROLE_DEFAULT_PERMISSIONS.items():
+        for module, actions in grants.items():
+            for action in actions:
+                try:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO permissions (module, action, scope_type, scope_value) VALUES (?,?,?,?)",
+                        (module, action, 'all', ''))
+                except:
+                    pass
+    conn.commit()
+    conn.close()
+
+def get_permissions(data_folder):
+    """查询全部权限定义"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("SELECT * FROM permissions ORDER BY module, action").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_role_default_grants(role):
+    """获取角色默认权限 [{module, actions}]"""
+    grants = ROLE_DEFAULT_PERMISSIONS.get(role, {})
+    result = []
+    for module, actions in grants.items():
+        result.append({'module': module, 'actions': actions})
+    return result
+
+def get_user_grants(data_folder, username):
+    """查询用户单独授权列表"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT g.*, p.module, p.action, p.scope_type, p.scope_value
+        FROM user_grants g
+        JOIN permissions p ON g.permission_id = p.id
+        WHERE g.username = ?
+        ORDER BY p.module, p.action
+    """, (username,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def grant_user_permission(data_folder, username, module, action, grant_type='allow'):
+    """为用户添加单独授权"""
+    conn = get_conn(data_folder)
+    # 确保 permission 存在
+    conn.execute(
+        "INSERT OR IGNORE INTO permissions (module, action, scope_type, scope_value) VALUES (?,?,?,?)",
+        (module, action, 'all', ''))
+    pid = conn.execute(
+        "SELECT id FROM permissions WHERE module=? AND action=? AND scope_type='all'",
+        (module, action)).fetchone()
+    if pid:
+        conn.execute(
+            "INSERT OR REPLACE INTO user_grants (username, permission_id, grant_type) VALUES (?,?,?)",
+            (username, pid['id'], grant_type))
+    conn.commit()
+    conn.close()
+
+def revoke_user_grant(data_folder, username, permission_id):
+    """撤销用户单独授权"""
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM user_grants WHERE username=? AND permission_id=?",
+                 (username, permission_id))
+    conn.commit()
+    conn.close()
+
+def check_permission(data_folder, username, module, action, scope_value=''):
+    """权限检查：角色继承 + 单独授权覆盖"""
+    conn = get_conn(data_folder)
+    # 查用户角色
+    role_row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
+    if not role_row:
+        conn.close()
+        return False
+    role = role_row['role']
+
+    # super_admin 拥有所有权限
+    if role == 'super_admin':
+        conn.close()
+        return True
+
+    # 1. 查单独授权（deny 优先）
+    deny = conn.execute("""
+        SELECT 1 FROM user_grants g
+        JOIN permissions p ON g.permission_id = p.id
+        WHERE g.username=? AND p.module=? AND p.action=? AND g.grant_type='deny'
+    """, (username, module, action)).fetchone()
+    if deny:
+        conn.close()
+        return False
+
+    allow = conn.execute("""
+        SELECT 1 FROM user_grants g
+        JOIN permissions p ON g.permission_id = p.id
+        WHERE g.username=? AND p.module=? AND p.action=? AND g.grant_type='allow'
+    """, (username, module, action)).fetchone()
+    if allow:
+        conn.close()
+        return True
+
+    # 2. 角色默认权限
+    grants = ROLE_DEFAULT_PERMISSIONS.get(role, {})
+    # 通配模块 *
+    if '*' in grants and '*' in grants['*']:
+        conn.close()
+        return True
+    module_grants = grants.get(module, [])
+    if '*' in module_grants:
+        conn.close()
+        return True
+    conn.close()
+    return action in module_grants
+
+def get_user_permissions_summary(data_folder, username):
+    """获取某用户的完整权限摘要：{module: {view: 'role'|'grant'|'deny', ...}}"""
+    conn = get_conn(data_folder)
+    role_row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
+    if not role_row:
+        conn.close()
+        return None
+    role = role_row['role']
+
+    # 角色默认
+    role_grants = ROLE_DEFAULT_PERMISSIONS.get(role, {})
+    summary = {}
+    for module in ALL_MODULES:
+        summary[module] = {}
+        for action in ALL_ACTIONS:
+            if '*' in role_grants and '*' in role_grants['*']:
+                summary[module][action] = 'role'
+            elif action in role_grants.get(module, []) or '*' in role_grants.get(module, []):
+                summary[module][action] = 'role'
+            else:
+                summary[module][action] = 'none'
+
+    # 单独授权覆盖
+    grants = conn.execute("""
+        SELECT p.module, p.action, g.grant_type
+        FROM user_grants g JOIN permissions p ON g.permission_id = p.id
+        WHERE g.username=?
+    """, (username,)).fetchall()
+    for g in grants:
+        if g['module'] in summary and g['action'] in summary[g['module']]:
+            summary[g['module']][g['action']] = g['grant_type']
+    conn.close()
+    return summary
 
 def list_all_users(data_folder):
     """返回所有用户列表 [{username, role, created_at}]"""

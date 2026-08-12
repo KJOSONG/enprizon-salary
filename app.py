@@ -93,6 +93,22 @@ def super_admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+def require_permission(module, action):
+    """细粒度权限检查：角色继承 + 单独授权"""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not session.get('logged_in'):
+                return jsonify({'ok': False, 'error': 'unauthorized', 'need_login': True}), 401
+            from core.database import check_permission
+            username = session.get('username', '')
+            if not check_permission(app.config['DATA_FOLDER'], username, module, action):
+                _audit('perm_denied', '', json.dumps({'user': username, 'module': module, 'action': action}))
+                return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': module}), 403
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
 @app.route('/api/login', methods=['POST'])
 def api_login():
     from core.database import verify_admin, has_admin, set_admin_password
@@ -189,6 +205,71 @@ def update_user_role():
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
+
+# ═══════════════════════════════════════════════════════════
+#  API: 细粒度权限管理（super_admin 管理授权）
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/permissions/users', methods=['GET'])
+@login_required
+def api_permissions_users():
+    from core.database import list_all_users, get_user_permissions_summary
+    users = list_all_users(app.config['DATA_FOLDER'])
+    for u in users:
+        u['permissions'] = get_user_permissions_summary(app.config['DATA_FOLDER'], u['username'])
+    return jsonify({'ok': True, 'users': users})
+
+@app.route('/api/permissions/roles', methods=['GET'])
+@login_required
+def api_permissions_roles():
+    from core.database import ROLE_DEFAULT_PERMISSIONS, ROLE_LEVELS
+    return jsonify({
+        'ok': True,
+        'roles': [{'name': r, 'level': ROLE_LEVELS[r]} for r in ROLE_LEVELS],
+        'defaults': ROLE_DEFAULT_PERMISSIONS,
+    })
+
+@app.route('/api/permissions/grant', methods=['POST'])
+@super_admin_required
+def api_permissions_grant():
+    from core.database import grant_user_permission
+    data = request.get_json(silent=True) or {}
+    username = data.get('username', '').strip()
+    module = data.get('module', '').strip()
+    action = data.get('action', '').strip()
+    grant_type = data.get('grant_type', 'allow')
+    if not username or not module or not action:
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    try:
+        grant_user_permission(app.config['DATA_FOLDER'], username, module, action, grant_type)
+        _audit('perm_grant', username, json.dumps({'module': module, 'action': action, 'type': grant_type}))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+@app.route('/api/permissions/grant', methods=['DELETE'])
+@super_admin_required
+def api_permissions_revoke():
+    from core.database import revoke_user_grant
+    data = request.get_json(silent=True) or {}
+    username = data.get('username', '').strip()
+    permission_id = data.get('permission_id', 0)
+    if not username or not permission_id:
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    try:
+        revoke_user_grant(app.config['DATA_FOLDER'], username, permission_id)
+        _audit('perm_revoke', username, json.dumps({'permission_id': permission_id}))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+@app.route('/api/permissions/init-defaults', methods=['POST'])
+@super_admin_required
+def api_permissions_init_defaults():
+    from core.database import init_default_permissions
+    init_default_permissions(app.config['DATA_FOLDER'])
+    _audit('perm_init_defaults', '', '{}')
+    return jsonify({'ok': True})
 
 def strip_dept(dept):
     """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门；纯顶层部门保留原名"""
@@ -554,11 +635,13 @@ def static_files(path):
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/source-info', methods=['GET'])
+@login_required
 def get_source_info():
     """返回当前加载的源文件信息"""
     return jsonify(APP_STATE.get('source_info', {}))
 
 @app.route('/available-months', methods=['GET'])
+@login_required
 def get_available_months():
     """返回可选的月份列表（源数据 + 数据库 + 当前及未来月份）"""
     from datetime import datetime
@@ -820,6 +903,7 @@ def set_month():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/employees', methods=['GET'])
+@login_required
 def get_employees():
     from core.exceptions import load_overrides
     from core.database import load_bonus_penalties as _load_bp_emp
@@ -951,6 +1035,7 @@ def save_bonus_penalty():
 # ── 离职员工管理 ──
 
 @app.route('/employees/dismissed', methods=['GET'])
+@login_required
 def get_dismissed_employees():
     """获取已离职员工列表（含姓名）"""
     from core.database import load_dismissed_with_info
@@ -1050,6 +1135,7 @@ def seed_employees():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/api/employees', methods=['GET'])
+@login_required
 def api_employees():
     """员工列表（扩展版，含新字段）"""
     from core.database import list_employees_extended
@@ -1060,6 +1146,7 @@ def api_employees():
     return jsonify({'employees': employees})
 
 @app.route('/api/employees/<employee_id>', methods=['GET'])
+@login_required
 def api_employee_profile(employee_id):
     """员工档案详情"""
     from core.database import get_employee_profile
@@ -1069,6 +1156,7 @@ def api_employee_profile(employee_id):
     return jsonify({'employee': profile})
 
 @app.route('/api/employees/<employee_id>/events', methods=['GET'])
+@login_required
 def api_employee_events(employee_id):
     """员工生命周期时间线"""
     from core.database import get_employee_events
@@ -1110,6 +1198,7 @@ def oa_create_event():
     return jsonify({'ok': True, 'event_id': event_id})
 
 @app.route('/api/oa/pending', methods=['GET'])
+@login_required
 def oa_pending():
     """待审批事件列表"""
     from core.database import get_pending_events
@@ -1117,6 +1206,7 @@ def oa_pending():
     return jsonify({'events': events})
 
 @app.route('/api/oa/pending/count', methods=['GET'])
+@login_required
 def oa_pending_count():
     """待审批数量"""
     from core.database import get_pending_events
@@ -1186,6 +1276,7 @@ def attendance_batch_submit():
     return jsonify({'ok': True, 'count': count})
 
 @app.route('/api/attendance/roster', methods=['GET'])
+@login_required
 def attendance_roster():
     dept = request.args.get('department', '')
     from core.database import list_employees_extended
@@ -1237,6 +1328,7 @@ def oa_submit_leave():
     return jsonify({'ok': True, 'event_id': event_id})
 
 @app.route('/api/leave/balance/<employee_id>', methods=['GET'])
+@login_required
 def leave_balance(employee_id):
     import datetime as _dt
     year = request.args.get('year', str(_dt.datetime.now().year))
@@ -1282,12 +1374,14 @@ def scoring_submit_card():
     return jsonify({'ok': True, 'card_id': card_id})
 
 @app.route('/api/scoring/week/<int:team>/<int:week>', methods=['GET'])
+@login_required
 def scoring_week_cards(team, week):
     from core.database import get_week_cards
     cards = get_week_cards(app.config['DATA_FOLDER'], team, week)
     return jsonify({'cards': cards})
 
 @app.route('/api/scoring/summary/<int:team>', methods=['GET'])
+@login_required
 def scoring_summary(team):
     from core.database import get_all_scoring_entries, get_scoring_config
     entries = get_all_scoring_entries(app.config['DATA_FOLDER'], team)
@@ -1360,18 +1454,21 @@ def objective_entry():
     return jsonify({'ok': True, 'daily_s': daily_s})
 
 @app.route('/api/objective/daily/<int:team>', methods=['GET'])
+@login_required
 def objective_daily(team):
     from core.database import get_objective_records
     records = get_objective_records(app.config['DATA_FOLDER'], team)
     return jsonify({'records': records})
 
 @app.route('/api/objective/monthly/<int:team>', methods=['GET'])
+@login_required
 def objective_monthly(team):
     from core.database import get_monthly_objective
     summary = get_monthly_objective(app.config['DATA_FOLDER'], team)
     return jsonify(summary)
 
 @app.route('/api/scoring/config', methods=['GET'])
+@login_required
 def scoring_config_get():
     from core.database import get_scoring_config
     config = get_scoring_config(app.config['DATA_FOLDER'])
@@ -1387,6 +1484,7 @@ def scoring_config_save():
     return jsonify({'ok': True})
 
 @app.route('/api/scoring/bonus/<int:team>', methods=['GET'])
+@login_required
 def scoring_bonus(team):
     from core.database import get_monthly_objective, is_driver
     obj = get_monthly_objective(app.config['DATA_FOLDER'], team)
@@ -1402,6 +1500,7 @@ def scoring_bonus(team):
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/nssf/list', methods=['GET'])
+@login_required
 def get_nssf_list():
     """获取 NSSF 参保状态列表"""
     from core.nssf import load_nssf_enrollment
@@ -1434,6 +1533,7 @@ def toggle_nssf():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/addressbook', methods=['GET'])
+@login_required
 def get_addressbook():
     book = APP_STATE.get('address_book', {})
     from collections import defaultdict
@@ -1452,6 +1552,7 @@ def get_addressbook():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/config', methods=['GET'])
+@login_required
 def get_config():
     from core.pricing import load_config
     return jsonify(load_config(app.config['DATA_FOLDER']))
@@ -1500,6 +1601,7 @@ def recalculate():
     return jsonify({'ok': True, 'result': result})
 
 @app.route('/salary', methods=['GET'])
+@login_required
 def get_salary():
     month = request.args.get('month')
     if month and APP_STATE.get('main_data') and APP_STATE.get('employees'):
@@ -1530,6 +1632,7 @@ def get_salary():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/salary/verify', methods=['GET'])
+@login_required
 def verify_salary():
     """双路径薪资核对：路径一（产量×单价基准计算）vs 路径二（实际汇总）"""
     from core.verification import verify_salary as do_verify
@@ -1555,6 +1658,7 @@ def verify_salary():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/production', methods=['GET'])
+@login_required
 def get_production():
     md = APP_STATE.get('main_data', {})
     shift_prod = md.get('shift_production', [])
@@ -1598,6 +1702,7 @@ def get_production():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/production-verify', methods=['GET'])
+@login_required
 def get_production_verify():
     """返回逐日钻工组产量与井下白班+夜班产量对比"""
     md = APP_STATE.get('main_data', {})
@@ -1649,6 +1754,7 @@ def get_production_verify():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/daily-wages', methods=['GET'])
+@login_required
 def get_daily_wages():
     """返回每个员工的逐日工资"""
     from core.calculator import compute_daily_breakdown
@@ -1692,6 +1798,7 @@ def get_daily_wages():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/driller-captains', methods=['GET'])
+@login_required
 def get_driller_captains():
     """返回所有钻工队长列表（不按日期过滤，用于临时例外弹窗）"""
     md = APP_STATE.get('main_data', {})
@@ -1705,6 +1812,7 @@ def get_driller_captains():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/attendance', methods=['GET'])
+@login_required
 def get_attendance():
     """返回出勤网格：每人每天的状态。P=出勤 A=旷工 L=请假"""
     import json as _json
@@ -1854,6 +1962,7 @@ def toggle_attendance():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/audit-log', methods=['GET'])
+@admin_required
 def get_audit_log():
     from core.database import get_audit_logs
     logs = get_audit_logs(app.config['DATA_FOLDER'])
@@ -2892,6 +3001,8 @@ def _gunicorn_init():
     _app_initialized = True
     from core.database import init_db
     init_db(app.config['DATA_FOLDER'])
+    from core.database import init_default_permissions
+    init_default_permissions(app.config['DATA_FOLDER'])
     loaded = auto_load_source()
     if loaded:
         print('  ✓ 源数据已自动加载')
@@ -2902,9 +3013,10 @@ if __name__ != '__main__':
     _gunicorn_init()
 
 if __name__ == '__main__':
-    from core.database import init_db
+    from core.database import init_db, init_default_permissions
     _app_initialized = True
     init_db(app.config['DATA_FOLDER'])
+    init_default_permissions(app.config['DATA_FOLDER'])
 
     port = find_free_port(8080)
     print('=' * 50)

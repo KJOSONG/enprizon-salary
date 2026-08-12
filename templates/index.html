@@ -665,6 +665,32 @@
     <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
   </div>
 </div>
+<div class="page" id="page-system-users">
+  <div class="card">
+    <h2>🔐 <span data-i18n="user_mgmt_title">用户权限管理</span></h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;" data-i18n="user_mgmt_desc">设置各用户的角色和操作权限</p>
+    <div style="margin-bottom:12px;display:flex;gap:8px;">
+      <button class="btn-primary" onclick="initDefaultPermissions()" data-i18n="perm_init_defaults">初始化默认权限</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="user_mgmt_th_username">用户名</th>
+            <th data-i18n="user_mgmt_th_role">角色</th>
+            <th data-i18n="user_mgmt_th_actions">操作</th>
+            <th style="width:80px;"></th>
+          </tr>
+        </thead>
+        <tbody id="permUsersTable"></tbody>
+      </table>
+    </div>
+    <div id="permDetail" style="display:none;margin-top:16px;padding:16px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);">
+      <h3 id="permDetailTitle" style="font-size:13px;margin-bottom:12px;"></h3>
+      <div id="permGrid"></div>
+    </div>
+  </div>
+</div>
 
 </div><!-- .main -->
 </div><!-- .app-main -->
@@ -1061,7 +1087,9 @@ const SUBPAGE_TARGETS = {
   'scoring/summary':         'scoring-summary',
   'scoring/objective':       'scoring-objective',
   'system/params':     'settings',
-  'system/users':      'settings',
+  'system/users':      'system-users',
+  'system/forms':      'system-forms',
+  'system/archive':    'system-archive',
 };
 
 // 无子页模块默认目标
@@ -1172,6 +1200,9 @@ function showTargetPage(module, subPage) {
   // P1: OA 页面加载
   if (module === 'oa' && subPage === 'pending') loadOAPending();
   if (module === 'oa' && subPage === 'history') loadOAHistory();
+
+  // P4: 权限管理页面加载
+  if (module === 'system' && subPage === 'users') loadPermissionsPage();
 }
 
 function showPlaceholder(module, subPage) {
@@ -3336,6 +3367,152 @@ document.querySelectorAll('.chart-label-toggle').forEach(cb => {
     }
   });
 });
+
+// ══════════════════════════════════════════════════════
+// P4: 细粒度权限管理
+// ══════════════════════════════════════════════════════
+
+const MODULE_NAMES = {
+  dashboard: 'perm_module_dashboard',
+  employees: 'perm_module_employees',
+  oa: 'perm_module_oa',
+  attendance: 'perm_module_attendance',
+  salary: 'perm_module_salary',
+  production: 'perm_module_production',
+  scoring: 'perm_module_scoring',
+  system: 'perm_module_system',
+};
+
+const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export'];
+
+async function loadPermissionsPage() {
+  const tbody = document.getElementById('permUsersTable');
+  if (!tbody) return;
+  try {
+    const res = await authFetch(api('/api/permissions/users'));
+    const data = await res.json();
+    if (!data.ok) { tbody.innerHTML = '<tr><td colspan="4">' + t('perm_no_users') + '</td></tr>'; return; }
+    tbody.innerHTML = data.users.map(u => {
+      const isSelf = u.username === _authState.username;
+      return `
+      <tr>
+        <td>${escHtml(u.username)}${isSelf ? ' <span style="color:var(--accent);font-size:10px;">(You)</span>' : ''}</td>
+        <td>
+          <select onchange="changeUserRole('${escHtml(u.username)}', this.value)" style="font-size:11px;padding:2px 6px;background:var(--bg-primary);color:var(--text);border:1px solid var(--border);border-radius:4px;" ${isSelf ? 'disabled' : ''}>
+            ${ROLE_OPTIONS.map(r => `<option value="${r.value}" ${u.role === r.value ? 'selected' : ''}>${t(r.label)}</option>`).join('')}
+          </select>
+        </td>
+        <td><span class="role-status" id="status_${escHtml(u.username)}" style="font-size:11px;"></span></td>
+        <td>
+          <button class="btn-primary" style="font-size:10px;padding:2px 6px;"
+            onclick="togglePermPanel('${escHtml(u.username)}')" data-i18n="perm_expand">展开权限</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    // 更新旧版 userMgmtBody (如果有)
+    const oldTbody = document.getElementById('userMgmtBody');
+    if (oldTbody) oldTbody.innerHTML = tbody.innerHTML;
+  } catch(e) {}
+}
+
+function togglePermPanel(username) {
+  const detail = document.getElementById('permDetail');
+  if (detail.style.display === 'none' || detail.getAttribute('data-username') !== username) {
+    detail.style.display = '';
+    detail.setAttribute('data-username', username);
+    document.getElementById('permDetailTitle').textContent = username + ' - ' + t('user_mgmt_title');
+    renderPermissionGrid(username);
+  } else {
+    detail.style.display = 'none';
+    detail.removeAttribute('data-username');
+  }
+}
+
+async function renderPermissionGrid(username) {
+  const grid = document.getElementById('permGrid');
+  if (!grid) return;
+  try {
+    const res = await authFetch(api('/api/permissions/users'));
+    const data = await res.json();
+    if (!data.ok) { grid.innerHTML = ''; return; }
+    const user = data.users.find(u => u.username === username);
+    if (!user || !user.permissions) { grid.innerHTML = ''; return; }
+
+    const perms = user.permissions;
+    let html = '<table style="font-size:11px;"><thead><tr><th style="width:100px;">' + t('perm_module_system') + '</th>';
+    MODULE_ACTIONS.forEach(a => {
+      html += '<th style="width:50px;text-align:center;">' + (t('perm_' + a) || a) + '</th>';
+    });
+    html += '</tr></thead><tbody>';
+
+    for (const [mod, acts] of Object.entries(perms)) {
+      const modLabel = t(MODULE_NAMES[mod]) || mod;
+      html += `<tr><td>${modLabel}</td>`;
+      MODULE_ACTIONS.forEach(a => {
+        const src = acts[a] || 'none';
+        let cls = '';
+        if (src === 'role') cls = 'style="color:#4CAF50;"';
+        else if (src === 'grant') cls = 'style="color:#2196F3;"';
+        else if (src === 'deny') cls = 'style="color:#F44336;"';
+        else cls = 'style="color:var(--text-muted);"';
+        html += `<td ${cls} title="${t('perm_source_' + src)}" onclick="toggleUserGrant('${username}', '${mod}', '${a}', '${src}')">`;
+        if (src === 'role') html += '●';
+        else if (src === 'grant') html += '▲';
+        else if (src === 'deny') html += '✕';
+        else html += '○';
+        html += '</td>';
+      });
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    html += '<p style="margin-top:8px;font-size:10px;color:var(--text-muted);">' +
+      '● = ' + t('perm_source_role') + '&nbsp;&nbsp;' +
+      '▲ = ' + t('perm_source_grant') + '&nbsp;&nbsp;' +
+      '✕ = ' + t('perm_source_deny') + '&nbsp;&nbsp;' +
+      '○ = ' + t('perm_source_none') +
+      '&nbsp;&nbsp;| ' + t('user_mgmt_desc') + '</p>';
+    grid.innerHTML = html;
+  } catch(e) { grid.innerHTML = ''; }
+}
+
+async function toggleUserGrant(username, module, action, currentSource) {
+  try {
+    if (currentSource === 'grant' || currentSource === 'deny') {
+      // 撤销授权
+      await authFetch(api('/api/permissions/grant'), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, module, action }),
+      });
+      showToast('已撤销「' + module + '.' + action + '」授权');
+    } else if (currentSource === 'none' || currentSource === 'role') {
+      // 授予权限
+      await authFetch(api('/api/permissions/grant'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, module, action, grant_type: 'allow' }),
+      });
+      showToast('已授予「' + module + '.' + action + '」权限');
+    }
+    renderPermissionGrid(username);
+    // 刷新用户列表
+    loadPermissionsPage();
+  } catch(e) { showToast('操作失败'); }
+}
+
+async function initDefaultPermissions() {
+  try {
+    const res = await authFetch(api('/api/permissions/init-defaults'), { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('默认权限已初始化');
+      loadPermissionsPage();
+    } else {
+      showToast('初始化失败');
+    }
+  } catch(e) { showToast('初始化失败'); }
+}
 </script>
 </body>
 </html>
