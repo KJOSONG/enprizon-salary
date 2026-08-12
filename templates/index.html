@@ -589,6 +589,15 @@
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_sick_days">天数/年</label><input type="number" id="cfg_sick_days" class="cfg-input" data-key="sick_leave_days" step="1" onchange="saveConfig()"></div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_sick_desc">新员工病假年额度（默认14），修改后新扣减按新额度</p>
     </div>
+    <!-- P10: 评分班组管理（admin+） -->
+    <div class="card admin-only" style="margin-top:16px;">
+      <h3 style="margin-bottom:12px;font-size:14px;">🎖 <span data-i18n="groups_title">评分班组</span></h3>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input type="text" id="newGroupName" placeholder="班组名" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;">
+        <button class="btn-primary" onclick="addEmployeeGroup()" style="padding:6px 14px;font-size:12px;" data-i18n="btn_add">添加</button>
+      </div>
+      <div id="groupsAdminList"><div style="color:var(--text-muted);font-size:12px;padding:12px;">加载中...</div></div>
+    </div>
     <div class="quick-actions" style="margin-top:16px;">
       <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default">↺ 恢复默认</button>
     </div>
@@ -692,33 +701,20 @@
 <!-- ═══ P3 评分录入 ═══ -->
 <div class="page" id="page-scoring-card">
   <div class="card">
-    <h2>评分录入</h2>
+    <h2 data-i18n="scoring_title">评分录入</h2>
     <div class="filter-bar" style="margin-bottom:12px;">
-      <input type="number" id="scoreWeek" placeholder="周次" min="1" max="5" style="width:80px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <select id="scoreTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-        <option value="1">班组1</option><option value="2">班组2</option>
+      <select id="scoreTeamSel" onchange="loadScoreTeam()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="" data-i18n="scoring_sel_team">选择班组</option>
       </select>
-      <input type="text" id="scoreCardNo" placeholder="卡号(01/02...)" style="width:100px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <select id="scoreSource" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <select id="scoreSourceSel" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
         <option value="工友">工友</option><option value="管理">管理</option>
       </select>
+      <span id="scoreMonthLabel" style="font-size:13px;color:var(--text-muted);"></span>
+      <span id="scoreTeamCount" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
-    <div class="table-wrap" style="max-height:500px;">
-      <table class="data-table" id="scoreEntryTable">
-        <thead><tr><th>编号</th><th>员工ID</th><th>主动(1-5)</th><th>勤快</th><th>纪律</th><th>协作</th><th>安全</th><th>驾驶</th></tr></thead>
-        <tbody id="scoreEntryBody">
-          <tr><td>W1</td><td><input id="scEid1" style="width:70px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
-          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
-          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
-          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
-          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
-          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
-          <td><input type="number" class="scDr" min="0" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;" placeholder="空"></td></tr>
-        </tbody>
-      </table>
+    <div id="scoreCardArea" style="padding:8px;">
+      <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="scoring_pick_team_hint">选择班组开始录入</div>
     </div>
-    <button class="btn-primary" onclick="submitScoreCard()" style="margin-top:12px;padding:8px 20px;font-size:13px;">提交评分卡</button>
-    <div id="scoreCardMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
 </div>
 <!-- ═══ P3 个人汇总 + 三闸 ═══ -->
@@ -746,7 +742,7 @@
     <h2>客观录入</h2>
     <div class="filter-bar" style="margin-bottom:12px;">
       <input type="date" id="objDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <select id="objTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"><option value="1">班组1</option><option value="2">班组2</option></select>
+      <select id="objTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"><option value="" data-i18n="scoring_sel_team">选择班组</option></select>
       <input type="number" id="objWeek" placeholder="周次" min="1" style="width:70px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:600px;">
@@ -1023,6 +1019,17 @@ async function checkAuth() {
     const res = await fetch(api('/api/auth/status'));
     _authState = await res.json();
     updateAuthUI();
+    // P10-fix: 登录后补当前月份（P6 删登录前 monthPicker 后未补，period-bar 需在登录后立即可用）
+    if (_authState.logged_in && !STATE.currentMonth) {
+      try {
+        const sRes = await fetch(api('/salary'));
+        const sData = await sRes.json();
+        if (sData.result && sData.result.month) {
+          STATE.currentMonth = sData.result.month;
+          updatePeriodBar();
+        }
+      } catch(e) {}
+    }
   } catch(e) { console.error('auth check failed', e); }
 }
 
@@ -1359,7 +1366,7 @@ function showTargetPage(module, subPage) {
   if (targetId === 'attendance') loadAttendance();
   if (targetId === 'dailywages') loadDailyWages();
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
-  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); loadUserList(); }
+  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); loadUserList(); loadGroupsAdmin(); }
   if (targetId === 'employees') {
     renderEmployeeTable();
     // P6: 档案已合并为抽屉，带 id 的链接直接打开抽屉
@@ -1377,6 +1384,10 @@ function showTargetPage(module, subPage) {
   if (targetId === 'collection-driller') { renderDrCollectionForm(); loadColHistory('driller', 'colDrHistory'); }
   if (targetId === 'collection-crush') { renderCrCollectionForm(); loadColHistory('crush', 'colCrHistory'); }
   if (targetId === 'collection-attendance') { renderAttCollectionForm(); loadColHistory('attendance', 'colAttHistory'); }
+  // P10: 评分录入加载班组
+  if (targetId === 'scoring-card') loadScoreTeams();
+  if (targetId === 'scoring-summary') loadScoreTeams();
+  if (targetId === 'scoring-objective') loadScoreTeams();
 }
 
 function showPlaceholder(module, subPage) {
@@ -2006,6 +2017,15 @@ async function editEmployeeProfile() {
   // 日期字段仅当值为合法 YYYY-MM-DD 才回填（type=date 要求）
   const dateVal = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v||'')) ? String(v) : '';
 
+  // P10: 班组列表
+  let groups = [];
+  try {
+    const gRes = await fetch(api('/api/employee_groups'));
+    groups = (await gRes.json()).groups || [];
+  } catch(e) {}
+  const groupOpts = groups.map(gr =>
+    `<option value="${gr.id}" ${String(emp.team_id) === String(gr.id) ? 'selected' : ''}>${escHtml(gr.name)}</option>`).join('');
+
   let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;width:440px;max-height:85vh;overflow-y:auto;padding:20px;">';
   form += '<h3 style="margin-bottom:12px;">' + t('emp_edit_title') + ' — ' + g(emp.name) + '</h3>';
   form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" style="${inStyle}">${selOpts(deptOpts, emp.department)}</select></div>`;
@@ -2029,6 +2049,9 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfEdit_salary_type" onchange="toggleSalaryBaseFields()" style="${inStyle}">${selOpts(Object.keys(typeLabels), curType)}</select></div>`;
   form += `<div class="form-row" id="pfEdit_row_dayrate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfEdit_day_rate" value="${g(emp.day_rate)}" min="0" style="${inStyle}"></div>`;
   form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
+  // P10: 班组 + 自定义工号
+  form += `<div class="form-row"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_custom_number">自定义工号</label><input id="pfEdit_custom_number" value="${g(emp.custom_number)}" placeholder="如 W1 / ABEID1" style="${inStyle}"></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
   form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
   form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button>';
@@ -2068,8 +2091,9 @@ async function saveEmployeeProfile(eid) {
   // ── 基础字段 ──
   const data = { department: document.getElementById('pfEdit_department').value };
   ['position','skill_level','hire_date','nida_number','nssf_number',
-   'bank_name','bank_account','bank_owner','gender','date_of_birth']
+   'bank_name','bank_account','bank_owner','gender','date_of_birth','custom_number']
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
+  data.team_id = parseInt(document.getElementById('pfEdit_team_id').value) || 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
 
   const res = await authFetch(api('/api/employees/' + eid), {
@@ -3436,6 +3460,63 @@ async function resetConfig() {
   showToast(t('toast_reset_done'));
 }
 
+/* ── P10 评分班组管理（admin+） ── */
+async function loadGroupsAdmin() {
+  const container = document.getElementById('groupsAdminList');
+  if (!container) return;
+  try {
+    const res = await fetch(api('/api/employee_groups'));
+    const data = await res.json();
+    const groups = data.groups || [];
+    if (!groups.length) {
+      container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;">暂无班组</div>';
+      return;
+    }
+    container.innerHTML = groups.map(g => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+        <span style="flex:1;">${escHtml(g.name)} <span style="color:var(--text-muted);font-size:11px;">id=${g.id}</span></span>
+        <input type="text" id="grpRename${g.id}" placeholder="新名称" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;width:120px;">
+        <button class="nav-btn" onclick="renameEmployeeGroup(${g.id})" style="font-size:11px;padding:3px 8px;" data-i18n="btn_rename">改名</button>
+        <button class="nav-btn" onclick="deleteEmployeeGroup(${g.id})" style="font-size:11px;padding:3px 8px;color:var(--danger);">🗑</button>
+      </div>`).join('');
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--danger);font-size:12px;">加载失败</div>';
+  }
+}
+
+async function addEmployeeGroup() {
+  const input = document.getElementById('newGroupName');
+  const name = input.value.trim();
+  if (!name) { showToast('请输入班组名', 'error'); return; }
+  const res = await authFetch(api('/api/employee_groups'), {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  const data = await res.json();
+  if (data.ok) { showToast('已添加'); input.value = ''; loadGroupsAdmin(); }
+  else showToast(data.error || '添加失败', 'error');
+}
+
+async function renameEmployeeGroup(gid) {
+  const name = document.getElementById('grpRename' + gid).value.trim();
+  if (!name) { showToast('请输入新名称', 'error'); return; }
+  const res = await authFetch(api('/api/employee_groups/' + gid), {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  const data = await res.json();
+  if (data.ok) { showToast('已改名'); loadGroupsAdmin(); }
+  else showToast(data.error || '改名失败', 'error');
+}
+
+async function deleteEmployeeGroup(gid) {
+  if (!confirm('删除班组将解除所有员工关联，确认？')) return;
+  const res = await authFetch(api('/api/employee_groups/' + gid), { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) { showToast('已删除'); loadGroupsAdmin(); }
+  else showToast(data.error || '删除失败', 'error');
+}
+
 // ════════════════════════════════════════════════
 //  审计日志
 // ════════════════════════════════════════════════
@@ -4281,36 +4362,180 @@ async function submitColPayload(formType, date, payload, historyId) {
   }
 }
 /* ── P3 评分录入 ── */
-async function submitScoreCard() {
-  const msg = document.getElementById("scoreCardMsg");
-  const week = parseInt(document.getElementById("scoreWeek").value);
-  const team = parseInt(document.getElementById("scoreTeam").value);
-  const cardNo = document.getElementById("scoreCardNo").value.trim();
-  const source = document.getElementById("scoreSource").value;
-  if (!week || !cardNo) { msg.textContent = "请填写周次和卡号"; msg.style.color = "var(--danger)"; return; }
-  const rows = document.querySelectorAll("#scoreEntryBody tr");
-  const entries = [];
-  rows.forEach((row, i) => {
-    const eid = row.querySelector('input[id^="scEid"]')?.value?.trim();
-    if (!eid) return;
-    const dims = row.querySelectorAll("input.scD");
-    const dr = row.querySelector("input.scDr")?.value;
-    entries.push({
-      wid: "W" + (i+1), employee_id: eid,
-      initiative: parseInt(dims[0]?.value) || 0, diligence: parseInt(dims[1]?.value) || 0,
-      discipline: parseInt(dims[2]?.value) || 0, cooperation: parseInt(dims[3]?.value) || 0,
-      safety: parseInt(dims[4]?.value) || 0,
-      driving: dr ? parseInt(dr) : null,
+/* ── P10 评分录入（班组+月份，一张卡一人翻卡） ── */
+let _scoreEmps = [];       // 班组全员 [{id,name,custom_number}]
+let _scoreData = {};       // eid → {initiative,diligence,discipline,cooperation,safety,driving,note}
+let _scoreIdx = 0;         // 当前卡下标
+
+const SCORE_DIMS = [
+  ['initiative', '主动'], ['diligence', '勤快'], ['discipline', '纪律'],
+  ['cooperation', '协作'], ['safety', '安全'], ['driving', '驾驶'],
+];
+
+async function loadScoreTeams() {
+  const sel = document.getElementById('scoreTeamSel');
+  if (!sel) return;
+  try {
+    const res = await fetch(api('/api/employee_groups'));
+    const groups = (await res.json()).groups || [];
+    sel.innerHTML = '<option value="">' + t('scoring_sel_team') + '</option>' +
+      groups.map(g => `<option value="${g.id}">${escHtml(g.name)}</option>`).join('');
+    // 汇总页班组下拉同步（班组改名后按新名称展示）
+    const sumSel = document.getElementById('sumTeam');
+    if (sumSel) {
+      const cur = sumSel.value;
+      sumSel.innerHTML = groups.map(g => `<option value="${g.id}" ${cur === String(g.id) ? 'selected' : ''}>${escHtml(g.name)}</option>`).join('');
+    }
+    // 客观录入页班组下拉同步
+    const objSel = document.getElementById('objTeam');
+    if (objSel) {
+      objSel.innerHTML = groups.map(g => `<option value="${g.id}">${escHtml(g.name)}</option>`).join('');
+    }
+  } catch(e) {}
+}
+
+async function loadScoreTeam() {
+  const teamId = document.getElementById('scoreTeamSel').value;
+  const area = document.getElementById('scoreCardArea');
+  const month = STATE.currentMonth;
+  const label = document.getElementById('scoreMonthLabel');
+  if (label) label.textContent = month ? t('scoring_month_label') + ' ' + month : '';
+  if (!teamId) {
+    area.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('scoring_pick_team_hint') + '</div>';
+    _scoreEmps = [];
+    return;
+  }
+  try {
+    const res = await fetch(api(`/api/scoring/team/${teamId}/month/${encodeURIComponent(month)}`));
+    const data = await res.json();
+    _scoreEmps = data.employees || [];
+    const source = document.getElementById('scoreSourceSel').value;
+    const submitted = (data.submitted && data.submitted[source]) || {};
+    _scoreData = {};
+    _scoreEmps.forEach(e => {
+      const pre = submitted[e.id] || {};
+      _scoreData[e.id] = {
+        initiative: pre.initiative || '', diligence: pre.diligence || '',
+        discipline: pre.discipline || '', cooperation: pre.cooperation || '',
+        safety: pre.safety || '', driving: pre.driving === undefined ? '' : (pre.driving === null ? '' : pre.driving),
+        note: '',
+      };
     });
+    _scoreIdx = 0;
+    document.getElementById('scoreTeamCount').textContent = _scoreEmps.length ? `${_scoreEmps.length} 人` : '';
+    if (!_scoreEmps.length) {
+      area.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('scoring_no_members') + '</div>';
+      return;
+    }
+    renderScoreCard();
+  } catch(e) {
+    area.innerHTML = '<div style="color:var(--danger);padding:20px;">加载失败</div>';
+  }
+}
+
+function scoreAvg(d) {
+  const vals = [d.initiative, d.diligence, d.discipline, d.cooperation, d.safety]
+    .map(v => parseInt(v) || 0);
+  const dr = parseInt(d.driving) || 0;
+  if (dr > 0) vals.push(dr);
+  const filled = vals.filter(v => v > 0);
+  if (!filled.length) return '';
+  return (filled.reduce((a, b) => a + b, 0) / filled.length).toFixed(1);
+}
+
+function renderScoreCard() {
+  const area = document.getElementById('scoreCardArea');
+  if (!_scoreEmps.length) return;
+  const e = _scoreEmps[_scoreIdx];
+  const d = _scoreData[e.id] || ( _scoreData[e.id] = { initiative:'',diligence:'',discipline:'',cooperation:'',safety:'',driving:'',note:'' });
+  const inputStyle = 'width:52px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;text-align:center;';
+  const dimRow = (k, label, extra) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:13px;">${label}</span>
+      <input type="number" min="1" max="5" value="${d[k]}" onchange="updateScoreDim('${k}', this.value)" style="${inputStyle}">
+      ${extra || ''}
+    </div>`;
+  area.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div>
+        <span style="font-size:16px;font-weight:600;">${e.custom_number || '—'} · ${escHtml(e.name)}</span>
+        <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">#${escHtml(e.id)}</span>
+      </div>
+      <span style="font-size:13px;color:var(--text-muted);">${_scoreIdx + 1} / ${_scoreEmps.length}</span>
+    </div>
+    <div style="max-width:360px;">
+      ${dimRow('initiative', '主动（开工）')}
+      ${dimRow('diligence', '勤快')}
+      ${dimRow('discipline', '纪律')}
+      ${dimRow('cooperation', '协作')}
+      ${dimRow('safety', '安全')}
+      ${dimRow('driving', '驾驶（可选）')}
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;">
+        <span style="font-size:13px;font-weight:600;">总分</span>
+        <span id="scoreTotal" style="font-size:16px;font-weight:700;color:var(--accent);">${scoreAvg(d)}</span>
+      </div>
+      <div style="padding:6px 0;">
+        <input type="text" placeholder="备注" value="${escHtml(d.note || '')}" onchange="updateScoreNote(this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="nav-btn" onclick="scorePrev()" ${_scoreIdx === 0 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">← 上一张</button>
+      <button class="nav-btn" onclick="scoreNext()" ${_scoreIdx >= _scoreEmps.length - 1 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">下一张 →</button>
+      <button class="btn-primary" onclick="submitScoreBatch()" style="margin-left:auto;padding:6px 16px;font-size:12px;">${t('scoring_submit_team')}</button>
+    </div>
+    <div id="scoreBatchMsg" style="margin-top:8px;font-size:12px;"></div>`;
+}
+
+function updateScoreDim(key, val) {
+  const e = _scoreEmps[_scoreIdx];
+  _scoreData[e.id][key] = val;
+  const total = document.getElementById('scoreTotal');
+  if (total) total.textContent = scoreAvg(_scoreData[e.id]);
+}
+
+function updateScoreNote(val) {
+  const e = _scoreEmps[_scoreIdx];
+  _scoreData[e.id].note = val;
+}
+
+function scorePrev() { if (_scoreIdx > 0) { _scoreIdx--; renderScoreCard(); } }
+function scoreNext() { if (_scoreIdx < _scoreEmps.length - 1) { _scoreIdx++; renderScoreCard(); } }
+
+async function submitScoreBatch() {
+  const msg = document.getElementById('scoreBatchMsg');
+  const teamId = document.getElementById('scoreTeamSel').value;
+  const source = document.getElementById('scoreSourceSel').value;
+  const month = STATE.currentMonth;
+  const cards = _scoreEmps.map(e => {
+    const d = _scoreData[e.id] || {};
+    return {
+      employee_id: e.id, wid: e.custom_number || e.id,
+      initiative: parseInt(d.initiative) || 0, diligence: parseInt(d.diligence) || 0,
+      discipline: parseInt(d.discipline) || 0, cooperation: parseInt(d.cooperation) || 0,
+      safety: parseInt(d.safety) || 0,
+      driving: d.driving ? parseInt(d.driving) : null,
+      note: d.note || '',
+    };
   });
-  if (!entries.length) { msg.textContent = "请至少填写一行评分"; msg.style.color = "var(--danger)"; return; }
-  const res = await authFetch(api("/api/scoring/card"), {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({week, team, card_no: cardNo, source, entries}),
-  });
-  const d = await res.json();
-  msg.textContent = d.ok ? "评分卡 " + d.card_id + " 已提交" : (d.error || "失败");
-  msg.style.color = d.ok ? "var(--success)" : "var(--danger)";
+  if (!teamId) { msg.textContent = t('scoring_sel_team_first'); msg.style.color = 'var(--danger)'; return; }
+  try {
+    const res = await authFetch(api('/api/scoring/card/batch'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_id: parseInt(teamId), month, source, cards }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = t('scoring_submit_ok').replace('{n}', data.count);
+      msg.style.color = 'var(--success)';
+      if (typeof loadScoringSummary === 'function' && STATE.scoringRefresh) loadScoringSummary();
+    } else {
+      msg.textContent = data.error || t('toast_operation_fail');
+      msg.style.color = 'var(--danger)';
+    }
+  } catch(e) {
+    msg.textContent = '网络错误: ' + e.message;
+    msg.style.color = 'var(--danger)';
+  }
 }
 
 async function loadScoringSummary() {

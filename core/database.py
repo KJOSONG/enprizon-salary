@@ -103,6 +103,9 @@ def init_db(data_folder):
         ('gender', 'TEXT DEFAULT \'\''),
         ('date_of_birth', 'TEXT DEFAULT \'\''),
         ('avatar_path', 'TEXT DEFAULT \'\''),
+        # P10: 评分班组
+        ('custom_number', 'TEXT DEFAULT \'\''),
+        ('team_id', 'INTEGER DEFAULT 0'),
     ]
     for col, defn in _emp_new_cols:
         try:
@@ -219,8 +222,9 @@ def init_db(data_folder):
             team INTEGER NOT NULL,
             card_no TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT '工友',
+            month TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now','localtime')),
-            UNIQUE(week, team, card_no, source)
+            UNIQUE(week, team, card_no, source, month)
         );
         CREATE TABLE IF NOT EXISTS scoring_entries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -301,6 +305,36 @@ def init_db(data_folder):
         try:
             conn.execute(f"ALTER TABLE leave_balances ADD COLUMN {col}")
         except: pass
+    # P10: 旧库 scoring_cards 补 month 列
+    try:
+        conn.execute("ALTER TABLE scoring_cards ADD COLUMN month TEXT DEFAULT ''")
+    except: pass
+    # P10-fix: UNIQUE 约束缺 month → 跨月评分冲突；重建表（保留数据）
+    try:
+        _sc_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='scoring_cards'").fetchone()
+        _sc_ddl = _sc_sql['sql'] if _sc_sql else ''
+        _uniq_idx = _sc_ddl.find('UNIQUE')
+        _uniq_txt = _sc_ddl[_uniq_idx:] if _uniq_idx >= 0 else ''
+        if 'month' not in _uniq_txt:
+            conn.executescript("""
+                CREATE TABLE scoring_cards_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    week INTEGER NOT NULL,
+                    team INTEGER NOT NULL,
+                    card_no TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT '工友',
+                    month TEXT DEFAULT '',
+                    created_at TEXT DEFAULT (datetime('now','localtime')),
+                    UNIQUE(week, team, card_no, source, month)
+                );
+                INSERT INTO scoring_cards_new (id, week, team, card_no, source, month, created_at)
+                    SELECT id, week, team, card_no, source, COALESCE(month,''), created_at FROM scoring_cards;
+                DROP TABLE scoring_cards;
+                ALTER TABLE scoring_cards_new RENAME TO scoring_cards;
+            """)
+    except Exception as _e:
+        pass
     # P9: 数据采集提交 + 编辑历史
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS collection_submissions (
@@ -325,7 +359,16 @@ def init_db(data_folder):
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (submission_id) REFERENCES collection_submissions(id)
         );
+        CREATE TABLE IF NOT EXISTS employee_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
+    # P10: 种子班组
+    conn.execute("INSERT OR IGNORE INTO employee_groups (id, name, description) VALUES (1, 'LAMBA LAMBA', '评分班组 1')")
+    conn.execute("INSERT OR IGNORE INTO employee_groups (id, name, description) VALUES (2, 'SAKA SAKA', '评分班组 2')")
     conn.commit()
     _migrate_json(conn, data_folder)
     conn.close()
@@ -1202,7 +1245,8 @@ def update_employee_fields(data_folder, employee_id, fields):
     allowed = {'position', 'skill_level', 'hire_date', 'nida_number',
                'nssf_number', 'bank_name', 'bank_account', 'bank_owner',
                'phone', 'note', 'status', 'dismissed_at', 'custom_fields',
-               'gender', 'date_of_birth', 'avatar_path', 'department'}
+               'gender', 'date_of_birth', 'avatar_path', 'department',
+               'team_id', 'custom_number'}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return False
@@ -1983,3 +2027,59 @@ def get_collection_history(data_folder, submission_id):
     """, (submission_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── P10: 评分班组 employee_groups ─────────────────────────
+
+def list_employee_groups(data_folder):
+    conn = get_conn(data_folder)
+    rows = conn.execute("SELECT * FROM employee_groups ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_employee_group(data_folder, group_id):
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT * FROM employee_groups WHERE id=?", (group_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_employee_group(data_folder, name, description=''):
+    conn = get_conn(data_folder)
+    try:
+        cur = conn.execute("INSERT INTO employee_groups (name, description) VALUES (?,?)",
+                           (name.strip(), description))
+        conn.commit()
+        gid = cur.lastrowid
+    except Exception:
+        conn.close()
+        return None
+    conn.close()
+    return gid
+
+def update_employee_group(data_folder, group_id, name, description=None):
+    conn = get_conn(data_folder)
+    exists = conn.execute("SELECT 1 FROM employee_groups WHERE id=?", (group_id,)).fetchone()
+    if not exists:
+        conn.close()
+        return False
+    try:
+        if description is not None:
+            conn.execute("UPDATE employee_groups SET name=?, description=? WHERE id=?",
+                         (name.strip(), description, group_id))
+        else:
+            conn.execute("UPDATE employee_groups SET name=? WHERE id=?", (name.strip(), group_id))
+        conn.commit()
+    except Exception:
+        conn.close()
+        return False
+    conn.close()
+    return True
+
+def delete_employee_group(data_folder, group_id):
+    conn = get_conn(data_folder)
+    # 解除员工关联 + 删除班组
+    conn.execute("UPDATE employees SET team_id=0 WHERE team_id=?", (group_id,))
+    conn.execute("DELETE FROM employee_groups WHERE id=?", (group_id,))
+    conn.commit()
+    conn.close()
+    return True

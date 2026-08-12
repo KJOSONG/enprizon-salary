@@ -1768,13 +1768,16 @@ def _collection_payload_names(payload, form_type):
     """把 payload 中的 eid 集合转成姓名（与 Excel 解析 main_data 同构）"""
     from core.database import get_conn
     name_map = {}
+    conn = None
     try:
         conn = get_conn(app.config['DATA_FOLDER'])
         for r in conn.execute("SELECT id, name FROM employees").fetchall():
             name_map[r['id']] = r['name']
-        conn.close()
     except Exception:
         pass
+    finally:
+        if conn:
+            conn.close()
     def _names(eids):
         return [name_map.get(e, e) for e in (eids or [])]
     return name_map, _names
@@ -1906,13 +1909,16 @@ def collection_driller_teams():
     from core.database import get_conn, get_collection_submissions
     md = APP_STATE.get('main_data', {})
     name_to_id = {}
+    conn = None
     try:
         conn = get_conn(app.config['DATA_FOLDER'])
         for r in conn.execute("SELECT id, name FROM employees").fetchall():
             name_to_id[r['name']] = r['id']
-        conn.close()
     except Exception:
         pass
+    finally:
+        if conn:
+            conn.close()
     teams = {}
     for d in md.get('driller_production', []):
         cap = d.get('captain', '')
@@ -1983,6 +1989,62 @@ def production_shift_entry():
 
 
 # ═══════════════════════════════════════════════════════════
+#  P10 API: 评分班组
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/employee_groups', methods=['GET'])
+@login_required
+def api_employee_groups_list():
+    """P10: 班组列表"""
+    from core.database import list_employee_groups
+    groups = list_employee_groups(app.config['DATA_FOLDER'])
+    return jsonify({'groups': groups})
+
+@app.route('/api/employee_groups', methods=['POST'])
+@admin_required
+def api_employee_groups_create():
+    """P10: 创建班组（admin+）"""
+    from core.database import create_employee_group, log_audit
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': '班组名不能为空'}), 400
+    gid = create_employee_group(app.config['DATA_FOLDER'], name, data.get('description', ''))
+    if not gid:
+        return jsonify({'ok': False, 'error': '班组名已存在'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'employee_group_create', '',
+              json.dumps({'name': name}))
+    return jsonify({'ok': True, 'group_id': gid})
+
+@app.route('/api/employee_groups/<int:group_id>', methods=['PUT'])
+@admin_required
+def api_employee_groups_update(group_id):
+    """P10: 改名班组（admin+）"""
+    from core.database import update_employee_group, log_audit
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': '班组名不能为空'}), 400
+    ok = update_employee_group(app.config['DATA_FOLDER'], group_id, name,
+                               data.get('description'))
+    if not ok:
+        return jsonify({'ok': False, 'error': '班组不存在或名称冲突'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'employee_group_update', '',
+              json.dumps({'group_id': group_id, 'name': name}))
+    return jsonify({'ok': True})
+
+@app.route('/api/employee_groups/<int:group_id>', methods=['DELETE'])
+@admin_required
+def api_employee_groups_delete(group_id):
+    """P10: 删除班组（admin+，解除员工关联）"""
+    from core.database import delete_employee_group, log_audit
+    delete_employee_group(app.config['DATA_FOLDER'], group_id)
+    log_audit(app.config['DATA_FOLDER'], 'employee_group_delete', '',
+              json.dumps({'group_id': group_id}))
+    return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════
 #  P3 API: 评分系统
 # ═══════════════════════════════════════════════════════════
 
@@ -2002,6 +2064,93 @@ def scoring_submit_card():
     log_audit(app.config['DATA_FOLDER'], 'scoring_card', session.get('username',''),
               json.dumps({'card_id': card_id, 'week': week, 'team': team, 'source': source}))
     return jsonify({'ok': True, 'card_id': card_id})
+
+# ── P10: 评分录入（班组+月份，一张卡一人） ──
+
+@app.route('/api/scoring/team/<int:team_id>/month/<month>', methods=['GET'])
+@editor_required
+def scoring_team_month(team_id, month):
+    """P10: 班组全员（custom_number 升序，无工号排后）+ 该月已提交评分（按 source 分组，预填回显）"""
+    from core.database import get_conn, get_employee_group
+    group = get_employee_group(app.config['DATA_FOLDER'], team_id)
+    if not group:
+        return jsonify({'ok': False, 'error': '班组不存在'}), 404
+    conn = get_conn(app.config['DATA_FOLDER'])
+    emps = conn.execute("""
+        SELECT id, name, custom_number, team_id FROM employees
+        WHERE team_id=? AND status='active'
+        ORDER BY CASE WHEN custom_number='' OR custom_number IS NULL THEN 1 ELSE 0 END, custom_number
+    """, (team_id,)).fetchall()
+    rows = conn.execute("""
+        SELECT se.*, sc.source FROM scoring_entries se
+        JOIN scoring_cards sc ON se.card_id = sc.id
+        WHERE sc.team=? AND sc.month=?
+    """, (team_id, month)).fetchall()
+    conn.close()
+    by_source = {}
+    for r in rows:
+        by_source.setdefault(r['source'], {})[r['target_employee_id']] = {
+            'initiative': r['initiative'], 'diligence': r['diligence'],
+            'discipline': r['discipline'], 'cooperation': r['cooperation'],
+            'safety': r['safety'], 'driving': r['driving'],
+        }
+    employees = [{'id': e['id'], 'name': e['name'], 'custom_number': e['custom_number'] or ''}
+                 for e in emps]
+    return jsonify({'group': group, 'employees': employees, 'submitted': by_source})
+
+@app.route('/api/scoring/card/batch', methods=['POST'])
+@editor_required
+def scoring_card_batch():
+    """P10: 批量提交评分卡（team+month+source 先删旧再插新 → 覆盖更新）
+    body: {team_id, month, source, cards:[{employee_id, wid, 6 维, driving, note}]}"""
+    from core.database import get_conn, log_audit
+    data = request.get_json() or {}
+    team = data.get('team_id')
+    month = data.get('month', '')
+    source = data.get('source', '工友')
+    cards = data.get('cards') or []
+    if not team or not month:
+        return jsonify({'ok': False, 'error': '缺少班组或月份'}), 400
+    if not cards:
+        return jsonify({'ok': False, 'error': '缺少评分数据'}), 400
+    username = session.get('username', 'unknown')
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        # 删除该班组+月份+来源的旧卡（先删 entries 再删卡）
+        old = conn.execute(
+            "SELECT id FROM scoring_cards WHERE team=? AND month=? AND source=?",
+            (team, month, source)).fetchall()
+        for oc in old:
+            conn.execute("DELETE FROM scoring_entries WHERE card_id=?", (oc['id'],))
+        conn.execute("DELETE FROM scoring_cards WHERE team=? AND month=? AND source=?",
+                     (team, month, source))
+        # 一人一卡：card_no = custom_number 或 employee_id 兜底
+        for card in cards:
+            eid = card.get('employee_id', '')
+            if not eid:
+                continue
+            wid = card.get('wid', '') or card.get('custom_number', '') or eid
+            cur = conn.execute("""
+                INSERT OR REPLACE INTO scoring_cards (week, team, card_no, source, month)
+                VALUES (0,?,?,?,?)
+            """, (team, wid, source, month))
+            card_id = cur.lastrowid
+            conn.execute("""
+                INSERT OR REPLACE INTO scoring_entries (card_id, target_wid, target_employee_id,
+                    initiative, diligence, discipline, cooperation, safety, driving)
+                VALUES (?,?,?,?,?,?,?,?,?)
+            """, (card_id, wid, eid,
+                  int(card.get('initiative') or 0), int(card.get('diligence') or 0),
+                  int(card.get('discipline') or 0), int(card.get('cooperation') or 0),
+                  int(card.get('safety') or 0),
+                  card.get('driving') if card.get('driving') is not None else None))
+        conn.commit()
+    finally:
+        conn.close()
+    log_audit(app.config['DATA_FOLDER'], 'scoring_card_batch', '',
+              json.dumps({'team': team, 'month': month, 'source': source,
+                          'count': len(cards), 'operator': username}))
+    return jsonify({'ok': True, 'count': len(cards)})
 
 @app.route('/api/scoring/week/<int:team>/<int:week>', methods=['GET'])
 @login_required
