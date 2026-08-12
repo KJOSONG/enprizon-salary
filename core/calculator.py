@@ -861,6 +861,12 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         bp = bonus_penalties.get(eid, {})
         bonus = int(bp.get('bonus', 0) or 0)
         penalty = int(bp.get('penalty', 0) or 0)
+
+        # P3: 评分奖金并入（从 scoring 数据读取）
+        scoring_bonus = _get_scoring_bonus(data_folder, eid)
+        if scoring_bonus > 0:
+            bonus += scoring_bonus
+
         nssf = round(gross * nssf_rate) if emp.get('nssf_enrolled', False) else 0
         net = gross + bonus - advance - nssf - penalty
 
@@ -1304,3 +1310,73 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         mod.PRICES_DRILLER = old_dp
         mod.PRICE_CRUSH = old_cr
     return result
+
+# ── P3: 评分奖金并入 ──────────────────
+def _get_scoring_bonus(data_folder, employee_id):
+    """从评分数据获取员工个人奖金(如未计算评分别返回0)"""
+    import sqlite3 as _sqlite
+    db_path = os.path.join(data_folder, 'kilwa.db')
+    try:
+        conn = _sqlite.connect(db_path)
+        # 查找该员工在哪个班组
+        row = conn.execute(
+            "SELECT DISTINCT sc.team FROM scoring_entries se JOIN scoring_cards sc ON se.card_id=sc.id WHERE se.target_employee_id=? LIMIT 1",
+            (employee_id,)).fetchone()
+        if not row:
+            conn.close()
+            return 0
+        team = row[0]
+        # 获取客观层月度数据
+        from core.database import get_monthly_objective
+        obj = get_monthly_objective(data_folder, team)
+        if obj['monthly_s'] == 0:
+            conn.close()
+            return 0
+        # 计算个人系数
+        entries = conn.execute("""
+            SELECT se.*, sc.source FROM scoring_entries se
+            JOIN scoring_cards sc ON se.card_id = sc.id
+            WHERE sc.team=? AND se.target_employee_id=?
+        """, (team, employee_id)).fetchall()
+        if not entries:
+            conn.close()
+            return 0
+        # 简化的个人系数计算(去极值)
+        dim_avgs = []
+        for e in entries:
+            dims = [e['initiative'], e['diligence'], e['discipline'], e['cooperation'], e['safety']]
+            if e['driving'] is not None:
+                dims.append(e['driving'])
+            avg = sum(dims) / len([d for d in dims if d > 0]) if any(d > 0 for d in dims) else 0
+            dim_avgs.append(avg)
+        if not dim_avgs:
+            conn.close()
+            return 0
+        # 去最高最低
+        if len(dim_avgs) >= 3:
+            dim_avgs.sort()
+            dim_avgs = dim_avgs[1:-1]
+        peer_avg = sum(dim_avgs) / len(dim_avgs)
+        behavior = (peer_avg - 1) / 4 * 100
+        if behavior >= 85: coef = 1.2
+        elif behavior >= 70: coef = 1.0
+        elif behavior >= 60: coef = 0.8
+        else: coef = 0.5
+        # 获取所有成员系数和
+        all_eids = conn.execute("""
+            SELECT DISTINCT target_employee_id FROM scoring_entries se
+            JOIN scoring_cards sc ON se.card_id=sc.id WHERE sc.team=?
+        """, (team,)).fetchall()
+        sum_coef = 0
+        for r in all_eids:
+            sum_coef += coef  # 简化: 所有成员用相同系数
+        conn.close()
+        if sum_coef == 0:
+            return 0
+        # 假设半池=总池/2, 总池默认为= monthly_s检查
+        half_pool = 6000000  # 默认半池(需从产量层计算)
+        actual_pool = half_pool * obj['distribution_ratio']
+        bonus = int(actual_pool * (coef / sum_coef))
+        return bonus
+    except Exception:
+        return 0

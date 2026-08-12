@@ -1259,6 +1259,144 @@ def production_shift_entry():
               json.dumps(data))
     return jsonify({'ok': True})
 
+
+# ═══════════════════════════════════════════════════════════
+#  P3 API: 评分系统
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/scoring/card', methods=['POST'])
+@editor_required
+def scoring_submit_card():
+    from core.database import submit_scoring_card, log_audit
+    data = request.get_json()
+    if not data:
+        return jsonify({'ok': False, 'error': '缺少数据'}), 400
+    week = data['week']
+    team = data['team']
+    card_no = data['card_no']
+    source = data.get('source', '工友')
+    entries = data['entries']
+    card_id = submit_scoring_card(app.config['DATA_FOLDER'], week, team, card_no, source, entries)
+    log_audit(app.config['DATA_FOLDER'], 'scoring_card', session.get('username',''),
+              json.dumps({'card_id': card_id, 'week': week, 'team': team, 'source': source}))
+    return jsonify({'ok': True, 'card_id': card_id})
+
+@app.route('/api/scoring/week/<int:team>/<int:week>', methods=['GET'])
+def scoring_week_cards(team, week):
+    from core.database import get_week_cards
+    cards = get_week_cards(app.config['DATA_FOLDER'], team, week)
+    return jsonify({'cards': cards})
+
+@app.route('/api/scoring/summary/<int:team>', methods=['GET'])
+def scoring_summary(team):
+    from core.database import get_all_scoring_entries, get_scoring_config
+    entries = get_all_scoring_entries(app.config['DATA_FOLDER'], team)
+    config = get_scoring_config(app.config['DATA_FOLDER'])
+    import collections, statistics, math
+    by_target = collections.defaultdict(lambda: {'peer_scores': [], 'mgmt_scores': []})
+    peer_entries = [e for e in entries if e['source'] == '工友']
+    mgmt_entries = [e for e in entries if e['source'] == '管理']
+    target_employees = {}
+    for e in entries:
+        eid = e['target_employee_id']
+        dims = [e['initiative'], e['diligence'], e['discipline'], e['cooperation'], e['safety']]
+        if e['driving'] is not None:
+            dims.append(e['driving'])
+        avg = sum(dims) / len([d for d in dims if d > 0]) if any(d > 0 for d in dims) else 0
+        if e['source'] == '工友':
+            by_target[eid]['peer_scores'].append(avg)
+        else:
+            by_target[eid]['mgmt_scores'].append(avg)
+        if eid not in target_employees:
+            target_employees[eid] = e['target_wid']
+    result = []
+    mgmt_vote_weight = config.get('mgmt_vote_weight', 1.5)
+    for eid, scores in by_target.items():
+        peer_avg = sum(scores['peer_scores']) / len(scores['peer_scores']) if scores['peer_scores'] else 0
+        peer_behavior = (peer_avg - 1) / 4 * 100 if peer_avg > 0 else 0
+        mgmt_avg = sum(scores['mgmt_scores']) / len(scores['mgmt_scores']) if scores['mgmt_scores'] else 0
+        mgmt_behavior = (mgmt_avg - 1) / 4 * 100 if mgmt_avg > 0 else 0
+        peer_votes = len(scores['peer_scores'])
+        if scores['mgmt_scores']:
+            final_behavior = (peer_behavior * peer_votes + mgmt_behavior * mgmt_vote_weight) / (peer_votes + mgmt_vote_weight)
+        else:
+            final_behavior = peer_behavior
+        if final_behavior >= 85: coef = 1.2
+        elif final_behavior >= 70: coef = 1.0
+        elif final_behavior >= 60: coef = 0.8
+        else: coef = 0.5
+        deviation = abs(peer_behavior - mgmt_behavior) if mgmt_behavior > 0 else 0
+        result.append({'employee_id': eid, 'wid': target_employees.get(eid,''),
+                       'peer_avg': round(peer_avg, 2), 'peer_behavior': round(peer_behavior, 2),
+                       'mgmt_behavior': round(mgmt_behavior, 2), 'final_behavior': round(final_behavior, 2),
+                       'coefficient': coef, 'deviation': round(deviation, 2),
+                       'peer_votes': peer_votes})
+    behaviors = [r['final_behavior'] for r in result]
+    variance_range = max(behaviors) - min(behaviors) if len(behaviors) > 1 else 0
+    max_tier_count = sum(1 for r in result if r['coefficient'] >= 1.1)
+    max_tier_ratio = max_tier_count / max(len(result), 1)
+    deviation_threshold = config.get('mgmt_deviation_threshold', 15)
+    dev_count = sum(1 for r in result if r['deviation'] > deviation_threshold)
+    gates = {
+        'zero_variance_triggered': variance_range <= config.get('zero_variance_threshold', 8) and len(behaviors) > 1,
+        'max_tier_triggered': max_tier_ratio > config.get('max_tier_ratio', 0.3),
+        'mgmt_deviation_triggered': dev_count > 0,
+        'variance_range': round(variance_range, 2),
+        'max_tier_count': max_tier_count, 'max_tier_ratio': round(max_tier_ratio, 4),
+        'deviation_count': dev_count,
+    }
+    return jsonify({'individuals': result, 'gates': gates})
+
+@app.route('/api/objective/entry', methods=['POST'])
+@editor_required
+def objective_entry():
+    from core.database import save_objective_entry, log_audit
+    data = request.get_json()
+    daily_s = save_objective_entry(app.config['DATA_FOLDER'], data['record_date'],
+        data['team'], data['planned_output'], data['actual_output'],
+        data['total_hours'], data['effective_hours'], data['week'])
+    log_audit(app.config['DATA_FOLDER'], 'objective_entry', session.get('username',''),
+              json.dumps(data))
+    return jsonify({'ok': True, 'daily_s': daily_s})
+
+@app.route('/api/objective/daily/<int:team>', methods=['GET'])
+def objective_daily(team):
+    from core.database import get_objective_records
+    records = get_objective_records(app.config['DATA_FOLDER'], team)
+    return jsonify({'records': records})
+
+@app.route('/api/objective/monthly/<int:team>', methods=['GET'])
+def objective_monthly(team):
+    from core.database import get_monthly_objective
+    summary = get_monthly_objective(app.config['DATA_FOLDER'], team)
+    return jsonify(summary)
+
+@app.route('/api/scoring/config', methods=['GET'])
+def scoring_config_get():
+    from core.database import get_scoring_config
+    config = get_scoring_config(app.config['DATA_FOLDER'])
+    return jsonify(config)
+
+@app.route('/api/scoring/config', methods=['POST'])
+@editor_required
+def scoring_config_save():
+    from core.database import save_scoring_config, log_audit
+    data = request.get_json()
+    save_scoring_config(app.config['DATA_FOLDER'], data)
+    log_audit(app.config['DATA_FOLDER'], 'scoring_config', session.get('username',''), json.dumps(data))
+    return jsonify({'ok': True})
+
+@app.route('/api/scoring/bonus/<int:team>', methods=['GET'])
+def scoring_bonus(team):
+    from core.database import get_monthly_objective, is_driver
+    obj = get_monthly_objective(app.config['DATA_FOLDER'], team)
+    team_pool = request.args.get('half_pool', 0, type=int)
+    actual_pool = team_pool * obj['distribution_ratio']
+    # 加载该班组的个人汇总
+    from flask import jsonify as _j
+    import requests as _r
+    # 复用 scoring_summary 结果
+    return jsonify({'team_pool': int(actual_pool), 'ratio': obj['distribution_ratio'], 'monthly_s': obj['monthly_s']})
 # ═══════════════════════════════════════════════════════════
 #  API: NSSF（社保）
 # ═══════════════════════════════════════════════════════════

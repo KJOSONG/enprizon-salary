@@ -170,6 +170,40 @@ def init_db(data_folder):
             effective_from TEXT DEFAULT '',
             note TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS scoring_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week INTEGER NOT NULL,
+            team INTEGER NOT NULL,
+            card_no TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT '工友',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(week, team, card_no, source)
+        );
+        CREATE TABLE IF NOT EXISTS scoring_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id INTEGER NOT NULL REFERENCES scoring_cards(id),
+            target_wid TEXT NOT NULL,
+            target_employee_id TEXT NOT NULL,
+            initiative INTEGER DEFAULT 0,
+            diligence INTEGER DEFAULT 0,
+            discipline INTEGER DEFAULT 0,
+            cooperation INTEGER DEFAULT 0,
+            safety INTEGER DEFAULT 0,
+            driving INTEGER DEFAULT NULL,
+            UNIQUE(card_id, target_wid)
+        );
+        CREATE TABLE IF NOT EXISTS objective_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date TEXT NOT NULL,
+            team INTEGER NOT NULL,
+            planned_output REAL DEFAULT 0,
+            actual_output REAL DEFAULT 0,
+            total_hours REAL DEFAULT 0,
+            effective_hours REAL DEFAULT 0,
+            week INTEGER NOT NULL,
+            daily_s REAL DEFAULT 0,
+            UNIQUE(record_date, team)
+        );
     """)
     conn.commit()
 
@@ -939,5 +973,106 @@ def add_driver(data_folder, employee_id, allowance=5000, note=''):
         INSERT OR REPLACE INTO driver_roster (employee_id, allowance_per_day, note)
         VALUES (?,?,?)
     """, (employee_id, allowance, note))
+    conn.commit()
+    conn.close()
+
+
+# ── P3: 评分计算引擎 ──────────────────
+
+def submit_scoring_card(data_folder, week, team, card_no, source, entries):
+    conn = get_conn(data_folder)
+    cur = conn.execute(
+        "INSERT INTO scoring_cards (week, team, card_no, source) VALUES (?,?,?,?)",
+        (week, team, card_no, source))
+    card_id = cur.lastrowid
+    for e in entries:
+        conn.execute("""
+            INSERT INTO scoring_entries (card_id, target_wid, target_employee_id,
+                initiative, diligence, discipline, cooperation, safety, driving)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (card_id, e['wid'], e['employee_id'],
+              e.get('initiative', 0), e.get('diligence', 0),
+              e.get('discipline', 0), e.get('cooperation', 0),
+              e.get('safety', 0), e.get('driving')))
+    conn.commit()
+    conn.close()
+    return card_id
+
+def get_week_cards(data_folder, team, week):
+    conn = get_conn(data_folder)
+    cards = conn.execute(
+        "SELECT * FROM scoring_cards WHERE team=? AND week=? ORDER BY source, card_no",
+        (team, week)).fetchall()
+    result = []
+    for c in cards:
+        entries = conn.execute(
+            "SELECT * FROM scoring_entries WHERE card_id=?", (c['id'],)).fetchall()
+        result.append({**dict(c), 'entries': [dict(e) for e in entries]})
+    conn.close()
+    return result
+
+def get_all_scoring_entries(data_folder, team):
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT se.*, sc.week, sc.source FROM scoring_entries se
+        JOIN scoring_cards sc ON se.card_id = sc.id
+        WHERE sc.team=? ORDER BY sc.week, sc.source, se.target_wid
+    """, (team,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def save_objective_entry(data_folder, record_date, team, planned, actual, total_h, effective_h, week):
+    conn = get_conn(data_folder)
+    r1 = (actual / planned * 100) if planned > 0 else 0
+    r2 = min((effective_h / total_h * 100) if total_h > 0 else 0, 100)
+    daily_s = (r1 * 0.7 + r2 * 0.3) if planned > 0 else (r2 * 0.3)
+    conn.execute("""
+        INSERT OR REPLACE INTO objective_records (record_date, team, planned_output,
+            actual_output, total_hours, effective_hours, week, daily_s)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (record_date, team, planned, actual, total_h, effective_h, week, round(daily_s, 2)))
+    conn.commit()
+    conn.close()
+    return daily_s
+
+def get_objective_records(data_folder, team):
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT * FROM objective_records WHERE team=? ORDER BY record_date", (team,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_monthly_objective(data_folder, team):
+    rows = get_objective_records(data_folder, team)
+    if not rows:
+        return {'monthly_s': 0, 'distribution_ratio': 0.7, 'planned_sum': 0, 'actual_sum': 0}
+    monthly_s = sum(r['daily_s'] for r in rows) / max(len(rows), 1)
+    if monthly_s >= 95: ratio = 1.0
+    elif monthly_s >= 85: ratio = 0.95
+    elif monthly_s >= 75: ratio = 0.9
+    elif monthly_s >= 65: ratio = 0.85
+    elif monthly_s >= 55: ratio = 0.8
+    else: ratio = 0.7
+    return {'monthly_s': round(monthly_s, 2), 'distribution_ratio': ratio,
+            'planned_sum': sum(r['planned_output'] for r in rows),
+            'actual_sum': sum(r['actual_output'] for r in rows)}
+
+def get_scoring_config(data_folder):
+    conn = get_conn(data_folder)
+    defaults = {'mgmt_vote_weight': 1.5, 'mgmt_deviation_threshold': 15,
+                'zero_variance_threshold': 8, 'max_tier_ratio': 0.3}
+    config = {}
+    for k in defaults:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (k,)).fetchone()
+        config[k] = float(row['value']) if row and row['value'] else defaults[k]
+    conn.close()
+    return config
+
+def save_scoring_config(data_folder, data):
+    conn = get_conn(data_folder)
+    allowed = ['mgmt_vote_weight', 'mgmt_deviation_threshold', 'zero_variance_threshold', 'max_tier_ratio']
+    for k, v in data.items():
+        if k in allowed:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
     conn.commit()
     conn.close()

@@ -581,11 +581,74 @@
     <div class="table-wrap"><table class="data-table" id="prodCrTable"><thead><tr><th>姓名</th><th>日期</th><th>来源</th></tr></thead><tbody><tr><td colspan="3" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
   </div>
 </div>
-<div class="page" id="page-system-users">
-  <div class="card" style="text-align:center;padding:60px 20px;">
-    <div style="font-size:48px;margin-bottom:16px;">👥</div>
-    <h2 data-i18n="nav_system_users">用户与权限</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+<!-- ═══ P3 评分录入 ═══ -->
+<div class="page" id="page-scoring-card">
+  <div class="card">
+    <h2>评分录入</h2>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="number" id="scoreWeek" placeholder="周次" min="1" max="5" style="width:80px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <select id="scoreTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="1">班组1</option><option value="2">班组2</option>
+      </select>
+      <input type="text" id="scoreCardNo" placeholder="卡号(01/02...)" style="width:100px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <select id="scoreSource" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="工友">工友</option><option value="管理">管理</option>
+      </select>
+    </div>
+    <div class="table-wrap" style="max-height:500px;">
+      <table class="data-table" id="scoreEntryTable">
+        <thead><tr><th>编号</th><th>员工ID</th><th>主动(1-5)</th><th>勤快</th><th>纪律</th><th>协作</th><th>安全</th><th>驾驶</th></tr></thead>
+        <tbody id="scoreEntryBody">
+          <tr><td>W1</td><td><input id="scEid1" style="width:70px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
+          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
+          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
+          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
+          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
+          <td><input type="number" class="scD" min="1" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;"></td>
+          <td><input type="number" class="scDr" min="0" max="5" style="width:45px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);font-size:12px;" placeholder="空"></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <button class="btn-primary" onclick="submitScoreCard()" style="margin-top:12px;padding:8px 20px;font-size:13px;">提交评分卡</button>
+    <div id="scoreCardMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+<!-- ═══ P3 个人汇总 + 三闸 ═══ -->
+<div class="page" id="page-scoring-summary">
+  <div class="card">
+    <h2>个人汇总</h2>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <select id="sumTeam" onchange="loadScoringSummary()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="1">班组1</option><option value="2">班组2</option>
+      </select>
+    </div>
+    <div class="table-wrap"><table class="data-table" id="sumTable"><thead><tr><th>编号</th><th>员工</th><th>互评均值</th><th>工友行为分</th><th>管理行为分</th><th>最终行为分</th><th>系数</th><th>偏离</th></tr></thead><tbody><tr><td colspan="8" style="text-align:center;color:var(--text-muted);">选择班组查看</td></tr></tbody></table></div>
+    <!-- 三闸面板 -->
+    <div class="gate-panel" id="gatePanel" style="margin-top:16px;display:none;">
+      <h3 style="font-size:13px;margin-bottom:8px;">三闸检测</h3>
+      <div id="gate1" class="gate-item">① 零方差</div>
+      <div id="gate2" class="gate-item">② 最高档人数</div>
+      <div id="gate3" class="gate-item">③ 管理偏离</div>
+    </div>
+  </div>
+</div>
+<!-- ═══ P3 客观录入 ═══ -->
+<div class="page" id="page-scoring-objective">
+  <div class="card">
+    <h2>客观录入</h2>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="date" id="objDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <select id="objTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"><option value="1">班组1</option><option value="2">班组2</option></select>
+      <input type="number" id="objWeek" placeholder="周次" min="1" style="width:70px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:600px;">
+      <label style="font-size:12px;">计划出渣量</label><input type="number" id="objPlanned" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;">实际出渣量</label><input type="number" id="objActual" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;">在井总时长(h)</label><input type="number" id="objTotalH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;">有效作业(h)</label><input type="number" id="objEffH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+    </div>
+    <button class="btn-primary" onclick="submitObjective()" style="margin-top:12px;padding:8px 20px;font-size:13px;">提交</button>
+    <div id="objMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
 </div>
 <div class="page" id="page-system-forms">
@@ -979,6 +1042,7 @@ const MODULES = {
   attendance: { label: 'nav_attendance',  icon: '📅', children: null },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'] },
   production: { label: 'nav_production',  icon: '⚒', children: ['underground','driller','crush'] },
+  scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective'] },
   system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'] },
 };
 
@@ -993,6 +1057,9 @@ const SUBPAGE_TARGETS = {
   'production/underground': 'production-underground',
   'production/driller':     'production-driller',
   'production/crush':       'production-crush',
+  'scoring/card':            'scoring-card',
+  'scoring/summary':         'scoring-summary',
+  'scoring/objective':       'scoring-objective',
   'system/params':     'settings',
   'system/users':      'settings',
 };
@@ -3187,6 +3254,78 @@ async function submitCrushProduction() {
   const data = await res.json();
   document.getElementById('prodCrResult').textContent = data.ok ? '已标记 C(破碎出勤)' : (data.error||'失败');
 }
+/* ── P3 评分录入 ── */
+async function submitScoreCard() {
+  const msg = document.getElementById("scoreCardMsg");
+  const week = parseInt(document.getElementById("scoreWeek").value);
+  const team = parseInt(document.getElementById("scoreTeam").value);
+  const cardNo = document.getElementById("scoreCardNo").value.trim();
+  const source = document.getElementById("scoreSource").value;
+  if (!week || !cardNo) { msg.textContent = "请填写周次和卡号"; msg.style.color = "var(--danger)"; return; }
+  const rows = document.querySelectorAll("#scoreEntryBody tr");
+  const entries = [];
+  rows.forEach((row, i) => {
+    const eid = row.querySelector('input[id^="scEid"]')?.value?.trim();
+    if (!eid) return;
+    const dims = row.querySelectorAll("input.scD");
+    const dr = row.querySelector("input.scDr")?.value;
+    entries.push({
+      wid: "W" + (i+1), employee_id: eid,
+      initiative: parseInt(dims[0]?.value) || 0, diligence: parseInt(dims[1]?.value) || 0,
+      discipline: parseInt(dims[2]?.value) || 0, cooperation: parseInt(dims[3]?.value) || 0,
+      safety: parseInt(dims[4]?.value) || 0,
+      driving: dr ? parseInt(dr) : null,
+    });
+  });
+  if (!entries.length) { msg.textContent = "请至少填写一行评分"; msg.style.color = "var(--danger)"; return; }
+  const res = await authFetch(api("/api/scoring/card"), {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({week, team, card_no: cardNo, source, entries}),
+  });
+  const d = await res.json();
+  msg.textContent = d.ok ? "评分卡 " + d.card_id + " 已提交" : (d.error || "失败");
+  msg.style.color = d.ok ? "var(--success)" : "var(--danger)";
+}
+
+async function loadScoringSummary() {
+  const team = document.getElementById("sumTeam").value;
+  const tbody = document.querySelector("#sumTable tbody");
+  tbody.innerHTML = "<tr><td colspan=8>加载中...</td></tr>";
+  const res = await fetch(api("/api/scoring/summary/" + team));
+  const data = await res.json();
+  const inds = data.individuals || [], gates = data.gates || {};
+  if (!inds.length) { tbody.innerHTML = "<tr><td colspan=8 style=color:var(--text-muted)>暂无评分</td></tr>"; return; }
+  tbody.innerHTML = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td></tr>").join("");
+  const panel = document.getElementById("gatePanel"); panel.style.display = "block";
+  document.getElementById("gate1").innerHTML = "①零方差:极差="+gates.variance_range+(gates.zero_variance_triggered?"⚠异常":"✅");
+  document.getElementById("gate1").style.color = gates.zero_variance_triggered?"var(--danger)":"var(--success)";
+  document.getElementById("gate2").innerHTML = "②最高档:"+gates.max_tier_count+"人("+(gates.max_tier_ratio*100).toFixed(1)+"%)"+(gates.max_tier_triggered?"⚠超标":"✅");
+  document.getElementById("gate2").style.color = gates.max_tier_triggered?"var(--danger)":"var(--success)";
+  document.getElementById("gate3").innerHTML = "③管理偏离:"+gates.deviation_count+"人>阈值"+(gates.mgmt_deviation_triggered?"⚠异常":"✅");
+  document.getElementById("gate3").style.color = gates.mgmt_deviation_triggered?"var(--danger)":"var(--success)";
+}
+
+async function submitObjective() {
+  const msg = document.getElementById("objMsg");
+  const data = {
+    record_date: document.getElementById("objDate").value,
+    team: parseInt(document.getElementById("objTeam").value),
+    week: parseInt(document.getElementById("objWeek").value),
+    planned_output: parseFloat(document.getElementById("objPlanned").value) || 0,
+    actual_output: parseFloat(document.getElementById("objActual").value) || 0,
+    total_hours: parseFloat(document.getElementById("objTotalH").value) || 0,
+    effective_hours: parseFloat(document.getElementById("objEffH").value) || 0,
+  };
+  if (!data.record_date || !data.week) { msg.textContent = "请填写日期和周次"; msg.style.color = "var(--danger)"; return; }
+  const res = await authFetch(api("/api/objective/entry"), {
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data),
+  });
+  const d = await res.json();
+  msg.textContent = d.ok ? "当日 S = " + d.daily_s : (d.error||"失败");
+  msg.style.color = d.ok ? "var(--success)" : "var(--danger)";
+}
+
+
 document.querySelectorAll('.chart-label-toggle').forEach(cb => {
   cb.addEventListener('change', function() {
     const chartId = this.dataset.chart;
