@@ -12,6 +12,29 @@ const I18N_DICT = {
     nav_attendance: '出勤',
     nav_dailywages: '日工资',
     nav_settings: '配置',
+    nav_oa: 'OA审批',
+    nav_production: '产量采集',
+    nav_system: '系统',
+    /* 子页 */
+    nav_employees_list: '员工列表',
+    nav_employees_profile: '员工档案',
+    nav_oa_pending: '待审批',
+    nav_oa_history: '审批历史',
+    nav_production_underground: '井下出渣',
+    nav_production_driller: '钻工组',
+    nav_production_crush: '破碎计件',
+    nav_salary_table: '薪资总表',
+    nav_salary_daily: '日工资',
+    nav_salary_verify: '双路径核对',
+    nav_salary_export: '导出',
+    nav_system_users: '用户与权限',
+    nav_system_forms: '表单自定义',
+    nav_system_params: '计薪参数',
+    nav_system_archive: '旧数据归档',
+    /* 面包屑与占位 */
+    breadcrumb_home: '工作台',
+    placeholder_title: '开发中',
+    placeholder_desc: '将在后续阶段实现',
     btn_recalc: '重新计算',
     btn_recalc_loading: '计算中...',
     btn_reload: '↻',
@@ -364,6 +387,30 @@ const I18N_DICT = {
     emp_hide_dismissed: '隐藏已离职',
     emp_dismissed_title: '已离职员工',
     emp_no_dismissed: '无已离职员工',
+    /* P1 员工档案 */
+    emp_position: '岗位',
+    emp_hire_date: '入职日期',
+    emp_skill_level: '技能等级',
+    emp_nida: 'NIDA 证件号',
+    emp_nssf_number: 'NSSF 社保号',
+    emp_bank_name: '银行',
+    emp_bank_account: '账号',
+    emp_note: '备注',
+    emp_status_active: '在职',
+    emp_status_dismissed: '离职',
+    /* P1 OA */
+    oa_no_pending: '暂无待审批事项',
+    oa_history_hint: '以下为近期已处理的 OA 事件',
+    oa_approve: '批准',
+    oa_reject: '驳回',
+    oa_reject_reason: '驳回原因',
+    oa_confirm_reject: '确认驳回',
+    /* P1 事件类型 */
+    event_hire: '入职',
+    event_transfer: '调岗',
+    event_dismiss: '离职',
+    event_salary_change: '薪资变更',
+    event_skill_change: '技能变更',
 
     /* ── Headless 预览模式 ── */
     headless_banner_dash: '📋 预览模式 — 当月暂无源数据，仅支持出勤记录与奖金/罚款',
@@ -381,6 +428,29 @@ const I18N_DICT = {
     nav_attendance: 'Attendance',
     nav_dailywages: 'Daily Wages',
     nav_settings: 'Settings',
+    nav_oa: 'OA Approval',
+    nav_production: 'Production',
+    nav_system: 'System',
+    /* Sub-pages */
+    nav_employees_list: 'Employee List',
+    nav_employees_profile: 'Profile',
+    nav_oa_pending: 'Pending',
+    nav_oa_history: 'History',
+    nav_production_underground: 'Underground',
+    nav_production_driller: 'Driller',
+    nav_production_crush: 'Crush',
+    nav_salary_table: 'Salary Table',
+    nav_salary_daily: 'Daily Wages',
+    nav_salary_verify: 'Verification',
+    nav_salary_export: 'Export',
+    nav_system_users: 'Users & Permissions',
+    nav_system_forms: 'Form Builder',
+    nav_system_params: 'Pay Parameters',
+    nav_system_archive: 'Data Archive',
+    /* Breadcrumb & Placeholder */
+    breadcrumb_home: 'Home',
+    placeholder_title: 'Under Development',
+    placeholder_desc: 'Will be implemented in upcoming phase',
     btn_recalc: 'Recalculate',
     btn_recalc_loading: 'Calculating...',
     btn_reload: '↻',
@@ -733,6 +803,30 @@ const I18N_DICT = {
     emp_hide_dismissed: 'Hide Dismissed',
     emp_dismissed_title: 'Dismissed Employees',
     emp_no_dismissed: 'No dismissed employees',
+    /* P1 Employee Profile */
+    emp_position: 'Position',
+    emp_hire_date: 'Hire Date',
+    emp_skill_level: 'Skill Level',
+    emp_nida: 'NIDA No.',
+    emp_nssf_number: 'NSSF No.',
+    emp_bank_name: 'Bank',
+    emp_bank_account: 'Account',
+    emp_note: 'Note',
+    emp_status_active: 'Active',
+    emp_status_dismissed: 'Dismissed',
+    /* P1 OA */
+    oa_no_pending: 'No pending items',
+    oa_history_hint: 'Recently processed OA events',
+    oa_approve: 'Approve',
+    oa_reject: 'Reject',
+    oa_reject_reason: 'Reject reason',
+    oa_confirm_reject: 'Confirm Reject',
+    /* P1 Event Types */
+    event_hire: 'Hired',
+    event_transfer: 'Transferred',
+    event_dismiss: 'Dismissed',
+    event_salary_change: 'Salary Changed',
+    event_skill_change: 'Skill Changed',
 
     /* ── Headless Preview Mode ── */
     headless_banner_dash: '📋 Preview Mode — No source data this month, attendance and bonus/penalty only',
@@ -823,6 +917,10 @@ function switchLang(lang) {
   if (!lang || !I18N_DICT[lang]) return;
   setLang(lang);
   applyI18n();
+
+  /* ── 重渲染侧边栏和面包屑 ── */
+  if (typeof renderSidebar === 'function') renderSidebar();
+  if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
 
   /* ── 重渲染当前活跃页面 ── */
   const activePage = document.querySelector('.page.active');

@@ -86,6 +86,24 @@ def init_db(data_folder):
     try:
         conn.execute("ALTER TABLE overrides ADD COLUMN effective_from TEXT DEFAULT ''")
     except: pass
+    # P1: employees 扩展列
+    _emp_new_cols = [
+        ('position', 'TEXT DEFAULT \'\''),
+        ('skill_level', 'TEXT DEFAULT \'\''),
+        ('hire_date', 'TEXT DEFAULT \'\''),
+        ('nida_number', 'TEXT DEFAULT \'\''),
+        ('nssf_number', 'TEXT DEFAULT \'\''),
+        ('bank_name', 'TEXT DEFAULT \'\''),
+        ('bank_account', 'TEXT DEFAULT \'\''),
+        ('bank_owner', 'TEXT DEFAULT \'\''),
+        ('status', 'TEXT DEFAULT \'active\''),
+        ('dismissed_at', 'TEXT DEFAULT \'\''),
+        ('custom_fields', 'TEXT DEFAULT \'{}\''),
+    ]
+    for col, defn in _emp_new_cols:
+        try:
+            conn.execute(f"ALTER TABLE employees ADD COLUMN {col} {defn}")
+        except: pass
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS shift_additions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +137,23 @@ def init_db(data_folder):
             role TEXT NOT NULL DEFAULT 'admin',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS employee_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            effective_date TEXT NOT NULL,
+            snapshot TEXT NOT NULL DEFAULT '{}',
+            payload TEXT NOT NULL DEFAULT '{}',
+            operator_id TEXT NOT NULL,
+            approved_by TEXT DEFAULT '',
+            rejected_by TEXT DEFAULT '',
+            reject_reason TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_employee ON employee_events(employee_id, effective_date);
+        CREATE INDEX IF NOT EXISTS idx_events_status ON employee_events(status);
     """)
     conn.commit()
 
@@ -639,3 +674,138 @@ def has_admin(data_folder):
     row = conn.execute("SELECT COUNT(*) as cnt FROM admin_users").fetchone()
     conn.close()
     return row['cnt'] > 0
+
+
+# ── P1: 员工生命周期事件 ─────────────────────
+
+def create_event(data_folder, data):
+    """创建 OA 事件，返回 event_id"""
+    conn = get_conn(data_folder)
+    cur = conn.execute("""
+        INSERT INTO employee_events (employee_id, event_type, effective_date,
+            snapshot, payload, operator_id, status)
+        VALUES (?,?,?,?,?,?,?)
+    """, (data['employee_id'], data['event_type'], data['effective_date'],
+          data.get('snapshot', '{}'), data.get('payload', '{}'),
+          data['operator_id'], data.get('status', 'pending')))
+    conn.commit()
+    eid = cur.lastrowid
+    conn.close()
+    return eid
+
+def get_pending_events(data_folder):
+    """获取所有待审批事件"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT e.*, em.name as employee_name
+        FROM employee_events e
+        LEFT JOIN employees em ON e.employee_id = em.id
+        WHERE e.status = 'pending'
+        ORDER BY e.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_employee_events(data_folder, employee_id):
+    """获取某员工的所有生命周期事件（按时间倒序）"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT * FROM employee_events
+        WHERE employee_id = ?
+        ORDER BY effective_date DESC, created_at DESC
+    """, (employee_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def approve_event(data_folder, event_id, approved_by):
+    """批准事件：更新 status + approved_by"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        UPDATE employee_events
+        SET status='approved', approved_by=?, updated_at=datetime('now','localtime')
+        WHERE id=? AND status='pending'
+    """, (approved_by, event_id))
+    conn.commit()
+    affected = conn.total_changes
+    conn.close()
+    return affected > 0
+
+def reject_event(data_folder, event_id, rejected_by, reason):
+    """驳回事件"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        UPDATE employee_events
+        SET status='rejected', rejected_by=?, reject_reason=?,
+            updated_at=datetime('now','localtime')
+        WHERE id=? AND status='pending'
+    """, (rejected_by, reason, event_id))
+    conn.commit()
+    affected = conn.total_changes
+    conn.close()
+    return affected > 0
+
+def get_event(data_folder, event_id):
+    """获取单个事件详情"""
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT * FROM employee_events WHERE id=?", (event_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# ── P1: 员工档案扩展查询 ───────────────────
+
+def get_employee_profile(data_folder, employee_id):
+    """获取员工完整档案：基本信息 + 事件数 + 请假数"""
+    conn = get_conn(data_folder)
+    emp = conn.execute("SELECT * FROM employees WHERE id=?", (employee_id,)).fetchone()
+    if not emp:
+        conn.close()
+        return None
+    # 统计事件和请假数
+    event_count = conn.execute(
+        "SELECT COUNT(*) FROM employee_events WHERE employee_id=?", (employee_id,)
+    ).fetchone()[0]
+    leave_count = conn.execute(
+        "SELECT COUNT(*) FROM leave_requests WHERE employee_id=?"
+    ).fetchone()[0] if _table_exists(conn, 'leave_requests') else 0
+    conn.close()
+    return {**dict(emp), 'event_count': event_count, 'leave_count': leave_count}
+
+def update_employee_fields(data_folder, employee_id, fields):
+    """更新员工扩展字段（position/skill_level/hire_date/nida_*/nssf_*/bank_*）"""
+    allowed = {'position', 'skill_level', 'hire_date', 'nida_number',
+               'nssf_number', 'bank_name', 'bank_account', 'bank_owner',
+               'phone', 'note', 'status', 'dismissed_at', 'custom_fields'}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return False
+    conn = get_conn(data_folder)
+    sets = ', '.join(f"{k}=?" for k in updates)
+    vals = list(updates.values()) + [employee_id]
+    conn.execute(f"UPDATE employees SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+    return True
+
+def list_employees_extended(data_folder, status_filter=None, department=None):
+    """返回扩展员工列表（含新列）"""
+    conn = get_conn(data_folder)
+    sql = "SELECT * FROM employees WHERE 1=1"
+    params = []
+    if status_filter:
+        sql += " AND status=?"
+        params.append(status_filter)
+    if department:
+        sql += " AND department=?"
+        params.append(department)
+    sql += " ORDER BY name"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def _table_exists(conn, table):
+    """检查表是否存在"""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return bool(row)

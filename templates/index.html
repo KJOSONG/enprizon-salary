@@ -90,44 +90,59 @@
   </div>
 </div>
 
-<!-- ═══ 顶部导航 ═══ -->
-<nav class="navbar" id="topNav">
-  <span class="brand">◈ ENPRIZON LINDI</span>
-  <button class="nav-btn active" data-page="dashboard"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="nav_dashboard">数据台</span></button>
-  <button class="nav-btn" data-page="employees"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span data-i18n="nav_employees">员工</span></button>
-  <button class="nav-btn" data-page="salary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg><span data-i18n="nav_salary">薪资</span></button>
-  <button class="nav-btn" data-page="attendance"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg><span data-i18n="nav_attendance">出勤</span></button>
-  <button class="nav-btn" data-page="dailywages"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span data-i18n="nav_dailywages">日工资</span></button>
-
-  <button class="nav-btn" data-page="settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><span data-i18n="nav_settings">配置</span></button>
-
-  <span class="spacer"></span>
-
-  <!-- 用户状态 -->
-  <div id="userStatus" style="display:flex;align-items:center;gap:8px;margin-right:12px;">
-    <span id="userBadge" style="display:none;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);"></span>
-    <button id="loginBtn" class="nav-btn" onclick="openLoginModal()" style="font-size:12px;padding:4px 10px;" data-i18n="btn_login">登录</button>
-    <button id="changePwdBtn" class="nav-btn" onclick="openChangePwdModal()" style="font-size:12px;padding:4px 10px;display:none;" data-i18n="btn_change_pwd">改密</button>
-    <button id="logoutBtn" class="nav-btn" onclick="doLogout()" style="font-size:12px;padding:4px 10px;display:none;" data-i18n="btn_logout">退出</button>
+<!-- ═══ 侧边栏 ═══ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <span class="brand-text">◈ ENPRIZON LINDI</span>
+    <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleCollapseSidebar()" title="折叠侧边栏">◀</button>
   </div>
-
-  <!-- 语言切换 -->
-  <div class="lang-toggle-group">
-    <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
-    <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
-  </div>
-
-  <div class="nav-info">
-    <div class="month-selector">
-      <select id="monthSelect" onchange="changeMonth(this.value)">
-        <option value="all" data-i18n="month_all">全部月份</option>
-      </select>
+  <nav class="sidebar-nav" id="sidebarNav">
+    <!-- JS 动态生成模块列表 -->
+  </nav>
+  <div class="sidebar-footer">
+    <div class="lang-toggle-group sidebar-lang">
+      <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
+      <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
     </div>
-    <button class="nav-btn admin-only" onclick="reloadSource()" data-i18n-title="toast_reload_data" title="重新加载源文件" style="font-size:14px;">↻</button>
-    <button class="nav-btn" id="exportBtn" onclick="exportAll()" data-i18n-title="toast_exporting" title="导出完整报表" style="font-size:14px;" data-i18n="btn_export">📥 导出报表</button>
-    <button class="recalc-btn" id="recalcBtn" onclick="recalculate()" data-i18n="btn_recalc">重新计算</button>
+    <div id="userStatusSidebar" class="sidebar-user">
+      <span id="userBadgeSide" style="display:none;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);"></span>
+      <button id="loginBtnSide" class="nav-btn" onclick="openLoginModal()" style="font-size:12px;padding:6px 10px;" data-i18n="btn_login">登录</button>
+      <button id="changePwdBtnSide" class="nav-btn" onclick="openChangePwdModal()" style="font-size:12px;padding:6px 10px;display:none;" data-i18n="btn_change_pwd">改密</button>
+      <button id="logoutBtnSide" class="nav-btn" onclick="doLogout()" style="font-size:12px;padding:6px 10px;display:none;" data-i18n="btn_logout">退出</button>
+    </div>
   </div>
-</nav>
+</aside>
+
+<!-- 汉堡菜单（移动端） -->
+<button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">☰</button>
+
+<!-- ═══ 主内容区 ═══ -->
+<div class="app-main" id="appMain">
+  <!-- 周期上下文条 -->
+  <div class="period-bar" id="periodBar">
+    <button class="period-btn" id="periodPrev" onclick="shiftMonth(-1)">«</button>
+    <span class="period-label" id="periodLabel">—</span>
+    <button class="period-btn" id="periodNext" onclick="shiftMonth(1)">»</button>
+    <span class="spacer"></span>
+    <div id="periodSourceBadge" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px;margin-right:12px;">
+      <span class="source-badge" id="sourceBadge" style="font-size:11px;color:var(--text-dim);"><span class="dot online"></span> <span data-i18n="dash_connected">已连接</span></span>
+    </div>
+    <button class="nav-btn admin-only" onclick="reloadSource()" title="重新加载源文件" style="font-size:12px;padding:4px 10px;">↻</button>
+    <button class="recalc-btn" id="recalcBtn" onclick="recalculate()" data-i18n="btn_recalc" style="font-size:12px;">重新计算</button>
+    <button class="nav-btn" id="exportBtn" onclick="exportAll()" title="导出完整报表" style="font-size:12px;padding:4px 10px;" data-i18n="btn_export">📥 导出报表</button>
+  </div>
+
+  <!-- 面包屑 -->
+  <div class="breadcrumb" id="breadcrumb">
+    <span id="breadcrumbHome" data-i18n="nav_dashboard">数据台</span>
+  </div>
+
+  <!-- 隐藏的月份选择器（兼容旧代码引用 #monthSelect） -->
+  <select id="monthSelect" style="display:none;">
+    <option value="all" data-i18n="month_all">全部月份</option>
+  </select>
+
+  <!-- 原 main 内容区（已有 <div class="main"> 接在下面） -->
 
 <!-- ═══ 主内容 ═══ -->
 <div class="main">
@@ -147,157 +162,99 @@
       </div>
     </div>
 
-    <!-- ═══ 产量趋势 ═══ -->
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_trend">产量趋势 · NICKEL(H)(L) / MAWE</h2>
-      </div>
-      <div class="chart-box" style="border:none;padding:0;background:transparent;box-shadow:none;">
-        <div class="chart-toolbar" style="margin-bottom:8px;">
-          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
-            <input type="checkbox" class="chart-label-toggle" data-chart="chartDailyProd" checked style="accent-color:var(--accent);"> <span data-i18n="dash_show_labels">显示标签</span>
-          </label>
+    <!-- ═══ 产量趋势 + 核验（双栏） ═══ -->
+    <div class="dashboard-bottom-row">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_trend">产量趋势 · NICKEL(H)(L) / MAWE</h2>
         </div>
-        <canvas id="chartDailyProd" height="240"></canvas>
-      </div>
-    </div>
-
-    <!-- ═══ 产量核验 ═══ -->
-    <div class="card" style="min-width:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_verify">产量核验 ⚡</h2>
-        <span id="verifyStatus" style="font-size:12px;"></span>
-      </div>
-      <div class="table-wrap verify-wrap">
-        <table class="data-table" id="verifyTable" style="font-size:10px;">
-          <thead id="verifyHead"></thead>
-          <tbody id="verifyBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ═══ 钻工排名 + 耗材 + 品类占比 ═══ -->
-    <div class="chart-grid">
-      <div class="chart-box">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="margin-bottom:0;" data-i18n="dash_driller_rank">钻工产量排名</h3>
-          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
-            <input type="checkbox" class="chart-label-toggle" data-chart="chartDrillerProd" checked style="accent-color:var(--accent);"> <span data-i18n="dash_labels">标签</span>
-          </label>
-        </div>
-        <canvas id="chartDrillerProd" height="260"></canvas>
-      </div>
-      <div class="chart-box">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="margin-bottom:0;" data-i18n="dash_consumables">耗材统计</h3>
-          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
-            <input type="checkbox" class="chart-label-toggle" data-chart="chartConsumables" checked style="accent-color:var(--accent);"> <span data-i18n="dash_labels">标签</span>
-          </label>
-        </div>
-        <canvas id="chartConsumables" height="260"></canvas>
-      </div>
-      <div class="chart-box">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <h3 style="margin-bottom:0;" data-i18n="dash_category_pie">品类占比</h3>
-          <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
-            <input type="checkbox" class="chart-label-toggle" data-chart="chartProdPie" checked style="accent-color:var(--accent);"> <span data-i18n="dash_labels">标签</span>
-          </label>
-        </div>
-        <canvas id="chartProdPie" height="260"></canvas>
-      </div>
-    </div>
-
-    <!-- ═══ 源文件 + 操作 + 饼图 ═══ -->
-    <div class="dashboard-toolbar">
-      <div class="source-card" id="sourceInfo">
-        <div class="source-item">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <div class="info">
-            <div class="fname">加载中...</div>
-            <div class="fpath">data/source/</div>
+        <div class="chart-box" style="border:none;padding:0;background:transparent;box-shadow:none;">
+          <div class="chart-toolbar" style="margin-bottom:8px;">
+            <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+              <input type="checkbox" class="chart-label-toggle" data-chart="chartDailyProd" checked style="accent-color:var(--accent);"> <span data-i18n="dash_show_labels">显示标签</span>
+            </label>
           </div>
+          <canvas id="chartDailyProd" height="240"></canvas>
         </div>
       </div>
-      <div class="quick-actions" style="margin-top:0;">
-        <button class="primary admin-only" onclick="reloadSource()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> <span data-i18n="dash_reload">重新加载</span></button>
-        <button class="admin-only" onclick="document.getElementById('recalcBtn').click()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> <span data-i18n="dash_recalc">重新计算</span></button>
+
+      <div class="card" style="min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_verify">产量核验 ⚡</h2>
+          <span id="verifyStatus" style="font-size:12px;"></span>
+        </div>
+        <div class="table-wrap verify-wrap">
+          <table class="data-table" id="verifyTable" style="font-size:10px;">
+            <thead id="verifyHead"></thead>
+            <tbody id="verifyBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
-    <!-- ═══ 快捷入口 ═══ -->
-    <div class="dashboard-quick-grid">
-      <button onclick="switchPage('employees')" class="quick-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-        <span data-i18n="dash_emp_mgmt">员工管理</span>
-      </button>
-      <button onclick="switchPage('salary')" class="quick-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
-        <span data-i18n="dash_salary_table">薪资总表</span>
-      </button>
-      <button onclick="switchPage('attendance')" class="quick-card">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><polyline points="9 16 11 18 15 14"/></svg>
-        <span data-i18n="dash_att_mgmt">出勤管理</span>
-      </button>
-
-    </div>
   </div>
 </div>
 
-<!-- ─── 页面: 员工管理 ─── -->
+<!-- ─── P1 页面: 员工列表 ─── -->
 <div class="page" id="page-employees">
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="emp_title">员工管理</h2>
-      <div style="display:flex;gap:8px;">
-        <span id="empCount" style="font-size:12px;color:var(--text-muted);align-self:center;"></span>
-      </div>
+      <span id="empCount" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
     <div class="filter-bar">
-      <input type="text" id="empSearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="filterEmployeeTable()">
-      <select id="empFilterType" onchange="filterEmployeeTable()">
-        <option value="" data-i18n="emp_all_types">全部类型</option>
-        <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
-        <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
-        <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
-        <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
-        <option value="monthly" data-i18n="emp_monthly">月薪</option>
-        <option value="both" data-i18n="emp_both">需指定</option>
-        <option value="advance_only" data-i18n="emp_advance_only">仅预支</option>
-      </select>
-      <select id="empFilterDept" onchange="filterEmployeeTable()">
+      <input type="text" id="empSearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="renderEmployeeTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
+      <select id="empFilterDept" onchange="renderEmployeeTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="emp_all_depts">全部部门</option>
       </select>
       <button class="nav-btn" id="toggleDismissedBtn" onclick="toggleDismissedList()" style="font-size:11px;padding:4px 10px;" data-i18n="emp_show_dismissed">已离职</button>
     </div>
-    <div id="dismissedSection" style="display:none;margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <h3 style="margin:0;font-size:13px;color:var(--text-muted);" data-i18n="emp_dismissed_title">已离职员工</h3>
-      </div>
-      <div class="table-wrap" style="max-height:300px;">
-        <table class="data-table" style="font-size:12px;">
-          <thead><tr><th data-i18n="th_name">姓名</th><th data-i18n="emp_all_depts">部门</th><th data-i18n="th_actions">操作</th></tr></thead>
-          <tbody id="dismissedBody"></tbody>
-        </table>
-      </div>
-    </div>
     <div class="table-wrap">
       <table class="data-table" id="empTable">
         <thead>
+          <tr>
             <th data-i18n="th_name">姓名</th>
             <th data-i18n="th_dept">部门</th>
-            <th data-i18n="th_current_type">当前类型</th>
-            <th data-i18n="th_dayrate_base">日薪基数</th>
-            <th data-i18n="th_monthly_base">月薪基数</th>
-            <th data-i18n="th_advance">预支</th>
-            <th data-i18n="th_bonus">奖金</th>
-            <th data-i18n="th_penalty">罚款</th>
+            <th data-i18n="emp_position">岗位</th>
+            <th data-i18n="emp_hire_date">入职日期</th>
+            <th data-i18n="emp_nida">NIDA</th>
             <th data-i18n="th_nssf">NSSF</th>
-            <th data-i18n="th_note">备注</th>
-            <th data-i18n="th_actions">操作</th>
+            <th data-i18n="emp_note">备注</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- ─── P1 页面: 员工档案 ─── -->
+<div class="page" id="page-employees-profile">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <!-- 基本信息卡片 -->
+    <div class="card" style="min-width:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 id="profileName" style="margin-bottom:0;">—</h2>
+        <span id="profileStatus" style="font-size:11px;"></span>
+      </div>
+      <div class="profile-fields" id="profileFields">
+        <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_skill_level">技能等级</span><span class="info-value" id="pfSkill">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
+        <div class="info-row"><span class="info-label">电话</span><span class="info-value" id="pfPhone">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
+        <div class="info-row"><span class="info-label" data-i18n="emp_bank_account">账号</span><span class="info-value" id="pfAccount">—</span></div>
+      </div>
+    </div>
+    <!-- 生命周期时间线 -->
+    <div class="card" style="min-width:0;">
+      <h2 style="margin-bottom:12px;font-size:13px;">事件时间线</h2>
+      <div id="profileTimeline" class="timeline">
+        <div style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</div>
+      </div>
     </div>
   </div>
 </div>
@@ -523,11 +480,73 @@
         </thead>
         <tbody id="userMgmtBody"></tbody>
       </table>
+</div>
+</div>
+</div>
+
+<!-- ═══ P1 OA 审批：待审批 ═══ -->
+<div class="page" id="page-oa-pending">
+  <div class="card">
+    <h2 data-i18n="nav_oa_pending">待审批</h2>
+    <div id="oaPendingList">
+      <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="oa_no_pending">暂无待审批事项</div>
     </div>
   </div>
 </div>
-
+<div class="page" id="page-oa-history">
+  <div class="card">
+    <h2 data-i18n="nav_oa_history">审批历史</h2>
+    <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_history_hint">以下为近期已处理的 OA 事件</p>
+    <div id="oaHistoryList" style="margin-top:12px;">
+      <div style="text-align:center;color:var(--text-muted);padding:40px;">加载中...</div>
+    </div>
+  </div>
 </div>
+<div class="page" id="page-production-underground">
+  <div class="card" style="text-align:center;padding:60px 20px;">
+    <div style="font-size:48px;margin-bottom:16px;">⚒</div>
+    <h2 data-i18n="nav_production_underground">井下出渣</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  </div>
+</div>
+<div class="page" id="page-production-driller">
+  <div class="card" style="text-align:center;padding:60px 20px;">
+    <div style="font-size:48px;margin-bottom:16px;">⚒</div>
+    <h2 data-i18n="nav_production_driller">钻工组</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  </div>
+</div>
+<div class="page" id="page-production-crush">
+  <div class="card" style="text-align:center;padding:60px 20px;">
+    <div style="font-size:48px;margin-bottom:16px;">⚒</div>
+    <h2 data-i18n="nav_production_crush">破碎计件</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  </div>
+</div>
+<div class="page" id="page-system-users">
+  <div class="card" style="text-align:center;padding:60px 20px;">
+    <div style="font-size:48px;margin-bottom:16px;">👥</div>
+    <h2 data-i18n="nav_system_users">用户与权限</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  </div>
+</div>
+<div class="page" id="page-system-forms">
+  <div class="card" style="text-align:center;padding:60px 20px;">
+    <div style="font-size:48px;margin-bottom:16px;">📝</div>
+    <h2 data-i18n="nav_system_forms">表单自定义</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  </div>
+</div>
+<div class="page" id="page-system-archive">
+  <div class="card" style="text-align:center;padding:60px 20px;">
+    <div style="font-size:48px;margin-bottom:16px;">📦</div>
+    <h2 data-i18n="nav_system_archive">旧数据归档</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  </div>
+</div>
+
+</div><!-- .main -->
+</div><!-- .app-main -->
 
 <!-- ═══ 模态框: 例外管理 ═══ -->
 <div class="modal-overlay" id="modalOverride">
@@ -647,6 +666,11 @@ const STATE = {
   _empAll: [],
   _attendanceDirty: false,
   _attendancePending: {},
+  /* P0 导航 */
+  currentMonth: '',
+  currentModule: 'dashboard',
+  currentSubPage: null,
+  currentParams: {},
 };
 
 // ════════════════════════════════════════════════
@@ -683,10 +707,10 @@ async function checkAuth() {
 }
 
 function updateAuthUI() {
-  const loginBtn = document.getElementById('loginBtn');
-  const logoutBtn = document.getElementById('logoutBtn');
-  const changePwdBtn = document.getElementById('changePwdBtn');
-  const userBadge = document.getElementById('userBadge');
+  const loginBtn = document.getElementById('loginBtnSide');
+  const logoutBtn = document.getElementById('logoutBtnSide');
+  const changePwdBtn = document.getElementById('changePwdBtnSide');
+  const userBadge = document.getElementById('userBadgeSide');
   if (_authState.logged_in) {
     loginBtn.style.display = 'none';
     logoutBtn.style.display = '';
@@ -699,19 +723,14 @@ function updateAuthUI() {
     changePwdBtn.style.display = 'none';
     userBadge.style.display = 'none';
   }
-  // 未登录隐藏非数据台导航按钮
+  // 未登录隐藏非数据台侧边栏模块
+  renderSidebar();
+
+  // 周期条按钮权限
   const exportBtn = document.getElementById('exportBtn');
   if (exportBtn) exportBtn.style.display = _authState.logged_in ? '' : 'none';
-  document.querySelectorAll(
-    '.nav-btn[data-page="employees"], .nav-btn[data-page="salary"], ' +
-    '.nav-btn[data-page="attendance"], .nav-btn[data-page="dailywages"], ' +
-    '.nav-btn[data-page="settings"]'
-  ).forEach(btn => {
-    btn.style.display = _authState.logged_in ? '' : 'none';
-  });
 
   // viewer 用户隐藏所有编辑相关操作
-  // admin(含super_admin) 可见编辑元素，editor/viewer 不可见
   const roleLevels = { super_admin: 3, admin: 2, editor: 1, viewer: 0 };
   const userLevel = roleLevels[_authState.role] || 0;
   const isAdmin = userLevel >= 2;
@@ -884,35 +903,262 @@ function getTYPE_LABELS() {
 function getTypeLabels() { return getTYPE_LABELS(); }
 
 function switchPage(name) {
-  // 未登录用户只能访问数据台
+  /* 旧 switchPage 委托到新 navigate */
   if (name !== 'dashboard' && !_authState.logged_in) {
     openLoginModal();
     return;
   }
-  document.querySelectorAll('.nav-btn[data-page]').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const btn = document.querySelector(`.nav-btn[data-page="${name}"]`);
-  if (btn) btn.classList.add('active');
-  const page = document.getElementById('page-' + name);
-  if (page) page.classList.add('active');
-  if (name === 'attendance') loadAttendance();
-  if (name === 'dailywages') loadDailyWages();
-  if (name === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
-  if (name === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); loadUserList(); }
-  if (name === 'employees') {
-    // populate dept filter on first view
-    const sel = document.getElementById('empFilterDept');
-    if (sel.options.length === 1) {
-      const depts = new Set();
-      STATE._empAll.forEach(e => { if (e.department) depts.add(e.department); });
-      [...depts].sort().forEach(d => { sel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+  navigate(name, null);
+}
+
+/* ════════ P0 导航系统 ════════ */
+
+// 模块/子页配置
+const MODULES = {
+  dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null },
+  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','profile'] },
+  oa:         { label: 'nav_oa',         icon: '📋', children: ['pending','history'] },
+  attendance: { label: 'nav_attendance',  icon: '📅', children: null },
+  salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'] },
+  production: { label: 'nav_production',  icon: '⚒', children: ['underground','driller','crush'] },
+  system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'] },
+};
+
+// 子页→旧页面映射 (P0 复用现有页面)
+const SUBPAGE_TARGETS = {
+  'employees/list':    'employees',
+  'salary/table':      'salary',
+  'salary/daily':      'dailywages',
+  'attendance':        'attendance',
+  'oa/pending':        'oa-pending',
+  'oa/history':        'oa-history',
+  'system/params':     'settings',
+  'system/users':      'settings',
+};
+
+// 无子页模块默认目标
+const MODULE_TARGETS = {
+  dashboard:  'dashboard',
+  attendance: 'attendance',
+};
+
+function renderSidebar() {
+  const nav = document.getElementById('sidebarNav');
+  const collapsed = document.getElementById('sidebar').classList.contains('collapsed');
+  let html = '';
+  for (const [key, mod] of Object.entries(MODULES)) {
+    if (key !== 'dashboard' && !_authState.logged_in) continue;
+    const hasChildren = mod.children && mod.children.length > 0;
+    const isActive = STATE.currentModule === key;
+    const isExpanded = isActive;
+    html += `<button class="sidebar-module${isActive?' active':''}${isExpanded&&hasChildren&&!collapsed?' expanded':''}"
+                    data-module="${key}" title="${t(mod.label)}"
+                    onclick="handleModuleClick('${key}', ${hasChildren})">
+               <span class="module-icon">${mod.icon}</span>
+               <span class="module-label">${t(mod.label)}</span>
+               ${hasChildren && !collapsed ? '<span class="module-arrow">▸</span>' : ''}
+             </button>`;
+    if (hasChildren && !collapsed) {
+      html += `<div class="sidebar-subpages"${isExpanded ? ' style="display:block"' : ''}>`;
+      for (const sub of mod.children) {
+        const subActive = isActive && STATE.currentSubPage === sub;
+        html += `<button class="sidebar-subpage${subActive?' active':''}"
+                        onclick="navigate('${key}','${sub}')">
+                   <span>${t('nav_'+key+'_'+sub)}</span>
+                 </button>`;
+      }
+      html += '</div>';
     }
+  }
+  nav.innerHTML = html;
+}
+
+function handleModuleClick(module, hasChildren) {
+  if (hasChildren) {
+    // 有子页：切换展开状态 + 跳转到默认子页
+    if (STATE.currentModule === module) {
+      // 已激活：仅切换展开状态（toggle）
+      const btn = document.querySelector(`.sidebar-module[data-module="${module}"]`);
+      if (btn) {
+        btn.classList.toggle('expanded');
+        const sub = btn.nextElementSibling;
+        if (sub && sub.classList.contains('sidebar-subpages')) {
+          sub.style.display = sub.style.display === 'block' ? 'none' : 'block';
+        }
+      }
+      return;
+    }
+    // 未激活：展开 + 跳转到第一个子页
+    navigate(module, MODULES[module].children[0]);
+  } else {
+    // 无子页：直接跳转
+    navigate(module);
   }
 }
 
-document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
-  btn.addEventListener('click', () => switchPage(btn.dataset.page));
-});
+function navigate(module, subPage, params) {
+  if (!_authState.logged_in && module !== 'dashboard') {
+    openLoginModal();
+    return;
+  }
+
+  STATE.currentModule = module;
+  STATE.currentSubPage = subPage || null;
+  STATE.currentParams = params || {};
+
+  renderSidebar();
+  updateBreadcrumb();
+  showTargetPage(module, subPage);
+  updateHash();
+
+  // 关闭移动端侧边栏
+  document.getElementById('sidebar').classList.remove('open');
+}
+
+function showTargetPage(module, subPage) {
+  const key = subPage ? `${module}/${subPage}` : module;
+  const targetId = SUBPAGE_TARGETS[key] || MODULE_TARGETS[module] || module;
+
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+  // P1: 员工档案特化处理
+  if (module === 'employees' && subPage === 'profile' && STATE.currentParams.id) {
+    showEmployeeProfile(STATE.currentParams.id);
+    return;
+  }
+
+  const page = document.getElementById('page-' + targetId);
+  if (page) {
+    page.classList.add('active');
+  } else {
+    showPlaceholder(module, subPage);
+  }
+
+  // 触发页面加载
+  if (targetId === 'attendance') loadAttendance();
+  if (targetId === 'dailywages') loadDailyWages();
+  if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
+  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); loadUserList(); }
+  if (targetId === 'employees') renderEmployeeTable();
+
+  // P1: OA 页面加载
+  if (module === 'oa' && subPage === 'pending') loadOAPending();
+  if (module === 'oa' && subPage === 'history') loadOAHistory();
+}
+
+function showPlaceholder(module, subPage) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const label = module + (subPage ? '/' + subPage : '');
+  // 查找已存在的占位页
+  const phId = 'page-' + module + (subPage ? '-' + subPage : '');
+  const page = document.getElementById(phId);
+  if (page) {
+    page.classList.add('active');
+    return;
+  }
+  // 动态创建
+  let ph = document.getElementById('page-placeholder');
+  if (!ph) {
+    ph = document.createElement('div');
+    ph.id = 'page-placeholder';
+    ph.className = 'page active';
+    document.querySelector('.main').appendChild(ph);
+  }
+  ph.className = 'page active placeholder-page';
+  ph.innerHTML = `<div class="card">
+    <div style="font-size:48px;margin-bottom:16px;">🚧</div>
+    <h2>${label}</h2>
+    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">开发中</p>
+  </div>`;
+}
+
+function updateBreadcrumb() {
+  const { currentModule, currentSubPage } = STATE;
+  const bc = document.getElementById('breadcrumb');
+  let html = `<span id="breadcrumbHome" onclick="navigate('dashboard')" style="cursor:pointer;" data-i18n="nav_dashboard">${t('nav_dashboard')}</span>`;
+  html += `<span class="breadcrumb-sep">/</span>`;
+  html += `<span onclick="navigate('${currentModule}')" style="cursor:pointer;">${t(MODULES[currentModule]?.label || 'nav_'+currentModule)}</span>`;
+  if (currentSubPage) {
+    html += `<span class="breadcrumb-sep">/</span>`;
+    html += `<span>${t('nav_'+currentModule+'_'+currentSubPage)}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+function updateHash() {
+  const { currentModule, currentSubPage, currentParams } = STATE;
+  let hash = '#' + currentModule;
+  if (currentSubPage) hash += '/' + currentSubPage;
+  const paramStr = Object.entries(currentParams).map(([k,v]) => `${k}=${v}`).join('&');
+  if (paramStr) hash += '?' + paramStr;
+  if (window.location.hash !== hash) {
+    history.replaceState(null, '', window.location.pathname + hash);
+  }
+}
+
+function parseHash() {
+  let hash = window.location.hash.replace('#', '');
+  if (!hash) { navigate('dashboard'); return; }
+  const [path, query] = hash.split('?');
+  const parts = path.split('/');
+  const module = parts[0];
+  const subPage = parts[1] || null;
+  const params = {};
+  if (query) {
+    query.split('&').forEach(p => {
+      const [k,v] = p.split('=');
+      if (k) params[k] = decodeURIComponent(v||'');
+    });
+  }
+  if (MODULES[module]) {
+    navigate(module, subPage, params);
+  } else {
+    navigate('dashboard');
+  }
+}
+
+window.addEventListener('hashchange', parseHash);
+
+/* ── 周期上下文条 ── */
+function shiftMonth(delta) {
+  if (!STATE.currentMonth) return;
+  const parts = STATE.currentMonth.split('-');
+  let y = parseInt(parts[0]), m = parseInt(parts[1]);
+  m += delta;
+  if (m > 12) { m = 1; y++; }
+  if (m < 1) { m = 12; y--; }
+  STATE.currentMonth = `${y}-${String(m).padStart(2,'0')}`;
+  updatePeriodBar();
+  changeMonth(STATE.currentMonth);
+}
+
+function updatePeriodBar() {
+  document.getElementById('periodLabel').textContent = STATE.currentMonth || '—';
+  // 同步隐藏 monthSelect（兼容旧代码引用）
+  const sel = document.getElementById('monthSelect');
+  if (sel && STATE.currentMonth) sel.value = STATE.currentMonth;
+}
+
+/* ── 移动端侧边栏 ── */
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+/* ── 桌面端侧边栏折叠 ── */
+function toggleCollapseSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.toggle('collapsed');
+  const btn = document.getElementById('sidebarCollapseBtn');
+  if (sidebar.classList.contains('collapsed')) {
+    btn.textContent = '▶';
+    btn.title = '展开侧边栏';
+  } else {
+    btn.textContent = '◀';
+    btn.title = '折叠侧边栏';
+  }
+  renderSidebar();
+  updateBreadcrumb();
+}
 
 // ════════════════════════════════════════════════
 //  页面加载: 检查自动加载数据
@@ -936,9 +1182,23 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
       loadProductionData();
       loadSourceInfo();
       populateMonthSelect(data.result);
-      openMonthPicker();
+      // 设置当前月份并更新周期条
+      if (data.result.month) {
+        STATE.currentMonth = data.result.month;
+        updatePeriodBar();
+      }
     }
-  } catch(e) { showToast(t('toast_load_fail') + e.message, 'error'); }
+  } catch(e) { /* 静默失败，用户可登录后重试 */ }
+
+  // P0 导航初始化：解析 hash 路由
+  renderSidebar();
+  if (window.location.hash && window.location.hash.length > 1) {
+    parseHash();
+  } else {
+    navigate('dashboard');
+  }
+  // 登录后弹出月份选择
+  if (_authState.logged_in) openMonthPicker();
 })();
 
 // ════════════════════════════════════════════════
@@ -1102,6 +1362,8 @@ async function changeMonth(month) {
         STATE._headless = d2.headless || STATE._headless;
         renderEmployeeTable();
         loadProductionData();
+        STATE.currentMonth = month;
+        updatePeriodBar();
         showToast(data.message || t('toast_month_switched'));
         return;
       }
@@ -1120,6 +1382,8 @@ async function changeMonth(month) {
       STATE._empAll = STATE.employees;
       renderEmployeeTable();
       loadProductionData();
+      STATE.currentMonth = month;
+      updatePeriodBar();
       showToast(t('toast_month_switched'));
     }
   } catch(e) { showToast(t('toast_month_fail'), 'error'); }
@@ -1183,59 +1447,99 @@ async function reloadSource() {
 // ════════════════════════════════════════════════
 //  员工管理
 // ════════════════════════════════════════════════
-function renderEmployeeTable() {
-  STATE._empAll = STATE.employees;
-  filterEmployeeTable();
-}
-
-function filterEmployeeTable() {
-  const q = (document.getElementById('empSearch').value||'').toLowerCase();
-  const t = document.getElementById('empFilterType').value;
-  const d = document.getElementById('empFilterDept').value;
-  const filtered = STATE._empAll.filter(e => {
-    const effType = e.override_type || e.default_type;
-    if (q && !e.name.toLowerCase().includes(q)) return false;
-    if (t && effType !== t) return false;
-    if (d && (e.department||'') !== d) return false;
-    return true;
-  });
-  _renderEmpTable(filtered);
-}
-
-/* TYPE_LABELS 已改为 getTYPE_LABELS() 函数，在 i18n.js 下方定义 */
-
-function _renderEmpTable(emps) {
-  const TYPE_LABELS = getTYPE_LABELS();
+/* ── P1 员工列表渲染（新） ── */
+async function renderEmployeeTable() {
   const tbody = document.querySelector('#empTable tbody');
-  document.getElementById('empCount').textContent = emps.length + '/' + STATE._empAll.length;
-  tbody.innerHTML = emps.map(emp => {
-    const overs = (emp.overrides||[]).map((o,i) => {
-      const info = o.salary_type === 'day_rate' ? t('emp_dayrate') + ' '+(o.day_rate||'?')+'/天' :
-                   o.salary_type === 'monthly' ? t('emp_monthly') + ' '+(o.monthly_salary||'?')+'/月' : '';
-      return `<span style="background:var(--bg-secondary);padding:1px 6px;border-radius:3px;margin:1px;font-size:11px;">${o.start_date||''}~${o.end_date||''} ${info} <a href="#" onclick="removeOverride('${emp.id}',${i});return false;" style="color:var(--danger);text-decoration:none;">×</a></span>`;
-    }).join(' ') || '';
-    const note = emp._note || overs;
-    const monthEl = document.getElementById('monthSelect');
-    const currentMonth = monthEl ? monthEl.value : '';
-    const bonus = emp.bonus || 0;
-    const penalty = emp.penalty || 0;
-    return `<tr>
-      <td class="left">${escHtml(emp.name)}</td>
-      <td class="left" style="font-size:12px;color:var(--text-muted);">${escHtml(emp.department||'—')}</td>
-      <td>${TYPE_LABELS[emp.override_type||emp.default_type]||(emp.override_type||emp.default_type)}</td>
-      <td class="num" style="font-family:var(--font-mono);font-size:12px;">${emp.day_rate?fmtNum(emp.day_rate):''}</td>
-      <td class="num" style="font-family:var(--font-mono);font-size:12px;">${emp.monthly_salary?fmtNum(emp.monthly_salary):''}</td>
-      <td class="num" style="color:${emp.advance_total>0?'var(--danger)':'var(--text-dim)'}">${fmtNum(emp.advance_total||0)}</td>
-      <td class="num"><input type="number" class="bp-input" value="${bonus||''}" placeholder="0" data-eid="${emp.id}" data-field="bonus" data-month="${currentMonth}" onchange="saveBonusPenalty(this)" style="width:80px;"></td>
-      <td class="num"><input type="number" class="bp-input" value="${penalty||''}" placeholder="0" data-eid="${emp.id}" data-field="penalty" data-month="${currentMonth}" onchange="saveBonusPenalty(this)" style="width:80px;"></td>
-      <td><button class="nav-btn" style="font-size:10px;padding:2px 6px;${emp.nssf_enrolled?'background:var(--accent);color:white;':'opacity:0.5'}" onclick="toggleNssf('${emp.id}', ${!emp.nssf_enrolled})">${emp.nssf_enrolled?'✓':'○'}</button></td>
-      <td class="left" style="font-size:11px;color:${emp._note?'var(--warning)':'inherit'}">${escHtml(emp._note||'')}</td>
-      <td style="white-space:nowrap;">
-        <button class="nav-btn" style="font-size:11px;padding:3px 8px;" onclick="showOverrideModal('${emp.id}')">⚙</button>
-        <button class="nav-btn" style="font-size:11px;padding:3px 6px;color:var(--danger);" onclick="dismissEmployee('${emp.id}','${escHtml(emp.name).replace(/'/g,"\\'")}')" title="${t('emp_dismiss')}">🗑</button>
-      </td>
-    </tr>`;
-  }).join('');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>';
+  try {
+    const res = await fetch(api('/api/employees?status=active'));
+    const data = await res.json();
+    const emps = data.employees || [];
+    document.getElementById('empCount').textContent = emps.length + ' 人';
+
+    // 填充部门筛选
+    const sel = document.getElementById('empFilterDept');
+    const deps = [...new Set(emps.map(e => e.department).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="" data-i18n="emp_all_depts">全部部门</option>';
+    deps.forEach(d => { sel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+
+    const q = (document.getElementById('empSearch').value || '').toLowerCase();
+    const d = document.getElementById('empFilterDept').value;
+    const filtered = emps.filter(e => {
+      if (q && !(e.name || '').toLowerCase().includes(q)) return false;
+      if (d && e.department !== d) return false;
+      return true;
+    });
+
+    tbody.innerHTML = filtered.map(e => `
+      <tr>
+        <td class="left">
+          <a href="#employees/profile/${e.id}" onclick="event.preventDefault();navigate('employees','profile',{id:'${e.id}'});showEmployeeProfile('${e.id}');"
+             style="color:var(--accent);text-decoration:none;font-weight:600;">${escHtml(e.name)}</a>
+        </td>
+        <td class="left" style="color:var(--text-muted);">${escHtml(e.department||'—')}</td>
+        <td>${escHtml(e.position||'—')}</td>
+        <td>${e.hire_date||'—'}</td>
+        <td>${e.nida_number ? '✓' : '○'}</td>
+        <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
+        <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
+      </tr>`).join('');
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无匹配员工</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">加载失败: ' + escHtml(e.message) + '</td></tr>';
+  }
+}
+
+/* ── P1 员工档案页 ── */
+async function showEmployeeProfile(eid) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById('page-employees-profile');
+  page.classList.add('active');
+  try {
+    const [empRes, evtRes] = await Promise.all([
+      fetch(api('/api/employees/' + eid)),
+      fetch(api('/api/employees/' + eid + '/events')),
+    ]);
+    const emp = (await empRes.json()).employee;
+    const events = (await evtRes.json()).events || [];
+    if (!emp) { page.innerHTML = '员工不存在'; return; }
+
+    document.getElementById('profileName').textContent = emp.name;
+    document.getElementById('profileStatus').innerHTML = emp.status === 'active'
+      ? '<span style="color:var(--success);">在职</span>'
+      : '<span style="color:var(--danger);">离职</span>';
+    document.getElementById('pfDept').textContent = emp.department;
+    document.getElementById('pfPosition').textContent = emp.position;
+    document.getElementById('pfSkill').textContent = emp.skill_level;
+    document.getElementById('pfHireDate').textContent = emp.hire_date;
+    document.getElementById('pfNida').textContent = emp.nida_number;
+    document.getElementById('pfNssf').textContent = emp.nssf_number;
+    document.getElementById('pfPhone').textContent = emp.phone;
+    document.getElementById('pfBank').textContent = emp.bank_name;
+    document.getElementById('pfAccount').textContent = emp.bank_account;
+
+    // 时间线
+    const EVENT_LABELS = { hire: '入职', transfer: '调岗', dismiss: '离职',
+      salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职' };
+    const tl = document.getElementById('profileTimeline');
+    if (events.length === 0) {
+      tl.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件记录</div>';
+    } else {
+      tl.innerHTML = events.map(ev => `
+        <div class="timeline-item">
+          <div class="timeline-dot ${ev.status}"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
+              <span class="timeline-date">${ev.effective_date}</span>
+              <span class="timeline-status ${ev.status}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : '…'}</span>
+            </div>
+          </div>
+        </div>`).join('');
+    }
+  } catch (e) {
+    console.error('Failed to load profile', e);
+  }
 }
 
 async function removeOverride(eid, idx) {
@@ -2604,6 +2908,92 @@ async function loadAuditLog() {
       </tr>`;
     }).join('');
   } catch(e) {}
+}
+
+// ════════════════════════════════════════════════
+//  P1: OA 审批
+// ════════════════════════════════════════════════
+const EVENT_LABELS_MAP = {
+  hire: '入职', transfer: '调岗', dismiss: '离职',
+  salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职'
+};
+
+async function loadOAPending() {
+  const container = document.getElementById('oaPendingList');
+  if (!container) return;
+  try {
+    const res = await fetch(api('/api/oa/pending'));
+    const data = await res.json();
+    const events = data.events || [];
+    if (events.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="oa_no_pending">暂无待审批事项</div>';
+      return;
+    }
+    container.innerHTML = events.map(ev => `
+      <div class="oa-event-card" id="oaCard${ev.id}">
+        <div class="oa-event-info">
+          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] || ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
+          <div class="oa-event-meta">
+            生效日期: ${ev.effective_date} · 提交人: ${escHtml(ev.operator_id)} · ${ev.created_at}
+          </div>
+        </div>
+        <div class="oa-event-actions">
+          <button class="oa-btn oa-btn-approve" onclick="oaApprove(${ev.id})">批准</button>
+          <button class="oa-btn oa-btn-reject" onclick="oaShowReject(${ev.id})">驳回</button>
+        </div>
+        <div id="oaRejectForm${ev.id}" style="display:none;width:100%;"></div>
+      </div>`).join('');
+  } catch (e) { container.innerHTML = '<div style="color:var(--danger);padding:20px;">加载失败</div>'; }
+}
+
+async function oaApprove(eventId) {
+  const res = await authFetch(api(`/api/oa/events/${eventId}/approve`), { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    showToast('已批准');
+    loadOAPending();
+  } else {
+    showToast(data.error || '操作失败', 'error');
+  }
+}
+
+function oaShowReject(eventId) {
+  const form = document.getElementById('oaRejectForm' + eventId);
+  form.style.display = 'block';
+  form.innerHTML = `
+    <div class="oa-reject-form">
+      <input type="text" id="oaRejectReason${eventId}" placeholder="驳回原因（必填）" style="flex:1;">
+      <button class="oa-btn oa-btn-reject" onclick="oaReject(${eventId})">确认驳回</button>
+      <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="document.getElementById('oaRejectForm${eventId}').style.display='none'">取消</button>
+    </div>`;
+}
+
+async function oaReject(eventId) {
+  const reason = document.getElementById('oaRejectReason' + eventId).value;
+  if (!reason) { showToast('请输入驳回原因', 'error'); return; }
+  const res = await authFetch(api(`/api/oa/events/${eventId}/reject`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reject_reason: reason }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast('已驳回');
+    loadOAPending();
+  } else {
+    showToast(data.error || '操作失败', 'error');
+  }
+}
+
+async function loadOAHistory() {
+  const container = document.getElementById('oaHistoryList');
+  if (!container) return;
+  try {
+    const res = await fetch(api('/api/oa/pending')); // 复用 pending 接口，历史需要新接口
+    const data = await res.json();
+    // TODO: 添加历史 API 后改为 fetch 全部事件
+    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">历史记录功能将在后续完善</div>';
+  } catch (e) { container.innerHTML = '加载失败'; }
 }
 
 // 标签切换

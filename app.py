@@ -995,6 +995,169 @@ def restore_employee_api():
     ok, msg = _run_pipeline(files, month_filter=APP_STATE.get('month') if APP_STATE.get('month') != 'all' else None)
     return jsonify({'ok': True, 'message': msg})
 
+
+# ═══════════════════════════════════════════════════════════
+#  P1: 种子导入 — 将现有员工初始化到新模型
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/seed/employees', methods=['POST'])
+@editor_required
+def seed_employees():
+    """从 APP_STATE + 旧 employees 表导入在职员工到新扩展列 + hire 事件"""
+    import json as _json
+    from core.database import get_conn, log_audit
+    conn = get_conn(app.config['DATA_FOLDER'])
+    count = 0
+    # 来源1: APP_STATE 中的员工（来自 Excel 解析，136 人）
+    for emp in APP_STATE.get('employees', []):
+        eid = emp.get('id', '')
+        name = emp.get('name', '')
+        dept = emp.get('department', '')
+        if not eid:
+            continue
+        # 跳过已离职
+        dismissed = conn.execute(
+            "SELECT 1 FROM dismissed_employees WHERE employee_id=?", (eid,)).fetchone()
+        if dismissed:
+            continue
+        # 确保 employees 表中有记录
+        conn.execute("""
+            INSERT OR REPLACE INTO employees (id, name, department, status, hire_date, phone)
+            VALUES (?,?,?,'active',COALESCE((SELECT hire_date FROM employees WHERE id=?),'2024-01-01'),?)
+        """, (eid, name, dept, eid, emp.get('phone', '')))
+        # 补 hire 事件
+        existing = conn.execute(
+            "SELECT 1 FROM employee_events WHERE employee_id=? AND event_type='hire'", (eid,)).fetchone()
+        if not existing:
+            conn.execute("""
+                INSERT INTO employee_events (employee_id, event_type, effective_date,
+                    payload, operator_id, status)
+                VALUES (?, 'hire', COALESCE((SELECT hire_date FROM employees WHERE id=?), '2024-01-01'),
+                    ?, 'system', 'approved')
+            """, (eid, eid, _json.dumps({'name': name, 'department': dept})))
+            count += 1
+    conn.commit()
+    conn.close()
+    log_audit(app.config['DATA_FOLDER'], 'seed_employees', 'system',
+              _json.dumps({'total': len(APP_STATE.get('employees', [])), 'imported': count}))
+    return jsonify({'ok': True, 'imported': count,
+                    'total': len(APP_STATE.get('employees', [])),
+                    'message': f'已导入 {count} 名员工的入职事件'})
+
+
+# ═══════════════════════════════════════════════════════════
+#  P1 API: 员工档案
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/employees', methods=['GET'])
+def api_employees():
+    """员工列表（扩展版，含新字段）"""
+    from core.database import list_employees_extended
+    status = request.args.get('status', 'active')
+    dept = request.args.get('department')
+    employees = list_employees_extended(app.config['DATA_FOLDER'],
+                                        status_filter=status, department=dept)
+    return jsonify({'employees': employees})
+
+@app.route('/api/employees/<employee_id>', methods=['GET'])
+def api_employee_profile(employee_id):
+    """员工档案详情"""
+    from core.database import get_employee_profile
+    profile = get_employee_profile(app.config['DATA_FOLDER'], employee_id)
+    if not profile:
+        return jsonify({'error': '员工不存在'}), 404
+    return jsonify({'employee': profile})
+
+@app.route('/api/employees/<employee_id>/events', methods=['GET'])
+def api_employee_events(employee_id):
+    """员工生命周期时间线"""
+    from core.database import get_employee_events
+    events = get_employee_events(app.config['DATA_FOLDER'], employee_id)
+    return jsonify({'events': events})
+
+@app.route('/api/employees/<employee_id>', methods=['POST'])
+@editor_required
+def api_employee_update(employee_id):
+    """编辑员工基本信息"""
+    from core.database import update_employee_fields, log_audit
+    data = request.get_json()
+    ok = update_employee_fields(app.config['DATA_FOLDER'], employee_id, data)
+    if ok:
+        log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,
+                  json.dumps(data))
+    return jsonify({'ok': ok})
+
+
+# ═══════════════════════════════════════════════════════════
+#  P1 API: OA 审批
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/oa/events', methods=['POST'])
+@editor_required
+def oa_create_event():
+    """发起 OA 事件（入职/调岗/离职/薪资变更等）"""
+    from core.database import create_event, log_audit
+    data = request.get_json()
+    if not data or not data.get('employee_id') or not data.get('event_type'):
+        return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
+    data['operator_id'] = session.get('username', 'unknown')
+    # payload / snapshot 是 dict，需要序列化为 JSON 字符串
+    data['payload'] = json.dumps(data.get('payload', {}), ensure_ascii=False)
+    data['snapshot'] = json.dumps(data.get('snapshot', {}), ensure_ascii=False)
+    event_id = create_event(app.config['DATA_FOLDER'], data)
+    log_audit(app.config['DATA_FOLDER'], 'oa_create_event',
+              data['employee_id'], json.dumps(data))
+    return jsonify({'ok': True, 'event_id': event_id})
+
+@app.route('/api/oa/pending', methods=['GET'])
+def oa_pending():
+    """待审批事件列表"""
+    from core.database import get_pending_events
+    events = get_pending_events(app.config['DATA_FOLDER'])
+    return jsonify({'events': events})
+
+@app.route('/api/oa/pending/count', methods=['GET'])
+def oa_pending_count():
+    """待审批数量"""
+    from core.database import get_pending_events
+    events = get_pending_events(app.config['DATA_FOLDER'])
+    return jsonify({'count': len(events)})
+
+@app.route('/api/oa/events/<int:event_id>/approve', methods=['POST'])
+@editor_required
+def oa_approve_event(event_id):
+    """批准 OA 事件"""
+    from core.database import approve_event, get_event, log_audit
+    username = session.get('username', '')
+    event = get_event(app.config['DATA_FOLDER'], event_id)
+    if not event:
+        return jsonify({'ok': False, 'error': '事件不存在'}), 404
+    if event['operator_id'] == username:
+        return jsonify({'ok': False, 'error': '不能审批自己提交的事件'}), 400
+    ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
+    if ok:
+        log_audit(app.config['DATA_FOLDER'], 'oa_approve',
+                  event['employee_id'], json.dumps({'event_id': event_id}))
+    return jsonify({'ok': ok})
+
+@app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
+@editor_required
+def oa_reject_event(event_id):
+    """驳回 OA 事件"""
+    from core.database import reject_event, get_event, log_audit
+    data = request.get_json()
+    reason = (data or {}).get('reject_reason', '')
+    if not reason:
+        return jsonify({'ok': False, 'error': '驳回原因不能为空'}), 400
+    username = session.get('username', '')
+    ok = reject_event(app.config['DATA_FOLDER'], event_id, username, reason)
+    if ok:
+        event = get_event(app.config['DATA_FOLDER'], event_id)
+        if event:
+            log_audit(app.config['DATA_FOLDER'], 'oa_reject',
+                      event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}))
+    return jsonify({'ok': ok})
+
 # ═══════════════════════════════════════════════════════════
 #  API: NSSF（社保）
 # ═══════════════════════════════════════════════════════════
