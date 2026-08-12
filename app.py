@@ -1396,6 +1396,118 @@ def api_employee_update(employee_id):
                   json.dumps(data))
     return jsonify({'ok': ok})
 
+@app.route('/api/employees/<employee_id>/salary-type', methods=['POST'])
+@editor_required
+def api_employee_salary_type(employee_id):
+    """P7: 修改员工薪资类别+基数 — 同步 employees 主档 + 写 salary_change 事件"""
+    from core.database import update_employee_salary_type, create_event, log_audit
+    from datetime import datetime
+    data = request.get_json() or {}
+    st = data.get('salary_type', '')
+    if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+        return jsonify({'ok': False, 'error': '无效的薪资类别'}), 400
+    # 基数必须为数字，否则 400（避免 int() 抛 ValueError → 500）
+    def _to_int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    day_rate = _to_int(data.get('day_rate', 0))
+    monthly_salary = _to_int(data.get('monthly_salary', 0))
+    if day_rate is None or monthly_salary is None:
+        return jsonify({'ok': False, 'error': '薪资基数必须是数字'}), 400
+    ok = update_employee_salary_type(app.config['DATA_FOLDER'], employee_id,
+                                     st, day_rate, monthly_salary)
+    if not ok:
+        return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    # 写 salary_change 事件（approved，本月 1 号生效）→ 时间线记录 + 下月起覆盖推导
+    username = session.get('username', 'unknown')
+    create_event(app.config['DATA_FOLDER'], {
+        'employee_id': employee_id,
+        'event_type': 'salary_change',
+        'effective_date': datetime.now().strftime('%Y-%m-01'),
+        'snapshot': '{}',
+        'payload': json.dumps({'salary_type': st, 'day_rate': day_rate,
+                               'monthly_salary': monthly_salary},
+                              ensure_ascii=False),
+        'operator_id': username,
+        'status': 'approved',
+    })
+    log_audit(app.config['DATA_FOLDER'], 'employee_salary_type', employee_id,
+              json.dumps({'salary_type': st, 'day_rate': day_rate,
+                          'monthly_salary': monthly_salary}))
+    return jsonify({'ok': True})
+
+# ── P7: 员工头像 ─────────────────────────────
+ALLOWED_AVATAR_EXTS = ('.png', '.jpg', '.jpeg')
+
+@app.route('/api/employees/avatar', methods=['POST'])
+@admin_required
+def api_employee_avatar_upload():
+    """P7: 上传员工头像 → static/avatars/<employee_id>.<ext>（PNG/JPG ≤2MB）"""
+    from core.database import update_employee_fields, log_audit
+    eid = request.form.get('employee_id', '').strip()
+    file = request.files.get('file')
+    if not eid or not file or not file.filename:
+        return jsonify({'ok': False, 'error': '缺少员工ID或文件'}), 400
+    # 路径穿越防护：eid 仅允许字母数字/下划线/连字符
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', eid):
+        return jsonify({'ok': False, 'error': '无效的员工ID'}), 400
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_AVATAR_EXTS:
+        return jsonify({'ok': False, 'error': '仅支持 PNG/JPG 图片'}), 400
+    # 大小校验（≤2MB）
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > 2 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': '图片超过 2MB 限制'}), 400
+    # 内容魔数校验（PNG / JPEG）
+    head = file.read(8)
+    file.seek(0)
+    is_png = head[:8] == b'\x89PNG\r\n\x1a\n'
+    is_jpg = head[:3] == b'\xff\xd8\xff'
+    if not (is_png or is_jpg):
+        return jsonify({'ok': False, 'error': '文件内容不是有效的 PNG/JPG 图片'}), 400
+    avatar_dir = os.path.join(BASE_DIR, 'static', 'avatars')
+    os.makedirs(avatar_dir, exist_ok=True)
+    if not os.path.exists(os.path.join(avatar_dir, '.gitkeep')):
+        open(os.path.join(avatar_dir, '.gitkeep'), 'w').close()
+    # 删除同 id 的旧头像（可能是不同扩展名）
+    for old in os.listdir(avatar_dir):
+        if old.startswith(eid + '.'):
+            os.remove(os.path.join(avatar_dir, old))
+    new_name = f'{eid}{ext}'
+    file.save(os.path.join(avatar_dir, new_name))
+    avatar_path = f'static/avatars/{new_name}'
+    update_employee_fields(app.config['DATA_FOLDER'], eid, {'avatar_path': avatar_path})
+    log_audit(app.config['DATA_FOLDER'], 'employee_avatar', eid,
+              json.dumps({'avatar_path': avatar_path}))
+    return jsonify({'ok': True, 'avatar_path': avatar_path})
+
+@app.route('/api/employees/avatar/delete', methods=['POST'])
+@admin_required
+def api_employee_avatar_delete():
+    """P7: 删除员工头像（删文件 + 清空 avatar_path）"""
+    from core.database import update_employee_fields, log_audit
+    data = request.get_json() or {}
+    eid = data.get('employee_id', '')
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', eid):
+        return jsonify({'ok': False, 'error': '无效的员工ID'}), 400
+    # 读取当前 avatar_path 删除文件
+    from core.database import get_employee_profile
+    profile = get_employee_profile(app.config['DATA_FOLDER'], eid)
+    if profile and profile.get('avatar_path'):
+        rel = profile['avatar_path']
+        if rel.startswith('static/avatars/'):
+            fpath = os.path.join(BASE_DIR, rel.replace('/', os.sep))
+            if os.path.exists(fpath):
+                os.remove(fpath)
+    update_employee_fields(app.config['DATA_FOLDER'], eid, {'avatar_path': ''})
+    log_audit(app.config['DATA_FOLDER'], 'employee_avatar_delete', eid,
+              json.dumps({'avatar_path': ''}))
+    return jsonify({'ok': True})
+
 
 # ═══════════════════════════════════════════════════════════
 #  P1 API: OA 审批

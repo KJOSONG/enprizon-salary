@@ -10,6 +10,8 @@ data/*.db-shm
 _work/
 uploads/*
 !uploads/.gitkeep
+static/avatars/*
+!static/avatars/.gitkeep
 .DS_Store
 *.bak.*
 data/source/*.xlsx

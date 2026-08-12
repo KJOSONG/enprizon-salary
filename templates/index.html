@@ -204,6 +204,8 @@
             <th data-i18n="th_name">姓名</th>
             <th data-i18n="th_dept">部门</th>
             <th data-i18n="emp_position">岗位</th>
+            <th data-i18n="emp_gender">性别</th>
+            <th data-i18n="emp_age">年龄</th>
             <th data-i18n="emp_hire_date">入职日期</th>
             <th data-i18n="emp_nida">NIDA</th>
             <th data-i18n="th_nssf">NSSF</th>
@@ -229,7 +231,18 @@
           <h2 style="margin-bottom:0;font-size:14px;">基本信息</h2>
           <span id="profileStatus" style="font-size:11px;"></span>
         </div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <img id="pfAvatar" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);">
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <button class="nav-btn" onclick="document.getElementById('pfAvatarFile').click()" style="font-size:11px;" data-i18n="avatar_upload">📷 上传头像</button>
+            <input type="file" id="pfAvatarFile" accept="image/png,image/jpeg" style="display:none;" onchange="uploadEmployeeAvatar()">
+            <button class="nav-btn" id="pfAvatarDeleteBtn" onclick="deleteEmployeeAvatar()" style="font-size:11px;display:none;" data-i18n="avatar_delete">🗑 删除</button>
+          </div>
+        </div>
         <div class="profile-fields" id="profileFields">
+          <div class="info-row"><span class="info-label" data-i18n="emp_gender">性别</span><span class="info-value" id="pfGender">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_dob">出生日期</span><span class="info-value" id="pfDob">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_age">年龄</span><span class="info-value" id="pfAge">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_skill_level">技能等级</span><span class="info-value" id="pfSkill">—</span></div>
@@ -1646,7 +1659,7 @@ async function reloadSource() {
 /* ── P1 员工列表渲染（新） ── */
 async function renderEmployeeTable() {
   const tbody = document.querySelector('#empTable tbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>';
   try {
     const res = await fetch(api('/api/employees?status=active'));
     const data = await res.json();
@@ -1675,14 +1688,16 @@ async function renderEmployeeTable() {
         </td>
         <td class="left" style="color:var(--text-muted);">${escHtml(e.department||'—')}</td>
         <td>${escHtml(e.position||'—')}</td>
+        <td>${e.gender==='male' ? t('emp_gender_male') : e.gender==='female' ? t('emp_gender_female') : e.gender==='other' ? t('emp_gender_other') : '—'}</td>
+        <td>${e.date_of_birth ? calcAge(e.date_of_birth) : '—'}</td>
         <td>${e.hire_date||'—'}</td>
         <td>${e.nida_number ? '✓' : '○'}</td>
         <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
       </tr>`).join('');
-    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无匹配员工</td></tr>';
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">无匹配员工</td></tr>';
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--danger);">加载失败: ' + escHtml(e.message) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--danger);">加载失败: ' + escHtml(e.message) + '</td></tr>';
   }
 }
 
@@ -1716,6 +1731,20 @@ async function showEmployeeProfile(eid) {
     document.getElementById('pfPhone').textContent = emp.phone;
     document.getElementById('pfBank').textContent = emp.bank_name;
     document.getElementById('pfAccount').textContent = emp.bank_account;
+
+    // P7: 头像 / 性别 / 出生日期 / 年龄
+    const avatarEl = document.getElementById('pfAvatar');
+    if (emp.avatar_path) {
+      avatarEl.src = api('/' + emp.avatar_path);
+    } else {
+      avatarEl.removeAttribute('src');
+    }
+    document.getElementById('pfGender').textContent = emp.gender || '—';
+    document.getElementById('pfDob').textContent = emp.date_of_birth || '—';
+    const age = emp.date_of_birth ? calcAge(emp.date_of_birth) : null;
+    document.getElementById('pfAge').textContent = age !== null ? age : '—';
+    const delBtn = document.getElementById('pfAvatarDeleteBtn');
+    if (delBtn) delBtn.style.display = (isAdminUser() && emp.avatar_path) ? 'inline-block' : 'none';
 
     // 加载余额
     try {
@@ -1756,41 +1785,180 @@ function closeEmployeeProfile() {
   if (formEl) formEl.style.display = 'none';
 }
 
-function editEmployeeProfile() {
+/* ── P7: 辅助函数 — 权限与年龄计算 ── */
+function isAdminUser() {
+  return _authState.role === 'admin' || _authState.role === 'super_admin';
+}
+
+function calcAge(dob) {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+  return age >= 0 ? age : null;
+}
+
+/* ── P7: 头像上传/删除 ── */
+async function uploadEmployeeAvatar() {
+  const fileInput = document.getElementById('pfAvatarFile');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const eid = _profileEid;
+  if (!eid) return;
+  const fd = new FormData();
+  fd.append('employee_id', eid);
+  fd.append('file', file);
+  try {
+    const res = await authFetch(api('/api/employees/avatar'), { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) { showToast('头像已更新 ✓'); showEmployeeProfile(eid); }
+    else showToast(data.error || '上传失败', 'error');
+  } catch(e) { showToast('上传失败', 'error'); }
+  fileInput.value = '';
+}
+
+async function deleteEmployeeAvatar() {
+  const eid = _profileEid;
+  if (!eid) return;
+  if (!confirm('确认删除头像？')) return;
+  try {
+    const res = await authFetch(api('/api/employees/avatar/delete'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({employee_id: eid}),
+    });
+    const data = await res.json();
+    if (data.ok) { showToast('头像已删除 ✓'); showEmployeeProfile(eid); }
+    else showToast(data.error || '删除失败', 'error');
+  } catch(e) { showToast('删除失败', 'error'); }
+}
+
+async function editEmployeeProfile() {
   const eid = _profileEid || STATE.currentParams.id;
   if (!eid) return;
-  const fields = ['position', 'skill_level', 'hire_date', 'nida_number', 'nssf_number',
-                  'bank_name', 'bank_account', 'bank_owner', 'phone'];
-  const fieldNames = ['岗位', '技能等级', '入职日期', 'NIDA', 'NSSF编号', '银行', '账号', '户名', '电话'];
-  const values = fields.map(f => document.getElementById('pf'+f.charAt(0).toUpperCase()+f.slice(1))?.textContent || '');
-  let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;width:400px;max-height:80vh;overflow-y:auto;padding:20px;">';
-  form += '<h3>编辑档案</h3>';
-  fields.forEach((f, i) => {
-    form += `<div class="form-row"><label>${fieldNames[i]}</label><input id="pfEdit_${f}" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>`;
-  });
+  // 加载完整档案（含薪资类别/基数）
+  let emp = null;
+  try {
+    const res = await fetch(api('/api/employees/' + eid));
+    const data = await res.json();
+    emp = data.employee;
+  } catch(e) {}
+  if (!emp) { showToast('加载员工失败', 'error'); return; }
+
+  // 部门选项（来自员工列表 distinct，缓存于 empFilterDept select）
+  const deptSel = document.getElementById('empFilterDept');
+  const deptOpts = [];
+  if (deptSel) {
+    for (const o of deptSel.options) if (o.value) deptOpts.push(o.value);
+  }
+  if (deptOpts.length === 0) {
+    [...new Set((STATE._empAll || []).map(e => e.department).filter(Boolean))].sort()
+      .forEach(d => deptOpts.push(d));
+  }
+  if (emp.department && !deptOpts.includes(emp.department)) deptOpts.push(emp.department);
+
+  const typeLabels = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
+    piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
+  const curType = emp.default_type || 'day_rate';
+  const g = v => escHtml(String(v == null ? '' : v));
+  const inStyle = 'padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;';
+  const selOpts = (arr, cur) => arr.map(d => `<option value="${g(d)}" ${cur===d?'selected':''}>${g(d)}</option>`).join('');
+  const phoneNum = String(emp.phone || '').replace(/^\+255/, '');
+  // 日期字段仅当值为合法 YYYY-MM-DD 才回填（type=date 要求）
+  const dateVal = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v||'')) ? String(v) : '';
+
+  let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;width:440px;max-height:85vh;overflow-y:auto;padding:20px;">';
+  form += '<h3 style="margin-bottom:12px;">' + t('emp_edit_title') + ' — ' + g(emp.name) + '</h3>';
+  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" style="${inStyle}">${selOpts(deptOpts, emp.department)}</select></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_gender">性别</label><select id="pfEdit_gender" style="${inStyle}">` +
+    `<option value="" ${!emp.gender?'selected':''}>—</option>` +
+    `<option value="male" ${emp.gender==='male'?'selected':''} data-i18n="emp_gender_male">男</option>` +
+    `<option value="female" ${emp.gender==='female'?'selected':''} data-i18n="emp_gender_female">女</option>` +
+    `<option value="other" ${emp.gender==='other'?'selected':''} data-i18n="emp_gender_other">其他</option>` +
+    `</select></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="pfEdit_date_of_birth" value="${dateVal(emp.date_of_birth)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input id="pfEdit_skill_level" value="${g(emp.skill_level)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input id="pfEdit_nssf_number" value="${g(emp.nssf_number)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_phone">电话</label><div style="display:flex;align-items:center;"><span style="padding:6px 8px;border:1px solid var(--border);border-right:none;border-radius:var(--radius) 0 0 var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">+255</span><input type="tel" id="pfEdit_phone" value="${g(phoneNum)}" placeholder="7xxxxxxxxx" style="${inStyle}border-radius:0 var(--radius) var(--radius) 0;"></div></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_bank_name">银行</label><input id="pfEdit_bank_name" value="${g(emp.bank_name)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_bank_account">账号</label><input id="pfEdit_bank_account" value="${g(emp.bank_account)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input id="pfEdit_bank_owner" value="${g(emp.bank_owner)}" style="${inStyle}"></div>`;
+  // 薪资类别 + 基数
+  form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfEdit_salary_type" onchange="toggleSalaryBaseFields()" style="${inStyle}">${selOpts(Object.keys(typeLabels), curType)}</select></div>`;
+  form += `<div class="form-row" id="pfEdit_row_dayrate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfEdit_day_rate" value="${g(emp.day_rate)}" min="0" style="${inStyle}"></div>`;
+  form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
-  form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">保存</button>';
-  form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">取消</button>';
+  form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
+  form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button>';
   form += '</div><div id="pfEditMsg" style="margin-top:8px;font-size:12px;"></div></div>';
   const modal = document.createElement('div');
   modal.id = 'pfEditModal';
   modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:499;';
   modal.innerHTML = form;
   document.body.appendChild(modal);
+  toggleSalaryBaseFields();
+  applyI18n();
+}
+
+/* P7: 按薪资类别显隐基数输入 */
+function toggleSalaryBaseFields() {
+  const sel = document.getElementById('pfEdit_salary_type');
+  if (!sel) return;
+  const v = sel.value;
+  const rowDr = document.getElementById('pfEdit_row_dayrate');
+  const rowMs = document.getElementById('pfEdit_row_monthly');
+  if (rowDr) rowDr.style.display = (v === 'day_rate') ? '' : 'none';
+  if (rowMs) rowMs.style.display = (v === 'monthly') ? '' : 'none';
 }
 
 async function saveEmployeeProfile(eid) {
-  const fields = ['position', 'skill_level', 'hire_date', 'nida_number', 'nssf_number',
-                  'bank_name', 'bank_account', 'bank_owner', 'phone'];
-  const data = {};
-  fields.forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
+  const msgEl = document.getElementById('pfEditMsg');
+  const setMsg = (text, ok) => { msgEl.textContent = text; msgEl.style.color = ok ? 'var(--success)' : 'var(--danger)'; };
+
+  // ── 字段校验（C7） ──
+  const dob = document.getElementById('pfEdit_date_of_birth').value;
+  const hire = document.getElementById('pfEdit_hire_date').value;
+  if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) { setMsg(t('err_date_format'), false); return; }
+  if (hire && !/^\d{4}-\d{2}-\d{2}$/.test(hire)) { setMsg(t('err_date_format'), false); return; }
+  const phoneRaw = document.getElementById('pfEdit_phone').value.trim();
+  if (phoneRaw && !/^\d+$/.test(phoneRaw)) { setMsg(t('err_phone_digits'), false); return; }
+
+  // ── 基础字段 ──
+  const data = { department: document.getElementById('pfEdit_department').value };
+  ['position','skill_level','hire_date','nida_number','nssf_number',
+   'bank_name','bank_account','bank_owner','gender','date_of_birth']
+    .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
+  data.phone = phoneRaw ? '+255' + phoneRaw : '';
+
   const res = await authFetch(api('/api/employees/' + eid), {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data),
   });
   const r = await res.json();
-  document.getElementById('pfEditMsg').textContent = r.ok ? '保存成功' : '保存失败';
-  document.getElementById('pfEditMsg').style.color = r.ok ? 'var(--success)' : 'var(--danger)';
-  if (r.ok) { setTimeout(() => { document.getElementById('pfEditModal').remove(); showEmployeeProfile(eid); }, 800); }
+  if (!r.ok) { setMsg(t('save_failed'), false); return; }
+
+  // ── 薪资类别 + 基数 ──
+  const st = document.getElementById('pfEdit_salary_type').value;
+  const dayRate = parseInt(document.getElementById('pfEdit_day_rate').value) || 0;
+  const monthly = parseInt(document.getElementById('pfEdit_monthly_salary').value) || 0;
+  const res2 = await authFetch(api('/api/employees/' + eid + '/salary-type'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({salary_type: st, day_rate: dayRate, monthly_salary: monthly}),
+  });
+  const r2 = await res2.json();
+  if (!r2.ok) { setMsg(t('salary_type_save_failed'), false); return; }
+
+  setMsg(t('save_ok'), true);
+  setTimeout(() => {
+    document.getElementById('pfEditModal').remove();
+    showEmployeeProfile(eid);
+    renderEmployeeTable();
+    document.getElementById('recalcBtn').click();
+  }, 800);
 }
 
 async function removeOverride(eid, idx) {

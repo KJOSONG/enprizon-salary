@@ -99,6 +99,10 @@ def init_db(data_folder):
         ('status', 'TEXT DEFAULT \'active\''),
         ('dismissed_at', 'TEXT DEFAULT \'\''),
         ('custom_fields', 'TEXT DEFAULT \'{}\''),
+        # P7: 员工档案字段扩展
+        ('gender', 'TEXT DEFAULT \'\''),
+        ('date_of_birth', 'TEXT DEFAULT \'\''),
+        ('avatar_path', 'TEXT DEFAULT \'\''),
     ]
     for col, defn in _emp_new_cols:
         try:
@@ -1089,10 +1093,11 @@ def get_employee_profile(data_folder, employee_id):
     return {**dict(emp), 'event_count': event_count, 'leave_count': leave_count}
 
 def update_employee_fields(data_folder, employee_id, fields):
-    """更新员工扩展字段（position/skill_level/hire_date/nida_*/nssf_*/bank_*）"""
+    """更新员工扩展字段（position/skill_level/hire_date/nida_*/nssf_*/bank_* 及 P7 gender/dob/phone）"""
     allowed = {'position', 'skill_level', 'hire_date', 'nida_number',
                'nssf_number', 'bank_name', 'bank_account', 'bank_owner',
-               'phone', 'note', 'status', 'dismissed_at', 'custom_fields'}
+               'phone', 'note', 'status', 'dismissed_at', 'custom_fields',
+               'gender', 'date_of_birth', 'avatar_path'}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return False
@@ -1100,6 +1105,18 @@ def update_employee_fields(data_folder, employee_id, fields):
     sets = ', '.join(f"{k}=?" for k in updates)
     vals = list(updates.values()) + [employee_id]
     conn.execute(f"UPDATE employees SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+    return True
+
+def update_employee_salary_type(data_folder, employee_id, salary_type, day_rate, monthly_salary):
+    """P7: 更新员工薪资类别与基数（default_type + day_rate/monthly_salary）"""
+    if salary_type not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+        return False
+    conn = get_conn(data_folder)
+    conn.execute(
+        "UPDATE employees SET default_type=?, day_rate=?, monthly_salary=? WHERE id=?",
+        (salary_type, int(day_rate or 0), int(monthly_salary or 0), employee_id))
     conn.commit()
     conn.close()
     return True
