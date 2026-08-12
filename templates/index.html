@@ -127,6 +127,13 @@
     <div class="global-search" id="globalSearch">
       <input type="search" id="searchInput" data-i18n-placeholder="search_placeholder" placeholder="搜索..."
              oninput="handleSearchInput()" onfocus="showSearchResults()" onkeydown="handleSearchKey(event)">
+      <select id="searchScope" onchange="handleSearchInput()" style="font-size:11px;padding:4px 4px;margin-left:4px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+        <option value="all" data-i18n="search_scope_all">全部</option>
+        <option value="employees">👤 员工</option>
+        <option value="attendance">📅 出勤</option>
+        <option value="salary">💰 薪资</option>
+        <option value="production">⚒ 产量</option>
+      </select>
       <div class="search-results" id="searchResults" style="display:none;"></div>
     </div>
     <div id="periodSourceBadge" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px;margin-right:12px;">
@@ -256,6 +263,8 @@
         <div class="info-row"><span class="info-label">调休余额</span><span class="info-value" id="pfComp">—</span></div>
       </div>
       <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;">✎ 编辑</button>
+      <button class="nav-btn" onclick="toggleSchemaForm()" style="margin-top:8px;margin-left:4px;font-size:11px;" data-i18n="form_toggle_schema">📝 表单模式</button>
+      <div id="profileSchemaForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);"></div>
     </div>
     <!-- 生命周期时间线 -->
     <div class="card" style="min-width:0;">
@@ -709,6 +718,31 @@
 </div>
 
 </div><!-- .main -->
+
+<!-- 移动端底部导航栏 -->
+<nav class="mobile-bottom-nav" id="mobileBottomNav">
+  <a href="javascript:void(0)" onclick="navigate('dashboard')" title="数据台">
+    <span class="nav-icon">◆</span>
+    <span data-i18n="nav_dashboard">数据台</span>
+  </a>
+  <a href="javascript:void(0)" onclick="navigate('attendance')" title="出勤">
+    <span class="nav-icon">📅</span>
+    <span data-i18n="nav_attendance">出勤</span>
+  </a>
+  <a href="javascript:void(0)" onclick="navigate('production','underground')" title="产量">
+    <span class="nav-icon">⚒</span>
+    <span data-i18n="nav_production">产量</span>
+  </a>
+  <a href="javascript:void(0)" onclick="navigate('scoring','card')" title="评分">
+    <span class="nav-icon">★</span>
+    <span data-i18n="nav_scoring">评分</span>
+  </a>
+  <a href="javascript:void(0)" onclick="navigate('salary','table')" title="薪资">
+    <span class="nav-icon">💰</span>
+    <span data-i18n="nav_salary">薪资</span>
+  </a>
+</nav>
+
 </div><!-- .app-main -->
 
 <!-- ═══ 模态框: 例外管理 ═══ -->
@@ -1328,6 +1362,8 @@ function toggleSidebar() {
     touchStartX = e.touches[0].clientX;
   }, { passive: true });
   document.addEventListener('touchend', function(e) {
+    // 跳过可滚动元素内部的滑动（表格、表单等）
+    if (e.target.closest('.table-wrap, .modal, textarea, select, input')) return;
     const diff = e.changedTouches[0].clientX - touchStartX;
     const sidebar = document.getElementById('sidebar');
     // 从左边缘向右滑动 > 60px → 打开侧边栏
@@ -3596,6 +3632,29 @@ function renderFormFromSchema(schemaId, targetEl, submitCallback) {
   });
 }
 
+/* ── 档案页表单模式切换 ── */
+function toggleSchemaForm() {
+  const formEl = document.getElementById('profileSchemaForm');
+  if (formEl.style.display === 'none' || !formEl.style.display) {
+    formEl.style.display = '';
+    renderFormFromSchemaByName('employee_profile', formEl);
+  } else {
+    formEl.style.display = 'none';
+  }
+}
+
+function renderFormFromSchemaByName(schemaName, targetEl) {
+  authFetch(api('/api/forms/schemas')).then(async res => {
+    const data = await res.json();
+    if (!data.ok) { targetEl.innerHTML = '<p>加载失败</p>'; return; }
+    const schema = data.schemas.find(s => s.name === schemaName);
+    if (!schema) { targetEl.innerHTML = '<p>表单未找到</p>'; return; }
+    renderFormFromSchema(schema.id, targetEl, null);
+  }).catch(() => {
+    targetEl.innerHTML = '<p>加载失败</p>';
+  });
+}
+
 // ══════════════════════════════════════════════════════
 // P4: 全局搜索
 // ══════════════════════════════════════════════════════
@@ -3614,7 +3673,8 @@ function handleSearchInput() {
 
   _searchTimer = setTimeout(async () => {
     try {
-      const res = await authFetch(api('/api/search?q=' + encodeURIComponent(q) + '&scope=all'));
+      const scope = document.getElementById('searchScope').value || 'all';
+      const res = await authFetch(api('/api/search?q=' + encodeURIComponent(q) + '&scope=' + scope));
       const data = await res.json();
       if (data.ok) {
         renderSearchResults(data.results, q);
@@ -3707,7 +3767,7 @@ const MODULE_NAMES = {
   system: 'perm_module_system',
 };
 
-const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export'];
+const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage'];
 
 async function loadPermissionsPage() {
   const tbody = document.getElementById('permUsersTable');

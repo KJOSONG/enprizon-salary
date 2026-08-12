@@ -211,7 +211,7 @@ def update_user_role():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/api/permissions/users', methods=['GET'])
-@login_required
+@admin_required
 def api_permissions_users():
     from core.database import list_all_users, get_user_permissions_summary
     users = list_all_users(app.config['DATA_FOLDER'])
@@ -250,15 +250,16 @@ def api_permissions_grant():
 @app.route('/api/permissions/grant', methods=['DELETE'])
 @super_admin_required
 def api_permissions_revoke():
-    from core.database import revoke_user_grant
+    from core.database import revoke_user_grant_by_action
     data = request.get_json(silent=True) or {}
     username = data.get('username', '').strip()
-    permission_id = data.get('permission_id', 0)
-    if not username or not permission_id:
+    module = data.get('module', '').strip()
+    action = data.get('action', '').strip()
+    if not username or not module or not action:
         return jsonify({'ok': False, 'error': 'missing_fields'}), 400
     try:
-        revoke_user_grant(app.config['DATA_FOLDER'], username, permission_id)
-        _audit('perm_revoke', username, json.dumps({'permission_id': permission_id}))
+        revoke_user_grant_by_action(app.config['DATA_FOLDER'], username, module, action)
+        _audit('perm_revoke', username, json.dumps({'module': module, 'action': action}))
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
@@ -1315,6 +1316,7 @@ def oa_pending_count():
 
 @app.route('/api/oa/events/<int:event_id>/approve', methods=['POST'])
 @editor_required
+@require_permission('oa', 'approve')
 def oa_approve_event(event_id):
     """批准 OA 事件"""
     from core.database import approve_event, get_event, log_audit
@@ -2416,6 +2418,7 @@ def export_attendance():
 
 @app.route('/export/all', methods=['POST'])
 @login_required
+@require_permission('salary', 'export')
 def export_all():
     """一次性导出：员工信息 → 薪资总表 → 出勤表 → 日工资分布 → 产量汇总"""
     try:

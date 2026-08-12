@@ -327,6 +327,7 @@ const I18N_DICT = {
     form_no_fields: '暂无字段',
     form_add_field: '+ 添加字段',
     form_required: '必填',
+    form_toggle_schema: '📝 表单模式',
 
     /* ── Toast ── */
     toast_calc_done: '计算完成',
@@ -783,6 +784,7 @@ const I18N_DICT = {
     form_no_fields: 'No fields',
     form_add_field: '+ Add Field',
     form_required: 'Required',
+    form_toggle_schema: '📝 Form Mode',
 
     /* ── Toast ── */
     toast_calc_done: 'Calculation complete',

@@ -821,10 +821,22 @@ def grant_user_permission(data_folder, username, module, action, grant_type='all
     conn.close()
 
 def revoke_user_grant(data_folder, username, permission_id):
-    """撤销用户单独授权"""
+    """撤销用户单独授权（按 permission_id）"""
     conn = get_conn(data_folder)
     conn.execute("DELETE FROM user_grants WHERE username=? AND permission_id=?",
                  (username, permission_id))
+    conn.commit()
+    conn.close()
+
+def revoke_user_grant_by_action(data_folder, username, module, action):
+    """撤销用户单独授权（按 module + action 查找 permission_id 后删除）"""
+    conn = get_conn(data_folder)
+    pid_row = conn.execute(
+        "SELECT id FROM permissions WHERE module=? AND action=? AND scope_type='all'",
+        (module, action)).fetchone()
+    if pid_row:
+        conn.execute("DELETE FROM user_grants WHERE username=? AND permission_id=?",
+                     (username, pid_row['id']))
     conn.commit()
     conn.close()
 
@@ -1361,8 +1373,8 @@ def search_all(data_folder, query, scope='all'):
                         'subtitle': r['date'],
                         'url': '#production/underground'
                     })
-            except:
-                pass
+            except Exception:
+                pass  # 表可能不存在，跳过
 
     conn.close()
     return results[:30]
@@ -1534,6 +1546,69 @@ def seed_default_forms(data_folder):
                 options, required, sort_order, is_custom, default_value)
             VALUES (?,?,?,?,?,?,?,?,0,?)
         """, (sid2, f_key, f_type, lzh, len_val, options, req, order, df))
+
+    # 调岗OA表单
+    conn.execute("INSERT INTO form_schemas (name, description, table_name) VALUES (?,?,?)",
+                 ('oa_transfer', '调岗审批表单', 'employee_events'))
+    sid3 = conn.execute("SELECT id FROM form_schemas WHERE name='oa_transfer'").fetchone()['id']
+    transfer_fields = [
+        ('employee_id', 'text', '员工ID', 'Employee ID', 1, 1),
+        ('old_department', 'text', '原部门', 'Old Department', 1, 2),
+        ('new_department', 'text', '新部门', 'New Department', 1, 3),
+        ('new_position', 'text', '新岗位', 'New Position', 0, 4),
+        ('effective_date', 'date', '生效日期', 'Effective Date', 1, 5),
+        ('note', 'textarea', '备注', 'Note', 0, 6),
+    ]
+    for f_key, f_type, lzh, len_val, req, order in transfer_fields:
+        conn.execute("""
+            INSERT INTO form_fields (schema_id, field_key, field_type, label_zh, label_en,
+                options, required, sort_order, is_custom, default_value)
+            VALUES (?,?,?,?,?,?,?,?,0,'')
+        """, (sid3, f_key, f_type, lzh, len_val, '[]', req, order))
+
+    # 出勤收集表单
+    conn.execute("INSERT INTO form_schemas (name, description, table_name) VALUES (?,?,?)",
+                 ('attendance_collection', '出勤收集（花名册点选）', 'attendance_overrides'))
+    sid4 = conn.execute("SELECT id FROM form_schemas WHERE name='attendance_collection'").fetchone()['id']
+    att_fields = [
+        ('employee_id', 'text', '员工', 'Employee', 1, 1),
+        ('date', 'date', '日期', 'Date', 1, 2),
+        ('status', 'select', '出勤状态', 'Status', 1, 3),
+        ('is_driver', 'checkbox', '当日驾驶', 'Is Driver', 0, 4),
+    ]
+    for f_key, f_type, lzh, len_val, req, order in att_fields:
+        opts = '[]'
+        if f_key == 'status':
+            opts = json.dumps(['P', 'A', 'L', 'S', 'Y', 'T', 'D', 'N', 'R', 'C'])
+        conn.execute("""
+            INSERT INTO form_fields (schema_id, field_key, field_type, label_zh, label_en,
+                options, required, sort_order, is_custom, default_value)
+            VALUES (?,?,?,?,?,?,?,?,0,'')
+        """, (sid4, f_key, f_type, lzh, len_val, opts, req, order))
+
+    # 产量录入表单（井下/钻工/破碎三个共用同一结构）
+    prod_specs = [
+        ('production_underground', '井下出渣产量录入', 'shift_additions'),
+        ('production_driller', '钻工组产量录入', 'driller_additions'),
+        ('production_crush', '破碎计件产量录入', 'shift_additions'),
+    ]
+    for pname, pdesc, ptable in prod_specs:
+        conn.execute("INSERT INTO form_schemas (name, description, table_name) VALUES (?,?,?)",
+                     (pname, pdesc, ptable))
+        psid = conn.execute("SELECT id FROM form_schemas WHERE name=?", (pname,)).fetchone()['id']
+        prod_fields = [
+            ('employee_id', 'text', '员工', 'Employee', 1, 1),
+            ('date', 'date', '日期', 'Date', 1, 2),
+            ('nickel_h', 'number', 'Nickel(H)产量', 'Nickel(H) Output', 0, 3),
+            ('nickel_l', 'number', 'Nickel(L)产量', 'Nickel(L) Output', 0, 4),
+            ('mawe', 'number', 'MAWE产量', 'MAWE Output', 0, 5),
+        ]
+        for f_key, f_type, lzh, len_val, req, order in prod_fields:
+            conn.execute("""
+                INSERT INTO form_fields (schema_id, field_key, field_type, label_zh, label_en,
+                    options, required, sort_order, is_custom, default_value)
+                VALUES (?,?,?,?,?,?,?,?,0,'')
+            """, (psid, f_key, f_type, lzh, len_val, '[]', req, order))
 
     conn.commit()
     conn.close()
