@@ -183,6 +183,8 @@ def init_db(data_folder):
             annual_used INTEGER DEFAULT 0,
             comp_entitled INTEGER DEFAULT 0,
             comp_used INTEGER DEFAULT 0,
+            sick_entitled INTEGER DEFAULT 14,
+            sick_used INTEGER DEFAULT 0,
             updated_at TEXT DEFAULT (datetime('now','localtime')),
             PRIMARY KEY (employee_id, year)
         );
@@ -294,6 +296,11 @@ def init_db(data_folder):
         ) AND type!='exclusion';
         DELETE FROM monthly_data WHERE month='all';
     """)
+    # P8: 旧库 leave_balances 补病假额度列
+    for col in ['sick_entitled INTEGER DEFAULT 14', 'sick_used INTEGER DEFAULT 0']:
+        try:
+            conn.execute(f"ALTER TABLE leave_balances ADD COLUMN {col}")
+        except: pass
     conn.commit()
     _migrate_json(conn, data_folder)
     conn.close()
@@ -500,6 +507,7 @@ def load_config(data_folder):
         'crush_price': 300,
         'nssf_rate': 0.10,
         'underground_mode': 'piecework',
+        'sick_leave_days': 14,
     }
 
 def save_config(data_folder, config):
@@ -694,6 +702,65 @@ def restore_employee(data_folder, employee_id):
     conn.execute("DELETE FROM dismissed_employees WHERE employee_id=?", (employee_id,))
     conn.commit()
     conn.close()
+
+def apply_approved_event(data_folder, event):
+    """P8: OA 事件审批通过后落员工主档（PRD §5.2 效果列，与 overrides 推导叠加）
+
+    hire    → 创建/补全 employees 记录 + status='active'
+    transfer→ 更新 employees.department/position
+    dismiss/resign → 写 dismissed_employees + 置 employees.status='dismissed' + dismissed_at
+    """
+    eid = event.get('employee_id', '')
+    etype = event.get('event_type', '')
+    eff = event.get('effective_date', '')
+    try:
+        payload = json.loads(event.get('payload', '{}') or '{}')
+    except:
+        payload = {}
+    conn = get_conn(data_folder)
+    try:
+        if etype == 'hire':
+            name = payload.get('name', '')
+            dept = payload.get('department', '')
+            position = payload.get('position', '')
+            exists = conn.execute("SELECT 1 FROM employees WHERE id=?", (eid,)).fetchone()
+            if exists:
+                conn.execute(
+                    "UPDATE employees SET name=COALESCE(NULLIF(?,''),name),"
+                    " department=COALESCE(NULLIF(?,''),department),"
+                    " position=COALESCE(NULLIF(?,''),position),"
+                    " hire_date=COALESCE(NULLIF(?,''),hire_date),"
+                    " status='active' WHERE id=?",
+                    (name, dept, position, eff, eid))
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO employees (id, name, department, position, status, hire_date)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (eid, name, dept, position, 'active', eff or ''))
+        elif etype == 'transfer':
+            new_dept = payload.get('new_department', '')
+            new_pos = payload.get('new_position', '')
+            if new_dept:
+                conn.execute("UPDATE employees SET department=? WHERE id=?", (new_dept, eid))
+            if new_pos:
+                conn.execute("UPDATE employees SET position=? WHERE id=?", (new_pos, eid))
+        elif etype in ('dismiss', 'resign'):
+            note = payload.get('reason', '')
+            if eff:
+                conn.execute(
+                    "INSERT OR REPLACE INTO dismissed_employees (employee_id, note, dismissed_at) VALUES (?,?,?)",
+                    (eid, note, eff))
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO dismissed_employees (employee_id, note, dismissed_at) VALUES (?,?,datetime('now','localtime'))",
+                    (eid, note))
+            conn.execute(
+                "UPDATE employees SET status='dismissed',"
+                " dismissed_at=COALESCE(NULLIF(?,''), dismissed_at) WHERE id=?",
+                (eff, eid))
+        conn.commit()
+    finally:
+        conn.close()
 
 def load_dismissed_with_info(data_folder):
     """返回已离职员工详情列表"""
@@ -1014,6 +1081,19 @@ def get_pending_events(data_folder):
     conn.close()
     return [dict(r) for r in rows]
 
+def get_processed_events(data_folder):
+    """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT e.*, em.name as employee_name
+        FROM employee_events e
+        LEFT JOIN employees em ON e.employee_id = em.id
+        WHERE e.status IN ('approved', 'rejected')
+        ORDER BY e.updated_at DESC, e.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
 def get_employee_events(data_folder, employee_id):
     """获取某员工的所有生命周期事件（按时间倒序）"""
     conn = get_conn(data_folder)
@@ -1093,11 +1173,11 @@ def get_employee_profile(data_folder, employee_id):
     return {**dict(emp), 'event_count': event_count, 'leave_count': leave_count}
 
 def update_employee_fields(data_folder, employee_id, fields):
-    """更新员工扩展字段（position/skill_level/hire_date/nida_*/nssf_*/bank_* 及 P7 gender/dob/phone）"""
+    """更新员工扩展字段（position/skill_level/hire_date/nida_*/nssf_*/bank_* 及 P7 gender/dob/phone、P8 department）"""
     allowed = {'position', 'skill_level', 'hire_date', 'nida_number',
                'nssf_number', 'bank_name', 'bank_account', 'bank_owner',
                'phone', 'note', 'status', 'dismissed_at', 'custom_fields',
-               'gender', 'date_of_birth', 'avatar_path'}
+               'gender', 'date_of_birth', 'avatar_path', 'department'}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return False
@@ -1156,7 +1236,8 @@ def get_leave_balance(data_folder, employee_id, year):
     if not row:
         return {
             'annual_entitled': 28, 'annual_used': 0,
-            'comp_entitled': 0, 'comp_used': 0
+            'comp_entitled': 0, 'comp_used': 0,
+            'sick_entitled': 14, 'sick_used': 0
         }
     return dict(row)
 
@@ -1203,6 +1284,73 @@ def deduct_comp_leave(data_folder, employee_id, year, days):
             updated_at=datetime('now','localtime')
         WHERE employee_id=? AND year=?
     """, (days, employee_id, year))
+    conn.commit()
+    conn.close()
+    return True
+
+# ── P8: 病假余额 ─────────────────────────
+
+def deduct_sick_leave(data_folder, employee_id, year, days, default_entitled=14):
+    """扣减病假余额（懒初始化：无行时按 default_entitled 建行）；余额不足返回 False"""
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT sick_entitled, sick_used FROM leave_balances WHERE employee_id=? AND year=?",
+        (employee_id, year)).fetchone()
+    if not row:
+        conn.execute(
+            "INSERT OR IGNORE INTO leave_balances (employee_id, year, sick_entitled, sick_used) VALUES (?,?,?,0)",
+            (employee_id, year, default_entitled))
+        conn.commit()
+        row = {'sick_entitled': default_entitled, 'sick_used': 0}
+    if (row['sick_entitled'] - row['sick_used']) < days:
+        conn.close()
+        return False
+    conn.execute("""
+        UPDATE leave_balances SET sick_used=sick_used+?,
+            updated_at=datetime('now','localtime')
+        WHERE employee_id=? AND year=?
+    """, (days, employee_id, year))
+    conn.commit()
+    conn.close()
+    return True
+
+def insert_leave_request(data_folder, data):
+    """写入 leave_requests 记录（status 由调用方指定）"""
+    conn = get_conn(data_folder)
+    cur = conn.execute("""
+        INSERT INTO leave_requests (employee_id, leave_type, start_date, end_date, days, reason, submitted_by, status)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (data['employee_id'], data.get('leave_type', 'casual'),
+          data['start_date'], data.get('end_date', data['start_date']),
+          data.get('days', 1), data.get('reason', ''),
+          data.get('submitted_by', ''), data.get('status', 'pending')))
+    conn.commit()
+    eid = cur.lastrowid
+    conn.close()
+    return eid
+
+def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sick_used=None):
+    """P8: 手动调整员工病假余额（sick_entitled/sick_used，None 表示不修改）"""
+    conn = get_conn(data_folder)
+    exists = conn.execute(
+        "SELECT 1 FROM leave_balances WHERE employee_id=? AND year=?", (employee_id, year)).fetchone()
+    if not exists:
+        conn.execute(
+            "INSERT OR IGNORE INTO leave_balances (employee_id, year, sick_entitled, sick_used) VALUES (?,?,14,0)",
+            (employee_id, year))
+        conn.commit()
+    sets, vals = [], []
+    if sick_entitled is not None:
+        sets.append("sick_entitled=?")
+        vals.append(int(sick_entitled))
+    if sick_used is not None:
+        sets.append("sick_used=?")
+        vals.append(int(sick_used))
+    if not sets:
+        conn.close()
+        return False
+    vals += [employee_id, year]
+    conn.execute(f"UPDATE leave_balances SET {', '.join(sets)}, updated_at=datetime('now','localtime') WHERE employee_id=? AND year=?", vals)
     conn.commit()
     conn.close()
     return True

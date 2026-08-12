@@ -1519,7 +1519,16 @@ def oa_create_event():
     """发起 OA 事件（入职/调岗/离职/薪资变更等）"""
     from core.database import create_event, log_audit
     data = request.get_json()
-    if not data or not data.get('employee_id') or not data.get('event_type'):
+    if not data or not data.get('event_type'):
+        return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
+    # P8: 入职申请无 employee_id 时，用姓名经 namematch 生成
+    if not data.get('employee_id') and data.get('event_type') == 'hire':
+        from core.namematch import make_employee_id
+        name = (data.get('payload') or {}).get('name', '') or ''
+        data['employee_id'] = make_employee_id(name) or name
+        if not data['employee_id']:
+            return jsonify({'ok': False, 'error': '无法生成员工ID（请检查姓名）'}), 400
+    if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
     data['operator_id'] = session.get('username', 'unknown')
     # payload / snapshot 是 dict，需要序列化为 JSON 字符串
@@ -1546,12 +1555,20 @@ def oa_pending_count():
     events = get_pending_events(app.config['DATA_FOLDER'])
     return jsonify({'count': len(events)})
 
+@app.route('/api/oa/history', methods=['GET'])
+@login_required
+def oa_history():
+    """P8: 已处理事件列表（approved/rejected）"""
+    from core.database import get_processed_events
+    events = get_processed_events(app.config['DATA_FOLDER'])
+    return jsonify({'events': events})
+
 @app.route('/api/oa/events/<int:event_id>/approve', methods=['POST'])
 @editor_required
 @require_permission('oa', 'approve')
 def oa_approve_event(event_id):
     """批准 OA 事件"""
-    from core.database import approve_event, get_event, log_audit
+    from core.database import approve_event, get_event, log_audit, apply_approved_event
     username = session.get('username', '')
     event = get_event(app.config['DATA_FOLDER'], event_id)
     if not event:
@@ -1560,6 +1577,15 @@ def oa_approve_event(event_id):
         return jsonify({'ok': False, 'error': '不能审批自己提交的事件'}), 400
     ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
     if ok:
+        # P8: 审批通过后落员工主档（hire/transfer/dismiss/resign），与 overrides 推导叠加
+        try:
+            apply_approved_event(app.config['DATA_FOLDER'], event)
+        except Exception as e:
+            log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
+                      json.dumps({'event_id': event_id, 'event_type': event['event_type'],
+                                  'error': str(e)}))
+            return jsonify({'ok': False,
+                            'error': f'事件已批准但落库失败: {str(e)}'}), 500
         log_audit(app.config['DATA_FOLDER'], 'oa_approve',
                   event['employee_id'], json.dumps({'event_id': event_id}))
     return jsonify({'ok': ok})
@@ -1669,6 +1695,67 @@ def leave_balance(employee_id):
     from core.database import get_leave_balance
     balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year)
     return jsonify({'balance': balance})
+
+@app.route('/api/leave/sick', methods=['POST'])
+@editor_required
+def leave_sick():
+    """P8: 病假申请（editor+，免审）— 落档 + 扣病假余额 + 落出勤 P（视为出勤，不参与计件）"""
+    from core.database import insert_leave_request, deduct_sick_leave, save_attendance_override, log_audit, get_employee_profile
+    from core.pricing import load_config
+    from datetime import datetime, timedelta
+    data = request.get_json() or {}
+    eid = data.get('employee_id', '')
+    date = data.get('effective_date', '')
+    if not eid or not date:
+        return jsonify({'ok': False, 'error': '缺少员工或日期'}), 400
+    if not get_employee_profile(app.config['DATA_FOLDER'], eid):
+        return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    try:
+        days = int(data.get('days', 1))
+        if days < 1:
+            raise ValueError
+        d0 = datetime.strptime(date, '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': '无效的日期或天数'}), 400
+    year = str(d0.year)
+    cfg = load_config(app.config['DATA_FOLDER'])
+    sick_default = int(cfg.get('sick_leave_days', 14) or 14)
+    ok = deduct_sick_leave(app.config['DATA_FOLDER'], eid, year, days, default_entitled=sick_default)
+    if not ok:
+        return jsonify({'ok': False, 'error': '病假余额不足'}), 403
+    insert_leave_request(app.config['DATA_FOLDER'], {
+        'employee_id': eid, 'leave_type': 'sick',
+        'start_date': date, 'end_date': (d0 + timedelta(days=days - 1)).strftime('%Y-%m-%d'),
+        'days': days, 'reason': data.get('note', ''),
+        'submitted_by': session.get('username', 'unknown'), 'status': 'approved',
+    })
+    for i in range(days):
+        d = (d0 + timedelta(days=i)).strftime('%Y-%m-%d')
+        save_attendance_override(app.config['DATA_FOLDER'], eid, d, 'P')
+    log_audit(app.config['DATA_FOLDER'], 'leave_sick', eid,
+              json.dumps({'date': date, 'days': days}))
+    return jsonify({'ok': True, 'message': '病假已登记（免审），出勤已落 P'})
+
+@app.route('/api/leave/balance/adjust', methods=['POST'])
+@admin_required
+def leave_balance_adjust():
+    """P8: 手动调整员工病假余额（写审计）"""
+    from core.database import adjust_leave_balance, log_audit
+    import datetime as _dt
+    data = request.get_json() or {}
+    eid = data.get('employee_id', '')
+    year = str(data.get('year', _dt.datetime.now().year))
+    if not eid:
+        return jsonify({'ok': False, 'error': '缺少员工ID'}), 400
+    ok = adjust_leave_balance(app.config['DATA_FOLDER'], eid, year,
+                              sick_entitled=data.get('sick_entitled'),
+                              sick_used=data.get('sick_used'))
+    if not ok:
+        return jsonify({'ok': False, 'error': '无有效调整字段'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'leave_balance_adjust', eid,
+              json.dumps({'year': year, 'sick_entitled': data.get('sick_entitled'),
+                          'sick_used': data.get('sick_used')}))
+    return jsonify({'ok': True})
 
 @app.route('/api/production/shift', methods=['POST'])
 @editor_required
