@@ -1303,6 +1303,27 @@ function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
 }
 
+/* ── 手机端滑动关闭侧边栏 ── */
+(function() {
+  let touchStartX = 0;
+  document.addEventListener('touchstart', function(e) {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    const diff = e.changedTouches[0].clientX - touchStartX;
+    const sidebar = document.getElementById('sidebar');
+    // 从左边缘向右滑动 > 60px → 打开侧边栏
+    if (touchStartX < 30 && diff > 60) {
+      sidebar.classList.add('open');
+    }
+    // 从右侧向左侧滑动 > 60px → 关闭侧边栏 (如果已打开)
+    if (sidebar.classList.contains('open') && touchStartX > 100 && diff < -60) {
+      sidebar.classList.remove('open');
+    }
+    touchStartX = 0;
+  }, { passive: true });
+})();
+
 /* ── 桌面端侧边栏折叠 ── */
 function toggleCollapseSidebar() {
   const sidebar = document.getElementById('sidebar');
