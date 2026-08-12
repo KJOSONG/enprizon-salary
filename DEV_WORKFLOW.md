@@ -58,6 +58,12 @@
 | P3 | 评分模型并入（入库+录入+并入净额+三闸） | 双路径核对 0 偏差 |
 | P4 | 角色细化 + 表单自定义 + 手机端 + 全局查询 | 权限/表单按验收标准通过 |
 | P5 | 旧数据归档 + Excel 导入收尾 + 本地自测 | 旧库只读、新数据全网页录入 |
+| **P6** | **顶部交互清理** | 登录前月份选择器删除 / 数据台月份切换 bug 修复 / 搜索简化（删 scope） / 员工页合并（删档案页） |
+| **P7** | **员工档案字段扩展** | 性别 / 年龄 / 头像上传 / 字段类型校验 / 电话 +255 / 薪资类别+基数在档案页可改 |
+| **P8** | **OA 合并入员工 + 请假增加病假** | 3 流程嵌入员工管理底部 / 病假免审+14 天额度 / 请假申请改姓名索引 / 员工列表显示 id |
+| **P9** | **数据采集模块重设计** | 4 表单（井下/钻工/破碎/出勤收集）+ 提交页 + 历史区 + 再编辑 + D+N 同表 |
+| **P10** | **评分模块重设计** | 班组 LAMBA/SAKA + 自定义工号 + 顶层月份 + 选班组自动出全员 + 一张张卡录入 |
+| **P11** | **系统清理 + 薪资总表新列** | 源文件管理 UI 删除 / 司机津贴独立设置删除 / 薪资总表增 driver_allowance 列 / 井下计件列改名 |
 
 每个阶段在本地可独立验证；是否"上线"由部署时机（§10）决定。
 
@@ -87,6 +93,15 @@
 - `overrides` / `attendance_overrides` / `bonus_penalties` / `dismissed_employees` 等现有表**沿用并演进**，事件流逐步取代 `overrides` 的手动覆盖。
 - SQLite `ALTER` 能力有限，结构变更优先"加表/加列"，避免复杂改列；必要时用版本化迁移脚本。
 - 旧 `kilwa.db` 冻结为只读归档（`archived_kilwa`），不回溯、不事件化。
+
+### 8.1 v4 新增（对应 PRD §8）
+
+- **employees 扩 5 列**：`gender TEXT` / `date_of_birth TEXT` / `avatar_path TEXT` / `custom_number TEXT` / `team_id INTEGER`（P7 阶段加）
+- **新表 collection_submissions**：数据采集提交主表（form_type / submission_date / payload / operator_id / month / version），P9 阶段建
+- **新表 collection_history**：编辑历史版本表，P9 阶段建
+- **新表 employee_groups**：班组表（id / name / description），P10 阶段建；种入 LAMBA LAMBA、SAKA SAKA
+- **leave_requests 扩 leave_type**：新增 `sick` 病假，P8 阶段
+- **leave_balances 扩**：新增病假额度（默认 14 天/年），P8 阶段
 
 ---
 

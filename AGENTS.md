@@ -215,21 +215,21 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | `GET /export/attendance` | Excel | editor+ | 出勤网格导出 |
 | `POST /export/all` | Excel 7 Sheet | editor+ | 英文版统一导出（员工信息+薪资+出勤+日工资+产量+钻工核对+钻工明细） |
 
-### 司机津贴
+### 司机津贴（P11 改造）
 
-`_apply_driver_allowance()` — 部门名含"司机"或岗位含 "driver" 的员工，自动加 5,000 TZS/天 × 出勤天数津贴，合入净额计算。
+旧 `_apply_driver_allowance()`（按部门名/岗位含"司机"自动匹配）将于 **P11 删除**。v4 改为：由出勤勾选"驾驶"触发，须在校验 `driver_roster` 名单内，自动 5,000/班 计津贴并流入薪资总表 `driver_allowance` 列。
 
 ### 权限模型
 
 `super_admin` > `admin` > `editor` > `viewer`。默认账号 `user/qweasd`（viewer），`KEJU` 自动升 super_admin。
 
-### 数据库表（P5 当前 18+ 张表）
+### 数据库表（P5 18+ 张 + P7-P10 增量）
 
 | 表 | 说明 | 阶段 |
 |-----|------|------|
-| `employees` | 员工主档（含 P1 扩展：position/skill_level/hire_date/NIDA/NSSF/银行字段） | P0+P1 |
+| `employees` | 员工主档（P1：position/skill_level/hire_date/NIDA/NSSF/银行；**P7 增** gender/date_of_birth/avatar_path；**P10 增** custom_number/team_id） | P0+P1+P7+P10 |
 | `overrides` | 薪资例外：永久/临时（逐步被 employee_events 取代） | P0 |
-| `attendance_overrides` | 手动出勤标记 P/A/L/D/N/C/S/Y/T | P0 |
+| `attendance_overrides` | 手动出勤标记 P/A/L/D/N/C/S/Y/T/**P(病假)** | P0+P8 |
 | `settings` | 系统配置 key-value（定价/NSSF/underground_mode/scoring） | P0 |
 | `monthly_data` | 月度薪资快照缓存 | P0 |
 | `audit_log` | 操作审计（强制 UTC+3） | P0 |
@@ -239,14 +239,17 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | `dismissed_employees` | 离职追踪 | P0 |
 | `admin_users` | 用户认证（加盐 SHA256） | P0 |
 | `employee_events` | OA 生命周期事件（入职/调岗/离职/薪资变/请假） | P1 |
-| `leave_balances` | 年假/调休余额 | P2 |
-| `leave_requests` | 请假申请记录 | P2/P5 |
+| `leave_balances` | 年假/调休余额（**P8 增** 病假 14 天/年默认） | P2+P8 |
+| `leave_requests` | 请假申请（**P8 增** leave_type='sick' 病假） | P2+P5+P8 |
 | `driver_roster` | 司机白名单 | P2 |
-| `scoring_cards/entries` | 评分卡 + 6 维评分 | P3 |
+| `scoring_cards/entries` | 评分卡 + 6 维评分（**P10 重设计**：班组+全员+自定义工号+一张张卡） | P3+P10 |
 | `objective_records` | 客观产量数据（R1/R2→S） | P3 |
 | `permissions` | 细粒度权限定义（模块×动作） | P4 |
 | `user_grants` | 用户单独授权（覆盖角色默认） | P4 |
 | `form_schemas/fields` | Schema 驱动表单定义 | P4 |
+| **`collection_submissions`** | **P9 新增**：数据采集提交主表（井下/钻工/破碎/出勤收集 4 类） | P9 |
+| **`collection_history`** | **P9 新增**：编辑历史版本表（旧 payload 留档） | P9 |
+| **`employee_groups`** | **P10 新增**：班组表（LAMBA LAMBA / SAKA SAKA 等） | P10 |
 
 ### 硬排除名单（`app.py:40-45`）
 
@@ -341,10 +344,20 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET | `/api/permissions/users` | admin+ | 用户权限矩阵 |
 | POST | `/api/permissions/grant` | super_admin | 单独授权 |
 | DELETE | `/api/permissions/grant` | super_admin | 撤销授权 |
-| GET | `/api/search?q=&scope=` | 登录用户 | 全局搜索（P4） |
+| GET | `/api/search?q=&scope=` | 登录用户 | 全局搜索（P4；**P6 简化为无 scope**） |
 | GET/POST/PUT/DELETE | `/api/forms/schema/*` | 登录/超管 | 表单自定义CRUD（P4） |
 | GET | `/api/archive/months` | 登录用户 | 归档月份列表（P5） |
 | GET | `/api/archive/salary?month=` | 登录用户 | 归档薪资查询（P5） |
+| **POST** | **`/api/employees/avatar`** | **admin+** | **P7 新增**：员工头像上传（≤2MB image/png/jpeg） |
+| **POST** | **`/api/employees/avatar/delete`** | **admin+** | **P7 新增**：删除员工头像 |
+| **POST** | **`/api/leave/sick`** | **登录用户** | **P8 新增**：病假申请（免审，落 P 出勤，扣 14 天/年余额） |
+| **POST** | **`/api/collection/submit`** | **editor+** | **P9 新增**：数据采集提交（井下/钻工/破碎/出勤收集） |
+| **GET** | **`/api/collection/history?form_type=&month=`** | **editor+** | **P9 新增**：数据采集历史表 |
+| **POST** | **`/api/collection/edit/<submission_id>`** | **editor+** | **P9 新增**：再编辑历史提交（写 collection_history） |
+| **GET/POST/PUT/DELETE** | **`/api/employee_groups/*`** | **admin+** | **P10 新增**：班组 CRUD（LAMBA LAMBA / SAKA SAKA） |
+| **GET** | **`/api/scoring/team/<team_id>/month/<month>`** | **editor+** | **P10 新增**：按班组+月份取评分卡全员列表（含 custom_number） |
+| **POST** | **`/api/scoring/card/batch`** | **editor+** | **P10 新增**：批量提交评分卡（一张张卡） |
+| **删除** | **`/upload-source`、`/download-source/<file_type>`** | **P11** | **UI 隐藏**；保留为批量导入过渡 API |
 
 ### 前端文件
 
@@ -373,7 +386,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ## 重构状态（2026-08-12）
 
 **分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
-**阶段**: P0-P5 全部完成，19 commits ahead of `main`
+**阶段**: P0-P5 全部完成；**v4 PRD 已定稿**（REFACTOR_SPEC.md 重写），P6-P11 待实施
 **服务器**: 仍在运行 `main` 分支旧代码，重构完成且本地验证通过后方可切换
 
 ### 重构新增主要功能
@@ -386,6 +399,12 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | P3 | 评分模型（6维匿名互评+三闸面板+奖金并入净额） |
 | P4 | 细粒度权限、全局搜索、表单自定义引擎、手机端响应式 |
 | P5 | 旧数据 ATTACH 归档、事件驱动计薪桥接、计薪模式切换（计件↔评分） |
+| **P6** | **顶部交互清理**（登录前月份选择器删除 / period-bar bug 修复 / 搜索简化 / 员工页合并） |
+| **P7** | **员工档案字段扩展**（性别/年龄/头像上传/字段类型校验/电话+255） |
+| **P8** | **OA 合并入员工 + 请假增加病假**（姓名索引/员工列表显示 id） |
+| **P9** | **数据采集模块重设计**（4 表单 + 提交页+历史区+再编辑 + D+N 同表） |
+| **P10** | **评分模块重设计**（班组 LAMBA/SAKA + 自定义工号 + 一张张卡） |
+| **P11** | **系统清理 + 薪资总表新列**（源文件管理 UI 删除 / 司机津贴改机制 / driver_allowance 列） |
 
 ### 下一步
 
@@ -393,3 +412,4 @@ app.py (Flask 路由 / 认证 / 数据管线)
 2. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
 3. **项目记忆**：`.memory` 软连接（已完成，2026-08-12）
 4. **git 清理**：提交误跟踪的 `data/kilwa.db-wal`/`data/kilwa.db-shm` 删除（.gitignore 已补防）
+5. **v4 PRD 实施**：按 P6→P11 顺序推进；每个阶段独立本地验证后再合并
