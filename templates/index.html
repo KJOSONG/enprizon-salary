@@ -381,6 +381,21 @@
   </div>
 </div>
 
+<!-- ═══ P9 人员多选弹层 ═══ -->
+<div class="modal-overlay" id="empPickerModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:420px;width:92vw;">
+    <div class="modal-header">
+      <h3 style="margin:0;" data-i18n="col_picker_title">选择人员</h3>
+      <button onclick="document.getElementById('empPickerModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div style="max-height:55vh;overflow-y:auto;margin-top:8px;" id="empPickerList"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn-primary" onclick="confirmPicker()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
+      <button class="btn-cancel" onclick="document.getElementById('empPickerModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── 页面: 薪资 ─── -->
 <div class="page" id="page-salary">
   <div class="card">
@@ -622,49 +637,56 @@
 </div>
 </div>
 
-<!-- ═══ P2 产量录入：井下出渣 ═══ -->
-<div class="page" id="page-production-underground">
+<!-- ═══ P9 数据采集：井下出渣 ═══ -->
+<div class="page" id="page-collection-underground">
   <div class="card">
-    <h2 data-i18n="nav_production_underground">井下出渣</h2>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">班组长录入本组井下产量（直写 shift_additions 表）</p>
-    <div class="filter-bar" style="margin-bottom:12px;">
-      <input type="text" id="prodUgSearch" placeholder="搜索姓名..." style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <input type="date" id="prodUgDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <select id="prodUgShift" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-        <option value="D">白班(D)</option><option value="N">夜班(N)</option><option value="B">D+N</option>
-      </select>
-      <button class="btn-primary" onclick="submitShiftProduction()" style="padding:6px 14px;font-size:12px;">提交</button>
-    </div>
-    <div id="prodUgResult" style="font-size:12px;margin-bottom:8px;"></div>
-    <div class="table-wrap"><table class="data-table" id="prodUgTable"><thead><tr><th>姓名</th><th>日期</th><th>班次</th><th>来源</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
+    <h2 data-i18n="nav_collection_underground">井下出渣采集</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="col_ug_desc">一条提交 = 一次完整日产（Day + Night 双段）</p>
+    <div id="colUgForm"></div>
+    <div id="colUgResult" style="font-size:12px;margin-top:8px;"></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
+    <div id="colUgHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
   </div>
 </div>
-<!-- ═══ P2 产量录入：钻工组 ═══ -->
-<div class="page" id="page-production-driller">
+<!-- ═══ P9 数据采集：钻工组 ═══ -->
+<div class="page" id="page-collection-driller">
   <div class="card">
-    <h2 data-i18n="nav_production_driller">钻工组</h2>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">班组长录入钻工队员+产量（直写 driller_additions）</p>
-    <div class="filter-bar" style="margin-bottom:12px;">
-      <input type="text" id="prodDrSearch" placeholder="队长ID" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;width:100px;">
-      <input type="date" id="prodDrDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <button class="btn-primary" onclick="submitDrillerProduction()" style="padding:6px 14px;font-size:12px;">提交</button>
-    </div>
-    <div id="prodDrResult" style="font-size:12px;margin-bottom:8px;"></div>
-    <div class="table-wrap"><table class="data-table" id="prodDrTable"><thead><tr><th>队长</th><th>日期</th><th>来源</th></tr></thead><tbody><tr><td colspan="3" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
+    <h2 data-i18n="nav_collection_driller">钻工组采集</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="col_dr_desc">一个表单含多个队长槽位，每槽独立队长+成员+产量</p>
+    <div id="colDrForm"></div>
+    <div id="colDrResult" style="font-size:12px;margin-top:8px;"></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
+    <div id="colDrHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
   </div>
 </div>
-<!-- ═══ P2 产量录入：破碎计件 ═══ -->
-<div class="page" id="page-production-crush">
+<!-- ═══ P9 数据采集：破碎计件 ═══ -->
+<div class="page" id="page-collection-crush">
   <div class="card">
-    <h2 data-i18n="nav_production_crush">破碎计件</h2>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">录入破碎产量数据（直写 attendance_overrides C 状态）</p>
-    <div class="filter-bar" style="margin-bottom:12px;">
-      <input type="text" id="prodCrSearch" placeholder="员工ID" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;width:100px;">
-      <input type="date" id="prodCrDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <button class="btn-primary" onclick="submitCrushProduction()" style="padding:6px 14px;font-size:12px;">提交</button>
-    </div>
-    <div id="prodCrResult" style="font-size:12px;margin-bottom:8px;"></div>
-    <div class="table-wrap"><table class="data-table" id="prodCrTable"><thead><tr><th>姓名</th><th>日期</th><th>来源</th></tr></thead><tbody><tr><td colspan="3" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
+    <h2 data-i18n="nav_collection_crush">破碎计件采集</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="col_cr_desc">Date + Bags + 出勤人员</p>
+    <div id="colCrForm"></div>
+    <div id="colCrResult" style="font-size:12px;margin-top:8px;"></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
+    <div id="colCrHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
+  </div>
+</div>
+<!-- ═══ P9 数据采集：出勤收集 ═══ -->
+<div class="page" id="page-collection-attendance">
+  <div class="card">
+    <h2 data-i18n="nav_collection_attendance">出勤收集</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="col_att_desc">花名册点选，处理井下/钻工/破碎以外部门员工</p>
+    <div id="colAttForm"></div>
+    <div id="colAttResult" style="font-size:12px;margin-top:8px;"></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
+    <div id="colAttHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
   </div>
 </div>
 <!-- ═══ P3 评分录入 ═══ -->
@@ -830,9 +852,9 @@
     <span class="nav-icon">📅</span>
     <span data-i18n="nav_attendance">出勤</span>
   </a>
-  <a href="javascript:void(0)" onclick="navigate('production','underground')" title="产量">
+  <a href="javascript:void(0)" onclick="navigate('collection','underground')" title="数据采集">
     <span class="nav-icon">⚒</span>
-    <span data-i18n="nav_production">产量</span>
+    <span data-i18n="nav_collection">数据采集</span>
   </a>
   <a href="javascript:void(0)" onclick="navigate('scoring','card')" title="评分">
     <span class="nav-icon">★</span>
@@ -1217,7 +1239,7 @@ const MODULES = {
   employees:  { label: 'nav_employees',  icon: '👥', children: ['list'] },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'] },
-  production: { label: 'nav_production',  icon: '⚒', children: ['underground','driller','crush'] },
+  collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'] },
   scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective'] },
   system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'] },
 };
@@ -1228,9 +1250,10 @@ const SUBPAGE_TARGETS = {
   'salary/table':      'salary',
   'salary/daily':      'dailywages',
   'attendance':        'attendance',
-  'production/underground': 'production-underground',
-  'production/driller':     'production-driller',
-  'production/crush':       'production-crush',
+  'collection/underground': 'collection-underground',
+  'collection/driller':     'collection-driller',
+  'collection/crush':       'collection-crush',
+  'collection/attendance':  'collection-attendance',
   'scoring/card':            'scoring-card',
   'scoring/summary':         'scoring-summary',
   'scoring/objective':       'scoring-objective',
@@ -1349,6 +1372,11 @@ function showTargetPage(module, subPage) {
   if (module === 'system' && subPage === 'forms') loadFormSchemas();
   // P5: 归档页面加载
   if (module === 'system' && subPage === 'archive') loadArchivePage();
+  // P9: 数据采集子页
+  if (targetId === 'collection-underground') { renderUgCollectionForm(); loadColHistory('underground', 'colUgHistory'); }
+  if (targetId === 'collection-driller') { renderDrCollectionForm(); loadColHistory('driller', 'colDrHistory'); }
+  if (targetId === 'collection-crush') { renderCrCollectionForm(); loadColHistory('crush', 'colCrHistory'); }
+  if (targetId === 'collection-attendance') { renderAttCollectionForm(); loadColHistory('attendance', 'colAttHistory'); }
 }
 
 function showPlaceholder(module, subPage) {
@@ -3761,44 +3789,496 @@ function setApplyMsg(msgId, text, ok) {
   if (deptSel) deptSel.addEventListener('change', () => { fillDept('hireDept'); fillDept('transferDept'); });
 })();
 
-/* ── P2 产量录入 ── */
-async function submitShiftProduction() {
-  document.getElementById('prodUgResult').textContent = '';
-  const eid = document.getElementById('prodUgSearch').value.trim();
-  const date = document.getElementById('prodUgDate').value;
-  const shift = document.getElementById('prodUgShift').value;
-  if (!eid || !date) { document.getElementById('prodUgResult').textContent = '请输入姓名和日期'; return; }
-  const res = await authFetch(api('/api/production/shift'), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({employee_id:eid, date, shift}),
-  });
-  const data = await res.json();
-  document.getElementById('prodUgResult').textContent = data.ok ? '已提交' : (data.error||'失败');
-  document.getElementById('prodUgResult').style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+/* ── P9 数据采集 ── */
+let _colEmpPool = null;
+async function getEmpPool() {
+  if (_colEmpPool && _colEmpPool.length) return _colEmpPool;
+  if (STATE._empAll && STATE._empAll.length) { _colEmpPool = STATE._empAll; return _colEmpPool; }
+  try {
+    const res = await fetch(api('/api/employees?status=active'));
+    const data = await res.json();
+    _colEmpPool = data.employees || [];
+    STATE._empAll = _colEmpPool;
+  } catch(e) { _colEmpPool = []; }
+  return _colEmpPool;
 }
 
-async function submitDrillerProduction() {
-  const eid = document.getElementById('prodDrSearch').value.trim();
-  const date = document.getElementById('prodDrDate').value;
-  if (!eid || !date) { document.getElementById('prodDrResult').textContent = '请输入队长ID和日期'; return; }
-  const res = await authFetch(api('/api/production/shift'), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({employee_id:eid, date, shift:'D'}),
+/* 按部门关键词过滤员工（井下/钻工/破碎；其余 = 出勤收集对象） */
+function filterEmpByDept(pool, kw) {
+  return pool.filter(e => {
+    const d = e.department || '';
+    if (kw === 'underground') return d.includes('生产组井下');
+    if (kw === 'driller') return d.includes('钻工组');
+    if (kw === 'crush') return d.includes('分拣破碎');
+    if (kw === 'other') return !d.includes('生产组井下') && !d.includes('钻工组') && !d.includes('分拣破碎');
+    return true;
   });
-  const data = await res.json();
-  document.getElementById('prodDrResult').textContent = data.ok ? '已提交' : (data.error||'失败');
 }
 
-async function submitCrushProduction() {
-  const eid = document.getElementById('prodCrSearch').value.trim();
-  const date = document.getElementById('prodCrDate').value;
-  if (!eid || !date) { document.getElementById('prodCrResult').textContent = '请输入员工ID和日期'; return; }
-  const res = await authFetch(api('/api/attendance/toggle'), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({employee_id:eid, date, status:'C'}),
+/* 历史区通用渲染 */
+async function loadColHistory(formType, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  try {
+    const month = STATE.currentMonth || '';
+    const res = await authFetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
+    const data = await res.json();
+    const subs = data.submissions || [];
+    if (subs.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">暂无提交记录</div>';
+      return;
+    }
+    container.innerHTML = `<div class="table-wrap"><table class="data-table">
+      <thead><tr><th>日期</th><th>版本</th><th>提交人</th><th>更新时间</th><th>操作</th></tr></thead>
+      <tbody>` + subs.map(s => `
+        <tr style="cursor:pointer;" onclick="enterColEdit('${formType}','${s.id}','${containerId}')">
+          <td>${s.submission_date}</td>
+          <td>v${s.version}</td>
+          <td>${escHtml(s.operator_id)}</td>
+          <td style="font-size:11px;color:var(--text-muted);">${s.updated_at}</td>
+          <td><span style="color:var(--accent);font-size:11px;">编辑</span></td>
+        </tr>`).join('') + `</tbody></table></div>`;
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--danger);padding:20px;">加载失败</div>';
+  }
+}
+
+/* 再编辑入口：加载提交数据预填表单（各表单实现 fill 逻辑） */
+let _colEditing = null;
+async function enterColEdit(formType, sid, containerId) {
+  try {
+    const month = STATE.currentMonth || '';
+    const res = await fetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
+    const data = await res.json();
+    const sub = (data.submissions || []).find(s => String(s.id) === String(sid));
+    if (!sub) { showToast('找不到该提交', 'error'); return; }
+    _colEditing = sub;
+    // P9-6: 再编辑权限预检（仅本人或 admin+）
+    if (sub.operator_id !== _authState.username && !['admin', 'super_admin'].includes(_authState.role)) {
+      showToast('只能编辑本人提交或管理员可改', 'error');
+      _colEditing = null;
+      return;
+    }
+    let payload = {};
+    try { payload = JSON.parse(sub.payload || '{}'); } catch(e) {}
+    payload.submission_date = sub.submission_date;
+    if (formType === 'underground') { renderUgCollectionForm(payload); }
+    else if (formType === 'driller') { renderDrCollectionForm(payload); }
+    else if (formType === 'crush') { renderCrCollectionForm(payload); }
+    else if (formType === 'attendance') { renderAttCollectionForm(payload); }
+    showToast('进入编辑态，提交后将写入历史版本');
+  } catch(e) { showToast('加载失败', 'error'); }
+}
+
+/* 各表单渲染（P9-2~P9-5 实现） */
+let _pickerKw = '', _pickerTarget = null;
+function colInStyle(flex) {
+  return 'padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;' + (flex ? 'flex:1;' : '');
+}
+
+/* 通用出勤/成员选择弹层 */
+async function openEmpPicker(kw, hiddenId, displayId) {
+  _drPickerIndex = null;
+  const pool = await getEmpPool();
+  const list = filterEmpByDept(pool, kw);
+  const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
+  _pickerKw = kw;
+  _pickerTarget = { hiddenId: hiddenId, displayId: displayId };
+  const modal = document.getElementById('empPickerModal');
+  document.getElementById('empPickerList').innerHTML = list.length ? list.map(e => `
+    <label style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;">
+      <input type="checkbox" value="${escHtml(e.id)}" ${cur.includes(e.id) ? 'checked' : ''}>
+      <span>${escHtml(e.name)}</span>
+      <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
+    </label>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">无匹配员工</div>';
+  modal.style.display = 'flex';
+}
+
+function confirmEmpPicker() {
+  const checks = [...document.querySelectorAll('#empPickerList input:checked')].map(c => c.value);
+  const t = _pickerTarget;
+  if (t) {
+    document.getElementById(t.hiddenId).value = checks.join(',');
+    const pool = _colEmpPool || STATE._empAll || [];
+    const names = checks.map(id => { const e = pool.find(x => String(x.id) === String(id)); return e ? e.name : id; });
+    document.getElementById(t.displayId).textContent = names.length ? names.join('、') : '未选择';
+    if (names.length) document.getElementById(t.displayId).style.color = 'var(--text)';
+  }
+  document.getElementById('empPickerModal').style.display = 'none';
+}
+
+/* 弹层确认分发：钻工成员弹层 / 通用弹层 */
+function confirmPicker() {
+  if (_drPickerIndex !== null) confirmDrMemberPicker();
+  else confirmEmpPicker();
+}
+
+function refreshAfterCollection() {
+  if (typeof loadProductionData === 'function') loadProductionData();
+  if (typeof renderSalaryTable === 'function' && STATE.salaryResult) renderSalaryTable(STATE.salaryResult);
+}
+
+function cancelColEdit(formType, historyId) {
+  _colEditing = null;
+  if (formType === 'underground') renderUgCollectionForm();
+  else if (formType === 'driller') renderDrCollectionForm();
+  else if (formType === 'crush') renderCrCollectionForm();
+  else if (formType === 'attendance') renderAttCollectionForm();
+  loadColHistory(formType, historyId);
+}
+
+/* ── P9-2 井下出渣采集表单 ── */
+function renderUgCollectionForm(payload) {
+  payload = payload || {};
+  const day = payload.day || {};
+  const night = payload.night || {};
+  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const empsStr = (arr) => (arr || []).join(',');
+  const prodRow = (prefix, label) => `
+    <div style="display:flex;gap:8px;align-items:center;">
+      <label style="font-size:12px;min-width:70px;">${label}</label>
+      <input type="number" id="${prefix}Nh" value="${+day.nh || 0}" min="0" style="${colInStyle(true)}">
+      <input type="number" id="${prefix}Nl" value="${+day.nl || 0}" min="0" style="${colInStyle(true)}">
+      <input type="number" id="${prefix}Mw" value="${+day.mw || 0}" min="0" style="${colInStyle(true)}">
+    </div>`;
+  const attRow = (prefix, label, kw, dataKey) => `
+    <div class="form-row" style="margin-top:6px;align-items:center;">
+      <label style="font-size:12px;min-width:70px;">${label} 出勤</label>
+      <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps')" style="font-size:11px;padding:4px 10px;">+ 选择人员</button>
+      <span id="${prefix}Emps" style="font-size:12px;color:var(--text-muted);flex:1;line-height:1.5;">${(payload[dataKey] && payload[dataKey].emps && payload[dataKey].emps.length) ? '' : '未选择'}</span>
+      <input type="hidden" id="${prefix}EmpsVal" value="${empsStr((payload[dataKey]||{}).emps)}">
+    </div>`;
+  const html = `
+    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="ugDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
+      <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">DAY SHIFT</h4>
+      ${prodRow('ugDay', 'NICKEL(H)')}
+      ${attRow('ugDay', 'Day', 'underground', 'day')}
+    </div>
+    <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">备注</label><input id="ugRemark" value="${escHtml(payload.remark || '')}" placeholder="可选" style="${colInStyle(true)}"></div>
+    <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
+      <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">NIGHT SHIFT</h4>
+      ${prodRow('ugNight', 'NICKEL(H)')}
+      ${attRow('ugNight', 'Night', 'underground', 'night')}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-primary" onclick="submitUgCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'underground\',\'colUgHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+    </div>`;
+  document.getElementById('colUgForm').innerHTML = html;
+  // 回填已选人员显示
+  ['ugDay', 'ugNight'].forEach(p => {
+    const val = document.getElementById(p + 'EmpsVal').value;
+    const names = [];
+    const pool = _colEmpPool || STATE._empAll || [];
+    val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
+    const span = document.getElementById(p + 'Emps');
+    span.textContent = names.length ? names.join('、') : '未选择';
+    if (names.length) span.style.color = 'var(--text)';
   });
+}
+
+/* ── P9-3 钻工采集表单 ── */
+let _drSlots = [];
+let _drTeamMap = {};
+
+async function ensureDrTeamMap() {
+  if (Object.keys(_drTeamMap).length) return _drTeamMap;
+  try {
+    const res = await fetch(api('/api/collection/driller-teams'));
+    const data = await res.json();
+    _drTeamMap = data.teams || {};
+  } catch(e) { _drTeamMap = {}; }
+  return _drTeamMap;
+}
+
+function renderDrCollectionForm(payload) {
+  payload = payload || {};
+  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  let teams = payload.teams && payload.teams.length ? payload.teams : [{}, {}, {}];
+  _drSlots = teams.map(t => ({
+    captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [],
+  }));
+  document.getElementById('colDrForm').innerHTML = `
+    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="drDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div id="drSlots" style="margin-top:10px;"></div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="nav-btn" onclick="addDrSlot()" style="font-size:11px;padding:5px 12px;">+ 添加队长</button>
+      <button class="btn-primary" onclick="submitDrCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'driller\',\'colDrHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+    </div>`;
+  renderDrSlots();
+}
+
+async function renderDrSlots() {
+  const pool = await getEmpPool();
+  const caps = filterEmpByDept(pool, 'driller');
+  const container = document.getElementById('drSlots');
+  if (!container) return;
+  container.innerHTML = _drSlots.map((s, i) => `
+    <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:12px;min-width:36px;">队长</label>
+        <select id="drCap${i}" onchange="onDrCapChange(${i})" style="${colInStyle(true)}">
+          <option value="">— 选择队长 —</option>
+          ${caps.map(c => `<option value="${escHtml(c.id)}" ${String(s.captain)===String(c.id)?'selected':''}>${escHtml(c.name)}</option>`).join('')}
+        </select>
+        <button class="nav-btn" onclick="removeDrSlot(${i})" style="font-size:11px;padding:3px 8px;" title="删除槽位">✕</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:12px;min-width:36px;">成员</label>
+        <button class="nav-btn" onclick="openDrMemberPicker(${i})" style="font-size:11px;padding:4px 10px;">+ 选择成员</button>
+        <span id="drMem${i}" style="font-size:12px;color:var(--text-muted);flex:1;line-height:1.5;">未选择</span>
+        <input type="hidden" id="drMemVal${i}" value="${(s.members||[]).join(',')}">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <label style="font-size:12px;min-width:36px;">产量</label>
+        <input type="number" id="drNh${i}" value="${s.nh||0}" min="0" placeholder="NH" style="${colInStyle(true)}">
+        <input type="number" id="drNl${i}" value="${s.nl||0}" min="0" placeholder="NL" style="${colInStyle(true)}">
+        <input type="number" id="drMw${i}" value="${s.mw||0}" min="0" placeholder="MW" style="${colInStyle(true)}">
+      </div>
+    </div>`).join('');
+  // 回填成员显示
+  _drSlots.forEach((s, i) => {
+    const val = document.getElementById('drMemVal' + i).value;
+    const names = [];
+    val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
+    const span = document.getElementById('drMem' + i);
+    span.textContent = names.length ? names.join('、') : '未选择';
+    if (names.length) span.style.color = 'var(--text)';
+  });
+}
+
+function addDrSlot() {
+  _drSlots.push({ captain: '', nh: 0, nl: 0, mw: 0, members: [] });
+  renderDrSlots();
+}
+
+function removeDrSlot(i) {
+  _drSlots.splice(i, 1);
+  renderDrSlots();
+}
+
+function onDrCapChange(i) {
+  _drSlots[i].captain = document.getElementById('drCap' + i).value;
+  // 切换队长后清空成员（不同队长组员不同）
+  document.getElementById('drMemVal' + i).value = '';
+  document.getElementById('drMem' + i).textContent = '未选择';
+  document.getElementById('drMem' + i).style.color = 'var(--text-muted)';
+}
+
+let _drPickerIndex = null;
+async function openDrMemberPicker(i) {
+  const pool = await getEmpPool();
+  const driller = filterEmpByDept(pool, 'driller');
+  const capId = document.getElementById('drCap' + i).value;
+  const cur = (document.getElementById('drMemVal' + i).value || '').split(',').filter(Boolean);
+  const teamMap = await ensureDrTeamMap();
+  const defaults = capId ? (teamMap[capId] || []) : [];
+  const merged = [...new Set([...defaults, ...cur])];
+  _drPickerIndex = i;
+  const modal = document.getElementById('empPickerModal');
+  document.getElementById('empPickerList').innerHTML = `
+    <div style="padding:6px 8px;"><input type="text" id="drMemberSearch" placeholder="搜索姓名/工号..." oninput="filterDrMemberList()" style="${colInStyle(true)}"></div>
+    <div id="drMemberList">${renderDrMemberRows(driller, merged)}</div>`;
+  modal.style.display = 'flex';
+}
+
+function renderDrMemberRows(list, checked) {
+  return list.length ? list.map(e => `
+    <label style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;" class="dr-member-row">
+      <input type="checkbox" value="${escHtml(e.id)}" ${checked.includes(e.id) ? 'checked' : ''}>
+      <span>${escHtml(e.name)}</span>
+      <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
+    </label>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">无匹配员工</div>';
+}
+
+function filterDrMemberList() {
+  const q = (document.getElementById('drMemberSearch').value || '').toLowerCase();
+  const pool = _colEmpPool || STATE._empAll || [];
+  const driller = filterEmpByDept(pool, 'driller').filter(e =>
+    (e.name || '').toLowerCase().includes(q) || String(e.id).includes(q));
+  const checked = [...document.querySelectorAll('#drMemberList input:checked')].map(c => c.value);
+  document.getElementById('drMemberList').innerHTML = renderDrMemberRows(driller, checked);
+}
+
+function confirmDrMemberPicker() {
+  const checks = [...document.querySelectorAll('#drMemberList input:checked')].map(c => c.value);
+  const i = _drPickerIndex;
+  if (i !== null) {
+    document.getElementById('drMemVal' + i).value = checks.join(',');
+    const pool = _colEmpPool || STATE._empAll || [];
+    const names = checks.map(id => { const e = pool.find(x => String(x.id) === String(id)); return e ? e.name : id; });
+    const span = document.getElementById('drMem' + i);
+    span.textContent = names.length ? names.join('、') : '未选择';
+    if (names.length) span.style.color = 'var(--text)';
+    _drSlots[i].members = checks;
+  }
+  _drPickerIndex = null;
+  document.getElementById('empPickerModal').style.display = 'none';
+}
+
+async function submitDrCollection() {
+  const date = document.getElementById('drDate').value;
+  if (!date) { showToast('请选择日期', 'error'); return; }
+  // 从 DOM 收集（槽位可能增删过，_drSlots 同步）
+  const teams = [];
+  for (let i = 0; i < _drSlots.length; i++) {
+    if (!document.getElementById('drCap' + i)) continue;
+    const captain = document.getElementById('drCap' + i).value;
+    if (!captain) continue;
+    teams.push({
+      captain,
+      nh: parseInt(document.getElementById('drNh' + i).value) || 0,
+      nl: parseInt(document.getElementById('drNl' + i).value) || 0,
+      mw: parseInt(document.getElementById('drMw' + i).value) || 0,
+      members: (document.getElementById('drMemVal' + i).value || '').split(',').filter(Boolean),
+    });
+  }
+  if (!teams.length) { showToast('请至少填写一个队长槽位', 'error'); return; }
+  await submitColPayload('driller', date, { teams }, 'colDrHistory');
+}
+
+/* ── P9-4 破碎采集表单 ── */
+function renderCrCollectionForm(payload) {
+  payload = payload || {};
+  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const emps = payload.emps || [];
+  document.getElementById('colCrForm').innerHTML = `
+    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="crDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">Bags</label><input type="number" id="crBags" value="${payload.bags || 0}" min="0" step="1" style="${colInStyle(true)}"></div>
+    <div class="form-row" style="margin-top:10px;align-items:center;">
+      <label style="min-width:70px;">出勤</label>
+      <button class="nav-btn" onclick="openEmpPicker('crush','crEmpsVal','crEmps')" style="font-size:11px;padding:4px 10px;">+ 选择人员</button>
+      <span id="crEmps" style="font-size:12px;color:var(--text-muted);flex:1;line-height:1.5;">${emps.length ? '' : '未选择'}</span>
+      <input type="hidden" id="crEmpsVal" value="${emps.join(',')}">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-primary" onclick="submitCrCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'crush\',\'colCrHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+    </div>`;
+  // 回填已选人员显示
+  const val = document.getElementById('crEmpsVal').value;
+  const names = [];
+  const pool = _colEmpPool || STATE._empAll || [];
+  val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
+  const span = document.getElementById('crEmps');
+  span.textContent = names.length ? names.join('、') : '未选择';
+  if (names.length) span.style.color = 'var(--text)';
+}
+
+async function submitCrCollection() {
+  const date = document.getElementById('crDate').value;
+  if (!date) { showToast('请选择日期', 'error'); return; }
+  const payload = {
+    bags: parseInt(document.getElementById('crBags').value) || 0,
+    emps: (document.getElementById('crEmpsVal').value || '').split(',').filter(Boolean),
+  };
+  await submitColPayload('crush', date, payload, 'colCrHistory');
+}
+
+/* ── P9-5 出勤收集表单（花名册点选，井下/钻工/破碎以外部门） ── */
+const COL_ATT_STATUS = [
+  ['P', '出勤'], ['A', '旷工'], ['L', '请假'], ['S', '事假'],
+  ['Y', '年假'], ['T', '调休'], ['B', '病假'],
+];
+
+async function renderAttCollectionForm(payload) {
+  payload = payload || {};
+  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const pool = await getEmpPool();
+  const roster = filterEmpByDept(pool, 'other');
+  // 预填 marks 映射：eid → {status, is_driver}
+  const marksMap = {};
+  (payload.marks || []).forEach(m => { marksMap[m.employee_id] = m; });
+  const attStatusOpts = (selSt) => COL_ATT_STATUS.map(([v, label]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${label}</option>`).join('');
+  document.getElementById('colAttForm').innerHTML = `
+    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="attDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
+    <div style="max-height:50vh;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);" id="attRoster">
+      ${roster.length ? roster.map(e => {
+        const m = marksMap[e.id] || {};
+        const st = m.status || 'P';
+        return `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px;">
+          <span style="flex:1;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span></span>
+          <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">${attStatusOpts(st)}</select>
+          <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${m.is_driver ? 'checked' : ''}> 驾驶</label>
+        </div>`;
+      }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">无其他部门员工</div>'}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-primary" onclick="submitAttCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
+      <button class="btn-cancel" onclick="resetAttStatus()" style="padding:6px 16px;font-size:12px;">重置为出勤</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'attendance\',\'colAttHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+    </div>`;
+}
+
+function resetAttStatus() {
+  document.querySelectorAll('#attRoster select').forEach(sel => sel.value = 'P');
+}
+
+async function submitAttCollection() {
+  const date = document.getElementById('attDate').value;
+  if (!date) { showToast('请选择日期', 'error'); return; }
+  const pool = await getEmpPool();
+  const roster = filterEmpByDept(pool, 'other');
+  const marks = [];
+  for (const e of roster) {
+    const sel = document.getElementById('attSt' + e.id);
+    const drv = document.getElementById('attDrv' + e.id);
+    if (!sel) continue;
+    let status = sel.value;
+    if (status === 'B') status = 'P'; // 病假 → 出勤 P（与 P8 病假一致，不参与计件）
+    marks.push({ employee_id: e.id, status, is_driver: !!(drv && drv.checked) });
+  }
+  await submitColPayload('attendance', date, { marks }, 'colAttHistory');
+}
+
+async function submitUgCollection() {
+  const date = document.getElementById('ugDate').value;
+  if (!date) { showToast('请选择日期', 'error'); return; }
+  const payload = {
+    day: {
+      nh: parseInt(document.getElementById('ugDayNh').value) || 0,
+      nl: parseInt(document.getElementById('ugDayNl').value) || 0,
+      mw: parseInt(document.getElementById('ugDayMw').value) || 0,
+      emps: (document.getElementById('ugDayEmpsVal').value || '').split(',').filter(Boolean),
+    },
+    night: {
+      nh: parseInt(document.getElementById('ugNightNh').value) || 0,
+      nl: parseInt(document.getElementById('ugNightNl').value) || 0,
+      mw: parseInt(document.getElementById('ugNightMw').value) || 0,
+      emps: (document.getElementById('ugNightEmpsVal').value || '').split(',').filter(Boolean),
+    },
+    remark: document.getElementById('ugRemark').value.trim(),
+  };
+  await submitColPayload('underground', date, payload, 'colUgHistory');
+}
+
+/* 通用提交（新提交 / 编辑态） */
+async function submitColPayload(formType, date, payload, historyId) {
+  let res;
+  if (_colEditing) {
+    res = await authFetch(api('/api/collection/edit/' + _colEditing.id), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload }),
+    });
+  } else {
+    res = await authFetch(api('/api/collection/submit'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ form_type: formType, submission_date: date, payload }),
+    });
+  }
   const data = await res.json();
-  document.getElementById('prodCrResult').textContent = data.ok ? '已标记 C(破碎出勤)' : (data.error||'失败');
+  if (data.ok) {
+    showToast(_colEditing ? '已更新（历史版本已保留）' : '已提交');
+    _colEditing = null;
+    loadColHistory(formType, historyId);
+    refreshAfterCollection();
+  } else {
+    showToast(data.error || '提交失败', 'error');
+  }
 }
 /* ── P3 评分录入 ── */
 async function submitScoreCard() {

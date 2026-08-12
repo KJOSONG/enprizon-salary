@@ -779,6 +779,9 @@ def _run_pipeline(files, month_filter=None):
             emp['day_rate'] = 0
             emp['monthly_salary'] = 0
 
+    # ── P9: Web 采集数据回填（覆盖 Excel 同日期，再按月份过滤） ──
+    rebuild_main_data_from_collections(main_data)
+
     # ── 月份筛选（过滤所有数据源，不仅仅是 dates） ──
     if month_filter:
         for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
@@ -1757,6 +1760,212 @@ def leave_balance_adjust():
                           'sick_used': data.get('sick_used')}))
     return jsonify({'ok': True})
 
+# ═══════════════════════════════════════════════════════════
+#  P9 API: 数据采集
+# ═══════════════════════════════════════════════════════════
+
+def _collection_payload_names(payload, form_type):
+    """把 payload 中的 eid 集合转成姓名（与 Excel 解析 main_data 同构）"""
+    from core.database import get_conn
+    name_map = {}
+    try:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        for r in conn.execute("SELECT id, name FROM employees").fetchall():
+            name_map[r['id']] = r['name']
+        conn.close()
+    except Exception:
+        pass
+    def _names(eids):
+        return [name_map.get(e, e) for e in (eids or [])]
+    return name_map, _names
+
+def _merge_collection_to_main_data(main_data, form_type, date, payload):
+    """P9: 单条采集提交合并进 main_data（Web 采集覆盖 Excel 同日期）"""
+    _, _names = _collection_payload_names(payload, form_type)
+    if form_type == 'underground':
+        day = payload.get('day') or {}
+        night = payload.get('night') or {}
+        rec = {
+            'date': date,
+            'day_prod': {'NICKEL（H）': day.get('nh', 0), 'NICKEL（L）': day.get('nl', 0), 'MAWE': day.get('mw', 0)},
+            'night_prod': {'NICKEL（H）': night.get('nh', 0), 'NICKEL（L）': night.get('nl', 0), 'MAWE': night.get('mw', 0)},
+            'day_emps': _names(day.get('emps')),
+            'night_emps': _names(night.get('emps')),
+        }
+        shift = main_data.setdefault('shift_production', [])
+        for i, x in enumerate(shift):
+            if x.get('date') == date:
+                shift[i] = rec
+                return
+        shift.append(rec)
+    elif form_type == 'driller':
+        driller = main_data.setdefault('driller_production', [])
+        _, _names2 = _collection_payload_names(payload, form_type)
+        for team in (payload.get('teams') or []):
+            cap = team.get('captain', '')
+            if not cap:
+                continue
+            cap_name = _names2([cap])[0]
+            rec = {
+                'date': date,
+                'captain': cap_name,
+                'slot': 0,
+                'nh': team.get('nh', 0), 'nl': team.get('nl', 0), 'mw': team.get('mw', 0),
+                'futa': 0, 'waya': 0, 'kibiriti': 0,
+                'members': _names2(team.get('members')),
+                'slots': [],
+                'has_members': bool(team.get('members')),
+            }
+            for i, x in enumerate(driller):
+                if x.get('date') == date and x.get('captain') == cap_name:
+                    driller[i] = rec
+                    break
+            else:
+                driller.append(rec)
+    elif form_type == 'crush':
+        crush = main_data.setdefault('crush_production', [])
+        rec = {'date': date, 'bags': payload.get('bags', 0), 'personnel': _names(payload.get('emps'))}
+        for i, x in enumerate(crush):
+            if x.get('date') == date:
+                crush[i] = rec
+                return
+        crush.append(rec)
+
+def rebuild_main_data_from_collections(main_data):
+    """P9: /reload 后从 collection_submissions 最新版本回填 main_data（Web 采集覆盖 Excel 同日期）"""
+    from core.database import get_collection_submissions
+    subs = get_collection_submissions(app.config['DATA_FOLDER'])
+    for s in subs:
+        try:
+            payload = json.loads(s.get('payload', '{}'))
+        except (TypeError, ValueError):
+            continue
+        if s.get('form_type') in ('underground', 'driller', 'crush'):
+            _merge_collection_to_main_data(main_data, s['form_type'], s['submission_date'], payload)
+
+@app.route('/api/collection/submit', methods=['POST'])
+@editor_required
+def collection_submit():
+    """P9: 数据采集提交 — 写 collection_submissions + 合并 main_data + 重算"""
+    from core.database import insert_collection_submission, update_collection_submission, \
+        get_collection_submissions, save_attendance_override, is_driver, add_driver, log_audit
+    data = request.get_json() or {}
+    form_type = data.get('form_type', '')
+    date = data.get('submission_date', '')
+    payload = data.get('payload') or {}
+    if form_type not in ('underground', 'driller', 'crush', 'attendance'):
+        return jsonify({'ok': False, 'error': '无效表单类型'}), 400
+    if not date:
+        return jsonify({'ok': False, 'error': '缺少日期'}), 400
+    username = session.get('username', 'unknown')
+
+    # 出勤收集：写 attendance_overrides（batch 语义），collection 仅作留痕
+    if form_type == 'attendance':
+        marks = payload.get('marks') or []
+        for m in marks:
+            eid = m.get('employee_id', '')
+            status = m.get('status', '')
+            if not eid or not status:
+                continue
+            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+            if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
+                add_driver(app.config['DATA_FOLDER'], eid)
+
+    # upsert collection_submissions by (form_type, date)
+    existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
+    ex = next((e for e in existing if e['submission_date'] == date), None)
+    if ex:
+        update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username)
+        sid = ex['id']
+    else:
+        sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username)
+
+    # 合并 main_data + 重算（仅产量类；出勤已直写 attendance_overrides）
+    if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
+        _merge_collection_to_main_data(APP_STATE['main_data'], form_type, date, payload)
+        _recalc_internal()
+
+    log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
+              json.dumps({'form_type': form_type, 'date': date, 'sid': sid}))
+    return jsonify({'ok': True, 'submission_id': sid})
+
+@app.route('/api/collection/history', methods=['GET'])
+@editor_required
+def collection_history():
+    """P9: 采集提交历史（按 form_type/month 过滤）"""
+    from core.database import get_collection_submissions
+    form_type = request.args.get('form_type')
+    month = request.args.get('month') or APP_STATE.get('month')
+    subs = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type, month=month)
+    return jsonify({'submissions': subs})
+
+@app.route('/api/collection/driller-teams', methods=['GET'])
+@editor_required
+def collection_driller_teams():
+    """P9: 钻工队长→组员 eid 映射（聚合 main_data + 采集历史），供成员选择弹层默认勾选"""
+    from core.database import get_conn, get_collection_submissions
+    md = APP_STATE.get('main_data', {})
+    name_to_id = {}
+    try:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        for r in conn.execute("SELECT id, name FROM employees").fetchall():
+            name_to_id[r['name']] = r['id']
+        conn.close()
+    except Exception:
+        pass
+    teams = {}
+    for d in md.get('driller_production', []):
+        cap = d.get('captain', '')
+        if not cap:
+            continue
+        cid = name_to_id.get(cap, cap)
+        mids = [name_to_id.get(m, m) for m in (d.get('members') or [])]
+        teams.setdefault(cid, [])
+        for m in mids:
+            if m not in teams[cid]:
+                teams[cid].append(m)
+    # 采集历史补充（覆盖/新增的队长组员）
+    for s in get_collection_submissions(app.config['DATA_FOLDER'], form_type='driller'):
+        try:
+            payload = json.loads(s.get('payload', '{}'))
+        except (TypeError, ValueError):
+            continue
+        for t in (payload.get('teams') or []):
+            cid = t.get('captain', '')
+            if not cid:
+                continue
+            teams.setdefault(cid, [])
+            for m in (t.get('members') or []):
+                if m not in teams[cid]:
+                    teams[cid].append(m)
+    return jsonify({'teams': teams})
+
+@app.route('/api/collection/edit/<int:submission_id>', methods=['POST'])
+@editor_required
+def collection_edit(submission_id):
+    """P9: 再编辑采集提交（仅本人或 admin+），版本+1 + 旧版写 history + 重新合并 main_data"""
+    from core.database import get_collection_submission, update_collection_submission, log_audit
+    username = session.get('username', 'unknown')
+    sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
+    if not sub:
+        return jsonify({'ok': False, 'error': '提交不存在'}), 404
+    is_admin = (session.get('role') in ('admin', 'super_admin'))
+    if sub['operator_id'] != username and not is_admin:
+        return jsonify({'ok': False, 'error': '只能编辑本人提交或管理员可改'}), 403
+    data = request.get_json() or {}
+    payload = data.get('payload') or {}
+    ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': '更新失败'}), 500
+    # 重新合并 + 重算
+    if sub['form_type'] in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
+        _merge_collection_to_main_data(APP_STATE['main_data'], sub['form_type'], sub['submission_date'], payload)
+        _recalc_internal()
+    log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
+              json.dumps({'submission_id': submission_id, 'form_type': sub['form_type'],
+                          'date': sub['submission_date']}))
+    return jsonify({'ok': True})
+
 @app.route('/api/production/shift', methods=['POST'])
 @editor_required
 def production_shift_entry():
@@ -1997,8 +2206,15 @@ def save_config():
 @app.route('/recalculate', methods=['POST'])
 @admin_required
 def recalculate():
-    if not APP_STATE.get('parsed'):
+    result = _recalc_internal()
+    if result is None:
         return jsonify({'ok': False, 'error': '请先加载数据'})
+    return jsonify({'ok': True, 'result': result})
+
+def _recalc_internal():
+    """P9: 内部重算（供 /recalculate 与采集提交复用）；无数据返回 None"""
+    if not APP_STATE.get('parsed'):
+        return None
     from core.calculator import calculate_all
     from core.exceptions import load_overrides, load_daily_exclusions
     from core.database import load_bonus_penalties as _load_bp3
@@ -2019,7 +2235,7 @@ def recalculate():
     APP_STATE['calculated'] = True
     APP_STATE['salary_result'] = result
     _audit('recalculate', '', json.dumps({'total_gross': result['total_gross']}))
-    return jsonify({'ok': True, 'result': result})
+    return result
 
 @app.route('/salary', methods=['GET'])
 @login_required

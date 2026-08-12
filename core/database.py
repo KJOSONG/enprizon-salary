@@ -301,6 +301,31 @@ def init_db(data_folder):
         try:
             conn.execute(f"ALTER TABLE leave_balances ADD COLUMN {col}")
         except: pass
+    # P9: 数据采集提交 + 编辑历史
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS collection_submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            form_type TEXT NOT NULL,
+            submission_date TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            operator_id TEXT NOT NULL,
+            month TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX IF NOT EXISTS idx_cs_month ON collection_submissions(month, form_type);
+        CREATE INDEX IF NOT EXISTS idx_cs_date ON collection_submissions(submission_date);
+        CREATE TABLE IF NOT EXISTS collection_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            submission_id INTEGER NOT NULL,
+            version INTEGER NOT NULL,
+            payload TEXT NOT NULL,
+            operator_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (submission_id) REFERENCES collection_submissions(id)
+        );
+    """)
     conn.commit()
     _migrate_json(conn, data_folder)
     conn.close()
@@ -1888,3 +1913,73 @@ def get_archive_salary(data_folder, month):
         except:
             pass
         return None
+
+
+# ── P9: 数据采集提交 collection ─────────────────────────
+
+def insert_collection_submission(data_folder, form_type, submission_date, payload, operator_id):
+    """写入一条采集提交，返回 submission_id"""
+    month = (submission_date or '')[:7]
+    conn = get_conn(data_folder)
+    cur = conn.execute("""
+        INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, month, version)
+        VALUES (?,?,?,?,?,1)
+    """, (form_type, submission_date, json.dumps(payload, ensure_ascii=False), operator_id, month))
+    conn.commit()
+    sid = cur.lastrowid
+    conn.close()
+    return sid
+
+def get_collection_submissions(data_folder, form_type=None, month=None):
+    """查询采集提交列表（最新版本），按日期倒序。form_type/month 可过滤"""
+    conn = get_conn(data_folder)
+    sql = "SELECT * FROM collection_submissions WHERE 1=1"
+    params = []
+    if form_type:
+        sql += " AND form_type=?"
+        params.append(form_type)
+    if month:
+        sql += " AND month=?"
+        params.append(month)
+    sql += " ORDER BY submission_date DESC, updated_at DESC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_collection_submission(data_folder, submission_id):
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT * FROM collection_submissions WHERE id=?", (submission_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_collection_submission(data_folder, submission_id, payload, operator_id):
+    """再编辑：版本+1，旧 payload 写 collection_history，返回是否成功"""
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT payload, version FROM collection_submissions WHERE id=?", (submission_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    old_payload = row['payload']
+    old_version = row['version']
+    new_version = old_version + 1
+    conn.execute("""
+        INSERT INTO collection_history (submission_id, version, payload, operator_id)
+        VALUES (?,?,?,?)
+    """, (submission_id, old_version, old_payload, operator_id))
+    conn.execute("""
+        UPDATE collection_submissions SET payload=?, version=?, operator_id=?,
+            updated_at=datetime('now','localtime')
+        WHERE id=?
+    """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, submission_id))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_collection_history(data_folder, submission_id):
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT * FROM collection_history WHERE submission_id=? ORDER BY version DESC
+    """, (submission_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
