@@ -1447,7 +1447,7 @@ function toggleCollapseSidebar() {
     if (data.result && data.result.employees) {
       STATE.salaryResult = data.result;
       STATE._headless = data.headless || false;
-      const r2 = await fetch(api('/employees'));
+      const r2 = await fetch(api('/api/employees'));
       const d2 = await r2.json();
       STATE._empAll = STATE.employees = d2.employees;
       STATE._headless = d2.headless || STATE._headless;

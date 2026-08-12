@@ -1108,11 +1108,13 @@ def set_month():
     return jsonify({'ok': True, 'message': msg, 'salary': result, 'headless': APP_STATE.get('headless', False)})
 
 # ═══════════════════════════════════════════════════════════
-#  API: 员工管理
+#  API: 员工管理 (旧端点 - deprecated, 已迁移到 /api/employees)
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/employees', methods=['GET'])
 @login_required
+def get_employees():
+    """[DEPRECATED] 旧版员工列表 — 已迁移到 /api/employees"""
 def get_employees():
     from core.exceptions import load_overrides
     from core.database import load_bonus_penalties as _load_bp_emp
@@ -1346,12 +1348,23 @@ def seed_employees():
 @app.route('/api/employees', methods=['GET'])
 @login_required
 def api_employees():
-    """员工列表（扩展版，含新字段）"""
-    from core.database import list_employees_extended
+    """员工列表（扩展版，含新字段 + overrides + bonus/penalties）"""
+    from core.database import list_employees_extended, load_bonus_penalties as _load_bp
+    from core.exceptions import load_overrides as _load_ov
+    month = request.args.get('month') or APP_STATE.get('month')
     status = request.args.get('status', 'active')
     dept = request.args.get('department')
     employees = list_employees_extended(app.config['DATA_FOLDER'],
                                         status_filter=status, department=dept)
+    # P5-c: 补 overrides + bonus_penalties（与旧 /employees 端点对齐）
+    bonus_penalties = _load_bp(app.config['DATA_FOLDER'], month) if month else {}
+    overrides_data = _load_ov(app.config['DATA_FOLDER'], month=month) if month else {}
+    for emp in employees:
+        eid = emp['id']
+        emp['overrides'] = overrides_data.get(eid, [])
+        bp = bonus_penalties.get(eid, {})
+        emp['bonus'] = bp.get('bonus', 0)
+        emp['penalty'] = bp.get('penalty', 0)
     return jsonify({'employees': employees})
 
 @app.route('/api/employees/<employee_id>', methods=['GET'])
