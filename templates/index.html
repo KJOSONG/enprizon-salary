@@ -449,6 +449,17 @@
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_nssf_rate_pct">费率(%)</label><input type="number" id="cfg_nssf" class="cfg-input" data-key="nssf_rate" step="0.01" onchange="saveConfig()"></div>
     </div>
     <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+      <h3 style="margin-bottom:8px;font-size:13px;">🔄 <span data-i18n="settings_ug_mode">井下计薪模式</span></h3>
+      <div class="form-row">
+        <label style="min-width:90px;" data-i18n="settings_ug_mode_label">模式</label>
+        <select id="cfg_ug_mode" class="cfg-input" onchange="saveUndergroundMode()" style="flex:1;padding:4px 8px;">
+          <option value="piecework">⚒ 纯计件</option>
+          <option value="scoring">★ 评分+固定月薪</option>
+        </select>
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_ug_mode_desc">评分模式: 井下工人走固定月薪+司机津贴+评分奖金; 计件模式保持原有逻辑</p>
+    </div>
+    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
       <h3 style="margin-bottom:8px;font-size:13px;">🚚 <span data-i18n="settings_driver_allowance_title">司机津贴</span></h3>
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_driver_amount">金额(TZS)</label><input type="number" id="cfg_driver_allowance" class="cfg-input" data-key="driver_allowance" step="1" onchange="saveConfig()"></div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_driver_desc">企业级司机运输津贴，手工输入后加入实发合计</p>
@@ -3113,6 +3124,9 @@ async function loadConfig() {
     document.getElementById('cfg_nssf').value = cfg.nssf_rate * 100;
     document.getElementById('cfg_driver_allowance').value = cfg.driver_allowance || 0;
     document.getElementById('cfg_crush_price').value = cfg.crush_price || 300;
+    // P5-b: underground_mode
+    const ugMode = document.getElementById('cfg_ug_mode');
+    if (ugMode) ugMode.value = cfg.underground_mode || 'piecework';
   } catch(e) {}
 }
 
@@ -3134,6 +3148,7 @@ async function saveConfig() {
       nssf_rate: (parseFloat(document.getElementById('cfg_nssf').value) || 10) / 100,
       crush_price: parseInt(document.getElementById('cfg_crush_price').value) || 300,
       driver_allowance: parseInt(document.getElementById('cfg_driver_allowance').value) || 0,
+      underground_mode: document.getElementById('cfg_ug_mode').value || 'piecework',
     };
     const res = await authFetch(api('/config'), {
       method:'POST', headers:{'Content-Type':'application/json'},

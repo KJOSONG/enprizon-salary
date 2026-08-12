@@ -1054,6 +1054,19 @@ def get_event(data_folder, event_id):
     conn.close()
     return dict(row) if row else None
 
+def get_approved_events_for_month(data_folder, month):
+    """获取指定月份及之前生效的已批准事件（按类型筛选可用于计薪的事件）"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT * FROM employee_events
+        WHERE status = 'approved'
+        AND event_type IN ('hire', 'transfer', 'salary_change', 'resign', 'dismiss')
+        AND effective_date <= ?
+        ORDER BY employee_id, effective_date
+    """, (month,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
 
 # ── P1: 员工档案扩展查询 ───────────────────
 

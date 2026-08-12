@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "27f4ccc2af1c3f63cc1fedec434364b16706638f",
-    "indexed_at": "2026-08-12T11:26:02Z",
+    "commit": "04ab6ac395ac2ad5aff94301d6cf6220d5823ec2",
+    "indexed_at": "2026-08-12T11:46:04Z",
     "project": "Users-osong-AI-enprizon-salary",
-    "nodes": 1551,
-    "edges": 6112,
-    "original_size": 8060928,
-    "compressed_size": 1496679,
+    "nodes": 1553,
+    "edges": 6573,
+    "original_size": 8126464,
+    "compressed_size": 1520566,
     "compression_level": 3
 }

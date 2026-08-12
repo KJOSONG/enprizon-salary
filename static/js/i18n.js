@@ -337,6 +337,10 @@ const I18N_DICT = {
     archive_month_count: '个月份',
     archive_no_data: '暂无数据',
     archive_error: '加载失败',
+    /* ── 井下模式 ── */
+    settings_ug_mode: '井下计薪模式',
+    settings_ug_mode_label: '模式',
+    settings_ug_mode_desc: '评分模式: 井下工人走固定月薪+司机津贴+评分奖金; 计件模式保持原有逻辑',
 
     /* ── Toast ── */
     toast_calc_done: '计算完成',
@@ -803,6 +807,10 @@ const I18N_DICT = {
     archive_month_count: ' months',
     archive_no_data: 'No data',
     archive_error: 'Load failed',
+    /* ── Underground Mode ── */
+    settings_ug_mode: 'Underground Payroll Mode',
+    settings_ug_mode_label: 'Mode',
+    settings_ug_mode_desc: 'Scoring: fixed monthly + driver allowance + scoring bonus; Piecework: original logic',
 
     /* ── Toast ── */
     toast_calc_done: 'Calculation complete',

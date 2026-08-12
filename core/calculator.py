@@ -598,6 +598,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     up = pricing.get('underground_prices', PRICES_UNDERGROUND)
     dp = pricing.get('driller_prices', PRICES_DRILLER)
     nssf_rate = pricing.get('nssf_rate', 0.10)
+    underground_mode = pricing.get('underground_mode', 'piecework')  # P5-b: scoring | piecework
 
     import sys, sqlite3
     mod = sys.modules[__name__]
@@ -716,6 +717,17 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             for dt in dates:
                 per_date_type[eid][dt] = 'piece_crush'
 
+        # P5-b: 评分模式 — 井下工人全体重定向为 monthly
+        scoring_employees = set()
+        if underground_mode == 'scoring':
+            for emp in employees:
+                eid = emp['id']
+                eff_type = emp.get('override_type') or emp.get('default_type', '')
+                if eff_type == 'piece_underground':
+                    scoring_employees.add(eid)
+                    for dt in all_dates:
+                        per_date_type[eid][dt] = 'monthly'
+
         combined_exclusions = exclusions | att_exclusions | range_exclusions
 
         all_shift_dates = sorted(set(
@@ -735,7 +747,11 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         perm_type = st
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
-                if dtype != 'piece_underground': ug_type_excl.add((eid, dt))
+                # P5-b: 评分模式 — 井下工人从计件排除
+                if dtype == 'piece_underground' and eid in scoring_employees:
+                    ug_type_excl.add((eid, dt))
+                elif dtype != 'piece_underground':
+                    ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
@@ -867,8 +883,29 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         if scoring_bonus > 0:
             bonus += scoring_bonus
 
-        nssf = round(gross * nssf_rate) if emp.get('nssf_enrolled', False) else 0
-        net = gross + bonus - advance - nssf - penalty
+        # P5-b: 评分模式 — 司机津贴（5,000/天 × 驾驶天数）
+        driver_days = 0
+        if underground_mode == 'scoring' and eid in scoring_employees and data_folder:
+            try:
+                db_path = os.path.join(data_folder, 'kilwa.db')
+                if os.path.exists(db_path):
+                    dc = sqlite3.connect(db_path)
+                    # 查司机名单
+                    dr = dc.execute("SELECT 1 FROM driver_roster WHERE employee_id=?", (eid,)).fetchone()
+                    if dr:
+                        # 统计当月驾驶天数
+                        crows = dc.execute(
+                            "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND date LIKE ? AND status IN ('D','N','DN')",
+                            (eid, month_prefix + '%')).fetchone()
+                        if crows:
+                            driver_days = crows[0]
+                    dc.close()
+            except:
+                driver_days = 0
+        driver_allowance = driver_days * 5000
+
+        nssf = round((gross + driver_allowance) * nssf_rate) if emp.get('nssf_enrolled', False) else 0
+        net = gross + bonus + driver_allowance - advance - nssf - penalty
 
         temp_exception = ''
         temp_overrides = []
@@ -927,6 +964,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
     pricing = pricing or {}
     up = pricing.get('underground_prices', PRICES_UNDERGROUND)
     dp = pricing.get('driller_prices', PRICES_DRILLER)
+    underground_mode = pricing.get('underground_mode', 'piecework')
 
     import sys, os, sqlite3
     mod = sys.modules[__name__]
@@ -1057,7 +1095,11 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         perm_type = st
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
-                if dtype != 'piece_underground': ug_type_excl.add((eid, dt))
+                # P5-b: 评分模式 — 井下工人从计件排除
+                if dtype == 'piece_underground' and eid in scoring_employees:
+                    ug_type_excl.add((eid, dt))
+                elif dtype != 'piece_underground':
+                    ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 

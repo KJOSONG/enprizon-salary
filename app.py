@@ -513,6 +513,79 @@ def scan_source_files():
 #  核心解析+计算引擎（被 auto_load 和 /reload 复用）
 # ═══════════════════════════════════════════════════════════
 
+def _derive_overrides_from_events(data_folder, month):
+    """从已批准的 employee_events 推导当月 overrides（事件→覆盖桥接）"""
+    from core.database import get_approved_events_for_month
+    from calendar import monthrange
+
+    events = get_approved_events_for_month(data_folder, month)
+    derived = {}
+
+    if month and len(month) == 7:
+        y, m = int(month[:4]), int(month[5:7])
+        _, last_day = monthrange(y, m)
+        month_end = f'{month}-{last_day:02d}'
+    else:
+        month_end = ''
+
+    for ev in events:
+        eid = ev['employee_id']
+        if eid not in derived:
+            derived[eid] = []
+
+        try:
+            payload = json.loads(ev.get('payload', '{}'))
+        except:
+            payload = {}
+
+        eff = ev.get('effective_date', '')
+
+        if ev['event_type'] == 'transfer':
+            # 调岗 → 临时覆盖（effective_date 到月底）
+            new_type = payload.get('new_type', payload.get('salary_type', ''))
+            if new_type in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+                derived[eid].append({
+                    'id': f'event_{ev["id"]}',
+                    'salary_type': new_type,
+                    'day_rate': payload.get('day_rate', 0),
+                    'monthly_salary': payload.get('monthly_salary', 0),
+                    'start_date': eff,
+                    'end_date': month_end,
+                    'note': f'OA调岗 #{ev["id"]}',
+                    'type': '',
+                    'shift': '', 'captain': '',
+                    'effective_from': month,
+                })
+        elif ev['event_type'] == 'salary_change':
+            # 薪资变更 → 临时覆盖
+            derived[eid].append({
+                'id': f'event_{ev["id"]}',
+                'salary_type': payload.get('salary_type', ''),
+                'day_rate': payload.get('day_rate', 0),
+                'monthly_salary': payload.get('monthly_salary', 0),
+                'start_date': eff,
+                'end_date': month_end,
+                'note': f'OA薪资变 #{ev["id"]}',
+                'type': '',
+                'shift': '', 'captain': '',
+                'effective_from': month,
+            })
+        elif ev['event_type'] in ('resign', 'dismiss'):
+            # 离职 → 排除（从 effective_date 开始不计薪）
+            derived[eid].append({
+                'id': f'event_{ev["id"]}',
+                'salary_type': '',
+                'day_rate': 0, 'monthly_salary': 0,
+                'start_date': eff,
+                'end_date': month_end,
+                'note': f'OA离职 #{ev["id"]}',
+                'type': 'exclusion',
+                'shift': '', 'captain': '',
+                'effective_from': month,
+            })
+
+    return derived
+
 def _run_pipeline(files, month_filter=None):
     """
     执行完整的数据加载→解析→计算管线
@@ -673,6 +746,15 @@ def _run_pipeline(files, month_filter=None):
     # ── 加载持久化的日薪/月薪基数 + override_type ──
     from core.database import load_overrides as _load_ov
     saved_overrides = _load_ov(app.config['DATA_FOLDER'], month=month_filter)
+
+    # P5-b: 合并事件驱动的覆盖（事件优先级高于DB覆盖）
+    events_overrides = _derive_overrides_from_events(app.config['DATA_FOLDER'], month_filter) if month_filter else {}
+    for eid, eovs in events_overrides.items():
+        if eid not in saved_overrides:
+            saved_overrides[eid] = []
+        # 事件覆盖追加到列表前面（优先级更高）
+        saved_overrides[eid] = eovs + saved_overrides[eid]
+
     for emp in employees:
         eid = emp['id']
         if eid in saved_overrides:
