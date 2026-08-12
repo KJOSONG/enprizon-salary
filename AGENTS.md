@@ -6,11 +6,18 @@
 
 - `README.md`：快速上手、五文件输入格式、部署与命令速查（面向新接手者）
 - `ARCHITECTURE.md`：设计决策与重构理由（单轨重构 e6b9487、employee_id 迁移、双路径核对逻辑），**代码会变、理由不变**，深挖架构优先读它
+- `REFACTOR_SPEC.md`：重构 PRD（需求、验收标准、用户流程），评审后少改
+- `DEV_WORKFLOW.md`：工程协作约定（分支模型、纵向切片、提交/推送纪律、部署时机）
+- `docs/P0_DATA_MODEL_AND_API.md`：P0 数据模型 + API 契约，重构期新表/新接口的权威来源
 
 ## 协作流程
 
 本地修改 → `git push` → 服务器 `git pull && systemctl restart enprizon-salary`
 服务器快捷别名: `save-salary "msg"`（git add -A → commit → push → restart 一步完成）
+
+- **绝不在 `main` 上直接开发**；重构工作在 `refactor` 分支进行，服务器在重构完成前始终留在 `main`
+- **不擅自推送**：推送到远程/服务器需明确批准（见 DEV_WORKFLOW §6）；未完成前绝不半成品上服务器
+- **回滚预案**：`main` 是稳定点，服务器异常即 `git checkout main` + 重启回退
 
 ## 数据库安全
 
@@ -45,7 +52,9 @@ journalctl -u enprizon-salary -f  # 跟踪日志
 ```
 
 ### 测试（无自动化测试！）
-项目无 `test_*.py` 或 `tests/` 目录。手工测试通过数据库替换实现：
+项目无 `test_*.py` 或 `tests/` 目录，默认手工测试通过数据库替换实现。纯逻辑（计薪引擎、事件驱动推导、请假余额、权限判定）可补轻量 `pytest` 校验（见 `DEV_WORKFLOW.md` §7），测试产物放 `_work/` 或独立测试目录，勿污染根目录。
+
+手工测试数据库隔离流程：
 ```bash
 cd /root/enprizon-salary
 bash test-workflow.sh start       # 备份 → test_kilwa.db
@@ -57,7 +66,7 @@ bash test-workflow.sh clean       # 删除测试库（`prod_kilwa.db` 存在时�
 `test-workflow.sh` 使用 `$HOME/WorkBuddy/kilwa-system/data` 和 `$HOME/Desktop/enprizon_backups` 路径。
 
 ### 代码风格
-项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~3300 lines, `calculator.py` ~1400 lines, `database.py` ~1700 lines, `index.html` ~3500 lines），尽量避免增加不必要的模块拆分。
+项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~3340 lines, `calculator.py` ~1420 lines, `database.py` ~1730 lines, `index.html` ~4000 lines），尽量避免增加不必要的模块拆分。
 
 ### 备份与恢复（服务器端）
 ```bash
@@ -261,16 +270,16 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 | 文件 | 职责 |
 |------|------|
-| `app.py` | Flask 路由 + 认证 + 会话 + 数据管线编排（~2458 lines, 43 API 端点） |
-| `core/calculator.py` | 五轨计算 + 逐日单轨合并 + 日工资明细（~1284 lines） |
-| `core/parser.py` | Excel 解析（表头扫描驱动，产量/日薪/破碎 3 个解析函数，~302 lines） |
-| `core/verification.py` | 双路径核对（产量×单价 vs 实际分配，|diff|≤10 视为舍入，~297 lines） |
-| `core/namematch.py` | 姓名标准化 + employee_id 生成 + 员工主列表（~252 lines） |
-| `core/database.py` | SQLite ORM（11 张表）+ 审计日志（~623 lines） |
-| `core/addressbook.py` | 通讯录 Excel 解析（~151 lines） |
-| `core/advance.py` | 预支数据解析（~77 lines） |
-| `core/nssf.py` | NSSF SDL 社保名单解析（~41 lines） |
-| `core/exceptions.py` | 例外覆盖标记加载，兼容 JSON + DB（~24 lines） |
+| `app.py` | Flask 路由 + 认证 + 会话 + 数据管线编排（~3340 lines, 43 API 端点） |
+| `core/calculator.py` | 五轨计算 + 逐日单轨合并 + 日工资明细（~1420 lines） |
+| `core/parser.py` | Excel 解析（表头扫描驱动，产量/日薪/破碎 3 个解析函数，~330 lines） |
+| `core/verification.py` | 双路径核对（产量×单价 vs 实际分配，|diff|≤10 视为舍入，~300 lines） |
+| `core/namematch.py` | 姓名标准化 + employee_id 生成 + 员工主列表（~250 lines） |
+| `core/database.py` | SQLite ORM（11 张表）+ 审计日志（~1730 lines） |
+| `core/addressbook.py` | 通讯录 Excel 解析（~150 lines） |
+| `core/advance.py` | 预支数据解析（~80 lines） |
+| `core/nssf.py` | NSSF SDL 社保名单解析（~40 lines） |
+| `core/exceptions.py` | 例外覆盖标记加载，兼容 JSON + DB（~25 lines） |
 | `core/pricing.py` | 单价配置代理，模块常量（~10 lines） |
 | `core/__init__.py` | 包初始化（1 line） |
 
@@ -341,8 +350,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 | 文件 | 职责 |
 |------|------|
-| `templates/index.html` | 单页 SPA（~3500+ lines，15+ 页面标签，全部 JS 内联） |
-| `static/css/style.css` | 暗系工业风 UI 主题（~1900 lines，含 P4 响应式） |
+| `templates/index.html` | 单页 SPA（~4000 lines，15+ 页面标签，全部 JS 内联） |
+| `static/css/style.css` | 暗系工业风 UI 主题（~1940 lines，含 P4 响应式） |
 | `static/js/i18n.js` | 中英文翻译字典（800+ 键）+ 运行时切换引擎 |
 | `static/js/chart.umd.min.js` | Chart.js v4.4.7 |
 | `static/js/chartjs-plugin-datalabels.min.js` | 图表数据标签插件 |
@@ -363,8 +372,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ## 重构状态（2026-08-12）
 
-**分支**: `refactor`（已推送到 GitHub，**未部署服务器**）
-**阶段**: P0-P5 全部完成，10 commits ahead of `main`
+**分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
+**阶段**: P0-P5 全部完成，17 commits ahead of `main`
 **服务器**: 仍在运行 `main` 分支旧代码，重构完成且本地验证通过后方可切换
 
 ### 重构新增主要功能
@@ -382,4 +391,5 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
 2. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
-3. **项目记忆**：`.memory` 软连接 → `~/.codebuddy/projects/.../memory/`
+3. **项目记忆**：`.memory` 软连接（已完成，2026-08-12）
+4. **git 清理**：提交误跟踪的 `data/kilwa.db-wal`/`data/kilwa.db-shm` 删除（.gitignore 已补防）
