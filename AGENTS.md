@@ -57,7 +57,7 @@ bash test-workflow.sh clean       # 删除测试库（`prod_kilwa.db` 存在时�
 `test-workflow.sh` 使用 `$HOME/WorkBuddy/kilwa-system/data` 和 `$HOME/Desktop/enprizon_backups` 路径。
 
 ### 代码风格
-项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~2515 lines, `calculator.py` ~1306 lines, `index.html` ~2622 lines），尽量避免增加不必要的模块拆分。
+项目无 linter、formatter 配置（无 `.flake8`、`black`、`prettier`、ESLint 等）。修改代码时优先保持与周围代码风格一致。文件普遍偏长（`app.py` ~3300 lines, `calculator.py` ~1400 lines, `database.py` ~1700 lines, `index.html` ~3500 lines），尽量避免增加不必要的模块拆分。
 
 ### 备份与恢复（服务器端）
 ```bash
@@ -77,6 +77,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 - Flask 默认 filesystem session（`data/flask_session/`），`KILWA_SECRET_KEY` 决定加密密钥
 - 不设 `KILWA_SECRET_KEY` → 每次重启随机生成 → 全部用户登出
 - 装饰器链：`@require_super_admin` → `@require_admin` → `@require_editor` → `@login_required`
+- **P4 新增**：`@require_permission(module, action)` 细粒度权限（角色继承 + 单独授权），已接入 OA 审批 + 导出端点
 - 密码存储：SHA256(username + salt + password)，salt 随机生成存入 `admin_users`
 - 默认账号 `user/qweasd`（viewer），`KEJU` 首次登录自动升级为 super_admin
 
@@ -86,6 +87,10 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 - **Gunicorn**：`_gunicorn_init()` 通过 `_app_initialized` 标志防止重复初始化
 - `_ensure_viewer_account()` 自动创建默认 viewer 账号 + 升级 KEJU 为 super_admin
 - `_migrate_json()` 仅在 `overrides` 表为空时运行一次（检测到有数据则跳过）
+- **P5 新增**：`_backup_to_archive()` 首次启动自动备份 `kilwa.db` → `archived_kilwa.db`
+- **P5 新增**：`seed_new_tables_from_excel()` 从 `data/source/*.xlsx` 重建 employees + hire 事件（仅首次）
+- **P5 新增**：`seed_default_forms()` 预置 6 张表单 schema（入职/档案/调岗/出勤/产量×3）
+- **P5 新增**：`init_default_permissions()` 初始化 4 角色默认权限到 `permissions` 表
 - **Headless 模式**：切换到无 Excel 源数据的月份时，自动生成该月所有自然日期，仅支持出勤记录（P/A/L 手动标记），不支持产量/计件数据。手动标记安全持久化，后续上传源数据后自动继承。前端顶部显示 "Preview Mode" 横幅
 
 ## 架构要点
@@ -143,11 +148,21 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 
 三个价格常量 `PRICES_UNDERGROUND`、`PRICES_DRILLER`、`PRICE_CRUSH`（300）在 `calculator.py` 顶部硬编码。但每次 `calculate_all()` 从 DB config 读取并**全局猴子补丁覆盖**模块变量，结束后恢复。`/config` API 可修改 `crush_price` → 下次计算生效。**硬编码常量 ≠ 不可修改**。
 
-### 例外覆盖
+### 例外覆盖（P5: 逐步被事件驱动取代）
 
 - `overrides` 表：`start_date`/`end_date` 都空 → 永久覆盖（改变整月类型）；有日期 → 临时例外（仅影响区间）
-- `attendance_overrides` 表：(employee_id, date) 联合 PK，status P/A/L
+- `attendance_overrides` 表：(employee_id, date) 联合 PK，status P/A/L/D/N/C/S/Y/T
+- **P5 事件驱动**：`employee_events` 中已批准的 transfer/salary_change/resign 事件自动转换为 overrides（`_derive_overrides_from_events()`）
+- **优先级**：事件推导覆盖 > 手动 DB 覆盖
 - 标记 A/L 的员工从当日计件分配排除，总额守恒（剩余人员平分）
+
+### 计薪模式切换（P5-b）
+
+- `settings` 表 `underground_mode` 键：`piecework`（默认，纯计件）| `scoring`（评分模式）
+- **scoring 模式**：井下工人 = 固定月薪（monthly_salary/26×出勤天数）+ 司机津贴（5000/天）+ 评分奖金
+- **piecework 模式**：保持原有五轨计件逻辑不变
+- 通过 `/config` API 切换，recalculate 后生效
+- 双路径核对在两种模式下均应保持 0 偏差
 
 ### 出勤状态字母
 
@@ -165,12 +180,14 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 ### 前端技术栈
 
-- **单文件 SPA**：`templates/index.html`（~128KB），所有 JS 内联在 `<script>` 标签中，无独立 JS 模块或构建系统
-- **6 个页面标签**：数据台（Dashboard） / 员工管理 / 出勤网格 / 薪资总表（含核对面板） / 日工资明细 / 系统配置（含审计日志、上传、定价、权限管理）
-- **国际化 (i18n)**：`static/js/i18n.js`（~864 lines）支持中英文即时切换，通过 `data-i18n` / `data-i18n-placeholder` / `data-i18n-html` 属性驱动，语言偏好存 `localStorage.kilwa_lang`，切换后自动刷新当前页面渲染
-- **图表**：Chart.js v4.4.7 + chartjs-plugin-datalabels，用于数据台产量趋势图和日工资分布图
-- **状态管理**：全局 `STATE` 对象缓存当前页数据，`recalculate()` 后自动刷新薪资/出勤/日工资相关页面
-- **暗系工业风 UI**：`static/css/style.css`（~1338 lines），CNPC 主题色系
+- **单文件 SPA**：`templates/index.html`（~3500+ lines），所有 JS 内联在 `<script>` 标签中，无独立 JS 模块或构建系统
+- **P0 导航重建**：侧边栏 + 面包屑 + hash 路由 `#module/subpage?key=val`，8 个主模块：数据台/员工/OA/考勤/产量/评分/薪资/系统
+- **15+ 个页面标签**：数据台（Dashboard）/ 员工列表 / 员工档案 / OA 待审 / OA 历史 / 出勤网格 / 薪资总表 / 日工资明细 / 产量×3（井下/钻工/破碎）/ 评分×3（录入/汇总/客观）/ 系统配置 / 用户权限 / 表单自定义 / 旧数据归档
+- **国际化 (i18n)**：`static/js/i18n.js`（~800+ 键）支持中英文即时切换
+- **图表**：Chart.js v4.4.7 + chartjs-plugin-datalabels
+- **P4 新增**：全局搜索（顶栏，防抖300ms，跨 employees/salary/production/attendance）
+- **P4 新增**：移动端响应式（44px触摸目标、16px防iOS缩放、侧边栏手势、底部导航）
+- **暗系工业风 UI**：`static/css/style.css`（~1900 lines），CNPC 主题色系
 
 ### 前端数据流
 
@@ -197,21 +214,30 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 `super_admin` > `admin` > `editor` > `viewer`。默认账号 `user/qweasd`（viewer），`KEJU` 自动升 super_admin。
 
-### 数据库 11 张表
+### 数据库表（P5 当前 18+ 张表）
 
-| 表 | 说明 |
-|-----|------|
-| `employees` | 员工缓存（id/name/dept/type/day_rate/monthly_salary/nssf） |
-| `overrides` | 薪资例外：永久/临时 |
-| `attendance_overrides` | 手动出勤标记 P/A/L |
-| `settings` | 系统配置 key-value（定价、NSSF 费率） |
-| `monthly_data` | 月度薪资快照缓存 |
-| `audit_log` | 操作审计（强制 UTC+3） |
-| `shift_additions` | 手动补井下计件班次 |
-| `driller_additions` | 手动补钻工分组 |
-| `bonus_penalties` | 月度奖惩 |
-| `dismissed_employees` | 离职追踪 |
-| `admin_users` | 用户认证（加盐 SHA256） |
+| 表 | 说明 | 阶段 |
+|-----|------|------|
+| `employees` | 员工主档（含 P1 扩展：position/skill_level/hire_date/NIDA/NSSF/银行字段） | P0+P1 |
+| `overrides` | 薪资例外：永久/临时（逐步被 employee_events 取代） | P0 |
+| `attendance_overrides` | 手动出勤标记 P/A/L/D/N/C/S/Y/T | P0 |
+| `settings` | 系统配置 key-value（定价/NSSF/underground_mode/scoring） | P0 |
+| `monthly_data` | 月度薪资快照缓存 | P0 |
+| `audit_log` | 操作审计（强制 UTC+3） | P0 |
+| `shift_additions` | 手动补井下计件班次 | P0 |
+| `driller_additions` | 手动补钻工分组 | P0 |
+| `bonus_penalties` | 月度奖惩 | P0 |
+| `dismissed_employees` | 离职追踪 | P0 |
+| `admin_users` | 用户认证（加盐 SHA256） | P0 |
+| `employee_events` | OA 生命周期事件（入职/调岗/离职/薪资变/请假） | P1 |
+| `leave_balances` | 年假/调休余额 | P2 |
+| `leave_requests` | 请假申请记录 | P2/P5 |
+| `driver_roster` | 司机白名单 | P2 |
+| `scoring_cards/entries` | 评分卡 + 6 维评分 | P3 |
+| `objective_records` | 客观产量数据（R1/R2→S） | P3 |
+| `permissions` | 细粒度权限定义（模块×动作） | P4 |
+| `user_grants` | 用户单独授权（覆盖角色默认） | P4 |
+| `form_schemas/fields` | Schema 驱动表单定义 | P4 |
 
 ### 硬排除名单（`app.py:40-45`）
 
@@ -303,14 +329,21 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET | `/admin/users` | super_admin | 用户管理页面 |
 | POST | `/admin/users/role` | super_admin | 修改用户角色 |
 | POST | `/api/admin/change-password` | 登录用户 | 修改自身密码 |
+| GET | `/api/permissions/users` | admin+ | 用户权限矩阵 |
+| POST | `/api/permissions/grant` | super_admin | 单独授权 |
+| DELETE | `/api/permissions/grant` | super_admin | 撤销授权 |
+| GET | `/api/search?q=&scope=` | 登录用户 | 全局搜索（P4） |
+| GET/POST/PUT/DELETE | `/api/forms/schema/*` | 登录/超管 | 表单自定义CRUD（P4） |
+| GET | `/api/archive/months` | 登录用户 | 归档月份列表（P5） |
+| GET | `/api/archive/salary?month=` | 登录用户 | 归档薪资查询（P5） |
 
 ### 前端文件
 
 | 文件 | 职责 |
 |------|------|
-| `templates/index.html` | 单页 SPA（~128KB, ~2488 lines，6 页面标签，全部 JS 内联） |
-| `static/css/style.css` | 暗系工业风 UI 主题（~1338 lines） |
-| `static/js/i18n.js` | 中英文翻译字典（760+ 键）+ 运行时切换引擎 |
+| `templates/index.html` | 单页 SPA（~3500+ lines，15+ 页面标签，全部 JS 内联） |
+| `static/css/style.css` | 暗系工业风 UI 主题（~1900 lines，含 P4 响应式） |
+| `static/js/i18n.js` | 中英文翻译字典（800+ 键）+ 运行时切换引擎 |
 | `static/js/chart.umd.min.js` | Chart.js v4.4.7 |
 | `static/js/chartjs-plugin-datalabels.min.js` | 图表数据标签插件 |
 
@@ -327,3 +360,26 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ## 原则
 
 - 临时分析脚本、报告放在 `_work/`（已 gitignore，可随时删除）
+
+## 重构状态（2026-08-12）
+
+**分支**: `refactor`（已推送到 GitHub，**未部署服务器**）
+**阶段**: P0-P5 全部完成，10 commits ahead of `main`
+**服务器**: 仍在运行 `main` 分支旧代码，重构完成且本地验证通过后方可切换
+
+### 重构新增主要功能
+
+| 阶段 | 新增 |
+|------|------|
+| P0 | 导航重建（侧边栏+面包屑+hash路由）、前端 IA 重构 |
+| P1 | employee_events 表、OA 审批流程（入职/调岗/离职/薪资变） |
+| P2 | 考勤批量提交、请假系统（年假/调休余额）、产量 Web 录入 |
+| P3 | 评分模型（6维匿名互评+三闸面板+奖金并入净额） |
+| P4 | 细粒度权限、全局搜索、表单自定义引擎、手机端响应式 |
+| P5 | 旧数据 ATTACH 归档、事件驱动计薪桥接、计薪模式切换（计件↔评分） |
+
+### 下一步
+
+1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
+2. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
+3. **项目记忆**：`.memory` 软连接 → `~/.codebuddy/projects/.../memory/`
