@@ -1,6 +1,6 @@
 """
 薪资计算引擎（四轨）
-1. 井下计件（N/S 列） NH×6000 + NL×5000 + MW×4000，平分
+1. 生产薪资（N/S 列） NH×6000 + NL×5000 + MW×4000，平分
 2. 钻工计件（T-Z/AF-AI 列） NH×5000 + NL×4000 + MW×3000，队长×2份额制
 3. 日薪（Daily Salary 表）日薪基数×出勤天数
 4. 月薪（手动标记）月薪基数
@@ -21,7 +21,7 @@ CURRENT_MONTH = TODAY.month
 CURRENT_YEAR = TODAY.year
 
 # ═══════════════════════════════════════════════════════════
-#  1. 井下计件计算
+#  1. 生产薪资计算
 # ═══════════════════════════════════════════════════════════
 
 def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None):
@@ -883,19 +883,17 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         if scoring_bonus > 0:
             bonus += scoring_bonus
 
-        # P5-b: 评分模式 — 司机津贴（5,000/天 × 驾驶天数）
+        # P11: 司机津贴（5,000/天 × 该月出勤勾选"驾驶"天数；须在 driver_roster 名单内，两种模式通用）
         driver_days = 0
-        if underground_mode == 'scoring' and eid in scoring_employees and data_folder:
+        if data_folder:
             try:
                 db_path = os.path.join(data_folder, 'kilwa.db')
                 if os.path.exists(db_path):
                     dc = sqlite3.connect(db_path)
-                    # 查司机名单
                     dr = dc.execute("SELECT 1 FROM driver_roster WHERE employee_id=?", (eid,)).fetchone()
                     if dr:
-                        # 统计当月驾驶天数
                         crows = dc.execute(
-                            "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND date LIKE ? AND status IN ('D','N','DN')",
+                            "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND date LIKE ? AND is_driver=1",
                             (eid, month_prefix + '%')).fetchone()
                         if crows:
                             driver_days = crows[0]
@@ -934,6 +932,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'piece_underground': pu, 'piece_driller': pd_val,
             'piece_crush': cr_total, 'day_rate': dr_total, 'monthly': ms_total,
             'gross': gross, 'bonus': bonus, 'penalty': penalty,
+            'driver_allowance': driver_allowance,
             'advance': round(advance), 'nssf': nssf, 'net': net,
             'temp_exception': temp_exception, 'temp_overrides': temp_overrides,
         })
@@ -1075,6 +1074,17 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         for eid, dates in c_overrides.items():
             for dt in dates:
                 per_date_type[eid][dt] = 'piece_crush'
+
+        # P5-b: 评分模式 — 井下工人全体重定向为 monthly（与 calculate_all 保持一致，供下方类型排除使用）
+        scoring_employees = set()
+        if underground_mode == 'scoring':
+            for emp in employees:
+                eid = emp['id']
+                eff_type = emp.get('override_type') or emp.get('default_type', '')
+                if eff_type == 'piece_underground':
+                    scoring_employees.add(eid)
+                    for dt in all_dates:
+                        per_date_type[eid][dt] = 'monthly'
         combined_excl = exclusions | att_exclusions | range_exclusions
 
         all_shift_dates = sorted(set(

@@ -406,7 +406,7 @@
       <input type="text" id="salarySearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
       <select id="salaryFilterType" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="salary_all_types">全部类型</option>
-        <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+        <option value="piece_underground" data-i18n="emp_ug_piece">生产薪资</option>
         <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
         <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
@@ -430,7 +430,7 @@
       <div class="verify-summary" id="verifySummary"></div>
       <div class="verify-detail" id="verifyDetail" style="display:none;">
         <div class="verify-tabs">
-          <button class="verify-tab active" onclick="switchVerifyTab('underground')" data-i18n="verify_ug_piece">井下计件</button>
+          <button class="verify-tab active" onclick="switchVerifyTab('underground')" data-i18n="verify_ug_piece">生产薪资</button>
           <button class="verify-tab" onclick="switchVerifyTab('driller')" data-i18n="verify_dr_piece">钻工计件</button>
         </div>
         <div class="verify-tab-content" id="verifyTabUnderground">
@@ -451,13 +451,14 @@
           <tr>
             <th data-i18n="th_name">姓名</th>
             <th data-i18n="th_type">类型</th>
-            <th data-i18n="th_ug_piece">井下计件</th>
+            <th data-i18n="th_ug_piece">生产薪资</th>
             <th data-i18n="th_dr_piece">钻工计件</th>
             <th data-i18n="th_crush_piece">破碎计件</th>
             <th data-i18n="th_dayrate">日薪</th>
             <th data-i18n="th_monthly">月薪</th>
             <th data-i18n="th_gross">应发</th>
             <th data-i18n="th_bonus">奖金</th>
+            <th data-i18n="th_driver">司机津贴</th>
             <th data-i18n="th_penalty">罚款</th>
             <th data-i18n="th_advance">预支</th>
             <th data-i18n="th_nssf">NSSF</th>
@@ -482,7 +483,7 @@
       <input type="text" id="dwSearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
       <select id="dwFilterType" onchange="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="dw_all_types">全部类型</option>
-        <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+        <option value="piece_underground" data-i18n="emp_ug_piece">生产薪资</option>
         <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
         <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
@@ -515,7 +516,7 @@
         <input type="text" id="attSearch" data-i18n-placeholder="att_search_ph" placeholder="搜索姓名..." oninput="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <select id="attFilterType" onchange="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
           <option value="" data-i18n="att_all">全部</option>
-          <option value="井下计件" data-i18n="emp_ug_piece">井下计件</option>
+          <option value="piece_underground" data-i18n="emp_ug_piece">生产薪资</option>
           <option value="钻工计件" data-i18n="emp_dr_piece">钻工计件</option>
           <option value="破碎计件" data-i18n="emp_crush_piece">破碎计件</option>
           <option value="日薪" data-i18n="emp_dayrate">日薪</option>
@@ -548,7 +549,7 @@
     <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_desc">修改后自动重新计算</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <div style="background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);">
-        <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="settings_ug_price">井下计件单价</h3>
+        <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="settings_ug_price">生产薪资单价</h3>
         <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(H)</label><input type="number" id="cfg_ug_nh" class="cfg-input" data-key="underground_prices.NICKEL（H）" data-section="underground_prices" onchange="saveConfig()"></div>
         <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;">NICKEL(L)</label><input type="number" id="cfg_ug_nl" class="cfg-input" data-key="underground_prices.NICKEL（L）" data-section="underground_prices" onchange="saveConfig()"></div>
         <div class="form-row"><label style="min-width:90px;">MAWE</label><input type="number" id="cfg_ug_mw" class="cfg-input" data-key="underground_prices.MAWE" data-section="underground_prices" onchange="saveConfig()"></div>
@@ -615,16 +616,6 @@
         <tbody id="auditLogBody"></tbody>
       </table>
     </div>
-  </div>
-
-  <!-- ═══ 源文件管理 ═══ -->
-  <div class="card">
-    <h2 data-i18n="source_upload_title">📂 源文件管理</h2>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;" data-i18n="source_upload_desc">上传 Excel 文件，自动覆盖旧文件并重新加载数据</p>
-    <div id="sourceUploadList" style="display:grid;gap:10px;">
-      <!-- JS 动态渲染 -->
-    </div>
-    <div id="sourceUploadMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
 
   <!-- ═══ 用户权限管理（仅 super_admin 可见） ═══ -->
@@ -881,7 +872,7 @@
         <select id="modalType" onchange="syncModalBaseField()">
           <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
           <option value="monthly" data-i18n="emp_monthly">月薪</option>
-          <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+          <option value="piece_underground" data-i18n="emp_ug_piece">生产薪资</option>
           <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
           <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         </select>
@@ -910,7 +901,7 @@
         <label data-i18n="modal_temp_type">临时类型</label>
         <select id="modalTempType" onchange="syncTempFields()">
           <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
-          <option value="piece_underground" data-i18n="emp_ug_piece">井下计件</option>
+          <option value="piece_underground" data-i18n="emp_ug_piece">生产薪资</option>
           <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
           <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
         </select>
@@ -1177,6 +1168,17 @@ async function submitLogin() {
     if (data.ok) {
       closeLoginModal();
       await checkAuth();
+      // P11-fix: 登录成功后确保 currentMonth 有值（init() 登录前跑，未登录时 /salary 401）
+      if (!STATE.currentMonth) {
+        try {
+          const sRes = await fetch(api('/salary'));
+          const sData = await sRes.json();
+          if (sData.result && sData.result.month) {
+            STATE.currentMonth = sData.result.month;
+            updatePeriodBar();
+          }
+        } catch(e) {}
+      }
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
     } else {
       errEl.textContent = data.error === 'invalid_credentials' ? t('err_invalid_credentials') :
@@ -1366,7 +1368,7 @@ function showTargetPage(module, subPage) {
   if (targetId === 'attendance') loadAttendance();
   if (targetId === 'dailywages') loadDailyWages();
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
-  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); loadUserList(); loadGroupsAdmin(); }
+  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadUserList(); loadGroupsAdmin(); }
   if (targetId === 'employees') {
     renderEmployeeTable();
     // P6: 档案已合并为抽屉，带 id 的链接直接打开抽屉
@@ -1574,7 +1576,7 @@ function toggleCollapseSidebar() {
 function renderDashboard(result) {
   const typeLabels = getTYPE_LABELS();
 
-  const driverAllowance = result.driver_allowance || 0;
+  const driverAllowance = (result.employees || []).reduce((s, e) => s + (e.driver_allowance || 0), 0);
   document.getElementById('dashboardStats').innerHTML = `
     <div class="stat-glass">
       <div class="value">${result.employees.length}</div>
@@ -1600,7 +1602,7 @@ function renderDashboard(result) {
       <div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div>
       <div class="label">${t('dash_nssf_deduct')}</div>
     </div>
-    <div class="stat-glass driver-allowance-card" onclick="editDriverAllowance(event)" title="${t('dash_edit_driver_allowance')}">
+    <div class="stat-glass driver-allowance-card">
       <div class="value" style="color:var(--success)">${fmtNum(driverAllowance)}</div>
       <div class="label">${t('dash_driver_allowance')}</div>
     </div>
@@ -2449,7 +2451,7 @@ async function recalculate() {
 function renderSalaryTable(result) {
   STATE._salaryResult = result;
   const tbody = document.querySelector('#salaryTable tbody');
-  const salaryDa = result.driver_allowance || 0;
+  const salaryDa = (result.employees || []).reduce((s, e) => s + (e.driver_allowance || 0), 0);
   document.getElementById('salaryStats').innerHTML = `
     <div class="stat-glass"><div class="value">${result.employees.length}</div><div class="label">${t('salary_stats_emp')}</div></div>
     <div class="stat-glass"><div class="value">${fmtNum(result.total_gross)}</div><div class="label">${t('salary_stats_gross')}</div></div>
@@ -2457,7 +2459,7 @@ function renderSalaryTable(result) {
     <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_penalty||0)}</div><div class="label">${t('salary_stats_penalty')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div><div class="label">${t('salary_stats_advance')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div><div class="label">${t('salary_stats_nssf')}</div></div>
-    <div class="stat-glass driver-allowance-card" onclick="editDriverAllowance(event)" title="${t('dash_edit_driver_allowance')}">
+    <div class="stat-glass driver-allowance-card">
       <div class="value" style="color:var(--success)">${fmtNum(salaryDa)}</div>
       <div class="label">${t('salary_stats_driver')}</div>
     </div>
@@ -2505,7 +2507,7 @@ function filterSalaryTable() {
     const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0);
     const bonus = emp.bonus || 0;
     const penalty = emp.penalty || 0;
-    const n = g + bonus - (emp.advance||0) - (emp.nssf||0) - penalty;
+    const n = g + bonus + (emp.driver_allowance||0) - (emp.advance||0) - (emp.nssf||0) - penalty;
     return `<tr>
       <td class="left">${escHtml(emp.name)}</td>
       <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
@@ -2516,6 +2518,7 @@ function filterSalaryTable() {
       <td class="num">${fmtNum(emp.monthly||0)}</td>
       <td class="num bold">${fmtNum(g)}</td>
       <td class="num" style="color:var(--success)">${bonus ? '+' + fmtNum(bonus) : '—'}</td>
+      <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
       <td class="num" style="color:var(--danger)">${penalty ? '-' + fmtNum(penalty) : '—'}</td>
       <td class="num" style="color:var(--danger)">${fmtNum(emp.advance||0)}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.nssf||0)}</td>
@@ -3024,45 +3027,6 @@ function renderProductionCharts(data) {
     }, {responsive:true, maintainAspectRatio:false, ...getChartOpts(show())});
   } else {
     destroyChart('chartDailyProd');
-    destroyChart('chartProdPie');
-  }
-
-  if (data.driller_production && data.driller_production.length) {
-    const labels = data.driller_production.map(d=>d.name||d.captain);
-    renderChart('chartDrillerProd', 'bar', {
-      labels,
-      datasets: [
-        {label:'NH', data:data.driller_production.map(d=>d.nh||0), backgroundColor:'rgba(96,165,250,0.7)', borderRadius:4},
-        {label:'NL', data:data.driller_production.map(d=>d.nl||0), backgroundColor:'rgba(52,211,153,0.7)', borderRadius:4},
-        {label:'MW', data:data.driller_production.map(d=>d.mw||0), backgroundColor:'rgba(244,114,182,0.7)', borderRadius:4},
-      ]
-    }, {responsive:true, maintainAspectRatio:false, scales:{x:{grid:{color:'rgba(37,99,235,0.06)'},ticks:{color:'#64748B'}},y:{stacked:true,grid:{color:'rgba(37,99,235,0.06)'},ticks:{color:'#64748B'}}}, ...getChartOpts(show())});
-  } else {
-    destroyChart('chartDrillerProd');
-  }
-
-  if (data.driller_consumables && data.driller_consumables.length) {
-    const labels = data.driller_consumables.map(d=>d.name||d.captain);
-    renderChart('chartConsumables', 'bar', {
-      labels,
-      datasets: [
-        {label:'FUTA', data:data.driller_consumables.map(d=>(d.futa||0)/164), backgroundColor:'rgba(167,139,250,0.7)', borderRadius:4},
-        {label:'WAYA', data:data.driller_consumables.map(d=>d.waya||0), backgroundColor:'rgba(251,191,36,0.7)', borderRadius:4},
-        {label:'KIBIRITI', data:data.driller_consumables.map(d=>d.kibiriti||0), backgroundColor:'rgba(251,113,133,0.7)', borderRadius:4},
-      ]
-    }, {responsive:true, maintainAspectRatio:false, ...getChartOpts(show())});
-  } else {
-    destroyChart('chartConsumables');
-  }
-
-  if (data.shift_production && data.shift_production.length) {
-    const nh = data.shift_production.reduce((s,d)=>s+(d.nh||0),0);
-    const nl = data.shift_production.reduce((s,d)=>s+(d.nl||0),0);
-    const mw = data.shift_production.reduce((s,d)=>s+(d.mw||0),0);
-    renderChart('chartProdPie', 'doughnut', {
-      labels:['NICKEL(H)','NICKEL(L)','MAWE'],
-      datasets:[{data:[nh,nl,mw], backgroundColor:['#60A5FA','#34D399','#F472B6'], borderColor:'#121A2B', borderWidth:2, hoverOffset:8}]
-    }, {responsive:true, maintainAspectRatio:false, plugins:{...getChartOpts(show()).plugins, datalabels:{...getChartOpts(show()).plugins.datalabels, formatter:(v,ctx)=>ctx.chart.data.labels[ctx.dataIndex]+'\n'+fmtNum(Math.round(v))}}});
   }
 }
 
@@ -3182,7 +3146,7 @@ async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
      新增 S(事假)/Y(年假)/T(调休) — 与 L 同级, 均排除计件 */
   let nextStatus;
   const isCrush = empType === '破碎计件';
-  const isUnderground = empType === '井下计件';
+  const isUnderground = empType === 'Underground Piece Rate' || empType === '生产薪资';
   if (autoVal === '' || autoVal === undefined) {
     const cycle = isCrush
       ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''}
@@ -3293,76 +3257,6 @@ async function changeUserRole(username, role) {
 //  源文件上传管理
 // ═════��══════════════════════════════════════════
 
-const UPLOAD_TYPE_INFO = {
-  main: { label: 'source_upload_main', icon: '🗂' },
-  advance: { label: 'source_upload_advance', icon: '💰' },
-  addressbook: { label: 'source_upload_addressbook', icon: '📋' },
-  nssf: { label: 'source_upload_nssf', icon: '🏦' },
-  crush: { label: 'source_upload_crush', icon: '🪨' },
-};
-
-async function loadSourceUploadList() {
-  const container = document.getElementById('sourceUploadList');
-  if (!container) return;
-  try {
-    const res = await fetch(api('/source-info'));
-    const info = await res.json();
-    container.innerHTML = Object.entries(UPLOAD_TYPE_INFO).map(([type, meta]) => {
-      const fname = info[type] || t('source_upload_none');
-      const cls = info[type] ? '' : ' style="color:var(--text-muted);"';
-      const downloadBtn = (type === 'addressbook' && info[type])
-        ? `<a href="${api('/download-source/addressbook')}" class="nav-btn" style="font-size:11px;padding:4px 12px;text-decoration:none;margin-right:4px;" data-i18n="source_upload_download">${t('source_upload_download')}</a>`
-        : '';
-      return `<div class="upload-row" style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary);padding:10px 14px;border-radius:var(--radius);border:1px solid var(--border);">
-        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-          <span style="font-size:18px;">${meta.icon}</span>
-          <div style="min-width:0;">
-            <div style="font-size:13px;font-weight:500;" data-i18n="${meta.label}">${t(meta.label)}</div>
-            <div class="upload-fname"${cls} style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;">${escHtml(fname)}</div>
-          </div>
-        </div>
-        <div style="flex-shrink:0;">
-          ${downloadBtn}
-          <input type="file" id="fileInput_${type}" accept=".xlsx" style="display:none;" onchange="handleFileUpload('${type}', this.files[0])">
-          <button onclick="document.getElementById('fileInput_${type}').click()" class="nav-btn admin-only" style="font-size:11px;padding:4px 12px;" data-i18n="source_upload_select">${t('source_upload_select')}</button>
-        </div>
-      </div>`;
-    }).join('');
-  } catch(e) {}
-}
-
-async function handleFileUpload(fileType, file) {
-  if (!file) return;
-  const msgEl = document.getElementById('sourceUploadMsg');
-  msgEl.innerHTML = '<span style="color:var(--accent);">' + t('source_upload_uploading') + '</span>';
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('file_type', fileType);
-
-  try {
-    const res = await authFetch(api('/upload-source'), { method: 'POST', body: formData });
-    const data = await res.json();
-    if (data.ok) {
-      STATE._empAll = STATE.employees = data.employees;
-      STATE.salaryResult = data.salary;
-      renderDashboard(data.salary);
-      renderSalaryTable(data.salary);
-      renderEmployeeTable();
-      document.getElementById('recalcBtn').disabled = false;
-      loadProductionData();
-      loadSourceInfo();
-      loadSourceUploadList();
-      msgEl.innerHTML = '<span style="color:var(--success);">✓ ' + t('source_upload_success') + '</span>';
-      showToast(t('source_upload_success'));
-    } else {
-      msgEl.innerHTML = '<span style="color:var(--danger);">✗ ' + escHtml(data.error || t('source_upload_fail')) + '</span>';
-    }
-  } catch(e) {
-    msgEl.innerHTML = '<span style="color:var(--danger);">✗ ' + t('source_upload_fail') + '</span>';
-  }
-}
-
 // ════════════════════════════════════════════════
 //  配置
 // ════════════════════════════════════════════════
@@ -3419,28 +3313,6 @@ async function saveConfig() {
       showToast(t('toast_saved'));
     }
   }, 500);
-}
-
-async function editDriverAllowance(e) {
-  e.stopPropagation();
-  const da = (STATE._config || {}).driver_allowance || 0;
-  const input = prompt(t('confirm_driver_allowance'), da);
-  if (input === null) return;
-  const val = parseInt(input);
-  if (isNaN(val) || val < 0) { showToast(t('confirm_invalid_number')); return; }
-  // 保持原有 config 不变，仅更新 driver_allowance
-  const config = { ...(STATE._config || {}), driver_allowance: val };
-  const res = await authFetch(api('/config'), {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  });
-  const data = await res.json();
-  if (data.ok) {
-    STATE._config = config;
-    // 触发重新计算以更新 total_net
-    document.getElementById('recalcBtn').click();
-    showToast(t('toast_driver_updated'));
-  }
 }
 
 async function resetConfig() {

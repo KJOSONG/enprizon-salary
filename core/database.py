@@ -46,6 +46,7 @@ def init_db(data_folder):
             employee_id TEXT NOT NULL,
             date TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'A',
+            is_driver INTEGER DEFAULT 0,
             PRIMARY KEY (employee_id, date)
         );
         CREATE TABLE IF NOT EXISTS settings (
@@ -305,6 +306,10 @@ def init_db(data_folder):
         try:
             conn.execute(f"ALTER TABLE leave_balances ADD COLUMN {col}")
         except: pass
+    # P11: 旧库 attendance_overrides 补 is_driver 列
+    try:
+        conn.execute("ALTER TABLE attendance_overrides ADD COLUMN is_driver INTEGER DEFAULT 0")
+    except: pass
     # P10: 旧库 scoring_cards 补 month 列
     try:
         conn.execute("ALTER TABLE scoring_cards ADD COLUMN month TEXT DEFAULT ''")
@@ -601,15 +606,16 @@ def load_attendance_overrides(data_folder):
         result[key] = r['status']
     return result
 
-def save_attendance_override(data_folder, employee_id, date, status):
-    """保存手动出勤标记：P出勤 A旷工 L请假"""
+def save_attendance_override(data_folder, employee_id, date, status, is_driver=0):
+    """保存手动出勤标记：P出勤 A旷工 L请假；P11 增 is_driver（0/1，出勤勾选驾驶，旧调用不受影响）"""
     if status == '' or status == 'R':
         # 空值 = 复位：删除手动覆盖，恢复自动
         return delete_attendance_override(data_folder, employee_id, date)
     conn = get_conn(data_folder)
     conn.execute(
-        "INSERT INTO attendance_overrides (employee_id, date, status) VALUES (?,?,?) ON CONFLICT(employee_id,date) DO UPDATE SET status=?",
-        (employee_id, date, status, status)
+        "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,?) "
+        "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=?",
+        (employee_id, date, status, 1 if is_driver else 0, status, 1 if is_driver else 0)
     )
     conn.commit()
     conn.close()

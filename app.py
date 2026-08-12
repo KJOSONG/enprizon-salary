@@ -406,15 +406,6 @@ def strip_dept(dept):
         return 'ENPRIZON LINDI PROJECT'
     return dept.replace('ENPRIZON LINDI PROJECT/', '')
 
-def _apply_driver_allowance(result):
-    """从配置读取司机津贴，加入实发合计（企业级手工输入）"""
-    if not result:
-        return
-    da = (APP_STATE.get('config') or {}).get('driver_allowance', 0)
-    if da:
-        result['total_net'] = round(result.get('total_net', 0) + da)
-    result['driver_allowance'] = da
-
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['DATA_FOLDER'], exist_ok=True)
 os.makedirs(SOURCE_DIR, exist_ok=True)
@@ -806,8 +797,6 @@ def _run_pipeline(files, month_filter=None):
                            pricing=APP_STATE['config'], data_folder=app.config['DATA_FOLDER'],
                            bonus_penalties=bonus_penalties)
 
-    # ── 司机津贴（企业级手工输入，计入实发合计） ──
-    _apply_driver_allowance(result)
     APP_STATE['parsed'] = True
     APP_STATE['calculated'] = True
     APP_STATE['employees'] = employees
@@ -1104,8 +1093,6 @@ def set_month():
         data_folder=app.config['DATA_FOLDER'],
         bonus_penalties=bonus_penalties,
     )
-    # ── 司机津贴 ──
-    _apply_driver_allowance(result)
     APP_STATE['salary_result'] = result
 
     return jsonify({'ok': True, 'message': msg, 'salary': result, 'headless': APP_STATE.get('headless', False)})
@@ -1870,8 +1857,14 @@ def collection_submit():
             status = m.get('status', '')
             if not eid or not status:
                 continue
-            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
-            if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
+            want_driver = 1 if m.get('is_driver') else 0
+            # P11: 勾选驾驶须已在司机名单（driver_roster）
+            if want_driver and not is_driver(app.config['DATA_FOLDER'], eid):
+                return jsonify({'ok': False,
+                                'error': f'员工 {eid} 不在司机名单，不能勾选驾驶'}), 400
+            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status,
+                                     is_driver=want_driver)
+            if want_driver:
                 add_driver(app.config['DATA_FOLDER'], eid)
 
     # upsert collection_submissions by (form_type, date)
@@ -2379,8 +2372,6 @@ def _recalc_internal():
         data_folder=app.config['DATA_FOLDER'],
         bonus_penalties=bonus_penalties,
     )
-    # ── 司机津贴 ──
-    _apply_driver_allowance(result)
     APP_STATE['calculated'] = True
     APP_STATE['salary_result'] = result
     _audit('recalculate', '', json.dumps({'total_gross': result['total_gross']}))
@@ -2409,7 +2400,6 @@ def get_salary():
         result = calculate_all(md, APP_STATE['employees'], overrides=overrides, exclusions=exclusions,
                                pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
                                bonus_penalties=bonus_penalties)
-        _apply_driver_allowance(result)
         return jsonify({'result': result, 'headless': not bool(md.get('dates'))})
     return jsonify({'result': APP_STATE.get('salary_result'), 'headless': APP_STATE.get('headless', False)})
 
@@ -2634,7 +2624,7 @@ def get_attendance():
     from core.database import load_attendance_overrides
     manual = load_attendance_overrides(app.config['DATA_FOLDER'])
 
-    # 井下计件：白班=D 夜班=N 全天=B
+    # 生产薪资：白班=D 夜班=N 全天=B
     for d in shift_prod:
         dt = d['date']
         for e in d.get('day_emps', []):
@@ -2684,7 +2674,7 @@ def get_attendance():
                 day_origin[eid][dt] = 'auto'
 
     # 月薪默认出勤
-    type_labels = {'piece_crush': '破碎计件','piece_underground':'井下计件','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支','address_book':'通讯录'}
+    type_labels = {'piece_crush': '破碎计件','piece_underground':'生产薪资','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支','address_book':'通讯录'}
     rows = []
 
     for emp in employees:
@@ -2779,15 +2769,15 @@ def export_salary():
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                           top=Side(style='thin'), bottom=Side(style='thin'))
 
-    headers = ['Name', 'Type', 'Underground Piece(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
+    headers = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
-               'Bonus(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)', 'Net Salary(TZS)']
+               'Bonus(TZS)', 'Driver Allowance(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)', 'Net Salary(TZS)']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(1, col, h)
         cell.font = header_font; cell.fill = header_fill
         cell.alignment = header_align; cell.border = thin_border
 
-    type_map = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece', 'piece_driller': 'Driller Piece',
+    type_map = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece Rate', 'piece_driller': 'Driller Piece',
                 'day_rate': 'Day Rate', 'monthly': 'Monthly', 'both': 'Unspecified', 'advance_only': 'Advance Only', 'address_book': 'Address Book'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
@@ -2799,13 +2789,14 @@ def export_salary():
         bonus = int(emp.get('bonus', 0) or 0)
         penalty = int(emp.get('penalty', 0) or 0)
         nssf = emp.get('nssf', 0) or 0
-        net = gross + bonus - (emp.get('advance', 0) or 0) - nssf - penalty
+        driver = int(emp.get('driver_allowance', 0) or 0)
+        net = gross + bonus + driver - (emp.get('advance', 0) or 0) - nssf - penalty
         vals = [
             emp['name'] or '', type_map.get(emp.get('salary_type', ''), emp.get('salary_type', '')),
             int(emp.get('piece_underground', 0) or 0), int(emp.get('piece_driller', 0) or 0),
             int(emp.get('piece_crush', 0) or 0),
             int(emp.get('day_rate', 0) or 0), int(emp.get('monthly', 0) or 0),
-            int(gross), bonus, penalty, int(emp.get('advance', 0) or 0), int(nssf), int(net),
+            int(gross), bonus, driver, penalty, int(emp.get('advance', 0) or 0), int(nssf), int(net),
         ]
         for col, v in enumerate(vals, 1):
             cell = ws.cell(i, col, v); cell.border = thin_border
@@ -2816,21 +2807,20 @@ def export_salary():
     ws.cell(total_row, 1, 'Total').font = Font(bold=True, size=11)
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
-    # 井下(C), 钻工(D), 日薪(E), 月薪(F), 应发(G), 奖金(H), 罚款(I), 预支(J), NSSF(K) → SUM公式
-    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 罚款(K), 预支(L), NSSF(M) → SUM公式
+    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]:
         letter = chr(64 + ci)
         cell = ws.cell(total_row, ci, f'=SUM({letter}2:{letter}{total_row-1})')
         cell.font = Font(bold=True); cell.fill = total_fill; cell.border = thin_border
         cell.number_format = '#,##0'
 
-    # 实发(12=L) = G+H-I-J-K + 司机津贴  (G=gross, H=bonus, I=penalty, J=advance, K=nssf)
-    da = result.get('driver_allowance', 0)
-    net_formula = f'=G{total_row}+H{total_row}-I{total_row}-J{total_row}-K{total_row}+{int(da)}' if da else f'=G{total_row}+H{total_row}-I{total_row}-J{total_row}-K{total_row}'
-    ws.cell(total_row, 12, net_formula).font = Font(bold=True)
-    ws.cell(total_row, 12).fill = total_fill; ws.cell(total_row, 12).border = thin_border
-    ws.cell(total_row, 12).number_format = '#,##0'
+    # 实发(14=N) = H+I+J-K-L-M  (H=gross, I=bonus, J=driver, K=penalty, L=advance, M=nssf)
+    net_formula = f'=H{total_row}+I{total_row}+J{total_row}-K{total_row}-L{total_row}-M{total_row}'
+    ws.cell(total_row, 14, net_formula).font = Font(bold=True)
+    ws.cell(total_row, 14).fill = total_fill; ws.cell(total_row, 14).border = thin_border
+    ws.cell(total_row, 14).number_format = '#,##0'
 
-    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
+    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 14, 16, 16, 16], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     # Sheet 2: 产量
@@ -2882,7 +2872,7 @@ def export_employees():
     for ci, h in enumerate(headers, 1):
         c = ws.cell(1, ci, h); c.font = hf; c.fill = hfill; c.alignment = ha; c.border = tb
 
-    type_map = {'piece_underground':'Underground Piece','piece_driller':'Driller Piece',
+    type_map = {'piece_underground':'Underground Piece Rate','piece_driller':'Driller Piece',
                 'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
@@ -2973,7 +2963,7 @@ def export_attendance():
     manual = load_attendance_overrides(app.config['DATA_FOLDER'])
 
     # ── 构建行数据 ──
-    type_labels = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece', 'piece_driller': 'Driller Piece',
+    type_labels = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece Rate', 'piece_driller': 'Driller Piece',
                    'day_rate': 'Day Rate', 'monthly': 'Monthly', 'advance_only': 'Advance Only', 'address_book': 'Address Book'}
     rows = []
     for emp in employees:
@@ -3127,7 +3117,7 @@ def _do_export_all():
     tb = Border(left=Side(style='thin'), right=Side(style='thin'),
                 top=Side(style='thin'), bottom=Side(style='thin'))
     total_fill = PatternFill('solid', fgColor='FFF3CD')
-    type_map = {'piece_underground':'Underground Piece','piece_driller':'Driller Piece',
+    type_map = {'piece_underground':'Underground Piece Rate','piece_driller':'Driller Piece',
                 'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
 
     wb = openpyxl.Workbook()
@@ -3175,13 +3165,13 @@ def _do_export_all():
     result = APP_STATE.get('salary_result')
     if result:
         ws2 = wb.create_sheet('Salary Summary')
-        headers2 = ['Name', 'Type', 'Underground Piece(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
+        headers2 = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                     'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
-                    'Bonus(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)', 'Net Salary(TZS)']
+                    'Bonus(TZS)', 'Driver Allowance(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)', 'Net Salary(TZS)']
         for ci, h in enumerate(headers2, 1):
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
-        _type_map2 = {'piece_crush':'Crush Piece','piece_underground':'Underground Piece','piece_driller':'Driller Piece',
+        _type_map2 = {'piece_crush':'Crush Piece','piece_underground':'Underground Piece Rate','piece_driller':'Driller Piece',
                       'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
         for i, emp in enumerate(result['employees'], 2):
             gross = (emp.get('piece_underground',0) or 0) + (emp.get('piece_driller',0) or 0) + \
@@ -3190,13 +3180,14 @@ def _do_export_all():
             bonus = int(emp.get('bonus', 0) or 0)
             penalty = int(emp.get('penalty', 0) or 0)
             nssf = emp.get('nssf',0) or 0
-            net = gross + bonus - (emp.get('advance',0) or 0) - nssf - penalty
+            driver = int(emp.get('driver_allowance', 0) or 0)
+            net = gross + bonus + driver - (emp.get('advance',0) or 0) - nssf - penalty
             vals = [
                 emp.get('name','') or '', _type_map2.get(emp.get('salary_type',''), emp.get('salary_type','')),
                 int(emp.get('piece_underground',0) or 0), int(emp.get('piece_driller',0) or 0),
                 int(emp.get('piece_crush',0) or 0),
                 int(emp.get('day_rate',0) or 0), int(emp.get('monthly',0) or 0),
-                int(gross), bonus, penalty, int(emp.get('advance',0) or 0), int(nssf), int(net),
+                int(gross), bonus, driver, penalty, int(emp.get('advance',0) or 0), int(nssf), int(net),
             ]
             for ci, v in enumerate(vals, 1):
                 c = ws2.cell(i, ci, v); c.border = tb
@@ -3206,19 +3197,18 @@ def _do_export_all():
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
-        # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 罚款(J), 预支(K), NSSF(L) → SUM
-        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+        # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 罚款(K), 预支(L), NSSF(M) → SUM
+        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
             c.number_format = '#,##0'
-        # 实发(M12) = 应发H + 奖金I - 罚款J - 预支K - NSSF L [+ 司机津贴]
-        da_val = result.get('driver_allowance', 0)
-        net_f = f'=H{tr}+I{tr}-J{tr}-K{tr}-L{tr}+{int(da_val)}' if da_val else f'=H{tr}+I{tr}-J{tr}-K{tr}-L{tr}'
-        ws2.cell(tr, 13, net_f).font = Font(bold=True)
-        ws2.cell(tr, 13).fill = total_fill; ws2.cell(tr, 13).border = tb
-        ws2.cell(tr, 13).number_format = '#,##0'
-        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 14, 16, 16, 16], 1):
+        # 实发(14=N) = H+I+J-K-L-M  (H=gross, I=bonus, J=driver, K=penalty, L=advance, M=nssf)
+        net_f = f'=H{tr}+I{tr}+J{tr}-K{tr}-L{tr}-M{tr}'
+        ws2.cell(tr, 14, net_f).font = Font(bold=True)
+        ws2.cell(tr, 14).fill = total_fill; ws2.cell(tr, 14).border = tb
+        ws2.cell(tr, 14).number_format = '#,##0'
+        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 14, 16, 16, 16], 1):
             ws2.column_dimensions[chr(64+i)].width = w
         ws2.freeze_panes = 'A2'
 
