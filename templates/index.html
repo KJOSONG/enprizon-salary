@@ -124,6 +124,11 @@
     <span class="period-label" id="periodLabel">—</span>
     <button class="period-btn" id="periodNext" onclick="shiftMonth(1)">»</button>
     <span class="spacer"></span>
+    <div class="global-search" id="globalSearch">
+      <input type="search" id="searchInput" data-i18n-placeholder="search_placeholder" placeholder="搜索..."
+             oninput="handleSearchInput()" onfocus="showSearchResults()" onkeydown="handleSearchKey(event)">
+      <div class="search-results" id="searchResults" style="display:none;"></div>
+    </div>
     <div id="periodSourceBadge" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px;margin-right:12px;">
       <span class="source-badge" id="sourceBadge" style="font-size:11px;color:var(--text-dim);"><span class="dot online"></span> <span data-i18n="dash_connected">已连接</span></span>
     </div>
@@ -3388,6 +3393,102 @@ document.querySelectorAll('.chart-label-toggle').forEach(cb => {
     }
   });
 });
+
+// ══════════════════════════════════════════════════════
+// P4: 全局搜索
+// ══════════════════════════════════════════════════════
+
+let _searchTimer = null;
+
+function handleSearchInput() {
+  clearTimeout(_searchTimer);
+  const q = document.getElementById('searchInput').value.trim();
+  const resultsEl = document.getElementById('searchResults');
+
+  if (q.length < 2) {
+    resultsEl.style.display = 'none';
+    return;
+  }
+
+  _searchTimer = setTimeout(async () => {
+    try {
+      const res = await authFetch(api('/api/search?q=' + encodeURIComponent(q) + '&scope=all'));
+      const data = await res.json();
+      if (data.ok) {
+        renderSearchResults(data.results, q);
+      }
+    } catch(e) {}
+  }, 300);
+}
+
+function showSearchResults() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (q.length >= 2) {
+    document.getElementById('searchResults').style.display = '';
+  }
+}
+
+function hideSearchResults() {
+  setTimeout(() => {
+    document.getElementById('searchResults').style.display = 'none';
+  }, 200);
+}
+
+function handleSearchKey(e) {
+  if (e.key === 'Escape') {
+    document.getElementById('searchResults').style.display = 'none';
+    document.getElementById('searchInput').blur();
+  }
+  if (e.key === 'Enter') {
+    const first = document.querySelector('.search-result-item');
+    if (first) first.click();
+  }
+}
+
+function renderSearchResults(results, query) {
+  const el = document.getElementById('searchResults');
+  if (!results || results.length === 0) {
+    el.innerHTML = '<div class="search-result-item" style="color:var(--text-muted);cursor:default;">' + t('search_no_results') + '</div>';
+    el.style.display = '';
+    return;
+  }
+
+  const typeIcons = { employee: '👤', attendance: '📅', salary: '💰', production: '⚒' };
+  el.innerHTML = results.map(r => `
+    <div class="search-result-item" onclick="goToSearchResult('${r.url}')">
+      <div class="search-result-type">${typeIcons[r.type] || '•'} ${t('search_type_' + r.type) || r.type}</div>
+      <div class="search-result-title">${highlightText(r.title, query)}</div>
+      <div class="search-result-sub">${r.subtitle || ''}</div>
+    </div>
+  `).join('');
+  el.style.display = '';
+}
+
+function goToSearchResult(url) {
+  document.getElementById('searchResults').style.display = 'none';
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchInput').blur();
+  // 解析 hash URL
+  const hash = url.replace('#', '');
+  const parts = hash.split('/');
+  const subParts = (parts[1] || '').split('?');
+  const module = parts[0];
+  const subPage = subParts[0];
+  const params = {};
+  if (subParts[1]) {
+    subParts[1].split('&').forEach(p => {
+      const [k, v] = p.split('=');
+      params[k] = v;
+    });
+  }
+  navigate(module, subPage || null, Object.keys(params).length > 0 ? params : null);
+}
+
+function highlightText(text, query) {
+  if (!query) return text;
+  const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return text.replace(re, '<mark style="background:var(--accent-glow);color:var(--accent);border-radius:2px;padding:0 2px;">$1</mark>');
+}
 
 // ══════════════════════════════════════════════════════
 // P4: 细粒度权限管理

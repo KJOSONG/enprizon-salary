@@ -271,6 +271,21 @@ def api_permissions_init_defaults():
     _audit('perm_init_defaults', '', '{}')
     return jsonify({'ok': True})
 
+# ═══════════════════════════════════════════════════════════
+#  API: 全局搜索
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/search', methods=['GET'])
+@login_required
+def global_search():
+    q = request.args.get('q', '').strip()
+    scope = request.args.get('scope', 'all')
+    if len(q) < 2:
+        return jsonify({'ok': False, 'error': 'query_too_short', 'results': []})
+    from core.database import search_all
+    results = search_all(app.config['DATA_FOLDER'], q, scope)
+    return jsonify({'ok': True, 'results': results, 'q': q, 'scope': scope})
+
 def strip_dept(dept):
     """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门；纯顶层部门保留原名"""
     if not dept:

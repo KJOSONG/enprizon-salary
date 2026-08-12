@@ -1726,6 +1726,75 @@ body {
 .gate-item:last-child { border-bottom:none; }
 
 /* ═══════════════════════════════════════════════════
+   P4 全局搜索
+   ═══════════════════════════════════════════════════ */
+
+.global-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 280px;
+  min-width: 140px;
+}
+.global-search input[type="search"] {
+  width: 100%;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.global-search input[type="search"]:focus {
+  border-color: var(--accent);
+}
+.global-search input[type="search"]::placeholder {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 360px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.search-result-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.search-result-item:hover { background: var(--bg-secondary); }
+.search-result-item:last-child { border-bottom: none; }
+.search-result-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.search-result-title {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.search-result-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* ═══════════════════════════════════════════════════
    P4 手机端打磨: 触摸优化 + 响应式增强
    ═══════════════════════════════════════════════════ */
 

@@ -310,6 +310,13 @@ const I18N_DICT = {
     perm_init_defaults: '初始化默认权限',
     perm_no_users: '暂无用户',
     perm_no_grants: '无单独授权',
+    /* ── 全局搜索 ── */
+    search_placeholder: '搜索员工/部门/月份...',
+    search_no_results: '无匹配结果',
+    search_type_employee: '员工',
+    search_type_attendance: '出勤',
+    search_type_salary: '薪资',
+    search_type_production: '产量',
 
     /* ── Toast ── */
     toast_calc_done: '计算完成',
@@ -749,6 +756,13 @@ const I18N_DICT = {
     perm_init_defaults: 'Init Default Permissions',
     perm_no_users: 'No users',
     perm_no_grants: 'No individual grants',
+    /* ── Global Search ── */
+    search_placeholder: 'Search employees/dept/month...',
+    search_no_results: 'No results',
+    search_type_employee: 'Employee',
+    search_type_attendance: 'Attendance',
+    search_type_salary: 'Salary',
+    search_type_production: 'Production',
 
     /* ── Toast ── */
     toast_calc_done: 'Calculation complete',

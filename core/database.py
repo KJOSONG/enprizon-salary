@@ -1273,3 +1273,71 @@ def save_scoring_config(data_folder, data):
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
     conn.commit()
     conn.close()
+
+
+# ── P4: 全局搜索 ──────────────────
+
+def search_all(data_folder, query, scope='all'):
+    """跨表模糊搜索，返回 [{type, id, title, subtitle, url}]，最多30条"""
+    conn = get_conn(data_folder)
+    results = []
+    q = f'%{query}%'
+
+    if scope in ('all', 'employees'):
+        rows = conn.execute(
+            "SELECT id, name, department, default_type FROM employees "
+            "WHERE name LIKE ? OR department LIKE ? OR id LIKE ? LIMIT 20",
+            (q, q, q)).fetchall()
+        for r in rows:
+            results.append({
+                'type': 'employee', 'id': r['id'],
+                'title': r['name'],
+                'subtitle': f"{r['department']} - {r['default_type']}",
+                'url': f'#employees/profile?id={r["id"]}'
+            })
+
+    if scope in ('all', 'attendance'):
+        rows = conn.execute(
+            "SELECT DISTINCT employee_id, date FROM attendance_overrides "
+            "WHERE employee_id LIKE ? OR date LIKE ? OR status LIKE ? LIMIT 20",
+            (q, q, q)).fetchall()
+        for r in rows:
+            results.append({
+                'type': 'attendance', 'id': r['employee_id'],
+                'title': f"出勤 - {r['employee_id']}",
+                'subtitle': r['date'],
+                'url': '#attendance'
+            })
+
+    if scope in ('all', 'salary'):
+        rows = conn.execute(
+            "SELECT employee_id, month, gross, net FROM monthly_data "
+            "WHERE employee_id LIKE ? OR month LIKE ? LIMIT 20",
+            (q, q)).fetchall()
+        for r in rows:
+            results.append({
+                'type': 'salary', 'id': r['employee_id'],
+                'title': f"{r['month']} 薪资 - {r['employee_id']}",
+                'subtitle': f"应发: {r['gross']:,.0f} 实发: {r['net']:,.0f}" if r['gross'] is not None else '—',
+                'url': '#salary/table'
+            })
+
+    if scope in ('all', 'production'):
+        for table, label_prefix in [('shift_additions', '井下'), ('driller_additions', '钻工')]:
+            try:
+                rows = conn.execute(
+                    f"SELECT DISTINCT employee_id, date FROM {table} "
+                    "WHERE employee_id LIKE ? OR date LIKE ? LIMIT 10",
+                    (q, q)).fetchall()
+                for r in rows:
+                    results.append({
+                        'type': 'production', 'id': r['employee_id'],
+                        'title': f"{label_prefix}产量 - {r['employee_id']}",
+                        'subtitle': r['date'],
+                        'url': '#production/underground'
+                    })
+            except:
+                pass
+
+    conn.close()
+    return results[:30]
