@@ -386,8 +386,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ## 重构状态（2026-08-12）
 
 **分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
-**阶段**: P0-P5 全部完成；**v4 PRD 已定稿**（REFACTOR_SPEC.md 重写），P6-P11 待实施
-**服务器**: 仍在运行 `main` 分支旧代码，重构完成且本地验证通过后方可切换
+**阶段**: **P0-P11 全部完成，v4 本地验收通过**（REFACTOR_SPEC.md v4 已落地）
+**服务器**: 仍在运行 `main` 分支旧代码，待部署切换 refactor 分支
 
 ### 重构新增主要功能
 
@@ -399,16 +399,18 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | P3 | 评分模型（6维匿名互评+三闸面板+奖金并入净额） |
 | P4 | 细粒度权限、全局搜索、表单自定义引擎、手机端响应式 |
 | P5 | 旧数据 ATTACH 归档、事件驱动计薪桥接、计薪模式切换（计件↔评分） |
-| **P6** | **顶部交互清理**（登录前月份选择器删除 / period-bar bug 修复 / 搜索简化 / 员工页合并） |
-| **P7** | **员工档案字段扩展**（性别/年龄/头像上传/字段类型校验/电话+255） |
-| **P8** | **OA 合并入员工 + 请假增加病假**（姓名索引/员工列表显示 id） |
-| **P9** | **数据采集模块重设计**（4 表单 + 提交页+历史区+再编辑 + D+N 同表） |
-| **P10** | **评分模块重设计**（班组 LAMBA/SAKA + 自定义工号 + 一张张卡） |
-| **P11** | **系统清理 + 薪资总表新列**（源文件管理 UI 删除 / 司机津贴改机制 / driver_allowance 列） |
+| P6 | 顶部交互清理（登录前月份选择器删除 / period-bar bug 修复 / 搜索简化 / 员工页合并抽屉） |
+| P7 | 员工档案字段扩展（性别/年龄/头像上传/字段类型校验/电话+255/薪资类别可改） |
+| P8 | OA 合并入员工 + 请假增加病假（姓名索引/员工列表 id/审批落库闭环） |
+| P9 | 数据采集模块重设计（4 表单 + 提交页+历史区+再编辑 + D+N 同表 + reload 持久化） |
+| P10 | 评分模块重设计（班组 LAMBA/SAKA + 自定义工号 + 一张张卡 + month 维度） |
+| P11 | 系统清理 + 薪资总表新列（源文件管理 UI 删除 / 司机津贴 is_driver 机制 / driver_allowance 列 / 生产薪资改名） |
 
 ### 下一步
 
-1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
+1. **部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`（v4 本地验收已通过）
+2. **数据库迁移**：服务器首次启动 init_db 自动 ALTER（employees 新列/leave_balances 病假/attendance_overrides is_driver/scoring_cards month UNIQUE 重建/新表）；**改前建议先备份**
+3. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
 2. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
 3. **项目记忆**：`.memory` 软连接（已完成，2026-08-12）
 4. **git 清理**：提交误跟踪的 `data/kilwa.db-wal`/`data/kilwa.db-shm` 删除（.gitignore 已补防）
