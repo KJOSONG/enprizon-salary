@@ -47,23 +47,6 @@
   </div>
 </div>
 
-<!-- ═══ 月份选择弹窗 ═══ -->
-<div class="modal-overlay" id="monthPickerModal" style="display:none;">
-  <div class="modal" style="max-width:400px;">
-    <div class="modal-header">
-      <h3>Select Work Month</h3>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Choose a salary month to view. The system will load data for that month.</p>
-      <div id="monthPickerGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;"></div>
-      <div style="display:flex;gap:8px;">
-        <button onclick="confirmMonthPicker()" style="flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;">Confirm</button>
-        <button onclick="confirmMonthPicker('all')" style="flex:1;padding:10px;background:transparent;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:13px;cursor:pointer;">View All</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- ═══ 修改密码弹窗 ═══ -->
 <div class="modal-overlay" id="changePwdModal" style="display:none;">
   <div class="modal" style="max-width:360px;">
@@ -127,13 +110,6 @@
     <div class="global-search" id="globalSearch">
       <input type="search" id="searchInput" data-i18n-placeholder="search_placeholder" placeholder="搜索..."
              oninput="handleSearchInput()" onfocus="showSearchResults()" onkeydown="handleSearchKey(event)">
-      <select id="searchScope" onchange="handleSearchInput()" style="font-size:11px;padding:4px 4px;margin-left:4px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);border-radius:4px;">
-        <option value="all" data-i18n="search_scope_all">全部</option>
-        <option value="employees">👤 员工</option>
-        <option value="attendance">📅 出勤</option>
-        <option value="salary">💰 薪资</option>
-        <option value="production">⚒ 产量</option>
-      </select>
       <div class="search-results" id="searchResults" style="display:none;"></div>
     </div>
     <div id="periodSourceBadge" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px;margin-right:12px;">
@@ -240,37 +216,42 @@
   </div>
 </div>
 
-<!-- ─── P1 页面: 员工档案 ─── -->
-<div class="page" id="page-employees-profile">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-    <!-- 基本信息卡片 -->
-    <div class="card" style="min-width:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 id="profileName" style="margin-bottom:0;">—</h2>
-        <span id="profileStatus" style="font-size:11px;"></span>
-      </div>
-      <div class="profile-fields" id="profileFields">
-        <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_skill_level">技能等级</span><span class="info-value" id="pfSkill">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
-        <div class="info-row"><span class="info-label">电话</span><span class="info-value" id="pfPhone">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
-        <div class="info-row"><span class="info-label" data-i18n="emp_bank_account">账号</span><span class="info-value" id="pfAccount">—</span></div>
-        <div class="info-row"><span class="info-label">年假余额</span><span class="info-value" id="pfAnnual">—</span></div>
-        <div class="info-row"><span class="info-label">调休余额</span><span class="info-value" id="pfComp">—</span></div>
-      </div>
-      <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;">✎ 编辑</button>
-      <button class="nav-btn" onclick="toggleSchemaForm()" style="margin-top:8px;margin-left:4px;font-size:11px;" data-i18n="form_toggle_schema">📝 表单模式</button>
-      <div id="profileSchemaForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);"></div>
+<!-- ─── P6 员工档案抽屉 (合并自原 page-employees-profile) ─── -->
+<div class="modal-overlay" id="employeeProfileModal" style="display:none;" onclick="if(event.target===this)closeEmployeeProfile()">
+  <div class="modal" style="max-width:760px;width:92vw;">
+    <div class="modal-header">
+      <h3 id="profileName" style="margin:0;">—</h3>
+      <button onclick="closeEmployeeProfile()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
     </div>
-    <!-- 生命周期时间线 -->
-    <div class="card" style="min-width:0;">
-      <h2 style="margin-bottom:12px;font-size:13px;">事件时间线</h2>
-      <div id="profileTimeline" class="timeline">
-        <div style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</div>
+    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin-bottom:0;font-size:14px;">基本信息</h2>
+          <span id="profileStatus" style="font-size:11px;"></span>
+        </div>
+        <div class="profile-fields" id="profileFields">
+          <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_skill_level">技能等级</span><span class="info-value" id="pfSkill">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
+          <div class="info-row"><span class="info-label">电话</span><span class="info-value" id="pfPhone">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_bank_account">账号</span><span class="info-value" id="pfAccount">—</span></div>
+          <div class="info-row"><span class="info-label">年假余额</span><span class="info-value" id="pfAnnual">—</span></div>
+          <div class="info-row"><span class="info-label">调休余额</span><span class="info-value" id="pfComp">—</span></div>
+        </div>
+        <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;">✎ 编辑</button>
+        <button class="nav-btn" onclick="toggleSchemaForm()" style="margin-top:8px;margin-left:4px;font-size:11px;" data-i18n="form_toggle_schema">📝 表单模式</button>
+        <div id="profileSchemaForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);"></div>
+      </div>
+      <!-- 生命周期时间线 -->
+      <div style="min-width:0;">
+        <h2 style="margin-bottom:12px;font-size:13px;">事件时间线</h2>
+        <div id="profileTimeline" class="timeline">
+          <div style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1153,7 +1134,7 @@ function switchPage(name) {
 // 模块/子页配置
 const MODULES = {
   dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null },
-  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','profile'] },
+  employees:  { label: 'nav_employees',  icon: '👥', children: ['list'] },
   oa:         { label: 'nav_oa',         icon: '📋', children: ['pending','history'] },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'] },
@@ -1267,12 +1248,6 @@ function showTargetPage(module, subPage) {
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
-  // P1: 员工档案特化处理
-  if (module === 'employees' && subPage === 'profile' && STATE.currentParams.id) {
-    showEmployeeProfile(STATE.currentParams.id);
-    return;
-  }
-
   const page = document.getElementById('page-' + targetId);
   if (page) {
     page.classList.add('active');
@@ -1285,7 +1260,11 @@ function showTargetPage(module, subPage) {
   if (targetId === 'dailywages') loadDailyWages();
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
   if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadSourceUploadList(); loadUserList(); }
-  if (targetId === 'employees') renderEmployeeTable();
+  if (targetId === 'employees') {
+    renderEmployeeTable();
+    // P6: 档案已合并为抽屉，带 id 的链接直接打开抽屉
+    if (STATE.currentParams && STATE.currentParams.id) showEmployeeProfile(STATE.currentParams.id);
+  }
 
   // P1: OA 页面加载
   if (module === 'oa' && subPage === 'pending') loadOAPending();
@@ -1355,8 +1334,10 @@ function parseHash() {
   const [path, query] = hash.split('?');
   const parts = path.split('/');
   const module = parts[0];
-  const subPage = parts[1] || null;
+  let subPage = parts[1] || null;
   const params = {};
+  // P6: 员工档案已合并进列表抽屉，旧 hash 重定向到 list
+  if (module === 'employees' && subPage === 'profile') subPage = 'list';
   if (query) {
     query.split('&').forEach(p => {
       const [k,v] = p.split('=');
@@ -1473,8 +1454,6 @@ function toggleCollapseSidebar() {
   } else {
     navigate('dashboard');
   }
-  // 登录后弹出月份选择
-  if (_authState.logged_in) openMonthPicker();
 })();
 
 // ════════════════════════════════════════════════
@@ -1554,65 +1533,6 @@ function populateMonthSelect() {
     sel.innerHTML += `<option value="${ym}">${ym}</option>`;
     sel.value = ym;
   });
-}
-
-// ════════════════════════════════════════════════
-//  月份选择弹窗
-// ════════════════════════════════════════════════
-let _monthPickerValue = null;
-
-async function openMonthPicker() {
-  const grid = document.getElementById('monthPickerGrid');
-  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);font-size:13px;padding:20px;">加载中...</div>';
-  document.getElementById('monthPickerModal').style.display = 'flex';
-  try {
-    const res = await fetch(api('/available-months'));
-    const months = await res.json();
-    const now = new Date();
-    const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    // 优先选中有数据的月份，其次当前月
-    let defaultMonth = months.length > 0 ? months[0] : currentMonth;
-    grid.innerHTML = '';
-    months.forEach(m => {
-      const btn = document.createElement('button');
-      btn.textContent = m;
-      btn.dataset.value = m;
-      btn.style.cssText = 'padding:12px 8px;border:2px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;cursor:pointer;transition:all .15s;';
-      if (m === defaultMonth) {
-        btn.style.borderColor = 'var(--accent)';
-        btn.style.background = 'rgba(59,130,246,0.1)';
-        btn.style.color = 'var(--accent)';
-        btn.style.fontWeight = '600';
-      }
-      btn.onclick = () => {
-        grid.querySelectorAll('button').forEach(b => {
-          b.style.borderColor = 'var(--border)';
-          b.style.background = 'var(--bg)';
-          b.style.color = 'var(--text)';
-          b.style.fontWeight = '400';
-        });
-        btn.style.borderColor = 'var(--accent)';
-        btn.style.background = 'rgba(59,130,246,0.1)';
-        btn.style.color = 'var(--accent)';
-        btn.style.fontWeight = '600';
-        _monthPickerValue = m;
-      };
-      if (m === defaultMonth) _monthPickerValue = m;
-      grid.appendChild(btn);
-    });
-  } catch(e) {
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--danger);font-size:13px;padding:20px;">加载失败</div>';
-  }
-}
-
-async function confirmMonthPicker(monthOverride) {
-  const month = monthOverride || _monthPickerValue;
-  if (!month) return;
-  document.getElementById('monthPickerModal').style.display = 'none';
-  // 同步顶部下拉框
-  const sel = document.getElementById('monthSelect');
-  if (sel) sel.value = month;
-  await changeMonth(month);
 }
 
 async function changeMonth(month) {
@@ -1748,9 +1668,9 @@ async function renderEmployeeTable() {
     });
 
     tbody.innerHTML = filtered.map(e => `
-      <tr>
+      <tr style="cursor:pointer;" onclick="navigate('employees','list',{id:'${e.id}'})">
         <td class="left">
-          <a href="#employees/profile/${e.id}" onclick="event.preventDefault();navigate('employees','profile',{id:'${e.id}'});showEmployeeProfile('${e.id}');"
+          <a href="#employees/list?id=${encodeURIComponent(e.id)}" onclick="event.preventDefault();event.stopPropagation();navigate('employees','list',{id:'${e.id}'});"
              style="color:var(--accent);text-decoration:none;font-weight:600;">${escHtml(e.name)}</a>
         </td>
         <td class="left" style="color:var(--text-muted);">${escHtml(e.department||'—')}</td>
@@ -1766,11 +1686,14 @@ async function renderEmployeeTable() {
   }
 }
 
-/* ── P1 员工档案页 ── */
+/* ── P1 员工档案（P6: 独立页面 → 抽屉） ── */
+let _profileEid = null;
 async function showEmployeeProfile(eid) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const page = document.getElementById('page-employees-profile');
-  page.classList.add('active');
+  _profileEid = eid;
+  const modal = document.getElementById('employeeProfileModal');
+  modal.style.display = 'flex';
+  const schemaForm = document.getElementById('profileSchemaForm');
+  if (schemaForm) schemaForm.style.display = 'none';
   try {
     const [empRes, evtRes] = await Promise.all([
       fetch(api('/api/employees/' + eid)),
@@ -1778,7 +1701,7 @@ async function showEmployeeProfile(eid) {
     ]);
     const emp = (await empRes.json()).employee;
     const events = (await evtRes.json()).events || [];
-    if (!emp) { page.innerHTML = '员工不存在'; return; }
+    if (!emp) { document.getElementById('profileName').textContent = '员工不存在'; return; }
 
     document.getElementById('profileName').textContent = emp.name;
     document.getElementById('profileStatus').innerHTML = emp.status === 'active'
@@ -1827,8 +1750,14 @@ async function showEmployeeProfile(eid) {
   }
 }
 
+function closeEmployeeProfile() {
+  document.getElementById('employeeProfileModal').style.display = 'none';
+  const formEl = document.getElementById('profileSchemaForm');
+  if (formEl) formEl.style.display = 'none';
+}
+
 function editEmployeeProfile() {
-  const eid = STATE.currentParams.id;
+  const eid = _profileEid || STATE.currentParams.id;
   if (!eid) return;
   const fields = ['position', 'skill_level', 'hire_date', 'nida_number', 'nssf_number',
                   'bank_name', 'bank_account', 'bank_owner', 'phone'];
@@ -3804,8 +3733,7 @@ function handleSearchInput() {
 
   _searchTimer = setTimeout(async () => {
     try {
-      const scope = document.getElementById('searchScope').value || 'all';
-      const res = await authFetch(api('/api/search?q=' + encodeURIComponent(q) + '&scope=' + scope));
+      const res = await authFetch(api('/api/search?q=' + encodeURIComponent(q)));
       const data = await res.json();
       if (data.ok) {
         renderSearchResults(data.results, q);

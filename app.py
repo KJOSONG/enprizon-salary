@@ -1115,7 +1115,6 @@ def set_month():
 @login_required
 def get_employees():
     """[DEPRECATED] 旧版员工列表 — 已迁移到 /api/employees"""
-def get_employees():
     from core.exceptions import load_overrides
     from core.database import load_bonus_penalties as _load_bp_emp
     month = request.args.get('month') or APP_STATE.get('month')

@@ -1083,7 +1083,7 @@ def get_employee_profile(data_folder, employee_id):
         "SELECT COUNT(*) FROM employee_events WHERE employee_id=?", (employee_id,)
     ).fetchone()[0]
     leave_count = conn.execute(
-        "SELECT COUNT(*) FROM leave_requests WHERE employee_id=?"
+        "SELECT COUNT(*) FROM leave_requests WHERE employee_id=?", (employee_id,)
     ).fetchone()[0] if _table_exists(conn, 'leave_requests') else 0
     conn.close()
     return {**dict(emp), 'event_count': event_count, 'leave_count': leave_count}
