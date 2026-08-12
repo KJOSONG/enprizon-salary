@@ -495,6 +495,7 @@ def load_config(data_folder):
         'driller_prices': {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000},
         'crush_price': 300,
         'nssf_rate': 0.10,
+        'underground_mode': 'piecework',
     }
 
 def save_config(data_folder, config):
