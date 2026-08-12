@@ -373,7 +373,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ## 重构状态（2026-08-12）
 
 **分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
-**阶段**: P0-P5 全部完成，17 commits ahead of `main`
+**阶段**: P0-P5 全部完成，19 commits ahead of `main`
 **服务器**: 仍在运行 `main` 分支旧代码，重构完成且本地验证通过后方可切换
 
 ### 重构新增主要功能
