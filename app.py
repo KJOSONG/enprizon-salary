@@ -372,6 +372,32 @@ def api_seed_default_forms():
     _audit('form_seed_defaults', '', '{}')
     return jsonify({'ok': True})
 
+# ═══════════════════════════════════════════════════════════
+#  API: 旧数据归档
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/archive/months', methods=['GET'])
+@login_required
+def archive_months():
+    from core.database import list_archive_months
+    months = list_archive_months(app.config['DATA_FOLDER'])
+    # 检查归档是否存在
+    import os
+    exists = os.path.exists(os.path.join(app.config['DATA_FOLDER'], 'archived_kilwa.db'))
+    return jsonify({'ok': True, 'months': months, 'archived': exists})
+
+@app.route('/api/archive/salary', methods=['GET'])
+@login_required
+def archive_salary():
+    from core.database import get_archive_salary
+    month = request.args.get('month', '').strip()
+    if not month:
+        return jsonify({'ok': False, 'error': 'missing_month'}), 400
+    data = get_archive_salary(app.config['DATA_FOLDER'], month)
+    if data is None:
+        return jsonify({'ok': False, 'error': 'archive_unavailable'}), 404
+    return jsonify({'ok': True, 'data': data})
+
 def strip_dept(dept):
     """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门；纯顶层部门保留原名"""
     if not dept:
@@ -3046,6 +3072,88 @@ def _ensure_viewer_account():
 
     conn.close()
 
+# ── P5: 用 Excel 种子新表 ──────────
+
+def _backup_to_archive():
+    """首次启动时自动备份 kilwa.db → archived_kilwa.db（如果归档不存在）"""
+    import shutil
+    db_path = os.path.join(app.config['DATA_FOLDER'], 'kilwa.db')
+    archive_path = os.path.join(app.config['DATA_FOLDER'], 'archived_kilwa.db')
+    if os.path.exists(db_path) and not os.path.exists(archive_path):
+        shutil.copy2(db_path, archive_path)
+        print('  ✓ 已自动备份 kilwa.db → archived_kilwa.db')
+
+def seed_new_tables_from_excel():
+    """仅首次运行：从 data/source/ Excel 种子 employees + employee_events"""
+    from core.database import get_conn
+    conn = get_conn(app.config['DATA_FOLDER'])
+    # 检查 employees 是否已有数据（防止重复种子）
+    count = conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0]
+    if count > 10:
+        conn.close()
+        return False  # 已有数据，跳过
+
+    print('  ► 从 Excel 种子 employees 表...')
+    from core.parser import parse_all, parse_address_book
+    from core.namematch import make_employee_id, build_master_list
+    from core.database import create_event
+
+    files = scan_source_files()
+    if not files.get('main'):
+        conn.close()
+        return False
+
+    # 解析主文件 + 通讯录
+    main_data = parse_all(files['main'])
+    ab_data = {}
+    if files.get('addressbook'):
+        ab_data = parse_address_book(files['addressbook'])
+
+    # 构建 dept 映射（从通讯录）
+    dept_map = {}
+    if ab_data and 'members' in ab_data:
+        for m in ab_data['members']:
+            eid = make_employee_id(m.get('name', ''))
+            if eid:
+                dept_map[eid] = strip_dept(m.get('department', ''))
+
+    # 收集所有员工
+    seen = set()
+    employees = build_master_list(main_data)
+    from core.namematch import _AB_INDEX as ab_index
+
+    for emp in employees:
+        eid = emp.get('employee_id') or emp.get('name', '')
+        if not eid or eid in seen:
+            continue
+        if eid in HARD_EXCLUDE_IDS:
+            continue
+        seen.add(eid)
+        name = emp.get('name') or emp.get('employee_id', '')
+        dept = dept_map.get(eid, emp.get('department', ''))
+        dtype = emp.get('default_type', 'day_rate')
+
+        # 写入 employees
+        try:
+            conn.execute("""
+                INSERT OR IGNORE INTO employees (id, name, department, default_type, day_rate, monthly_salary)
+                VALUES (?,?,?,?,?,?)
+            """, (eid, name, dept, dtype, emp.get('day_rate', 0), emp.get('monthly_salary', 0)))
+            # 写入 hire 事件
+            create_event(app.config['DATA_FOLDER'], {
+                'employee_id': eid, 'event_type': 'hire',
+                'effective_date': emp.get('hire_date', '2026-01-01'),
+                'snapshot': json.dumps({'name': name, 'department': dept, 'type': dtype}),
+                'payload': '{}', 'operator_id': 'system', 'status': 'approved',
+            })
+        except Exception as e:
+            pass
+
+    print(f'  ✓ 已种子 {len(seen)} 名员工 + hire 事件')
+    conn.commit()
+    conn.close()
+    return True
+
 def auto_load_source():
     files = scan_source_files()
     if not files.get('main'):
@@ -3107,6 +3215,8 @@ def _gunicorn_init():
     from core.database import init_default_permissions, seed_default_forms
     init_default_permissions(app.config['DATA_FOLDER'])
     seed_default_forms(app.config['DATA_FOLDER'])
+    _backup_to_archive()
+    seed_new_tables_from_excel()
     loaded = auto_load_source()
     if loaded:
         print('  ✓ 源数据已自动加载')
@@ -3122,6 +3232,8 @@ if __name__ == '__main__':
     init_db(app.config['DATA_FOLDER'])
     init_default_permissions(app.config['DATA_FOLDER'])
     seed_default_forms(app.config['DATA_FOLDER'])
+    _backup_to_archive()
+    seed_new_tables_from_excel()
 
     port = find_free_port(8080)
     print('=' * 50)

@@ -328,6 +328,15 @@ const I18N_DICT = {
     form_add_field: '+ 添加字段',
     form_required: '必填',
     form_toggle_schema: '📝 表单模式',
+    /* ── 归档 ── */
+    archive_desc: '旧 kilwa.db 冻结为只读归档，仅查询历史薪资',
+    archive_months: '历史月份',
+    archive_select_hint: '请选择左侧月份查看历史薪资',
+    archive_not_configured: '归档数据库未配置',
+    archive_connected: '已连接归档数据库',
+    archive_month_count: '个月份',
+    archive_no_data: '暂无数据',
+    archive_error: '加载失败',
 
     /* ── Toast ── */
     toast_calc_done: '计算完成',
@@ -785,6 +794,15 @@ const I18N_DICT = {
     form_add_field: '+ Add Field',
     form_required: 'Required',
     form_toggle_schema: '📝 Form Mode',
+    /* ── Archive ── */
+    archive_desc: 'Old kilwa.db frozen as read-only archive, historical salary only',
+    archive_months: 'Historical Months',
+    archive_select_hint: 'Select a month on the left to view historical salary',
+    archive_not_configured: 'Archive database not configured',
+    archive_connected: 'Archive database connected',
+    archive_month_count: ' months',
+    archive_no_data: 'No data',
+    archive_error: 'Load failed',
 
     /* ── Toast ── */
     toast_calc_done: 'Calculation complete',

@@ -182,6 +182,25 @@ def init_db(data_folder):
             updated_at TEXT DEFAULT (datetime('now','localtime')),
             PRIMARY KEY (employee_id, year)
         );
+        CREATE TABLE IF NOT EXISTS leave_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id TEXT NOT NULL,
+            leave_type TEXT NOT NULL DEFAULT 'casual',
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            days INTEGER DEFAULT 1,
+            reason TEXT DEFAULT '',
+            submitted_by TEXT NOT NULL DEFAULT '',
+            reviewer TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            approved_by TEXT DEFAULT '',
+            rejected_by TEXT DEFAULT '',
+            reject_reason TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_leave_employee ON leave_requests(employee_id);
+        CREATE INDEX IF NOT EXISTS idx_leave_status ON leave_requests(status);
         CREATE TABLE IF NOT EXISTS driver_roster (
             employee_id TEXT PRIMARY KEY,
             allowance_per_day INTEGER DEFAULT 5000,
@@ -1612,3 +1631,81 @@ def seed_default_forms(data_folder):
 
     conn.commit()
     conn.close()
+
+
+# ── P5: 旧数据归档 ──────────────────
+
+def attach_archive_db(data_folder, alias='archived'):
+    """ATTACH 旧 kilwa.db 为只读归档数据库，返回连接或 None"""
+    import os
+    archive_path = os.path.join(data_folder, 'archived_kilwa.db')
+    if not os.path.exists(archive_path):
+        return None
+    conn = get_conn(data_folder)
+    try:
+        conn.execute(f"ATTACH DATABASE ? AS {alias}", (archive_path,))
+    except Exception:
+        conn.close()
+        return None
+    return conn
+
+def list_archive_months(data_folder):
+    """返回归档数据库中可查询的月份列表"""
+    conn = attach_archive_db(data_folder)
+    if not conn:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT month FROM archived.monthly_data ORDER BY month DESC"
+        ).fetchall()
+        conn.close()
+        return [r['month'] for r in rows]
+    except Exception:
+        try:
+            conn.close()
+        except:
+            pass
+        return []
+
+def get_archive_salary(data_folder, month):
+    """从归档数据库查询指定月份的薪资数据（只读）"""
+    conn = attach_archive_db(data_folder)
+    if not conn:
+        return None
+    try:
+        name_map = {}
+        emp_rows = conn.execute("SELECT id, name FROM archived.employees").fetchall()
+        for r in emp_rows:
+            name_map[r['id']] = r['name']
+        rows = conn.execute(
+            "SELECT * FROM archived.monthly_data WHERE month=? ORDER BY net DESC",
+            (month,)).fetchall()
+        conn.close()
+        employees = []
+        tg = ta = tn = tnet = 0
+        for r in rows:
+            eid = r['employee_id']
+            name = name_map.get(eid, eid)
+            employees.append({
+                'name': name, 'employee_id': eid,
+                'salary_type': r['salary_type'] or '',
+                'piece_underground': r['piece_underground'],
+                'piece_driller': r['piece_driller'],
+                'piece_crush': r.get('piece_crush', 0),
+                'day_rate': r['day_rate'], 'monthly': r['monthly'],
+                'gross': r['gross'], 'advance': r['advance'],
+                'nssf': r['nssf'], 'net': r['net'],
+            })
+            tg += r['gross']; ta += r['advance']; tn += r['nssf']; tnet += r['net']
+        return {
+            'employees': employees,
+            'total_gross': tg, 'total_advance': ta,
+            'total_nssf': tn, 'total_net': tnet,
+            'month': month
+        }
+    except Exception:
+        try:
+            conn.close()
+        except:
+            pass
+        return None

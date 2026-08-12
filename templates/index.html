@@ -684,10 +684,39 @@
   </div>
 </div>
 <div class="page" id="page-system-archive">
-  <div class="card" style="text-align:center;padding:60px 20px;">
-    <div style="font-size:48px;margin-bottom:16px;">📦</div>
-    <h2 data-i18n="nav_system_archive">旧数据归档</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  <div class="card">
+    <h2>📦 <span data-i18n="nav_system_archive">旧数据归档</span></h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;" data-i18n="archive_desc">旧 kilwa.db 冻结为只读归档，仅查询历史薪资</p>
+    <div id="archiveStatus" style="margin-bottom:12px;padding:8px 12px;border-radius:var(--radius);font-size:12px;display:none;"></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      <!-- 左侧: 月份列表 -->
+      <div style="flex:0 0 160px;background:var(--bg-secondary);padding:10px;border-radius:var(--radius);border:1px solid var(--border);">
+        <h3 style="font-size:11px;margin-bottom:6px;color:var(--text-muted);" data-i18n="archive_months">历史月份</h3>
+        <div id="archiveMonthList" style="max-height:360px;overflow-y:auto;"></div>
+      </div>
+      <!-- 右侧: 薪资明细 -->
+      <div style="flex:1;min-width:400px;">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="th_id">ID</th>
+                <th data-i18n="th_name">姓名</th>
+                <th data-i18n="th_salary_type">类型</th>
+                <th data-i18n="th_gross">应发</th>
+                <th data-i18n="th_nssf">NSSF</th>
+                <th data-i18n="th_advance">预支</th>
+                <th data-i18n="th_net">实发</th>
+              </tr>
+            </thead>
+            <tbody id="archiveTableBody">
+              <tr><td colspan="7" style="color:var(--text-muted);text-align:center;" data-i18n="archive_select_hint">请选择左侧月份查看历史薪资</td></tr>
+            </tbody>
+            <tfoot id="archiveTableFoot" style="display:none;"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="page" id="page-system-users">
@@ -1255,6 +1284,8 @@ function showTargetPage(module, subPage) {
   if (module === 'system' && subPage === 'users') loadPermissionsPage();
   // P4: 表单管理页面加载
   if (module === 'system' && subPage === 'forms') loadFormSchemas();
+  // P5: 归档页面加载
+  if (module === 'system' && subPage === 'archive') loadArchivePage();
 }
 
 function showPlaceholder(module, subPage) {
@@ -3442,6 +3473,91 @@ document.querySelectorAll('.chart-label-toggle').forEach(cb => {
     }
   });
 });
+
+// ══════════════════════════════════════════════════════
+// P5: 旧数据归档
+// ══════════════════════════════════════════════════════
+
+async function loadArchivePage() {
+  const status = document.getElementById('archiveStatus');
+  try {
+    const res = await authFetch(api('/api/archive/months'));
+    const data = await res.json();
+    if (!data.ok || !data.archived) {
+      status.style.display = '';
+      status.style.background = 'rgba(239,68,68,0.1)';
+      status.style.color = '#F44336';
+      status.innerHTML = '⚠ ' + t('archive_not_configured');
+      document.getElementById('archiveMonthList').innerHTML = '';
+      return;
+    }
+    status.style.display = '';
+    status.style.background = 'rgba(76,175,80,0.1)';
+    status.style.color = '#4CAF50';
+    status.innerHTML = '✓ ' + t('archive_connected') + ' (' + data.months.length + ' ' + t('archive_month_count') + ')';
+
+    // 渲染月份列表
+    const list = document.getElementById('archiveMonthList');
+    if (data.months.length === 0) {
+      list.innerHTML = '<p style="color:var(--text-muted);font-size:11px;">' + t('archive_no_data') + '</p>';
+      return;
+    }
+    list.innerHTML = data.months.map(m => `
+      <div style="padding:4px 8px;cursor:pointer;border-radius:3px;margin-bottom:2px;font-size:11px;"
+           class="archive-month-item"
+           onclick="loadArchiveSalary('${m}')">${m}</div>
+    `).join('');
+  } catch(e) {
+    status.style.display = '';
+    status.style.background = 'rgba(239,68,68,0.1)';
+    status.style.color = '#F44336';
+    status.innerHTML = '⚠ ' + t('archive_error');
+  }
+}
+
+async function loadArchiveSalary(month) {
+  // 高亮选中项
+  document.querySelectorAll('.archive-month-item').forEach(el => {
+    el.style.background = el.textContent.trim() === month ? 'rgba(0,112,243,0.15)' : 'transparent';
+    el.style.color = el.textContent.trim() === month ? 'var(--accent)' : '';
+  });
+
+  const tbody = document.getElementById('archiveTableBody');
+  tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center;">...</td></tr>';
+  try {
+    const res = await authFetch(api('/api/archive/salary?month=' + month));
+    const data = await res.json();
+    if (!data.ok || !data.data) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center;">' + t('archive_no_data') + '</td></tr>';
+      return;
+    }
+    const d = data.data;
+    tbody.innerHTML = d.employees.map(e => `
+      <tr>
+        <td>${escHtml(e.employee_id || '')}</td>
+        <td>${escHtml(e.name || '')}</td>
+        <td>${escHtml(e.salary_type || '')}</td>
+        <td>${(e.gross || 0).toLocaleString()}</td>
+        <td>${(e.nssf || 0).toLocaleString()}</td>
+        <td>${(e.advance || 0).toLocaleString()}</td>
+        <td style="font-weight:600;">${(e.net || 0).toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    // 汇总行
+    const foot = document.getElementById('archiveTableFoot');
+    foot.style.display = '';
+    foot.innerHTML = `<tr style="font-weight:700;">
+      <td colspan="3" data-i18n="th_total">合计</td>
+      <td>${(d.total_gross || 0).toLocaleString()}</td>
+      <td>${(d.total_nssf || 0).toLocaleString()}</td>
+      <td>${(d.total_advance || 0).toLocaleString()}</td>
+      <td style="color:var(--accent);">${(d.total_net || 0).toLocaleString()}</td>
+    </tr>`;
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#F44336;text-align:center;">' + t('archive_error') + '</td></tr>';
+  }
+}
 
 // ══════════════════════════════════════════════════════
 // P4: 表单自定义
