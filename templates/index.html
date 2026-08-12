@@ -77,23 +77,11 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <span class="brand-text">◈ ENPRIZON LINDI</span>
-    <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleCollapseSidebar()" title="折叠侧边栏">◀</button>
+    <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleCollapseSidebar()" data-i18n-title="collapse_sidebar" title="折叠侧边栏">◀</button>
   </div>
   <nav class="sidebar-nav" id="sidebarNav">
     <!-- JS 动态生成模块列表 -->
   </nav>
-  <div class="sidebar-footer">
-    <div class="lang-toggle-group sidebar-lang">
-      <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
-      <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
-    </div>
-    <div id="userStatusSidebar" class="sidebar-user">
-      <span id="userBadgeSide" style="display:none;padding:4px 10px;border-radius:12px;font-size:11px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);"></span>
-      <button id="loginBtnSide" class="nav-btn" onclick="openLoginModal()" style="font-size:12px;padding:6px 10px;" data-i18n="btn_login">登录</button>
-      <button id="changePwdBtnSide" class="nav-btn" onclick="openChangePwdModal()" style="font-size:12px;padding:6px 10px;display:none;" data-i18n="btn_change_pwd">改密</button>
-      <button id="logoutBtnSide" class="nav-btn" onclick="doLogout()" style="font-size:12px;padding:6px 10px;display:none;" data-i18n="btn_logout">退出</button>
-    </div>
-  </div>
 </aside>
 
 <!-- 汉堡菜单（移动端） -->
@@ -115,9 +103,27 @@
     <div id="periodSourceBadge" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px;margin-right:12px;">
       <span class="source-badge" id="sourceBadge" style="font-size:11px;color:var(--text-dim);"><span class="dot online"></span> <span data-i18n="dash_connected">已连接</span></span>
     </div>
-    <button class="nav-btn admin-only" onclick="reloadSource()" title="重新加载源文件" style="font-size:12px;padding:4px 10px;">↻</button>
-    <button class="recalc-btn" id="recalcBtn" onclick="recalculate()" data-i18n="btn_recalc" style="font-size:12px;">重新计算</button>
+    <!-- 中英切换（顶部，导出旁） -->
+    <div class="lang-toggle-group topbar-lang" id="topbarLang">
+      <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
+      <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
+    </div>
     <button class="nav-btn" id="exportBtn" onclick="exportAll()" title="导出完整报表" style="font-size:12px;padding:4px 10px;" data-i18n="btn_export">📥 导出报表</button>
+    <!-- 三道杠折叠菜单：收纳工具与用户操作 -->
+    <div class="topbar-menu-wrap" id="topbarMenuWrap" style="position:relative;">
+      <button class="nav-btn" id="topbarMenuBtn" onclick="toggleTopbarMenu()" title="菜单" style="font-size:16px;padding:4px 10px;">☰</button>
+      <div id="topbarMenu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;width:220px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:300;padding:8px;">
+        <div id="topbarUserStatus" style="padding:8px 10px;font-size:13px;border-bottom:1px solid var(--border);margin-bottom:6px;">
+          <span id="userBadgeTop" style="display:none;font-weight:600;"></span>
+          <span id="loginHintTop" data-i18n="btn_login" style="color:var(--text-muted);">登录</span>
+        </div>
+        <button class="topbar-menu-item" id="recalcBtn" onclick="closeTopbarMenu();recalculate()" data-i18n="btn_recalc" style="display:none;">重新计算</button>
+        <button class="topbar-menu-item admin-only" id="reloadSourceBtn" onclick="closeTopbarMenu();reloadSource()" data-i18n="reload_source" style="display:none;">重新加载源文件</button>
+        <button class="topbar-menu-item" id="loginBtnTop" onclick="closeTopbarMenu();openLoginModal()" data-i18n="btn_login" style="display:none;">登录</button>
+        <button class="topbar-menu-item" id="changePwdBtnTop" onclick="closeTopbarMenu();openChangePwdModal()" data-i18n="btn_change_pwd" style="display:none;">改密</button>
+        <button class="topbar-menu-item" id="logoutBtnTop" onclick="closeTopbarMenu();doLogout()" data-i18n="btn_logout" style="display:none;">退出</button>
+      </div>
+    </div>
   </div>
 
   <!-- 面包屑 -->
@@ -226,89 +232,12 @@
         </table>
       </div>
     </div>
-
-    <!-- P8: 3 申请表单 -->
-    <div class="card" style="margin-top:16px;">
-      <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="emp_apply_title">人事申请</h3>
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <button class="emp-app-tab" data-app-form="hire" onclick="switchAppForm('hire')" style="padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--accent);color:#fff;font-size:12px;cursor:pointer;" data-i18n="emp_apply_hire">入职申请</button>
-        <button class="emp-app-tab" data-app-form="transfer" onclick="switchAppForm('transfer')" style="padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-muted);font-size:12px;cursor:pointer;" data-i18n="emp_apply_transfer">调岗申请</button>
-        <button class="emp-app-tab" data-app-form="dismiss" onclick="switchAppForm('dismiss')" style="padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-muted);font-size:12px;cursor:pointer;" data-i18n="emp_apply_dismiss">离职申请</button>
-      </div>
-      <!-- 入职 -->
-      <div id="appFormHire">
-        <div class="form-row"><label data-i18n="emp_name">姓名</label><input type="text" id="hireName" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div class="form-row"><label data-i18n="th_dept">部门</label><select id="hireDept" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></select></div>
-        <div class="form-row"><label data-i18n="emp_position">岗位</label><input type="text" id="hirePosition" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="hireDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn-primary" onclick="submitApply('hire')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-        </div>
-        <div id="hireMsg" style="margin-top:8px;font-size:12px;"></div>
-      </div>
-      <!-- 调岗 -->
-      <div id="appFormTransfer" style="display:none;">
-        <div class="form-row"><label data-i18n="emp_name">员工</label><input type="text" id="transferSearch" placeholder="搜索姓名/工号..." style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"><input type="hidden" id="transferEid"></div>
-        <div id="transferPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);"></div>
-        <div class="form-row"><label data-i18n="emp_new_dept">新部门</label><select id="transferDept" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></select></div>
-        <div class="form-row"><label data-i18n="emp_new_position">新岗位</label><input type="text" id="transferPosition" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div class="form-row"><label data-i18n="emp_effective_date">生效日期</label><input type="date" id="transferDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn-primary" onclick="submitApply('transfer')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-        </div>
-        <div id="transferMsg" style="margin-top:8px;font-size:12px;"></div>
-      </div>
-      <!-- 离职 -->
-      <div id="appFormDismiss" style="display:none;">
-        <div class="form-row"><label data-i18n="emp_name">员工</label><input type="text" id="dismissSearch" placeholder="搜索姓名/工号..." style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"><input type="hidden" id="dismissEid"></div>
-        <div id="dismissPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);"></div>
-        <div class="form-row"><label data-i18n="emp_dismiss_date">离职日期</label><input type="date" id="dismissDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div class="form-row"><label data-i18n="emp_dismiss_reason">原因</label><input type="text" id="dismissReason" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;"></div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn-primary" onclick="submitApply('dismiss')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-        </div>
-        <div id="dismissMsg" style="margin-top:8px;font-size:12px;"></div>
-      </div>
-    </div>
   </div>
 
   <!-- Tab: OA 待审 -->
   <div id="empTabOaPending" style="display:none;">
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <h2 style="margin-bottom:0;" data-i18n="nav_oa_pending">待审批</h2>
-        <button class="nav-btn" onclick="showLeaveForm()" style="padding:6px 14px;font-size:12px;">+ 新建请假</button>
-      </div>
-      <!-- 请假提交表单 -->
-      <div id="leaveForm" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;">
-        <h3 style="font-size:14px;margin-bottom:12px;">提交请假申请</h3>
-        <div class="form-row">
-          <label>员工</label><input type="text" id="leaveEmpId" placeholder="搜索姓名/工号..." style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;flex:1;"><input type="hidden" id="leaveEmpEid">
-        </div>
-        <div id="leavePick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);"></div>
-        <div class="form-row">
-          <label>类型</label><select id="leaveType" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;flex:1;">
-            <option value="casual">事假</option>
-            <option value="sick" data-i18n="leave_sick">病假</option>
-            <option value="annual_leave">年假</option>
-            <option value="comp_leave">调休</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label>日期</label><input type="date" id="leaveDate" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;flex:1;">
-        </div>
-        <div class="form-row">
-          <label>天数</label><input type="number" id="leaveDays" value="1" min="1" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;width:80px;">
-        </div>
-        <div class="form-row">
-          <label>备注</label><input type="text" id="leaveNote" placeholder="请假原因" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;flex:1;">
-        </div>
-        <div style="display:flex;gap:8px;margin-top:12px;">
-          <button class="btn-primary" onclick="submitLeave()" style="padding:6px 16px;font-size:12px;">提交</button>
-          <button class="btn-cancel" onclick="document.getElementById('leaveForm').style.display='none'" style="padding:6px 16px;font-size:12px;">取消</button>
-        </div>
-        <div id="leaveMsg" style="margin-top:8px;font-size:12px;"></div>
-      </div>
+      <h2 style="margin-bottom:12px;" data-i18n="nav_oa_pending">待审批</h2>
       <div id="oaPendingList">
         <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="oa_no_pending">暂无待审批事项</div>
       </div>
@@ -321,27 +250,154 @@
       <h2 style="margin-bottom:0;" data-i18n="nav_oa_history">审批历史</h2>
       <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_history_hint">以下为近期已处理的 OA 事件</p>
       <div id="oaHistoryList" style="margin-top:12px;">
-        <div style="text-align:center;color:var(--text-muted);padding:40px;">加载中...</div>
+        <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ─── P6 员工档案抽屉 (合并自原 page-employees-profile) ─── -->
-<div class="modal-overlay" id="employeeProfileModal" style="display:none;" onclick="if(event.target===this)closeEmployeeProfile()">
-  <div class="modal" style="max-width:760px;width:92vw;">
-    <div class="modal-header">
-      <h3 id="profileName" style="margin:0;">—</h3>
-      <button onclick="closeEmployeeProfile()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+<!-- ─── P12: 入职申请（独立子页，全字段） ─── -->
+<div class="page" id="page-employees-hire">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="nav_employees_hire">入职申请</h2>
+      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
     </div>
-    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:760px;">
+      <div class="form-row"><label data-i18n="emp_name">姓名</label><input type="text" id="hireName" data-i18n-placeholder="ph_name_required" placeholder="姓名（必填）" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="th_dept">部门</label><select id="hireDept" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row"><label data-i18n="emp_position">岗位</label><input type="text" id="hirePosition" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_gender">性别</label><select id="hireGender" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <option value="">—</option>
+        <option value="male" data-i18n="emp_gender_male">男</option>
+        <option value="female" data-i18n="emp_gender_female">女</option>
+        <option value="other" data-i18n="emp_gender_other">其他</option>
+      </select></div>
+      <div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="hireDob" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="hireDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input type="text" id="hireSkill" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_nida">NIDA</label><input type="text" id="hireNida" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input type="text" id="hireNssf" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_phone">电话</label><div style="display:flex;align-items:center;"><span style="padding:6px 8px;border:1px solid var(--border);border-right:none;border-radius:var(--radius) 0 0 var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">+255</span><input type="tel" id="hirePhone" placeholder="7xxxxxxxxx" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:0 var(--radius) var(--radius) 0;background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;border-left:none;"></div></div>
+      <div class="form-row"><label data-i18n="emp_bank_name">银行</label><input type="text" id="hireBank" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_bank_account">账号</label><input type="text" id="hireAccount" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input type="text" id="hireOwner" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="hireSalaryType" onchange="toggleHireBaseFields()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <option value="piece_underground" data-i18n="type_ug_piece">生产薪资</option>
+        <option value="piece_driller" data-i18n="type_dr_piece">钻工计件</option>
+        <option value="piece_crush" data-i18n="type_crush_piece">破碎计件</option>
+        <option value="day_rate" data-i18n="type_dayrate">日薪</option>
+        <option value="monthly" data-i18n="type_monthly">月薪</option>
+      </select></div>
+      <div class="form-row" id="hireRowDayRate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="hireDayRate" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row" id="hireRowMonthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="hireMonthly" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_team">班组</label><select id="hireTeamId" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><option value="0" data-i18n="emp_no_team">未分班</option></select></div>
+      <div class="form-row"><label data-i18n="emp_custom_number">自定义工号</label><input type="text" id="hireCustomNumber" data-i18n-placeholder="ph_custom_number_example" placeholder="如 W1 / ABEID1" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+    </div>
+    <!-- P13: 入职头像上传（base64 dataURL → 随审批 payload 提交） -->
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;max-width:760px;">
+      <img id="hireAvatarPreview" alt="" style="width:72px;height:90px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);display:none;">
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <button class="nav-btn" onclick="document.getElementById('hireAvatarFile').click()" style="font-size:11px;" data-i18n="avatar_upload">📷 上传头像</button>
+        <input type="file" id="hireAvatarFile" accept="image/png,image/jpeg" style="display:none;" onchange="handleHireAvatar(this)">
+        <button class="nav-btn" id="hireAvatarClearBtn" onclick="clearHireAvatar()" style="font-size:11px;display:none;" data-i18n="avatar_clear">🗑 清除</button>
+        <input type="hidden" id="hireAvatarData">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn-primary" onclick="submitApply('hire')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
+      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+    <div id="hireMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+
+<!-- ─── P13: 请假申请（独立子页） ─── -->
+<div class="page" id="page-employees-leave">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="nav_employees_leave">请假申请</h2>
+      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;" id="leaveSubForm">
+      <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="leaveEmpId" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="leaveEmpEid"></div>
+      <div id="leavePick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
+      <div class="form-row"><label data-i18n="leave_type">类型</label><select id="leaveType" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <option value="casual" data-i18n="leave_casual">事假</option>
+        <option value="sick" data-i18n="leave_sick">病假</option>
+        <option value="annual_leave" data-i18n="leave_annual">年假</option>
+        <option value="comp_leave" data-i18n="leave_comp">调休</option>
+      </select></div>
+      <div class="form-row"><label data-i18n="leave_date">日期</label><input type="date" id="leaveDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="leave_days">天数</label><input type="number" id="leaveDays" value="1" min="1" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="leave_note">备注</label><input type="text" id="leaveNote" data-i18n-placeholder="leave_reason_ph" placeholder="请假原因" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn-primary" onclick="submitLeave()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
+      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+    <div id="leaveMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+
+<!-- ─── P12: 调岗申请（独立子页） ─── -->
+<div class="page" id="page-employees-transfer">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="nav_employees_transfer">调岗申请</h2>
+      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
+      <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="transferSearch" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="transferEid"></div>
+      <div id="transferPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
+      <div class="form-row"><label data-i18n="emp_new_dept">新部门</label><select id="transferDept" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row"><label data-i18n="emp_new_position">新岗位</label><input type="text" id="transferPosition" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_effective_date">生效日期</label><input type="date" id="transferDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn-primary" onclick="submitApply('transfer')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
+      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+    <div id="transferMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+
+<!-- ─── P12: 离职申请（独立子页） ─── -->
+<div class="page" id="page-employees-dismiss">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="nav_employees_dismiss">离职申请</h2>
+      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
+      <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="dismissSearch" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="dismissEid"></div>
+      <div id="dismissPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
+      <div class="form-row"><label data-i18n="emp_dismiss_date">离职日期</label><input type="date" id="dismissDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_dismiss_reason">原因</label><input type="text" id="dismissReason" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn-primary" onclick="submitApply('dismiss')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
+      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+    <div id="dismissMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+
+<!-- ─── P12: 员工档案独立页 ─── -->
+<div class="page" id="page-employees-profile">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 id="profileName" style="margin-bottom:0;">—</h2>
+      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div style="min-width:0;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2 style="margin-bottom:0;font-size:14px;">基本信息</h2>
+          <h2 style="margin-bottom:0;font-size:14px;" data-i18n="emp_basic_info">基本信息</h2>
           <span id="profileStatus" style="font-size:11px;"></span>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-          <img id="pfAvatar" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
+          <img id="pfAvatar" alt="" style="width:96px;height:120px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);">
           <div style="display:flex;flex-direction:column;gap:4px;">
             <button class="nav-btn" onclick="document.getElementById('pfAvatarFile').click()" style="font-size:11px;" data-i18n="avatar_upload">📷 上传头像</button>
             <input type="file" id="pfAvatarFile" accept="image/png,image/jpeg" style="display:none;" onchange="uploadEmployeeAvatar()">
@@ -358,23 +414,22 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
-          <div class="info-row"><span class="info-label">电话</span><span class="info-value" id="pfPhone">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_phone">电话</span><span class="info-value" id="pfPhone">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_bank_account">账号</span><span class="info-value" id="pfAccount">—</span></div>
-          <div class="info-row"><span class="info-label">年假余额</span><span class="info-value" id="pfAnnual">—</span></div>
-          <div class="info-row"><span class="info-label">调休余额</span><span class="info-value" id="pfComp">—</span></div>
-          <div class="info-row"><span class="info-label" data-i18n="leave_sick">病假余额</span><span class="info-value" id="pfSick">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_annual_balance">年假余额</span><span class="info-value" id="pfAnnual">—</span><button class="nav-btn" id="pfAnnualAdjBtn" onclick="adjustLeaveBalance('annual')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_comp_balance">调休余额</span><span class="info-value" id="pfComp">—</span><button class="nav-btn" id="pfCompAdjBtn" onclick="adjustLeaveBalance('comp')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
+          <div class="info-row"><span class="info-label" data-i18n="leave_sick">病假余额</span><span class="info-value" id="pfSick">—</span><button class="nav-btn" id="pfSickAdjBtn" onclick="adjustLeaveBalance('sick')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
         </div>
-        <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;">✎ 编辑</button>
+        <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;" data-i18n="btn_edit">✎ 编辑</button>
         <button class="nav-btn" onclick="toggleSchemaForm()" style="margin-top:8px;margin-left:4px;font-size:11px;" data-i18n="form_toggle_schema">📝 表单模式</button>
-        <button class="nav-btn" id="pfSickAdjustBtn" onclick="adjustSickBalance()" style="margin-top:8px;margin-left:4px;font-size:11px;display:none;" data-i18n="leave_balance_adjust">🎛 病假余额</button>
         <div id="profileSchemaForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);"></div>
       </div>
       <!-- 生命周期时间线 -->
       <div style="min-width:0;">
-        <h2 style="margin-bottom:12px;font-size:13px;">事件时间线</h2>
+        <h2 style="margin-bottom:12px;font-size:13px;" data-i18n="emp_timeline">事件时间线</h2>
         <div id="profileTimeline" class="timeline">
-          <div style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</div>
+          <div style="color:var(--text-muted);text-align:center;padding:20px;" data-i18n="loading">加载中...</div>
         </div>
       </div>
     </div>
@@ -574,16 +629,11 @@
       <div class="form-row">
         <label style="min-width:90px;" data-i18n="settings_ug_mode_label">模式</label>
         <select id="cfg_ug_mode" class="cfg-input" onchange="saveUndergroundMode()" style="flex:1;padding:4px 8px;">
-          <option value="piecework">⚒ 纯计件</option>
-          <option value="scoring">★ 评分+固定月薪</option>
+          <option value="piecework" data-i18n="settings_ug_mode_piecework">⚒ 纯计件</option>
+          <option value="scoring" data-i18n="settings_ug_mode_scoring">★ 评分+固定月薪</option>
         </select>
       </div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_ug_mode_desc">评分模式: 井下工人走固定月薪+司机津贴+评分奖金; 计件模式保持原有逻辑</p>
-    </div>
-    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
-      <h3 style="margin-bottom:8px;font-size:13px;">🚚 <span data-i18n="settings_driver_allowance_title">司机津贴</span></h3>
-      <div class="form-row"><label style="min-width:90px;" data-i18n="settings_driver_amount">金额(TZS)</label><input type="number" id="cfg_driver_allowance" class="cfg-input" data-key="driver_allowance" step="1" onchange="saveConfig()"></div>
-      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_driver_desc">企业级司机运输津贴，手工输入后加入实发合计</p>
     </div>
     <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
       <h3 style="margin-bottom:8px;font-size:13px;">🤒 <span data-i18n="settings_sick_leave">病假年额度</span></h3>
@@ -594,10 +644,21 @@
     <div class="card admin-only" style="margin-top:16px;">
       <h3 style="margin-bottom:12px;font-size:14px;">🎖 <span data-i18n="groups_title">评分班组</span></h3>
       <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input type="text" id="newGroupName" placeholder="班组名" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;">
+        <input type="text" id="newGroupName" data-i18n-placeholder="group_name_ph" placeholder="班组名" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;">
         <button class="btn-primary" onclick="addEmployeeGroup()" style="padding:6px 14px;font-size:12px;" data-i18n="btn_add">添加</button>
       </div>
-      <div id="groupsAdminList"><div style="color:var(--text-muted);font-size:12px;padding:12px;">加载中...</div></div>
+      <div id="groupsAdminList"><div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="loading">加载中...</div></div>
+    </div>
+    <!-- P12: 钻工队长名单维护（admin+） -->
+    <div class="card admin-only" style="margin-top:16px;">
+      <h3 style="margin-bottom:12px;font-size:14px;">👷 <span data-i18n="captains_title">钻工队长名单</span></h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="captains_desc">此处维护的名单将作为钻工采集表单的队长下拉数据源</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="text" id="captainSearch" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;min-width:200px;"><input type="hidden" id="captainEid">
+        <button class="btn-primary" onclick="addDrillerCaptain()" style="padding:6px 14px;font-size:12px;" data-i18n="captains_add">添加</button>
+      </div>
+      <div id="captainPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);margin-bottom:8px;"></div>
+      <div id="captainsAdminList"><div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="loading">加载中...</div></div>
     </div>
     <div class="quick-actions" style="margin-top:16px;">
       <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default">↺ 恢复默认</button>
@@ -647,7 +708,7 @@
   </div>
   <div class="card" style="margin-top:16px;">
     <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
-    <div id="colUgHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
+    <div id="colUgHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;" data-i18n="loading">加载中...</div></div>
   </div>
 </div>
 <!-- ═══ P9 数据采集：钻工组 ═══ -->
@@ -660,7 +721,7 @@
   </div>
   <div class="card" style="margin-top:16px;">
     <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
-    <div id="colDrHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
+    <div id="colDrHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;" data-i18n="loading">加载中...</div></div>
   </div>
 </div>
 <!-- ═══ P9 数据采集：破碎计件 ═══ -->
@@ -673,7 +734,7 @@
   </div>
   <div class="card" style="margin-top:16px;">
     <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
-    <div id="colCrHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
+    <div id="colCrHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;" data-i18n="loading">加载中...</div></div>
   </div>
 </div>
 <!-- ═══ P9 数据采集：出勤收集 ═══ -->
@@ -686,7 +747,7 @@
   </div>
   <div class="card" style="margin-top:16px;">
     <h3 style="font-size:14px;margin-bottom:12px;" data-i18n="col_history_title">提交历史</h3>
-    <div id="colAttHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;">加载中...</div></div>
+    <div id="colAttHistory"><div style="text-align:center;color:var(--text-muted);padding:24px;" data-i18n="loading">加载中...</div></div>
   </div>
 </div>
 <!-- ═══ P3 评分录入 ═══ -->
@@ -698,7 +759,7 @@
         <option value="" data-i18n="scoring_sel_team">选择班组</option>
       </select>
       <select id="scoreSourceSel" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-        <option value="工友">工友</option><option value="管理">管理</option>
+        <option value="工友" data-i18n="score_src_worker">工友</option><option value="管理" data-i18n="score_src_mgmt">管理</option>
       </select>
       <span id="scoreMonthLabel" style="font-size:13px;color:var(--text-muted);"></span>
       <span id="scoreTeamCount" style="font-size:12px;color:var(--text-muted);"></span>
@@ -711,38 +772,38 @@
 <!-- ═══ P3 个人汇总 + 三闸 ═══ -->
 <div class="page" id="page-scoring-summary">
   <div class="card">
-    <h2>个人汇总</h2>
+    <h2 data-i18n="nav_scoring_summary">评分汇总</h2>
     <div class="filter-bar" style="margin-bottom:12px;">
       <select id="sumTeam" onchange="loadScoringSummary()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-        <option value="1">班组1</option><option value="2">班组2</option>
+        <option value="1" data-i18n="team1">班组1</option><option value="2" data-i18n="team2">班组2</option>
       </select>
     </div>
-    <div class="table-wrap"><table class="data-table" id="sumTable"><thead><tr><th>编号</th><th>员工</th><th>互评均值</th><th>工友行为分</th><th>管理行为分</th><th>最终行为分</th><th>系数</th><th>偏离</th></tr></thead><tbody><tr><td colspan="8" style="text-align:center;color:var(--text-muted);">选择班组查看</td></tr></tbody></table></div>
+    <div class="table-wrap"><table class="data-table" id="sumTable"><thead><tr><th data-i18n="sum_th_id">编号</th><th data-i18n="sum_th_name">员工</th><th data-i18n="sum_th_peer">互评均值</th><th data-i18n="sum_th_worker">工友行为分</th><th data-i18n="sum_th_mgmt">管理行为分</th><th data-i18n="sum_th_final">最终行为分</th><th data-i18n="sum_th_coef">系数</th><th data-i18n="sum_th_dev">偏离</th></tr></thead><tbody><tr><td colspan="8" style="text-align:center;color:var(--text-muted);" data-i18n="sum_pick_team_hint">选择班组查看</td></tr></tbody></table></div>
     <!-- 三闸面板 -->
     <div class="gate-panel" id="gatePanel" style="margin-top:16px;display:none;">
-      <h3 style="font-size:13px;margin-bottom:8px;">三闸检测</h3>
-      <div id="gate1" class="gate-item">① 零方差</div>
-      <div id="gate2" class="gate-item">② 最高档人数</div>
-      <div id="gate3" class="gate-item">③ 管理偏离</div>
+      <h3 style="font-size:13px;margin-bottom:8px;" data-i18n="gate_title">三闸检测</h3>
+      <div id="gate1" class="gate-item" data-i18n="gate1">① 零方差</div>
+      <div id="gate2" class="gate-item" data-i18n="gate2">② 最高档人数</div>
+      <div id="gate3" class="gate-item" data-i18n="gate3">③ 管理偏离</div>
     </div>
   </div>
 </div>
 <!-- ═══ P3 客观录入 ═══ -->
 <div class="page" id="page-scoring-objective">
   <div class="card">
-    <h2>客观录入</h2>
+    <h2 data-i18n="nav_scoring_objective">客观录入</h2>
     <div class="filter-bar" style="margin-bottom:12px;">
       <input type="date" id="objDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
       <select id="objTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"><option value="" data-i18n="scoring_sel_team">选择班组</option></select>
-      <input type="number" id="objWeek" placeholder="周次" min="1" style="width:70px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <input type="number" id="objWeek" data-i18n-placeholder="obj_week" placeholder="周次" min="1" style="width:70px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:600px;">
-      <label style="font-size:12px;">计划出渣量</label><input type="number" id="objPlanned" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <label style="font-size:12px;">实际出渣量</label><input type="number" id="objActual" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <label style="font-size:12px;">在井总时长(h)</label><input type="number" id="objTotalH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <label style="font-size:12px;">有效作业(h)</label><input type="number" id="objEffH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_planned">计划出渣量</label><input type="number" id="objPlanned" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_actual">实际出渣量</label><input type="number" id="objActual" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_total_h">在井总时长(h)</label><input type="number" id="objTotalH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_eff_h">有效作业(h)</label><input type="number" id="objEffH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
     </div>
-    <button class="btn-primary" onclick="submitObjective()" style="margin-top:12px;padding:8px 20px;font-size:13px;">提交</button>
+    <button class="btn-primary" onclick="submitObjective()" style="margin-top:12px;padding:8px 20px;font-size:13px;" data-i18n="btn_submit">提交</button>
     <div id="objMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
 </div>
@@ -825,29 +886,47 @@
       <div id="permGrid"></div>
     </div>
   </div>
+  <!-- P13: 审批人设定（super_admin） -->
+  <div class="card" id="approvalRoutesCard" style="margin-top:16px;display:none;">
+    <h3 style="margin-bottom:12px;font-size:14px;">🗂 <span data-i18n="routes_title">审批人设定</span></h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="routes_desc">指定各类型 OA 申请的审批人；留空（删除设定）表示所有人可见</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+      <select id="routeEventType" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="hire" data-i18n="event_hire">入职</option>
+        <option value="transfer" data-i18n="event_transfer">调岗</option>
+        <option value="dismiss" data-i18n="event_dismiss">离职</option>
+        <option value="leave" data-i18n="event_leave">请假</option>
+      </select>
+      <select id="routeApprover" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;min-width:160px;">
+        <option value="">—</option>
+      </select>
+      <button class="btn-primary" onclick="saveApprovalRoute()" style="padding:6px 14px;font-size:12px;" data-i18n="btn_save">保存</button>
+    </div>
+    <div id="approvalRoutesList"><div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="routes_empty">暂无设定</div></div>
+  </div>
 </div>
 
 </div><!-- .main -->
 
 <!-- 移动端底部导航栏 -->
 <nav class="mobile-bottom-nav" id="mobileBottomNav">
-  <a href="javascript:void(0)" onclick="navigate('dashboard')" title="数据台">
+  <a href="javascript:void(0)" onclick="navigate('dashboard')" data-i18n-title="nav_dashboard" title="数据台">
     <span class="nav-icon">◆</span>
     <span data-i18n="nav_dashboard">数据台</span>
   </a>
-  <a href="javascript:void(0)" onclick="navigate('attendance')" title="出勤">
+  <a href="javascript:void(0)" onclick="navigate('attendance')" data-i18n-title="nav_attendance" title="出勤">
     <span class="nav-icon">📅</span>
     <span data-i18n="nav_attendance">出勤</span>
   </a>
-  <a href="javascript:void(0)" onclick="navigate('collection','underground')" title="数据采集">
+  <a href="javascript:void(0)" onclick="navigate('collection','underground')" data-i18n-title="nav_collection" title="数据采集">
     <span class="nav-icon">⚒</span>
     <span data-i18n="nav_collection">数据采集</span>
   </a>
-  <a href="javascript:void(0)" onclick="navigate('scoring','card')" title="评分">
+  <a href="javascript:void(0)" onclick="navigate('scoring','card')" data-i18n-title="nav_scoring" title="评分">
     <span class="nav-icon">★</span>
     <span data-i18n="nav_scoring">评分</span>
   </a>
-  <a href="javascript:void(0)" onclick="navigate('salary','table')" title="薪资">
+  <a href="javascript:void(0)" onclick="navigate('salary','table')" data-i18n-title="nav_salary" title="薪资">
     <span class="nav-icon">💰</span>
     <span data-i18n="nav_salary">薪资</span>
   </a>
@@ -879,11 +958,11 @@
       </div>
       <div class="form-row" id="modalDayRateRow">
         <label data-i18n="modal_dayrate_base_label">日薪基数(TZS)</label>
-        <input type="number" id="modalDayRate" min="0" step="1000" placeholder="如: 15000">
+        <input type="number" id="modalDayRate" min="0" step="1000" data-i18n-placeholder="ph_day_rate" placeholder="如: 15000">
       </div>
       <div class="form-row" id="modalMonthlyRow">
         <label data-i18n="modal_monthly_base_label">月薪基数(TZS)</label>
-        <input type="number" id="modalMonthly" min="0" step="10000" placeholder="如: 500000">
+        <input type="number" id="modalMonthly" min="0" step="10000" data-i18n-placeholder="ph_monthly" placeholder="如: 500000">
       </div>
       <div class="form-row" id="modalTypeHint" style="display:none;">
         <label style="min-width:auto;color:var(--text-muted);font-size:12px;" data-i18n="modal_piece_hint">计件类型不需要设置基数</label>
@@ -908,7 +987,7 @@
       </div>
       <div class="form-row" id="tempDayRateRow">
         <label data-i18n="modal_temp_dayrate">日薪基数</label>
-        <input type="number" id="modalTempRate" min="0" step="1000" placeholder="如: 15000">
+        <input type="number" id="modalTempRate" min="0" step="1000" data-i18n-placeholder="ph_day_rate" placeholder="如: 15000">
       </div>
       <div class="form-row" id="tempShiftRow" style="display:none;">
         <label data-i18n="modal_temp_shift">班次</label>
@@ -994,6 +1073,39 @@ function api(path) { return API_BASE + path; }
 function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// P13: 动态注入的 data-i18n / data-i18n-placeholder 节点自动翻译（修复 JS 渲染后英文模式残留）
+if (window.MutationObserver) {
+  const _i18nMO = new MutationObserver(muts => {
+    for (const m of muts) {
+      if (m.type !== 'childList' || !m.addedNodes) continue;
+      for (const n of m.addedNodes) {
+        if (!n || n.nodeType !== 1) continue;
+        if (n.matches && n.matches('[data-i18n]')) {
+          const k = n.getAttribute('data-i18n');
+          if (k) { const v = t(k); if (n.textContent !== v) n.textContent = v; }
+        }
+        if (n.matches && n.matches('[data-i18n-placeholder]')) {
+          const k = n.getAttribute('data-i18n-placeholder');
+          if (k) { const v = t(k); if (n.placeholder !== v) n.placeholder = v; }
+        }
+        if (n.querySelectorAll) {
+          n.querySelectorAll('[data-i18n]').forEach(el => {
+            const k = el.getAttribute('data-i18n');
+            if (k) { const v = t(k); if (el.textContent !== v) el.textContent = v; }
+          });
+          n.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const k = el.getAttribute('data-i18n-placeholder');
+            if (k) { const v = t(k); if (el.placeholder !== v) el.placeholder = v; }
+          });
+        }
+      }
+    }
+  });
+  document.addEventListener('DOMContentLoaded', () => {
+    _i18nMO.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
 function showToast(msg, type='success') {
   const t = document.getElementById('toast');
   t.textContent = typeof msg === 'string' ? msg : msg;
@@ -1026,21 +1138,25 @@ async function checkAuth() {
 }
 
 function updateAuthUI() {
-  const loginBtn = document.getElementById('loginBtnSide');
-  const logoutBtn = document.getElementById('logoutBtnSide');
-  const changePwdBtn = document.getElementById('changePwdBtnSide');
-  const userBadge = document.getElementById('userBadgeSide');
+  const loginBtn = document.getElementById('loginBtnTop');
+  const logoutBtn = document.getElementById('logoutBtnTop');
+  const changePwdBtn = document.getElementById('changePwdBtnTop');
+  const userBadge = document.getElementById('userBadgeTop');
+  const loginHint = document.getElementById('loginHintTop');
+  const userStatus = document.getElementById('topbarUserStatus');
+  const recalcBtn = document.getElementById('recalcBtn');
   if (_authState.logged_in) {
-    loginBtn.style.display = 'none';
-    logoutBtn.style.display = '';
-    changePwdBtn.style.display = '';
-    userBadge.style.display = '';
-    userBadge.textContent = _authState.username;
+    if (loginBtn) loginBtn.style.display = 'none';
+    if (logoutBtn) logoutBtn.style.display = '';
+    if (changePwdBtn) changePwdBtn.style.display = '';
+    if (userBadge) { userBadge.style.display = ''; userBadge.textContent = _authState.username; }
+    if (loginHint) loginHint.style.display = 'none';
   } else {
-    loginBtn.style.display = '';
-    logoutBtn.style.display = 'none';
-    changePwdBtn.style.display = 'none';
-    userBadge.style.display = 'none';
+    if (loginBtn) loginBtn.style.display = '';
+    if (logoutBtn) logoutBtn.style.display = 'none';
+    if (changePwdBtn) changePwdBtn.style.display = 'none';
+    if (userBadge) userBadge.style.display = 'none';
+    if (loginHint) loginHint.style.display = '';
   }
   // 未登录隐藏非数据台侧边栏模块
   renderSidebar();
@@ -1055,8 +1171,9 @@ function updateAuthUI() {
   const isAdmin = userLevel >= 2;
   const isEditor = userLevel >= 1;
   const isSuperAdmin = userLevel >= 3;
-  const recalcBtn = document.getElementById('recalcBtn');
   if (recalcBtn) recalcBtn.style.display = isAdmin ? '' : 'none';
+  const reloadSrcBtn = document.getElementById('reloadSourceBtn');
+  if (reloadSrcBtn) reloadSrcBtn.style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('.admin-only').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
   });
@@ -1072,6 +1189,25 @@ function updateAuthUI() {
   if (userMgmtCard) userMgmtCard.style.display = isSuperAdmin ? '' : 'none';
 }
 
+/* 顶部三道杠菜单开关 */
+function toggleTopbarMenu() {
+  const menu = document.getElementById('topbarMenu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+function closeTopbarMenu() {
+  const menu = document.getElementById('topbarMenu');
+  if (menu) menu.style.display = 'none';
+}
+// 点击菜单外关闭
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('topbarMenuWrap');
+  const menu = document.getElementById('topbarMenu');
+  if (wrap && menu && menu.style.display === 'block' && !wrap.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
 function openLoginModal() {
   document.getElementById('loginModal').style.display = 'flex';
   document.getElementById('loginUsername').value = '';
@@ -1081,10 +1217,10 @@ function openLoginModal() {
   const title = document.getElementById('loginModalTitle');
   if (!_authState.has_admin) {
     setupHint.style.display = 'block';
-    title.textContent = '设置管理员账号';
+    title.textContent = t('login_setup_title');
   } else {
     setupHint.style.display = 'none';
-    title.textContent = '管理员登录';
+    title.textContent = t('login_title');
   }
   document.getElementById('loginUsername').focus();
 }
@@ -1247,7 +1383,7 @@ function switchPage(name) {
 // 模块/子页配置
 const MODULES = {
   dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null },
-  employees:  { label: 'nav_employees',  icon: '👥', children: ['list'] },
+  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave'] },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'] },
   collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'] },
@@ -1258,6 +1394,12 @@ const MODULES = {
 // 子页→旧页面映射 (P0 复用现有页面)
 const SUBPAGE_TARGETS = {
   'employees/list':    'employees',
+  'employees/hire':    'employees-hire',
+  'employees/transfer':'employees-transfer',
+  'employees/dismiss': 'employees-dismiss',
+  // P13: 档案独立页保留路由（不再出现在侧栏），请假为独立子页
+  'employees/profile': 'employees-profile',
+  'employees/leave':   'employees-leave',
   'salary/table':      'salary',
   'salary/daily':      'dailywages',
   'attendance':        'attendance',
@@ -1370,15 +1512,24 @@ function showTargetPage(module, subPage) {
   if (targetId === 'attendance') loadAttendance();
   if (targetId === 'dailywages') loadDailyWages();
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
-  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadUserList(); loadGroupsAdmin(); }
+  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadUserList(); loadGroupsAdmin(); loadCaptainsAdmin(); }
   if (targetId === 'employees') {
     renderEmployeeTable();
-    // P6: 档案已合并为抽屉，带 id 的链接直接打开抽屉
-    if (STATE.currentParams && STATE.currentParams.id) showEmployeeProfile(STATE.currentParams.id);
   }
+  // P12: 员工档案独立子页加载
+  if (targetId === 'employees-profile') {
+    const eid = STATE.currentParams && STATE.currentParams.id;
+    if (eid) loadEmployeeProfilePage(eid);
+    else navigate('employees', 'list');
+  }
+  // P12: 申请子页进入时刷新部门/班组选项
+  if (targetId === 'employees-hire') { fillApplyDepts(); toggleHireBaseFields(); }
+  if (targetId === 'employees-transfer') fillApplyDepts();
+  // P13: 请假子页进入时确保 typeahead 已绑定
+  if (targetId === 'employees-leave') initEmpTypeahead('leaveEmpId', 'leaveEmpEid', 'leavePick');
 
   // P4: 权限管理页面加载
-  if (module === 'system' && subPage === 'users') loadPermissionsPage();
+  if (module === 'system' && subPage === 'users') { loadPermissionsPage(); loadApprovalRoutes(); }
   // P4: 表单管理页面加载
   if (module === 'system' && subPage === 'forms') loadFormSchemas();
   // P5: 归档页面加载
@@ -1396,7 +1547,13 @@ function showTargetPage(module, subPage) {
 
 function showPlaceholder(module, subPage) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const label = module + (subPage ? '/' + subPage : '');
+  // P13: 占位页标题本地化（模块名走 MODULES label，子页走 nav_ 键）
+  let label;
+  if (MODULES[module]) {
+    label = t(MODULES[module].label) + (subPage ? ' / ' + t('nav_' + module + '_' + subPage) : '');
+  } else {
+    label = module + (subPage ? '/' + subPage : '');
+  }
   // 查找已存在的占位页
   const phId = 'page-' + module + (subPage ? '-' + subPage : '');
   const page = document.getElementById(phId);
@@ -1416,7 +1573,7 @@ function showPlaceholder(module, subPage) {
   ph.innerHTML = `<div class="card">
     <div style="font-size:48px;margin-bottom:16px;">🚧</div>
     <h2>${label}</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">开发中</p>
+    <p style="color:var(--text-muted);">${t('placeholder_desc')}</p>
   </div>`;
 }
 
@@ -1452,8 +1609,7 @@ function parseHash() {
   const module = parts[0];
   let subPage = parts[1] || null;
   const params = {};
-  // P6: 员工档案已合并进列表抽屉，旧 hash 重定向到 list
-  if (module === 'employees' && subPage === 'profile') subPage = 'list';
+  // P12: 员工档案为独立子页，保留 profile 路由
   if (query) {
     query.split('&').forEach(p => {
       const [k,v] = p.split('=');
@@ -1524,10 +1680,10 @@ function toggleCollapseSidebar() {
   const btn = document.getElementById('sidebarCollapseBtn');
   if (sidebar.classList.contains('collapsed')) {
     btn.textContent = '▶';
-    btn.title = '展开侧边栏';
+    btn.title = t('expand_sidebar');
   } else {
     btn.textContent = '◀';
-    btn.title = '折叠侧边栏';
+    btn.title = t('collapse_sidebar');
   }
   renderSidebar();
   updateBreadcrumb();
@@ -1763,21 +1919,23 @@ async function reloadSource() {
 /* ── P1 员工列表渲染（新） ── */
 async function renderEmployeeTable() {
   const tbody = document.querySelector('#empTable tbody');
-  tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">' + t('loading') + '</td></tr>';
   try {
     const res = await fetch(api('/api/employees?status=active'));
     const data = await res.json();
     const emps = data.employees || [];
-    document.getElementById('empCount').textContent = emps.length + ' 人';
+    document.getElementById('empCount').textContent = emps.length + ' ' + t('unit_person');
 
-    // 填充部门筛选
+    // 填充部门筛选（P13.1: 重建下拉前保留选中值）
     const sel = document.getElementById('empFilterDept');
+    const prevVal = sel.value;
     const deps = [...new Set(emps.map(e => e.department).filter(Boolean))].sort();
-    sel.innerHTML = '<option value="" data-i18n="emp_all_depts">全部部门</option>';
+    sel.innerHTML = '<option value="">' + t('emp_all_depts') + '</option>';
     deps.forEach(d => { sel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+    if (deps.includes(prevVal)) sel.value = prevVal;
 
     const q = (document.getElementById('empSearch').value || '').toLowerCase();
-    const d = document.getElementById('empFilterDept').value;
+    const d = sel.value;
     const filtered = emps.filter(e => {
       if (q && !(e.name || '').toLowerCase().includes(q)) return false;
       if (d && e.department !== d) return false;
@@ -1785,11 +1943,11 @@ async function renderEmployeeTable() {
     });
 
     tbody.innerHTML = filtered.map(e => `
-      <tr style="cursor:pointer;" onclick="navigate('employees','list',{id:'${e.id}'})">
+      <tr style="cursor:pointer;" onclick="if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'})">
         <td style="color:var(--text-muted);font-size:11px;">${escHtml(e.id)}</td>
         <td class="left">
-          <a href="#employees/list?id=${encodeURIComponent(e.id)}" onclick="event.preventDefault();event.stopPropagation();navigate('employees','list',{id:'${e.id}'});"
-             style="color:var(--accent);text-decoration:none;font-weight:600;">${escHtml(e.name)}</a>
+          <a href="#employees/profile?id=${encodeURIComponent(e.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'});"
+             style="color:var(--accent);text-decoration:none;font-weight:600;user-select:text;">${escHtml(e.name)}</a>
         </td>
         <td class="left" style="color:var(--text-muted);">${escHtml(e.department||'—')}</td>
         <td>${escHtml(e.position||'—')}</td>
@@ -1800,18 +1958,16 @@ async function renderEmployeeTable() {
         <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
       </tr>`).join('');
-    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">无匹配员工</td></tr>';
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--danger);">加载失败: ' + escHtml(e.message) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
   }
 }
 
-/* ── P1 员工档案（P6: 独立页面 → 抽屉） ── */
+/* ── P1 员工档案（P12: 独立页加载函数） ── */
 let _profileEid = null;
-async function showEmployeeProfile(eid) {
+async function loadEmployeeProfilePage(eid) {
   _profileEid = eid;
-  const modal = document.getElementById('employeeProfileModal');
-  modal.style.display = 'flex';
   const schemaForm = document.getElementById('profileSchemaForm');
   if (schemaForm) schemaForm.style.display = 'none';
   try {
@@ -1821,12 +1977,12 @@ async function showEmployeeProfile(eid) {
     ]);
     const emp = (await empRes.json()).employee;
     const events = (await evtRes.json()).events || [];
-    if (!emp) { document.getElementById('profileName').textContent = '员工不存在'; return; }
+    if (!emp) { document.getElementById('profileName').textContent = t('emp_not_found'); return; }
 
     document.getElementById('profileName').textContent = emp.name;
     document.getElementById('profileStatus').innerHTML = emp.status === 'active'
-      ? '<span style="color:var(--success);">在职</span>'
-      : '<span style="color:var(--danger);">离职</span>';
+      ? '<span style="color:var(--success);">' + t('emp_status_active') + '</span>'
+      : '<span style="color:var(--danger);">' + t('emp_status_dismissed') + '</span>';
     document.getElementById('pfDept').textContent = emp.department;
     document.getElementById('pfPosition').textContent = emp.position;
     document.getElementById('pfSkill').textContent = emp.skill_level;
@@ -1856,26 +2012,29 @@ async function showEmployeeProfile(eid) {
       const balRes = await fetch(api('/api/leave/balance/' + eid + '?year=' + new Date().getFullYear()));
       const balData = await balRes.json();
       const b = balData.balance || {};
-      document.getElementById('pfAnnual').textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' 天';
-      document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' 天';
-      document.getElementById('pfSick').textContent = ((b.sick_entitled||0) - (b.sick_used||0)) + ' / ' + (b.sick_entitled||0) + ' 天';
+      document.getElementById('pfAnnual').textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
+      document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' ' + t('unit_day');
+      document.getElementById('pfSick').textContent = ((b.sick_entitled||0) - (b.sick_used||0)) + ' / ' + (b.sick_entitled||0) + ' ' + t('unit_day');
     } catch(e) {}
-    const sickAdjBtn = document.getElementById('pfSickAdjustBtn');
-    if (sickAdjBtn) sickAdjBtn.style.display = isAdminUser() ? '' : 'none';
+    // P12: 余额调整按钮仅 admin 可见
+    ['pfAnnualAdjBtn','pfCompAdjBtn','pfSickAdjBtn'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) btn.style.display = isAdminUser() ? 'inline-block' : 'none';
+    });
 
     // 时间线
-    const EVENT_LABELS = { hire: '入职', transfer: '调岗', dismiss: '离职',
-      salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职' };
+    const EVENT_LABELS = { hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
+      salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement' };
     const tl = document.getElementById('profileTimeline');
     if (events.length === 0) {
-      tl.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">暂无事件记录</div>';
+      tl.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">' + t('no_events') + '</div>';
     } else {
       tl.innerHTML = events.map(ev => `
         <div class="timeline-item">
           <div class="timeline-dot ${ev.status}"></div>
           <div class="timeline-content">
             <div class="timeline-header">
-              <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
+              <span class="timeline-type">${EVENT_LABELS[ev.event_type] ? t(EVENT_LABELS[ev.event_type]) : ev.event_type}</span>
               <span class="timeline-date">${ev.effective_date}</span>
               <span class="timeline-status ${ev.status}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : '…'}</span>
             </div>
@@ -1887,10 +2046,13 @@ async function showEmployeeProfile(eid) {
   }
 }
 
+// P12: 兼容旧调用（头像上传/删除后刷新）
+function showEmployeeProfile(eid) {
+  navigate('employees', 'profile', { id: eid });
+}
+
 function closeEmployeeProfile() {
-  document.getElementById('employeeProfileModal').style.display = 'none';
-  const formEl = document.getElementById('profileSchemaForm');
-  if (formEl) formEl.style.display = 'none';
+  navigate('employees', 'list');
 }
 
 /* ── P7: 辅助函数 — 权限与年龄计算 ── */
@@ -1922,67 +2084,114 @@ async function uploadEmployeeAvatar() {
   try {
     const res = await authFetch(api('/api/employees/avatar'), { method: 'POST', body: fd });
     const data = await res.json();
-    if (data.ok) { showToast('头像已更新 ✓'); showEmployeeProfile(eid); }
-    else showToast(data.error || '上传失败', 'error');
-  } catch(e) { showToast('上传失败', 'error'); }
+    if (data.ok) { showToast(t('avatar_updated')); showEmployeeProfile(eid); }
+    else showToast(data.error || t('upload_fail'), 'error');
+  } catch(e) { showToast(t('upload_fail'), 'error'); }
   fileInput.value = '';
 }
 
 async function deleteEmployeeAvatar() {
   const eid = _profileEid;
   if (!eid) return;
-  if (!confirm('确认删除头像？')) return;
+  if (!confirm(t('avatar_delete_confirm'))) return;
   try {
     const res = await authFetch(api('/api/employees/avatar/delete'), {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({employee_id: eid}),
     });
     const data = await res.json();
-    if (data.ok) { showToast('头像已删除 ✓'); showEmployeeProfile(eid); }
-    else showToast(data.error || '删除失败', 'error');
-  } catch(e) { showToast('删除失败', 'error'); }
+    if (data.ok) { showToast(t('avatar_deleted')); showEmployeeProfile(eid); }
+    else showToast(data.error || t('delete_fail'), 'error');
+  } catch(e) { showToast(t('delete_fail'), 'error'); }
 }
 
-/* ── P8: 病假余额调整（admin） ── */
-async function adjustSickBalance() {
+/* ── P13: 入职头像（base64 预览 → hidden 存 dataURL） ── */
+function handleHireAvatar(input) {
+  const file = input.files[0];
+  const preview = document.getElementById('hireAvatarPreview');
+  const hidden = document.getElementById('hireAvatarData');
+  const clearBtn = document.getElementById('hireAvatarClearBtn');
+  if (!file || !hidden) return;
+  if (!/^image\/(png|jpeg)$/.test(file.type)) {
+    showToast(t('err_avatar_type'), 'error');
+    input.value = '';
+    return;
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    showToast(t('err_avatar_size'), 'error');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    hidden.value = e.target.result;
+    if (preview) { preview.src = e.target.result; preview.style.display = 'block'; }
+    if (clearBtn) clearBtn.style.display = 'inline-block';
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearHireAvatar() {
+  const f = document.getElementById('hireAvatarFile');
+  const hidden = document.getElementById('hireAvatarData');
+  const preview = document.getElementById('hireAvatarPreview');
+  const clearBtn = document.getElementById('hireAvatarClearBtn');
+  if (f) f.value = '';
+  if (hidden) hidden.value = '';
+  if (preview) { preview.removeAttribute('src'); preview.style.display = 'none'; }
+  if (clearBtn) clearBtn.style.display = 'none';
+}
+
+/* ── P8/P12: 假期余额调整（admin，通用 annual/comp/sick） ── */
+const LEAVE_BAL_TYPES = {
+  annual: { entitled: 'annual_entitled', used: 'annual_used', defaultEnt: 21, label: 'emp_annual_balance' },
+  comp:   { entitled: 'comp_entitled',   used: 'comp_used',   defaultEnt: 0,  label: 'emp_comp_balance' },
+  sick:   { entitled: 'sick_entitled',   used: 'sick_used',   defaultEnt: 14, label: 'leave_sick' },
+};
+async function adjustLeaveBalance(type) {
   const eid = _profileEid;
-  if (!eid) return;
+  if (!eid || !LEAVE_BAL_TYPES[type]) return;
+  const cfg = LEAVE_BAL_TYPES[type];
   let b = null;
   try {
     const res = await fetch(api('/api/leave/balance/' + eid + '?year=' + new Date().getFullYear()));
     b = (await res.json()).balance || {};
   } catch(e) {}
   const year = new Date().getFullYear();
-  const ent = (b && b.sick_entitled) || 14;
-  const used = (b && b.sick_used) || 0;
+  const ent = (b && b[cfg.entitled] != null) ? b[cfg.entitled] : cfg.defaultEnt;
+  const used = (b && b[cfg.used]) || 0;
   const inStyle = 'padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;';
   let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;width:320px;padding:20px;">';
-  form += '<h3 style="margin-bottom:12px;">' + t('leave_balance_adjust') + ' — ' + year + '</h3>';
-  form += `<div class="form-row"><label>${t('settings_sick_days')}</label><input type="number" id="sickAdjEnt" value="${ent}" min="0" style="${inStyle}"></div>`;
-  form += `<div class="form-row"><label>${t('leave_sick_used')}</label><input type="number" id="sickAdjUsed" value="${used}" min="0" style="${inStyle}"></div>`;
+  form += '<h3 style="margin-bottom:12px;">' + t(cfg.label) + ' — ' + year + '</h3>';
+  form += `<div class="form-row"><label>${t('leave_bal_entitled')}</label><input type="number" id="balAdjEnt" value="${ent}" min="0" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label>${t('leave_bal_used')}</label><input type="number" id="balAdjUsed" value="${used}" min="0" style="${inStyle}"></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
-  form += `<button class="btn-primary" onclick="saveSickBalance('${eid}')" style="padding:6px 16px;">${t('btn_save')}</button>`;
-  form += `<button class="btn-cancel" onclick="document.getElementById('sickAdjModal').remove()" style="padding:6px 16px;">${t('btn_cancel')}</button>`;
-  form += '</div><div id="sickAdjMsg" style="margin-top:8px;font-size:12px;"></div></div>';
+  form += `<button class="btn-primary" onclick="saveLeaveBalance('${eid}','${type}')" style="padding:6px 16px;">${t('btn_save')}</button>`;
+  form += `<button class="btn-cancel" onclick="document.getElementById('balAdjModal').remove()" style="padding:6px 16px;">${t('btn_cancel')}</button>`;
+  form += '</div><div id="balAdjMsg" style="margin-top:8px;font-size:12px;"></div></div>';
   const modal = document.createElement('div');
-  modal.id = 'sickAdjModal';
+  modal.id = 'balAdjModal';
   modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:499;';
   modal.innerHTML = form;
   document.body.appendChild(modal);
 }
 
-async function saveSickBalance(eid) {
-  const ent = parseInt(document.getElementById('sickAdjEnt').value) || 0;
-  const used = parseInt(document.getElementById('sickAdjUsed').value) || 0;
-  const msg = document.getElementById('sickAdjMsg');
+async function saveLeaveBalance(eid, type) {
+  const cfg = LEAVE_BAL_TYPES[type] || LEAVE_BAL_TYPES.sick;
+  const ent = parseInt(document.getElementById('balAdjEnt').value) || 0;
+  const used = parseInt(document.getElementById('balAdjUsed').value) || 0;
+  const msg = document.getElementById('balAdjMsg');
+  const body = { employee_id: eid };
+  body[cfg.entitled] = ent;
+  body[cfg.used] = used;
   const res = await authFetch(api('/api/leave/balance/adjust'), {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({employee_id: eid, sick_entitled: ent, sick_used: used}),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (data.ok) {
     msg.textContent = t('save_ok'); msg.style.color = 'var(--success)';
-    setTimeout(() => { document.getElementById('sickAdjModal').remove(); showEmployeeProfile(eid); }, 700);
+    setTimeout(() => { document.getElementById('balAdjModal').remove(); loadEmployeeProfilePage(eid); }, 700);
   } else {
     msg.textContent = data.error || t('save_failed'); msg.style.color = 'var(--danger)';
   }
@@ -1998,7 +2207,7 @@ async function editEmployeeProfile() {
     const data = await res.json();
     emp = data.employee;
   } catch(e) {}
-  if (!emp) { showToast('加载员工失败', 'error'); return; }
+  if (!emp) { showToast(t('emp_load_fail'), 'error'); return; }
 
   // 部门选项（来自员工列表 distinct，缓存于 empFilterDept select）
   const deptSel = document.getElementById('empFilterDept');
@@ -2056,7 +2265,7 @@ async function editEmployeeProfile() {
   form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
   // P10: 班组 + 自定义工号
   form += `<div class="form-row"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
-  form += `<div class="form-row"><label data-i18n="emp_custom_number">自定义工号</label><input id="pfEdit_custom_number" value="${g(emp.custom_number)}" placeholder="如 W1 / ABEID1" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_custom_number">自定义工号</label><input id="pfEdit_custom_number" value="${g(emp.custom_number)}" placeholder="${t('ph_custom_number_example')}" style="${inStyle}"></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
   form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
   form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button>';
@@ -3097,9 +3306,9 @@ function renderAttendance() {
     'P': {color: 'var(--success)', label: t('shift_P_label'), desc: t('shift_P_desc')},
     'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
     'L': {color: 'var(--warning)', label: t('shift_L_label'), desc: t('shift_L_desc')},
-    'S': {color: '#F59E0B', label: '事假', desc: '事假(待审批)'},
-    'Y': {color: '#06B6D4', label: '年假', desc: '年假'},
-    'T': {color: '#A855F7', label: '调休', desc: '调休'},
+    'S': {color: '#F59E0B', label: t('shift_S_label'), desc: t('shift_S_desc')},
+    'Y': {color: '#06B6D4', label: t('shift_Y_label'), desc: t('shift_Y_desc')},
+    'T': {color: '#A855F7', label: t('shift_T_label'), desc: t('shift_T_desc')},
     'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
     'C': {color: '#F97316', label: t('shift_C_label'), desc: t('shift_C_desc')},
     '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
@@ -3277,7 +3486,6 @@ async function loadConfig() {
     document.getElementById('cfg_dr_nl').value = cfg.driller_prices['NICKEL（L）'];
     document.getElementById('cfg_dr_mw').value = cfg.driller_prices['MAWE'];
     document.getElementById('cfg_nssf').value = cfg.nssf_rate * 100;
-    document.getElementById('cfg_driver_allowance').value = cfg.driver_allowance || 0;
     document.getElementById('cfg_crush_price').value = cfg.crush_price || 300;
     // P5-b: underground_mode
     const ugMode = document.getElementById('cfg_ug_mode');
@@ -3302,7 +3510,6 @@ async function saveConfig() {
       },
       nssf_rate: (parseFloat(document.getElementById('cfg_nssf').value) || 10) / 100,
       crush_price: parseInt(document.getElementById('cfg_crush_price').value) || 300,
-      driver_allowance: parseInt(document.getElementById('cfg_driver_allowance').value) || 0,
       underground_mode: document.getElementById('cfg_ug_mode').value || 'piecework',
     };
     const res = await authFetch(api('/config'), {
@@ -3324,7 +3531,6 @@ async function resetConfig() {
     driller_prices: {'NICKEL（H）':5000,'NICKEL（L）':4000,'MAWE':3000},
     nssf_rate: 0.10,
     crush_price: 300,
-    driver_allowance: 0,
   };
   await authFetch(api('/config'), {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -3344,52 +3550,107 @@ async function loadGroupsAdmin() {
     const data = await res.json();
     const groups = data.groups || [];
     if (!groups.length) {
-      container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;">暂无班组</div>';
+      container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;">' + t('no_groups') + '</div>';
       return;
     }
     container.innerHTML = groups.map(g => `
       <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
         <span style="flex:1;">${escHtml(g.name)} <span style="color:var(--text-muted);font-size:11px;">id=${g.id}</span></span>
-        <input type="text" id="grpRename${g.id}" placeholder="新名称" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;width:120px;">
+        <input type="text" id="grpRename${g.id}" placeholder="${t('group_new_name_ph')}" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;width:120px;">
         <button class="nav-btn" onclick="renameEmployeeGroup(${g.id})" style="font-size:11px;padding:3px 8px;" data-i18n="btn_rename">改名</button>
         <button class="nav-btn" onclick="deleteEmployeeGroup(${g.id})" style="font-size:11px;padding:3px 8px;color:var(--danger);">🗑</button>
       </div>`).join('');
   } catch(e) {
-    container.innerHTML = '<div style="color:var(--danger);font-size:12px;">加载失败</div>';
+    container.innerHTML = '<div style="color:var(--danger);font-size:12px;">' + t('load_fail') + '</div>';
   }
 }
 
 async function addEmployeeGroup() {
   const input = document.getElementById('newGroupName');
   const name = input.value.trim();
-  if (!name) { showToast('请输入班组名', 'error'); return; }
+  if (!name) { showToast(t('group_name_required'), 'error'); return; }
   const res = await authFetch(api('/api/employee_groups'), {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name}),
   });
   const data = await res.json();
-  if (data.ok) { showToast('已添加'); input.value = ''; loadGroupsAdmin(); }
-  else showToast(data.error || '添加失败', 'error');
+  if (data.ok) { showToast(t('added')); input.value = ''; loadGroupsAdmin(); }
+  else showToast(data.error || t('add_fail'), 'error');
 }
 
 async function renameEmployeeGroup(gid) {
   const name = document.getElementById('grpRename' + gid).value.trim();
-  if (!name) { showToast('请输入新名称', 'error'); return; }
+  if (!name) { showToast(t('new_name_required'), 'error'); return; }
   const res = await authFetch(api('/api/employee_groups/' + gid), {
     method: 'PUT', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name}),
   });
   const data = await res.json();
-  if (data.ok) { showToast('已改名'); loadGroupsAdmin(); }
-  else showToast(data.error || '改名失败', 'error');
+  if (data.ok) { showToast(t('renamed')); loadGroupsAdmin(); }
+  else showToast(data.error || t('rename_fail'), 'error');
 }
 
 async function deleteEmployeeGroup(gid) {
-  if (!confirm('删除班组将解除所有员工关联，确认？')) return;
+  if (!confirm(t('group_delete_confirm'))) return;
   const res = await authFetch(api('/api/employee_groups/' + gid), { method: 'DELETE' });
   const data = await res.json();
-  if (data.ok) { showToast('已删除'); loadGroupsAdmin(); }
-  else showToast(data.error || '删除失败', 'error');
+  if (data.ok) { showToast(t('deleted')); loadGroupsAdmin(); }
+  else showToast(data.error || t('delete_fail'), 'error');
+}
+
+/* ── P12 钻工队长名单维护（admin+，/api/driller-captains） ── */
+async function loadCaptainsAdmin() {
+  const container = document.getElementById('captainsAdminList');
+  if (!container) return;
+  const caps = await ensureDrCaptains();
+  if (!caps.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="captains_empty_list">暂无队长</div>';
+    return;
+  }
+  const pool = await getEmpPool();
+  const empMap = {};
+  pool.forEach(e => { empMap[String(e.id)] = e; });
+  container.innerHTML = caps.map(c => {
+    const e = empMap[String(c.employee_id)];
+    const display = e ? e.name : (c.name || c.employee_id);
+    return `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <span style="flex:1;">${escHtml(display)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(c.employee_id)}</span></span>
+      <button class="nav-btn" onclick="deleteDrillerCaptain('${escHtml(c.id)}')" style="font-size:11px;padding:3px 8px;color:var(--danger);" data-i18n="captains_delete">🗑 删除</button>
+    </div>`;
+  }).join('');
+}
+
+async function addDrillerCaptain() {
+  const eid = document.getElementById('captainEid').value;
+  if (!eid) { showToast(t('captains_pick_first'), 'error'); return; }
+  const pool = await getEmpPool();
+  const e = pool.find(x => String(x.id) === String(eid));
+  if (!e) { showToast(t('captains_emp_not_found'), 'error'); return; }
+  const res = await authFetch(api('/api/driller-captains'), {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ employee_id: eid, name: e.name }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(t('toast_saved'));
+    _drCaptains = null;
+    loadCaptainsAdmin();
+    const input = document.getElementById('captainSearch');
+    if (input) input.value = '';
+    document.getElementById('captainEid').value = '';
+  } else showToast(data.error || t('save_failed'), 'error');
+}
+
+async function deleteDrillerCaptain(id) {
+  if (!confirm(t('captains_delete_confirm'))) return;
+  const res = await authFetch(api('/api/driller-captains/' + id), { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(t('toast_saved'));
+    _drCaptains = null;
+    loadCaptainsAdmin();
+  } else showToast(data.error || t('save_failed'), 'error');
 }
 
 // ════════════════════════════════════════════════
@@ -3429,10 +3690,59 @@ async function loadAuditLog() {
 //  P1: OA 审批
 // ════════════════════════════════════════════════
 const EVENT_LABELS_MAP = {
-  hire: '入职', transfer: '调岗', dismiss: '离职',
-  salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职',
-  sick_leave: '事假', casual: '事假', annual_leave: '年假', comp_leave: '调休'
+  hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
+  salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement',
+  sick_leave: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave'
 };
+
+/* P13: 审批详情字段中文标签 + 值映射 */
+const OA_PAYLOAD_LABELS = {
+  name: 'oa_field_name', department: 'oa_field_department', position: 'oa_field_position', gender: 'oa_field_gender',
+  date_of_birth: 'oa_field_date_of_birth', skill_level: 'oa_field_skill_level', nida_number: 'oa_field_nida_number',
+  nssf_number: 'oa_field_nssf_number', phone: 'oa_field_phone', bank_name: 'oa_field_bank_name', bank_account: 'oa_field_bank_account',
+  bank_owner: 'oa_field_bank_owner', salary_type: 'oa_field_salary_type', day_rate: 'oa_field_day_rate',
+  monthly_salary: 'oa_field_monthly_salary', team_id: 'oa_field_team_id', custom_number: 'oa_field_custom_number',
+  new_department: 'oa_field_new_department', new_position: 'oa_field_new_position', reason: 'oa_field_reason',
+  days: 'oa_field_days', note: 'oa_field_note', avatar_data: 'oa_field_avatar_data',
+};
+const OA_GENDER_MAP = { male: 'emp_gender_male', female: 'emp_gender_female', other: 'emp_gender_other' };
+const OA_SALARY_TYPE_MAP = {
+  piece_underground: 'type_ug_piece', piece_driller: 'type_dr_piece', piece_crush: 'type_crush_piece',
+  day_rate: 'type_dayrate', monthly: 'type_monthly',
+};
+let _oaGroupsCache = null;
+async function _oaGroupName(teamId) {
+  if (!teamId) return '';
+  if (!_oaGroupsCache) {
+    try {
+      const res = await fetch(api('/api/employee_groups'));
+      _oaGroupsCache = (await res.json()).groups || [];
+    } catch(e) { _oaGroupsCache = []; }
+  }
+  const g = _oaGroupsCache.find(x => String(x.id) === String(teamId));
+  return g ? g.name : String(teamId);
+}
+
+async function _oaDetailHtml(ev) {
+  let payload = {};
+  try { payload = JSON.parse(ev.payload || '{}'); } catch(e) {}
+  let avatarHtml = '';
+  if (payload.avatar_data) {
+    avatarHtml = `<div class="oa-detail-row"><span class="oa-detail-label">${t(OA_PAYLOAD_LABELS.avatar_data)}</span><span class="oa-detail-value"><img src="${escHtml(payload.avatar_data)}" style="width:64px;height:80px;object-fit:cover;border-radius:4px;border:1px solid var(--border);"></span></div>`;
+    delete payload.avatar_data;
+  }
+  const rows = [];
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined || v === null || v === '' || v === 0) continue;
+    let label = OA_PAYLOAD_LABELS[k] ? t(OA_PAYLOAD_LABELS[k]) : k;
+    let val = String(v);
+    if (k === 'gender') val = OA_GENDER_MAP[v] ? t(OA_GENDER_MAP[v]) : val;
+    if (k === 'salary_type') val = OA_SALARY_TYPE_MAP[v] ? t(OA_SALARY_TYPE_MAP[v]) : val;
+    if (k === 'team_id') val = await _oaGroupName(v) || val;
+    rows.push(`<div class="oa-detail-row"><span class="oa-detail-label">${escHtml(label)}</span><span class="oa-detail-value">${escHtml(val)}</span></div>`);
+  }
+  return avatarHtml + rows.join('');
+}
 
 async function loadOAPending() {
   const container = document.getElementById('oaPendingList');
@@ -3445,31 +3755,46 @@ async function loadOAPending() {
       container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="oa_no_pending">暂无待审批事项</div>';
       return;
     }
+    // P13: 自审限制——非 super_admin 不能批准自己提交的事件
+    const isSelfSubmit = (ev) => _authState.logged_in && ev.operator_id === _authState.username && _authState.role !== 'super_admin';
     container.innerHTML = events.map(ev => `
       <div class="oa-event-card" id="oaCard${ev.id}">
         <div class="oa-event-info">
-          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] || ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
+          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
           <div class="oa-event-meta">
-            生效日期: ${ev.effective_date} · 提交人: ${escHtml(ev.operator_id)} · ${ev.created_at}
+            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_submitter')}: ${escHtml(ev.operator_id)} · ${ev.created_at}
           </div>
         </div>
         <div class="oa-event-actions">
-          <button class="oa-btn oa-btn-approve" onclick="oaApprove(${ev.id})">批准</button>
-          <button class="oa-btn oa-btn-reject" onclick="oaShowReject(${ev.id})">驳回</button>
+          <button class="oa-btn" onclick="toggleOaDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
+          <button class="oa-btn oa-btn-approve" onclick="oaApprove(${ev.id})"${isSelfSubmit(ev) ? ' disabled title="' + t('oa_cannot_self') + '"' : ''}>${t('oa_approve')}</button>
+          <button class="oa-btn oa-btn-reject" onclick="oaShowReject(${ev.id})">${t('oa_reject')}</button>
         </div>
+        <div id="oaDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
         <div id="oaRejectForm${ev.id}" style="display:none;width:100%;"></div>
       </div>`).join('');
-  } catch (e) { container.innerHTML = '<div style="color:var(--danger);padding:20px;">加载失败</div>'; }
+    // 异步渲染详情（班组名需查接口）
+    events.forEach(ev => {
+      const box = document.getElementById('oaDetail' + ev.id);
+      if (box) _oaDetailHtml(ev).then(h => { box.innerHTML = h; });
+    });
+  } catch (e) { container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>'; }
+}
+
+function toggleOaDetail(eventId) {
+  const box = document.getElementById('oaDetail' + eventId);
+  if (!box) return;
+  box.style.display = box.style.display === 'block' ? 'none' : 'block';
 }
 
 async function oaApprove(eventId) {
   const res = await authFetch(api(`/api/oa/events/${eventId}/approve`), { method: 'POST' });
   const data = await res.json();
   if (data.ok) {
-    showToast('已批准');
+    showToast(t('approved_label'));
     loadOAPending();
   } else {
-    showToast(data.error || '操作失败', 'error');
+    showToast(data.error || t('op_fail'), 'error');
   }
 }
 
@@ -3478,15 +3803,15 @@ function oaShowReject(eventId) {
   form.style.display = 'block';
   form.innerHTML = `
     <div class="oa-reject-form">
-      <input type="text" id="oaRejectReason${eventId}" placeholder="驳回原因（必填）" style="flex:1;">
-      <button class="oa-btn oa-btn-reject" onclick="oaReject(${eventId})">确认驳回</button>
-      <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="document.getElementById('oaRejectForm${eventId}').style.display='none'">取消</button>
+      <input type="text" id="oaRejectReason${eventId}" placeholder="${t('oa_reject_reason_ph')}" style="flex:1;">
+      <button class="oa-btn oa-btn-reject" onclick="oaReject(${eventId})">${t('oa_confirm_reject')}</button>
+      <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="document.getElementById('oaRejectForm${eventId}').style.display='none'">${t('btn_cancel')}</button>
     </div>`;
 }
 
 async function oaReject(eventId) {
   const reason = document.getElementById('oaRejectReason' + eventId).value;
-  if (!reason) { showToast('请输入驳回原因', 'error'); return; }
+  if (!reason) { showToast(t('reject_reason_required'), 'error'); return; }
   const res = await authFetch(api(`/api/oa/events/${eventId}/reject`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3494,10 +3819,10 @@ async function oaReject(eventId) {
   });
   const data = await res.json();
   if (data.ok) {
-    showToast('已驳回');
+    showToast(t('rejected_label'));
     loadOAPending();
   } else {
-    showToast(data.error || '操作失败', 'error');
+    showToast(data.error || t('op_fail'), 'error');
   }
 }
 
@@ -3509,26 +3834,26 @@ async function loadOAHistory() {
     const data = await res.json();
     const events = data.events || [];
     if (events.length === 0) {
-      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">暂无已处理事件</div>';
+      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('oa_no_history') + '</div>';
       return;
     }
     container.innerHTML = events.map(ev => `
       <div class="oa-event-card" style="opacity:0.7;">
         <div class="oa-event-info">
-          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] || ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
+          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
           <div class="oa-event-meta">
-            生效日期: ${ev.effective_date} · 状态: ${ev.status === 'approved' ? '已批准' : '已驳回'}
-            ${ev.reject_reason ? ' · 驳回原因: ' + escHtml(ev.reject_reason) : ''}
+            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : t('rejected_label')}
+            ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
           </div>
         </div>
       </div>`).join('');
-  } catch (e) { container.innerHTML = '加载失败'; }
+  } catch (e) { container.innerHTML = t('load_fail'); }
 }
 
-/* ── P2 请假提交 ── */
+/* ── P13: 通知铃铛 / 红点 / 待审批面板 ── */
+/* ── P2 请假提交（P13: 独立子页） ── */
 function showLeaveForm() {
-  document.getElementById('leaveForm').style.display = 'block';
-  document.getElementById('leaveMsg').textContent = '';
+  navigate('employees', 'leave');
 }
 
 async function submitLeave() {
@@ -3538,7 +3863,7 @@ async function submitLeave() {
   const days = parseInt(document.getElementById('leaveDays').value) || 1;
   const note = document.getElementById('leaveNote').value;
   const msg = document.getElementById('leaveMsg');
-  if (!eid || !date) { msg.textContent = '请选择员工和日期'; msg.style.color = 'var(--danger)'; return; }
+  if (!eid || !date) { msg.textContent = t('leave_pick_emp_date'); msg.style.color = 'var(--danger)'; return; }
   try {
     // P8: 病假免审，走独立端点（写 leave_requests + 扣余额 + 落出勤 P）
     let res, data;
@@ -3556,15 +3881,21 @@ async function submitLeave() {
       data = await res.json();
     }
     if (data.ok) {
-      msg.textContent = data.message || '提交成功';
+      msg.textContent = data.message || t('leave_submit_ok');
       msg.style.color = 'var(--success)';
-      document.getElementById('leaveForm').style.display = 'none';
-      loadOAPending();
+      // P13: 成功后清空表单，停留请假页
+      document.getElementById('leaveEmpId').value = '';
+      document.getElementById('leaveEmpEid').value = '';
+      document.getElementById('leavePick').innerHTML = '';
+      document.getElementById('leavePick').style.display = 'none';
+      document.getElementById('leaveDate').value = '';
+      document.getElementById('leaveDays').value = '1';
+      document.getElementById('leaveNote').value = '';
     } else {
-      msg.textContent = data.error || '提交失败';
+      msg.textContent = data.error || t('leave_submit_fail');
       msg.style.color = 'var(--danger)';
     }
-  } catch (e) { msg.textContent = '网络错误: ' + e.message; msg.style.color = 'var(--danger)'; }
+  } catch (e) { msg.textContent = t('err_network_prefix') + e.message; msg.style.color = 'var(--danger)'; }
 }
 
 /* ── P8: 员工模块 Tabs 切换 ── */
@@ -3581,19 +3912,6 @@ function switchEmpTab(tab) {
   });
   if (tab === 'oa-pending') loadOAPending();
   if (tab === 'oa-history') loadOAHistory();
-}
-
-/* ── P8: 3 申请表单 Tab 切换 ── */
-function switchAppForm(form) {
-  ['hire', 'transfer', 'dismiss'].forEach(k => {
-    const btn = document.querySelector(`.emp-app-tab[data-app-form="${k}"]`);
-    const panel = document.getElementById('appForm' + k.charAt(0).toUpperCase() + k.slice(1));
-    if (btn) {
-      btn.style.background = k === form ? 'var(--accent)' : 'var(--bg-secondary)';
-      btn.style.color = k === form ? '#fff' : 'var(--text-muted)';
-    }
-    if (panel) panel.style.display = k === form ? '' : 'none';
-  });
 }
 
 /* ── P8: 员工姓名/工号 typeahead（防抖 300ms） ── */
@@ -3613,6 +3931,8 @@ async function ensureEmpPool() {
 function initEmpTypeahead(inputId, hiddenId, pickId) {
   const input = document.getElementById(inputId);
   if (!input) return;
+  if (input._taBound) return;  // P13: 防重复绑定
+  input._taBound = true;
   input.addEventListener('input', () => {
     clearTimeout(input._taTimer);
     input._taTimer = setTimeout(async () => {
@@ -3623,7 +3943,7 @@ function initEmpTypeahead(inputId, hiddenId, pickId) {
       const hits = pool.filter(e =>
         (e.name || '').toLowerCase().includes(q) || String(e.id).includes(q)).slice(0, 8);
       if (!hits.length) {
-        pick.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:12px;">无匹配员工</div>';
+        pick.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:12px;">' + t('no_match_emp') + '</div>';
         pick.style.display = 'block';
         return;
       }
@@ -3648,7 +3968,10 @@ async function submitApply(type) {
     msgId = 'hireMsg';
     const name = document.getElementById('hireName').value.trim();
     const date = document.getElementById('hireDate').value;
-    if (!name || !date) { setApplyMsg(msgId, '请填写姓名和入职日期', false); return; }
+    if (!name || !date) { setApplyMsg(msgId, t('hire_need_name_date'), false); return; }
+    // P12: 入职全字段（与 saveEmployeeProfile 同字段集）
+    const phoneRaw = document.getElementById('hirePhone').value.trim();
+    if (phoneRaw && !/^\d+$/.test(phoneRaw)) { setApplyMsg(msgId, t('err_phone_digits'), false); return; }
     body = {
       event_type: 'hire',
       employee_id: '',
@@ -3657,13 +3980,30 @@ async function submitApply(type) {
         name,
         department: document.getElementById('hireDept').value,
         position: document.getElementById('hirePosition').value.trim(),
+        gender: document.getElementById('hireGender').value,
+        date_of_birth: document.getElementById('hireDob').value,
+        skill_level: document.getElementById('hireSkill').value.trim(),
+        nida_number: document.getElementById('hireNida').value.trim(),
+        nssf_number: document.getElementById('hireNssf').value.trim(),
+        phone: phoneRaw ? '+255' + phoneRaw : '',
+        bank_name: document.getElementById('hireBank').value.trim(),
+        bank_account: document.getElementById('hireAccount').value.trim(),
+        bank_owner: document.getElementById('hireOwner').value.trim(),
+        salary_type: document.getElementById('hireSalaryType').value,
+        day_rate: parseInt(document.getElementById('hireDayRate').value) || 0,
+        monthly_salary: parseInt(document.getElementById('hireMonthly').value) || 0,
+        team_id: parseInt(document.getElementById('hireTeamId').value) || 0,
+        custom_number: document.getElementById('hireCustomNumber').value.trim(),
       },
     };
+    // P13: 头像 base64 dataURL（可选，非空才带）
+    const hireAvatar = document.getElementById('hireAvatarData');
+    if (hireAvatar && hireAvatar.value) body.payload.avatar_data = hireAvatar.value;
   } else if (type === 'transfer') {
     msgId = 'transferMsg';
     const eid = document.getElementById('transferEid').value;
     const date = document.getElementById('transferDate').value;
-    if (!eid || !date) { setApplyMsg(msgId, '请选择员工和生效日期', false); return; }
+    if (!eid || !date) { setApplyMsg(msgId, t('pick_emp_date'), false); return; }
     body = {
       event_type: 'transfer',
       employee_id: eid,
@@ -3677,7 +4017,7 @@ async function submitApply(type) {
     msgId = 'dismissMsg';
     const eid = document.getElementById('dismissEid').value;
     const date = document.getElementById('dismissDate').value;
-    if (!eid || !date) { setApplyMsg(msgId, '请选择员工和离职日期', false); return; }
+    if (!eid || !date) { setApplyMsg(msgId, t('dismiss_need_emp_date'), false); return; }
     body = {
       event_type: 'dismiss',
       employee_id: eid,
@@ -3692,12 +4032,20 @@ async function submitApply(type) {
     });
     const data = await res.json();
     if (data.ok) {
-      setApplyMsg(msgId, '申请已提交，待审批', true);
+      setApplyMsg(msgId, t('apply_submitted'), true);
       // 清空表单
       if (type === 'hire') {
-        document.getElementById('hireName').value = '';
-        document.getElementById('hirePosition').value = '';
-        document.getElementById('hireDate').value = '';
+        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly','hireCustomNumber']
+          .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        ['hireGender','hireSalaryType'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';
+        toggleHireBaseFields();
+        clearHireAvatar();
+        // P13: 入职提交成功后跳转 OA 待审
+        navigate('employees', 'list');
+        switchEmpTab('oa-pending');
+        loadOAPending();
+        showToast(t('hire_submit_goto_pending'));
       } else if (type === 'transfer') {
         document.getElementById('transferSearch').value = '';
         document.getElementById('transferEid').value = '';
@@ -3710,9 +4058,9 @@ async function submitApply(type) {
         document.getElementById('dismissDate').value = '';
       }
     } else {
-      setApplyMsg(msgId, data.error || '提交失败', false);
+      setApplyMsg(msgId, data.error || t('submit_fail'), false);
     }
-  } catch (e) { setApplyMsg(msgId, '网络错误: ' + e.message, false); }
+  } catch (e) { setApplyMsg(msgId, t('err_network_prefix') + e.message, false); }
 }
 
 function setApplyMsg(msgId, text, ok) {
@@ -3723,8 +4071,9 @@ function setApplyMsg(msgId, text, ok) {
 }
 
 /* 初始化：申请表单部门选项 + typeahead */
-(function initEmpApply() {
-  const fillDept = (selId, cur) => {
+// P12: 全局填充申请表单部门选项（子页进入时也会调用）
+function fillApplyDepts() {
+  const fill = (selId, cur) => {
     const sel = document.getElementById(selId);
     if (!sel) return;
     const deptSel = document.getElementById('empFilterDept');
@@ -3735,15 +4084,42 @@ function setApplyMsg(msgId, text, ok) {
     }
     sel.innerHTML = depts.map(d => `<option value="${escHtml(d)}" ${cur===d?'selected':''}>${escHtml(d)}</option>`).join('');
   };
-  fillDept('hireDept');
-  fillDept('transferDept');
+  fill('hireDept');
+  fill('transferDept');
+}
+(function initEmpApply() {
+  fillApplyDepts();
+  // P12: 入职表单班组下拉填充（异步加载 employee_groups）
+  (async function fillHireTeams() {
+    const sel = document.getElementById('hireTeamId');
+    if (!sel) return;
+    try {
+      const res = await fetch(api('/api/employee_groups'));
+      const data = await res.json();
+      const groups = data.groups || [];
+      sel.innerHTML = '<option value="0" data-i18n="emp_no_team">未分班</option>' +
+        groups.map(g => `<option value="${escHtml(g.id)}">${escHtml(g.name)}</option>`).join('');
+    } catch(e) {}
+  })();
   initEmpTypeahead('transferSearch', 'transferEid', 'transferPick');
   initEmpTypeahead('dismissSearch', 'dismissEid', 'dismissPick');
   initEmpTypeahead('leaveEmpId', 'leaveEmpEid', 'leavePick');
+  initEmpTypeahead('captainSearch', 'captainEid', 'captainPick');
   // 部门选项变化时同步刷新申请表单
   const deptSel = document.getElementById('empFilterDept');
-  if (deptSel) deptSel.addEventListener('change', () => { fillDept('hireDept'); fillDept('transferDept'); });
+  if (deptSel) deptSel.addEventListener('change', () => fillApplyDepts());
 })();
+
+/* P12: 入职表单按薪资类别显隐基数输入 */
+function toggleHireBaseFields() {
+  const sel = document.getElementById('hireSalaryType');
+  if (!sel) return;
+  const v = sel.value;
+  const rowDr = document.getElementById('hireRowDayRate');
+  const rowMs = document.getElementById('hireRowMonthly');
+  if (rowDr) rowDr.style.display = (v === 'day_rate') ? '' : 'none';
+  if (rowMs) rowMs.style.display = (v === 'monthly') ? '' : 'none';
+}
 
 /* ── P9 数据采集 ── */
 let _colEmpPool = null;
@@ -3781,21 +4157,21 @@ async function loadColHistory(formType, containerId) {
     const data = await res.json();
     const subs = data.submissions || [];
     if (subs.length === 0) {
-      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">暂无提交记录</div>';
+      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">' + t('no_submissions') + '</div>';
       return;
     }
     container.innerHTML = `<div class="table-wrap"><table class="data-table">
-      <thead><tr><th>日期</th><th>版本</th><th>提交人</th><th>更新时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_updated')}</th><th>${t('col_th_actions')}</th></tr></thead>
       <tbody>` + subs.map(s => `
         <tr style="cursor:pointer;" onclick="enterColEdit('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
           <td style="font-size:11px;color:var(--text-muted);">${s.updated_at}</td>
-          <td><span style="color:var(--accent);font-size:11px;">编辑</span></td>
+          <td><span style="color:var(--accent);font-size:11px;">${t('btn_edit_col')}</span></td>
         </tr>`).join('') + `</tbody></table></div>`;
   } catch (e) {
-    container.innerHTML = '<div style="color:var(--danger);padding:20px;">加载失败</div>';
+    container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>';
   }
 }
 
@@ -3807,11 +4183,11 @@ async function enterColEdit(formType, sid, containerId) {
     const res = await fetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
     const data = await res.json();
     const sub = (data.submissions || []).find(s => String(s.id) === String(sid));
-    if (!sub) { showToast('找不到该提交', 'error'); return; }
+    if (!sub) { showToast(t('col_submission_not_found'), 'error'); return; }
     _colEditing = sub;
     // P9-6: 再编辑权限预检（仅本人或 admin+）
     if (sub.operator_id !== _authState.username && !['admin', 'super_admin'].includes(_authState.role)) {
-      showToast('只能编辑本人提交或管理员可改', 'error');
+      showToast(t('col_edit_permission'), 'error');
       _colEditing = null;
       return;
     }
@@ -3822,8 +4198,8 @@ async function enterColEdit(formType, sid, containerId) {
     else if (formType === 'driller') { renderDrCollectionForm(payload); }
     else if (formType === 'crush') { renderCrCollectionForm(payload); }
     else if (formType === 'attendance') { renderAttCollectionForm(payload); }
-    showToast('进入编辑态，提交后将写入历史版本');
-  } catch(e) { showToast('加载失败', 'error'); }
+    showToast(t('col_edit_mode'));
+  } catch(e) { showToast(t('load_fail'), 'error'); }
 }
 
 /* 各表单渲染（P9-2~P9-5 实现） */
@@ -3832,40 +4208,77 @@ function colInStyle(flex) {
   return 'padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;' + (flex ? 'flex:1;' : '');
 }
 
+// P12: 已选人员显示为 chips（emp-chips 容器内多个 chip）
+function renderEmpChips(names) {
+  if (!names || !names.length) return '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>';
+  return '<span class="emp-chips" style="display:inline-flex;">' +
+    names.map(n => `<span class="chip">${escHtml(n)}</span>`).join('') + '</span>';
+}
+
 /* 通用出勤/成员选择弹层 */
-async function openEmpPicker(kw, hiddenId, displayId) {
+let _driverRoster = null;
+async function ensureDriverRoster() {
+  if (_driverRoster) return _driverRoster;
+  try {
+    const res = await fetch(api('/api/driver-roster'));
+    const data = await res.json();
+    _driverRoster = (data.drivers || []).map(String);
+  } catch(e) { _driverRoster = []; }
+  return _driverRoster;
+}
+
+async function openEmpPicker(kw, hiddenId, displayId, opts) {
+  opts = opts || {};
   _drPickerIndex = null;
   const pool = await getEmpPool();
   const list = filterEmpByDept(pool, kw);
   const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
+  const curDrivers = opts.driverHiddenId ? (document.getElementById(opts.driverHiddenId).value || '').split(',').filter(Boolean) : [];
+  const driverSet = opts.showDriver ? await ensureDriverRoster() : [];
   _pickerKw = kw;
-  _pickerTarget = { hiddenId: hiddenId, displayId: displayId };
+  _pickerTarget = { hiddenId: hiddenId, displayId: displayId, showDriver: !!opts.showDriver, driverHiddenId: opts.driverHiddenId || '' };
   const modal = document.getElementById('empPickerModal');
-  document.getElementById('empPickerList').innerHTML = list.length ? list.map(e => `
-    <label style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;">
-      <input type="checkbox" value="${escHtml(e.id)}" ${cur.includes(e.id) ? 'checked' : ''}>
+  document.getElementById('empPickerList').innerHTML = list.length ? list.map(e => {
+    const inRoster = driverSet.includes(String(e.id));
+    return `
+    <label class="picker-row">
+      <input type="checkbox" class="picker-check" value="${escHtml(e.id)}" ${cur.includes(e.id) ? 'checked' : ''}>
       <span>${escHtml(e.name)}</span>
-      <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
-    </label>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">无匹配员工</div>';
+      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+        <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
+        ${opts.showDriver ? `<label class="driver-tag" title="${inRoster ? '' : t('not_in_driver_roster')}" style="display:flex;align-items:center;gap:3px;font-size:12px;color:${inRoster ? 'var(--text)' : 'var(--text-dim)'};cursor:${inRoster ? 'pointer' : 'not-allowed'};">
+          <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${curDrivers.includes(e.id) ? 'checked' : ''} ${inRoster ? '' : 'disabled'}> ${t('col_driving')}
+        </label>` : ''}
+      </span>
+    </label>`;
+  }).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
   modal.style.display = 'flex';
 }
 
 function confirmEmpPicker() {
-  const checks = [...document.querySelectorAll('#empPickerList input:checked')].map(c => c.value);
+  const checks = [...document.querySelectorAll('#empPickerList .picker-check:checked')].map(c => c.value);
   const t = _pickerTarget;
   if (t) {
     document.getElementById(t.hiddenId).value = checks.join(',');
+    if (t.showDriver && t.driverHiddenId) {
+      const drv = [...document.querySelectorAll('#empPickerList .driver-check:checked')].map(c => c.value);
+      document.getElementById(t.driverHiddenId).value = drv.join(',');
+    }
     const pool = _colEmpPool || STATE._empAll || [];
     const names = checks.map(id => { const e = pool.find(x => String(x.id) === String(id)); return e ? e.name : id; });
-    document.getElementById(t.displayId).textContent = names.length ? names.join('、') : '未选择';
-    if (names.length) document.getElementById(t.displayId).style.color = 'var(--text)';
+    const displayEl = document.getElementById(t.displayId);
+    if (displayEl) {
+      displayEl.innerHTML = renderEmpChips(names);
+      displayEl.style.color = names.length ? 'var(--text)' : 'var(--text-muted)';
+    }
   }
   document.getElementById('empPickerModal').style.display = 'none';
 }
 
-/* 弹层确认分发：钻工成员弹层 / 通用弹层 */
+/* 弹层确认分发：钻工队长弹层 / 钻工成员弹层 / 通用弹层 */
 function confirmPicker() {
-  if (_drPickerIndex !== null) confirmDrMemberPicker();
+  if (_drCaptainPicking) confirmDrCaptainPicker();
+  else if (_drPickerIndex !== null) confirmDrMemberPicker();
   else confirmEmpPicker();
 }
 
@@ -3883,54 +4296,57 @@ function cancelColEdit(formType, historyId) {
   loadColHistory(formType, historyId);
 }
 
-/* ── P9-2 井下出渣采集表单 ── */
+/* ── P9-2/P12 井下出渣采集表单 ── */
 function renderUgCollectionForm(payload) {
   payload = payload || {};
   const day = payload.day || {};
   const night = payload.night || {};
   const date = payload.submission_date || new Date().toISOString().slice(0, 10);
   const empsStr = (arr) => (arr || []).join(',');
-  const prodRow = (prefix, label) => `
-    <div style="display:flex;gap:8px;align-items:center;">
-      <label style="font-size:12px;min-width:70px;">${label}</label>
-      <input type="number" id="${prefix}Nh" value="${+day.nh || 0}" min="0" style="${colInStyle(true)}">
-      <input type="number" id="${prefix}Nl" value="${+day.nl || 0}" min="0" style="${colInStyle(true)}">
-      <input type="number" id="${prefix}Mw" value="${+day.mw || 0}" min="0" style="${colInStyle(true)}">
+  // P12: 三列产量各带标签（NICKEL(H) | NICKEL(L) | MAWE）
+  const prodRow = (prefix) => `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;">
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="${prefix}Nh" value="${+day.nh || 0}" min="0" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="${prefix}Nl" value="${+day.nl || 0}" min="0" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+day.mw || 0}" min="0" style="${colInStyle()}"></div>
     </div>`;
+  const remarkRow = (prefix, label) => `
+    <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"></div>`;
   const attRow = (prefix, label, kw, dataKey) => `
     <div class="form-row" style="margin-top:6px;align-items:center;">
-      <label style="font-size:12px;min-width:70px;">${label} 出勤</label>
-      <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps')" style="font-size:11px;padding:4px 10px;">+ 选择人员</button>
-      <span id="${prefix}Emps" style="font-size:12px;color:var(--text-muted);flex:1;line-height:1.5;">${(payload[dataKey] && payload[dataKey].emps && payload[dataKey].emps.length) ? '' : '未选择'}</span>
+      <label style="font-size:12px;min-width:70px;">${label} ${t('col_attendance')}</label>
+      <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps',{showDriver:true,driverHiddenId:'${prefix}DriversVal'})" style="font-size:11px;padding:4px 10px;">${t('col_pick_person')}</button>
+      <div id="${prefix}Emps" class="emp-chips" style="flex:1;line-height:1.5;justify-content:flex-start;">${(payload[dataKey] && payload[dataKey].emps && payload[dataKey].emps.length) ? '' : '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>'}</div>
       <input type="hidden" id="${prefix}EmpsVal" value="${empsStr((payload[dataKey]||{}).emps)}">
+      <input type="hidden" id="${prefix}DriversVal" value="${empsStr((payload[dataKey]||{}).drivers)}">
     </div>`;
   const html = `
-    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="ugDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="ugDate" value="${date}" style="${colInStyle(true)}"></div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">DAY SHIFT</h4>
-      ${prodRow('ugDay', 'NICKEL(H)')}
+      ${prodRow('ugDay')}
+      ${remarkRow('ugDay', t('remark_day'))}
       ${attRow('ugDay', 'Day', 'underground', 'day')}
     </div>
-    <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">备注</label><input id="ugRemark" value="${escHtml(payload.remark || '')}" placeholder="可选" style="${colInStyle(true)}"></div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">NIGHT SHIFT</h4>
-      ${prodRow('ugNight', 'NICKEL(H)')}
+      ${prodRow('ugNight')}
+      ${remarkRow('ugNight', t('remark_night'))}
       ${attRow('ugNight', 'Night', 'underground', 'night')}
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="btn-primary" onclick="submitUgCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
-      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'underground\',\'colUgHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+      <button class="btn-primary" onclick="submitUgCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? t('btn_save_changes') : t('btn_submit')}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'underground\',\'colUgHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
     </div>`;
   document.getElementById('colUgForm').innerHTML = html;
-  // 回填已选人员显示
+  // 回填已选人员显示（chips）
   ['ugDay', 'ugNight'].forEach(p => {
     const val = document.getElementById(p + 'EmpsVal').value;
     const names = [];
     const pool = _colEmpPool || STATE._empAll || [];
     val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
-    const span = document.getElementById(p + 'Emps');
-    span.textContent = names.length ? names.join('、') : '未选择';
-    if (names.length) span.style.color = 'var(--text)';
+    const el = document.getElementById(p + 'Emps');
+    el.innerHTML = renderEmpChips(names);
   });
 }
 
@@ -3956,58 +4372,101 @@ function renderDrCollectionForm(payload) {
     captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [],
   }));
   document.getElementById('colDrForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="drDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="drDate" value="${date}" style="${colInStyle(true)}"></div>
     <div id="drSlots" style="margin-top:10px;"></div>
     <div style="display:flex;gap:8px;margin-top:12px;">
-      <button class="nav-btn" onclick="addDrSlot()" style="font-size:11px;padding:5px 12px;">+ 添加队长</button>
-      <button class="btn-primary" onclick="submitDrCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
-      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'driller\',\'colDrHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+      <button class="nav-btn" onclick="addDrSlot()" style="font-size:11px;padding:5px 12px;" data-i18n="dr_add_team">+ 添加队伍</button>
+      <button class="btn-primary" onclick="submitDrCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? t('btn_save_changes') : t('btn_submit')}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'driller\',\'colDrHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
     </div>`;
   renderDrSlots();
 }
 
+/* ── P12 钻工队长名单（/api/driller-captains） ── */
+let _drCaptains = null;
+async function ensureDrCaptains() {
+  if (_drCaptains) return _drCaptains;
+  try {
+    const res = await fetch(api('/api/driller-captains'));
+    const data = await res.json();
+    _drCaptains = (data.captains || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  } catch(e) { _drCaptains = []; }
+  return _drCaptains;
+}
+
 async function renderDrSlots() {
   const pool = await getEmpPool();
-  const caps = filterEmpByDept(pool, 'driller');
+  const caps = await ensureDrCaptains();
   const container = document.getElementById('drSlots');
   if (!container) return;
+  // P12: 队长仅限名单内人员（value=employee_id, text=name）
+  const capOpts = (sel) => caps.length
+    ? caps.map(c => `<option value="${escHtml(c.employee_id)}" ${String(sel)===String(c.employee_id)?'selected':''}>${escHtml(c.name)}</option>`).join('')
+    : '<option value="">' + t('captains_empty') + '</option>';
   container.innerHTML = _drSlots.map((s, i) => `
     <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-        <label style="font-size:12px;min-width:36px;">队长</label>
+        <label style="font-size:12px;min-width:36px;">${t('col_captain')}</label>
         <select id="drCap${i}" onchange="onDrCapChange(${i})" style="${colInStyle(true)}">
-          <option value="">— 选择队长 —</option>
-          ${caps.map(c => `<option value="${escHtml(c.id)}" ${String(s.captain)===String(c.id)?'selected':''}>${escHtml(c.name)}</option>`).join('')}
+          <option value="">${t('col_pick_captain')}</option>
+          ${capOpts(s.captain)}
         </select>
-        <button class="nav-btn" onclick="removeDrSlot(${i})" style="font-size:11px;padding:3px 8px;" title="删除槽位">✕</button>
+        <button class="nav-btn" onclick="removeDrSlot(${i})" style="font-size:11px;padding:3px 8px;" title="${t('col_delete_slot')}">✕</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-        <label style="font-size:12px;min-width:36px;">成员</label>
-        <button class="nav-btn" onclick="openDrMemberPicker(${i})" style="font-size:11px;padding:4px 10px;">+ 选择成员</button>
-        <span id="drMem${i}" style="font-size:12px;color:var(--text-muted);flex:1;line-height:1.5;">未选择</span>
+        <label style="font-size:12px;min-width:36px;">${t('col_members')}</label>
+        <button class="nav-btn" onclick="openDrMemberPicker(${i})" style="font-size:11px;padding:4px 10px;">${t('col_pick_member')}</button>
+        <div id="drMem${i}" class="emp-chips" style="flex:1;line-height:1.5;justify-content:flex-start;"><span style="color:var(--text-muted);font-size:12px;">${t('not_selected')}</span></div>
         <input type="hidden" id="drMemVal${i}" value="${(s.members||[]).join(',')}">
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
-        <label style="font-size:12px;min-width:36px;">产量</label>
+        <label style="font-size:12px;min-width:36px;">${t('col_output')}</label>
         <input type="number" id="drNh${i}" value="${s.nh||0}" min="0" placeholder="NH" style="${colInStyle(true)}">
         <input type="number" id="drNl${i}" value="${s.nl||0}" min="0" placeholder="NL" style="${colInStyle(true)}">
         <input type="number" id="drMw${i}" value="${s.mw||0}" min="0" placeholder="MW" style="${colInStyle(true)}">
       </div>
     </div>`).join('');
-  // 回填成员显示
+  // 回填成员显示（chips）
   _drSlots.forEach((s, i) => {
     const val = document.getElementById('drMemVal' + i).value;
     const names = [];
     val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
-    const span = document.getElementById('drMem' + i);
-    span.textContent = names.length ? names.join('、') : '未选择';
-    if (names.length) span.style.color = 'var(--text)';
+    const el = document.getElementById('drMem' + i);
+    el.innerHTML = renderEmpChips(names);
   });
 }
 
-function addDrSlot() {
-  _drSlots.push({ captain: '', nh: 0, nl: 0, mw: 0, members: [] });
-  renderDrSlots();
+// P12: "添加队伍" → 弹出名单内队长选择，选定后生成新槽位（队长预填）
+let _drCaptainPicking = false;
+async function addDrSlot() {
+  const caps = await ensureDrCaptains();
+  if (!caps.length) { showToast(t('captains_empty'), 'error'); return; }
+  _drCaptainPicking = true;
+  _drPickerIndex = null;
+  const pool = await getEmpPool();
+  const empMap = {};
+  pool.forEach(e => { empMap[String(e.id)] = e; });
+  const modal = document.getElementById('empPickerModal');
+  document.getElementById('empPickerList').innerHTML = caps.map(c => {
+    const e = empMap[String(c.employee_id)];
+    return `
+    <label class="picker-row">
+      <input type="checkbox" class="picker-check" value="${escHtml(c.employee_id)}">
+      <span>${escHtml(c.name)}</span>
+      <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(c.employee_id)}</span>
+    </label>`;
+  }).join('');
+  modal.style.display = 'flex';
+}
+
+function confirmDrCaptainPicker() {
+  const checks = [...document.querySelectorAll('#empPickerList .picker-check:checked')].map(c => c.value);
+  if (checks.length) {
+    _drSlots.push({ captain: checks[0], nh: 0, nl: 0, mw: 0, members: [] });
+    renderDrSlots();
+  }
+  _drCaptainPicking = false;
+  document.getElementById('empPickerModal').style.display = 'none';
 }
 
 function removeDrSlot(i) {
@@ -4019,8 +4478,8 @@ function onDrCapChange(i) {
   _drSlots[i].captain = document.getElementById('drCap' + i).value;
   // 切换队长后清空成员（不同队长组员不同）
   document.getElementById('drMemVal' + i).value = '';
-  document.getElementById('drMem' + i).textContent = '未选择';
-  document.getElementById('drMem' + i).style.color = 'var(--text-muted)';
+  const el = document.getElementById('drMem' + i);
+  el.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>';
 }
 
 let _drPickerIndex = null;
@@ -4035,18 +4494,18 @@ async function openDrMemberPicker(i) {
   _drPickerIndex = i;
   const modal = document.getElementById('empPickerModal');
   document.getElementById('empPickerList').innerHTML = `
-    <div style="padding:6px 8px;"><input type="text" id="drMemberSearch" placeholder="搜索姓名/工号..." oninput="filterDrMemberList()" style="${colInStyle(true)}"></div>
+    <div style="padding:6px 8px;"><input type="text" id="drMemberSearch" placeholder="${t('ph_search')}" oninput="filterDrMemberList()" style="${colInStyle(true)}"></div>
     <div id="drMemberList">${renderDrMemberRows(driller, merged)}</div>`;
   modal.style.display = 'flex';
 }
 
 function renderDrMemberRows(list, checked) {
   return list.length ? list.map(e => `
-    <label style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;" class="dr-member-row">
+    <label class="picker-row dr-member-row">
       <input type="checkbox" value="${escHtml(e.id)}" ${checked.includes(e.id) ? 'checked' : ''}>
       <span>${escHtml(e.name)}</span>
       <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
-    </label>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">无匹配员工</div>';
+    </label>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
 }
 
 function filterDrMemberList() {
@@ -4065,9 +4524,8 @@ function confirmDrMemberPicker() {
     document.getElementById('drMemVal' + i).value = checks.join(',');
     const pool = _colEmpPool || STATE._empAll || [];
     const names = checks.map(id => { const e = pool.find(x => String(x.id) === String(id)); return e ? e.name : id; });
-    const span = document.getElementById('drMem' + i);
-    span.textContent = names.length ? names.join('、') : '未选择';
-    if (names.length) span.style.color = 'var(--text)';
+    const el = document.getElementById('drMem' + i);
+    el.innerHTML = renderEmpChips(names);
     _drSlots[i].members = checks;
   }
   _drPickerIndex = null;
@@ -4076,7 +4534,7 @@ function confirmDrMemberPicker() {
 
 async function submitDrCollection() {
   const date = document.getElementById('drDate').value;
-  if (!date) { showToast('请选择日期', 'error'); return; }
+  if (!date) { showToast(t('pick_date'), 'error'); return; }
   // 从 DOM 收集（槽位可能增删过，_drSlots 同步）
   const teams = [];
   for (let i = 0; i < _drSlots.length; i++) {
@@ -4091,7 +4549,7 @@ async function submitDrCollection() {
       members: (document.getElementById('drMemVal' + i).value || '').split(',').filter(Boolean),
     });
   }
-  if (!teams.length) { showToast('请至少填写一个队长槽位', 'error'); return; }
+  if (!teams.length) { showToast(t('dr_need_captain_slot'), 'error'); return; }
   await submitColPayload('driller', date, { teams }, 'colDrHistory');
 }
 
@@ -4101,31 +4559,30 @@ function renderCrCollectionForm(payload) {
   const date = payload.submission_date || new Date().toISOString().slice(0, 10);
   const emps = payload.emps || [];
   document.getElementById('colCrForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="crDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="crDate" value="${date}" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">Bags</label><input type="number" id="crBags" value="${payload.bags || 0}" min="0" step="1" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:10px;align-items:center;">
-      <label style="min-width:70px;">出勤</label>
-      <button class="nav-btn" onclick="openEmpPicker('crush','crEmpsVal','crEmps')" style="font-size:11px;padding:4px 10px;">+ 选择人员</button>
-      <span id="crEmps" style="font-size:12px;color:var(--text-muted);flex:1;line-height:1.5;">${emps.length ? '' : '未选择'}</span>
+      <label style="min-width:70px;">${t('col_attendance')}</label>
+      <button class="nav-btn" onclick="openEmpPicker('crush','crEmpsVal','crEmps')" style="font-size:11px;padding:4px 10px;">${t('col_pick_person')}</button>
+      <div id="crEmps" class="emp-chips" style="flex:1;line-height:1.5;justify-content:flex-start;">${emps.length ? '' : '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>'}</div>
       <input type="hidden" id="crEmpsVal" value="${emps.join(',')}">
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="btn-primary" onclick="submitCrCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
-      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'crush\',\'colCrHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+      <button class="btn-primary" onclick="submitCrCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? t('btn_save_changes') : t('btn_submit')}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'crush\',\'colCrHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
     </div>`;
-  // 回填已选人员显示
+  // 回填已选人员显示（chips）
   const val = document.getElementById('crEmpsVal').value;
   const names = [];
   const pool = _colEmpPool || STATE._empAll || [];
   val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
-  const span = document.getElementById('crEmps');
-  span.textContent = names.length ? names.join('、') : '未选择';
-  if (names.length) span.style.color = 'var(--text)';
+  const el = document.getElementById('crEmps');
+  el.innerHTML = renderEmpChips(names);
 }
 
 async function submitCrCollection() {
   const date = document.getElementById('crDate').value;
-  if (!date) { showToast('请选择日期', 'error'); return; }
+  if (!date) { showToast(t('pick_date'), 'error'); return; }
   const payload = {
     bags: parseInt(document.getElementById('crBags').value) || 0,
     emps: (document.getElementById('crEmpsVal').value || '').split(',').filter(Boolean),
@@ -4135,8 +4592,8 @@ async function submitCrCollection() {
 
 /* ── P9-5 出勤收集表单（花名册点选，井下/钻工/破碎以外部门） ── */
 const COL_ATT_STATUS = [
-  ['P', '出勤'], ['A', '旷工'], ['L', '请假'], ['S', '事假'],
-  ['Y', '年假'], ['T', '调休'], ['B', '病假'],
+  ['P', 'att_status_p'], ['A', 'att_status_a'], ['L', 'att_status_l'], ['S', 'att_status_s'],
+  ['Y', 'att_status_y'], ['T', 'att_status_t'], ['B', 'att_status_b'],
 ];
 
 async function renderAttCollectionForm(payload) {
@@ -4144,30 +4601,46 @@ async function renderAttCollectionForm(payload) {
   const date = payload.submission_date || new Date().toISOString().slice(0, 10);
   const pool = await getEmpPool();
   const roster = filterEmpByDept(pool, 'other');
-  // 预填 marks 映射：eid → {status, is_driver}
+  // P12: 部门下拉（排除井下/钻工/破碎后剩余部门 + 全部）
+  const depts = [...new Set(roster.map(e => e.department).filter(Boolean))].sort();
+  // 预填 marks 映射：eid → {status, is_driver}（旧 payload 的 is_driver 忽略）
   const marksMap = {};
   (payload.marks || []).forEach(m => { marksMap[m.employee_id] = m; });
-  const attStatusOpts = (selSt) => COL_ATT_STATUS.map(([v, label]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${label}</option>`).join('');
+  const attStatusOpts = (selSt) => COL_ATT_STATUS.map(([v, key]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${t(key)}</option>`).join('');
+  const rosterHtml = roster.length ? roster.map(e => {
+    const m = marksMap[e.id] || {};
+    const st = m.status || 'P';
+    return `
+      <div class="picker-row att-row" data-dept="${escHtml(e.department || '')}">
+        <span style="flex:1;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span></span>
+        <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">${attStatusOpts(st)}</select>
+      </div>`;
+  }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
   document.getElementById('colAttForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">日期</label><input type="date" id="attDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
+      <select id="attDeptSel" onchange="filterAttRoster()" style="${colInStyle(true)}">
+        <option value="" data-i18n="col_att_all_depts">全部</option>
+        ${depts.map(d => `<option value="${escHtml(d)}">${escHtml(d)}</option>`).join('')}
+      </select>
+    </div>
     <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
     <div style="max-height:50vh;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);" id="attRoster">
-      ${roster.length ? roster.map(e => {
-        const m = marksMap[e.id] || {};
-        const st = m.status || 'P';
-        return `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);font-size:13px;">
-          <span style="flex:1;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span></span>
-          <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">${attStatusOpts(st)}</select>
-          <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${m.is_driver ? 'checked' : ''}> 驾驶</label>
-        </div>`;
-      }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">无其他部门员工</div>'}
+      ${rosterHtml}
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="btn-primary" onclick="submitAttCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? '保存修改' : '提交'}</button>
-      <button class="btn-cancel" onclick="resetAttStatus()" style="padding:6px 16px;font-size:12px;">重置为出勤</button>
-      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'attendance\',\'colAttHistory\')" style="padding:6px 16px;font-size:12px;">取消编辑</button>' : ''}
+      <button class="btn-primary" onclick="submitAttCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? t('btn_save_changes') : t('btn_submit')}</button>
+      <button class="btn-cancel" onclick="resetAttStatus()" style="padding:6px 16px;font-size:12px;">${t('att_reset_present')}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'attendance\',\'colAttHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
     </div>`;
+}
+
+// P12: 按部门过滤出勤花名册（仅显示，不重绘，保留已选状态）
+function filterAttRoster() {
+  const d = document.getElementById('attDeptSel').value;
+  document.querySelectorAll('#attRoster .att-row').forEach(row => {
+    row.style.display = (!d || row.getAttribute('data-dept') === d) ? '' : 'none';
+  });
 }
 
 function resetAttStatus() {
@@ -4176,38 +4649,40 @@ function resetAttStatus() {
 
 async function submitAttCollection() {
   const date = document.getElementById('attDate').value;
-  if (!date) { showToast('请选择日期', 'error'); return; }
+  if (!date) { showToast(t('pick_date'), 'error'); return; }
   const pool = await getEmpPool();
   const roster = filterEmpByDept(pool, 'other');
   const marks = [];
   for (const e of roster) {
     const sel = document.getElementById('attSt' + e.id);
-    const drv = document.getElementById('attDrv' + e.id);
     if (!sel) continue;
     let status = sel.value;
     if (status === 'B') status = 'P'; // 病假 → 出勤 P（与 P8 病假一致，不参与计件）
-    marks.push({ employee_id: e.id, status, is_driver: !!(drv && drv.checked) });
+    marks.push({ employee_id: e.id, status });
   }
   await submitColPayload('attendance', date, { marks }, 'colAttHistory');
 }
 
 async function submitUgCollection() {
   const date = document.getElementById('ugDate').value;
-  if (!date) { showToast('请选择日期', 'error'); return; }
+  if (!date) { showToast(t('pick_date'), 'error'); return; }
   const payload = {
     day: {
       nh: parseInt(document.getElementById('ugDayNh').value) || 0,
       nl: parseInt(document.getElementById('ugDayNl').value) || 0,
       mw: parseInt(document.getElementById('ugDayMw').value) || 0,
       emps: (document.getElementById('ugDayEmpsVal').value || '').split(',').filter(Boolean),
+      drivers: (document.getElementById('ugDayDriversVal').value || '').split(',').filter(Boolean),
+      remark: document.getElementById('ugDayRemark').value.trim(),
     },
     night: {
       nh: parseInt(document.getElementById('ugNightNh').value) || 0,
       nl: parseInt(document.getElementById('ugNightNl').value) || 0,
       mw: parseInt(document.getElementById('ugNightMw').value) || 0,
       emps: (document.getElementById('ugNightEmpsVal').value || '').split(',').filter(Boolean),
+      drivers: (document.getElementById('ugNightDriversVal').value || '').split(',').filter(Boolean),
+      remark: document.getElementById('ugNightRemark').value.trim(),
     },
-    remark: document.getElementById('ugRemark').value.trim(),
   };
   await submitColPayload('underground', date, payload, 'colUgHistory');
 }
@@ -4228,12 +4703,12 @@ async function submitColPayload(formType, date, payload, historyId) {
   }
   const data = await res.json();
   if (data.ok) {
-    showToast(_colEditing ? '已更新（历史版本已保留）' : '已提交');
+    showToast(_colEditing ? t('col_updated') : t('col_submitted'));
     _colEditing = null;
     loadColHistory(formType, historyId);
     refreshAfterCollection();
   } else {
-    showToast(data.error || '提交失败', 'error');
+    showToast(data.error || t('submit_fail'), 'error');
   }
 }
 /* ── P3 评分录入 ── */
@@ -4243,8 +4718,8 @@ let _scoreData = {};       // eid → {initiative,diligence,discipline,cooperati
 let _scoreIdx = 0;         // 当前卡下标
 
 const SCORE_DIMS = [
-  ['initiative', '主动'], ['diligence', '勤快'], ['discipline', '纪律'],
-  ['cooperation', '协作'], ['safety', '安全'], ['driving', '驾驶'],
+  ['initiative', 'score_dim_initiative'], ['diligence', 'score_dim_diligence'], ['discipline', 'score_dim_discipline'],
+  ['cooperation', 'score_dim_cooperation'], ['safety', 'score_dim_safety'], ['driving', 'score_dim_driving'],
 ];
 
 async function loadScoreTeams() {
@@ -4297,14 +4772,14 @@ async function loadScoreTeam() {
       };
     });
     _scoreIdx = 0;
-    document.getElementById('scoreTeamCount').textContent = _scoreEmps.length ? `${_scoreEmps.length} 人` : '';
+    document.getElementById('scoreTeamCount').textContent = _scoreEmps.length ? `${_scoreEmps.length} ${t('unit_person')}` : '';
     if (!_scoreEmps.length) {
       area.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('scoring_no_members') + '</div>';
       return;
     }
     renderScoreCard();
   } catch(e) {
-    area.innerHTML = '<div style="color:var(--danger);padding:20px;">加载失败</div>';
+    area.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>';
   }
 }
 
@@ -4339,23 +4814,23 @@ function renderScoreCard() {
       <span style="font-size:13px;color:var(--text-muted);">${_scoreIdx + 1} / ${_scoreEmps.length}</span>
     </div>
     <div style="max-width:360px;">
-      ${dimRow('initiative', '主动（开工）')}
-      ${dimRow('diligence', '勤快')}
-      ${dimRow('discipline', '纪律')}
-      ${dimRow('cooperation', '协作')}
-      ${dimRow('safety', '安全')}
-      ${dimRow('driving', '驾驶（可选）')}
+      ${dimRow('initiative', t('score_dim_initiative'))}
+      ${dimRow('diligence', t('score_dim_diligence'))}
+      ${dimRow('discipline', t('score_dim_discipline'))}
+      ${dimRow('cooperation', t('score_dim_cooperation'))}
+      ${dimRow('safety', t('score_dim_safety'))}
+      ${dimRow('driving', t('score_dim_driving'))}
       <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;">
-        <span style="font-size:13px;font-weight:600;">总分</span>
+        <span style="font-size:13px;font-weight:600;">${t('score_total')}</span>
         <span id="scoreTotal" style="font-size:16px;font-weight:700;color:var(--accent);">${scoreAvg(d)}</span>
       </div>
       <div style="padding:6px 0;">
-        <input type="text" placeholder="备注" value="${escHtml(d.note || '')}" onchange="updateScoreNote(this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <input type="text" placeholder="${t('score_note_ph')}" value="${escHtml(d.note || '')}" onchange="updateScoreNote(this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
       </div>
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="nav-btn" onclick="scorePrev()" ${_scoreIdx === 0 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">← 上一张</button>
-      <button class="nav-btn" onclick="scoreNext()" ${_scoreIdx >= _scoreEmps.length - 1 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">下一张 →</button>
+      <button class="nav-btn" onclick="scorePrev()" ${_scoreIdx === 0 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">${t('score_prev')}</button>
+      <button class="nav-btn" onclick="scoreNext()" ${_scoreIdx >= _scoreEmps.length - 1 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">${t('score_next')}</button>
       <button class="btn-primary" onclick="submitScoreBatch()" style="margin-left:auto;padding:6px 16px;font-size:12px;">${t('scoring_submit_team')}</button>
     </div>
     <div id="scoreBatchMsg" style="margin-top:8px;font-size:12px;"></div>`;
@@ -4408,7 +4883,7 @@ async function submitScoreBatch() {
       msg.style.color = 'var(--danger)';
     }
   } catch(e) {
-    msg.textContent = '网络错误: ' + e.message;
+    msg.textContent = t('err_network_prefix') + e.message;
     msg.style.color = 'var(--danger)';
   }
 }
@@ -4416,18 +4891,18 @@ async function submitScoreBatch() {
 async function loadScoringSummary() {
   const team = document.getElementById("sumTeam").value;
   const tbody = document.querySelector("#sumTable tbody");
-  tbody.innerHTML = "<tr><td colspan=8>加载中...</td></tr>";
+  tbody.innerHTML = "<tr><td colspan=8>" + t('loading') + "</td></tr>";
   const res = await fetch(api("/api/scoring/summary/" + team));
   const data = await res.json();
   const inds = data.individuals || [], gates = data.gates || {};
-  if (!inds.length) { tbody.innerHTML = "<tr><td colspan=8 style=color:var(--text-muted)>暂无评分</td></tr>"; return; }
+  if (!inds.length) { tbody.innerHTML = "<tr><td colspan=8 style=color:var(--text-muted)>" + t('no_scores') + "</td></tr>"; return; }
   tbody.innerHTML = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td></tr>").join("");
   const panel = document.getElementById("gatePanel"); panel.style.display = "block";
-  document.getElementById("gate1").innerHTML = "①零方差:极差="+gates.variance_range+(gates.zero_variance_triggered?"⚠异常":"✅");
+  document.getElementById("gate1").innerHTML = t('gate1_pre')+"极差="+gates.variance_range+(gates.zero_variance_triggered?t('gate_abnormal'):"✅");
   document.getElementById("gate1").style.color = gates.zero_variance_triggered?"var(--danger)":"var(--success)";
-  document.getElementById("gate2").innerHTML = "②最高档:"+gates.max_tier_count+"人("+(gates.max_tier_ratio*100).toFixed(1)+"%)"+(gates.max_tier_triggered?"⚠超标":"✅");
+  document.getElementById("gate2").innerHTML = t('gate2_pre')+gates.max_tier_count+" ("+(gates.max_tier_ratio*100).toFixed(1)+"%)"+(gates.max_tier_triggered?t('gate_over_limit'):"✅");
   document.getElementById("gate2").style.color = gates.max_tier_triggered?"var(--danger)":"var(--success)";
-  document.getElementById("gate3").innerHTML = "③管理偏离:"+gates.deviation_count+"人>阈值"+(gates.mgmt_deviation_triggered?"⚠异常":"✅");
+  document.getElementById("gate3").innerHTML = t('gate3_pre')+gates.deviation_count+" > "+t('gate_threshold')+(gates.mgmt_deviation_triggered?t('gate_abnormal'):"✅");
   document.getElementById("gate3").style.color = gates.mgmt_deviation_triggered?"var(--danger)":"var(--success)";
 }
 
@@ -4442,12 +4917,12 @@ async function submitObjective() {
     total_hours: parseFloat(document.getElementById("objTotalH").value) || 0,
     effective_hours: parseFloat(document.getElementById("objEffH").value) || 0,
   };
-  if (!data.record_date || !data.week) { msg.textContent = "请填写日期和周次"; msg.style.color = "var(--danger)"; return; }
+  if (!data.record_date || !data.week) { msg.textContent = t('obj_need_date_week'); msg.style.color = "var(--danger)"; return; }
   const res = await authFetch(api("/api/objective/entry"), {
     method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data),
   });
   const d = await res.json();
-  msg.textContent = d.ok ? "当日 S = " + d.daily_s : (d.error||"失败");
+  msg.textContent = d.ok ? t('obj_daily_s') + d.daily_s : (d.error||t('fail'));
   msg.style.color = d.ok ? "var(--success)" : "var(--danger)";
 }
 
@@ -4577,7 +5052,7 @@ function renderFormSchemaList() {
          onclick="selectFormSchema(${s.id})"
          style="padding:8px 10px;margin-bottom:4px;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:${_currentFormSchema && _currentFormSchema.id === s.id ? 'rgba(0,112,243,0.1)' : 'transparent'}">
       <div style="font-weight:500;font-size:12px;">${escHtml(s.name)}</div>
-      <div style="font-size:10px;color:var(--text-muted);">${escHtml(s.description || '')} · ${s.field_count} 个字段</div>
+      <div style="font-size:10px;color:var(--text-muted);">${escHtml(s.description || '')} · ${s.field_count} ${t('unit_fields')}</div>
     </div>
   `).join('');
 }
@@ -4620,7 +5095,7 @@ function renderFieldEditor() {
   html += '</div>';
   // 添加字段表单
   html += `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;font-size:11px;">
-    <input type="text" id="newFieldKey" placeholder="字段名" style="width:80px;padding:3px 5px;">
+    <input type="text" id="newFieldKey" placeholder="${t('form_field_name_ph')}" style="width:80px;padding:3px 5px;">
     <select id="newFieldType" style="width:70px;padding:3px 5px;">
       <option value="text">text</option>
       <option value="number">number</option>
@@ -4629,8 +5104,8 @@ function renderFieldEditor() {
       <option value="textarea">textarea</option>
       <option value="checkbox">checkbox</option>
     </select>
-    <input type="text" id="newFieldLabelZh" placeholder="中文标签" style="width:80px;padding:3px 5px;">
-    <input type="text" id="newFieldLabelEn" placeholder="英文标签" style="width:80px;padding:3px 5px;">
+    <input type="text" id="newFieldLabelZh" placeholder="${t('form_label_zh_ph')}" style="width:80px;padding:3px 5px;">
+    <input type="text" id="newFieldLabelEn" placeholder="${t('form_label_en_ph')}" style="width:80px;padding:3px 5px;">
     <label><input type="checkbox" id="newFieldRequired" checked> <span data-i18n="form_required">必填</span></label>
     <button class="btn-primary" onclick="addFormField()" style="font-size:10px;padding:3px 8px;" data-i18n="form_add_field">+ 添加字段</button>
   </div>`;
@@ -4644,7 +5119,7 @@ async function addFormField() {
   const labelZh = document.getElementById('newFieldLabelZh').value.trim();
   const labelEn = document.getElementById('newFieldLabelEn').value.trim();
   const required = document.getElementById('newFieldRequired').checked;
-  if (!key) { showToast('字段名不能为空'); return; }
+  if (!key) { showToast(t('field_key_required')); return; }
 
   try {
     await authFetch(api('/api/forms/schema/' + _currentFormSchema.id + '/fields'), {
@@ -4656,8 +5131,8 @@ async function addFormField() {
       }),
     });
     selectFormSchema(_currentFormSchema.id);
-    showToast('字段已添加');
-  } catch(e) { showToast('添加失败'); }
+    showToast(t('field_added'));
+  } catch(e) { showToast(t('add_fail')); }
 }
 
 async function deleteFormField(fieldId) {
@@ -4665,8 +5140,8 @@ async function deleteFormField(fieldId) {
   try {
     await authFetch(api('/api/forms/schema/' + _currentFormSchema.id + '/fields/' + fieldId), { method: 'DELETE' });
     selectFormSchema(_currentFormSchema.id);
-    showToast('字段已删除');
-  } catch(e) { showToast('删除失败'); }
+    showToast(t('field_deleted'));
+  } catch(e) { showToast(t('delete_fail')); }
 }
 
 async function createNewForm() {
@@ -4681,21 +5156,21 @@ async function createNewForm() {
     });
     const data = await res.json();
     if (data.ok) {
-      showToast('表单已创建');
+      showToast(t('form_created'));
       loadFormSchemas();
     }
-  } catch(e) { showToast('创建失败'); }
+  } catch(e) { showToast(t('create_fail')); }
 }
 
 /* ── 通用表单渲染器 ── */
 function renderFormFromSchema(schemaId, targetEl, submitCallback) {
   const schema = _formSchemas.find(s => s.id === schemaId);
-  if (!schema) { targetEl.innerHTML = '<p>表单未找到</p>'; return; }
+  if (!schema) { targetEl.innerHTML = '<p>' + t('form_not_found') + '</p>'; return; }
 
   // fetch full schema with fields
   authFetch(api('/api/forms/schema/' + schemaId)).then(async res => {
     const data = await res.json();
-    if (!data.ok) { targetEl.innerHTML = '<p>加载失败</p>'; return; }
+    if (!data.ok) { targetEl.innerHTML = '<p>' + t('load_fail') + '</p>'; return; }
     const s = data.schema;
     let html = '<div class="schema-form">';
     (s.fields || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(f => {
@@ -4733,7 +5208,7 @@ function renderFormFromSchema(schemaId, targetEl, submitCallback) {
     targetEl.innerHTML = html;
     if (submitCallback) submitCallback(targetEl);
   }).catch(() => {
-    targetEl.innerHTML = '<p>加载失败</p>';
+    targetEl.innerHTML = '<p>' + t('load_fail') + '</p>';
   });
 }
 
@@ -4751,12 +5226,12 @@ function toggleSchemaForm() {
 function renderFormFromSchemaByName(schemaName, targetEl) {
   authFetch(api('/api/forms/schemas')).then(async res => {
     const data = await res.json();
-    if (!data.ok) { targetEl.innerHTML = '<p>加载失败</p>'; return; }
+    if (!data.ok) { targetEl.innerHTML = '<p>' + t('load_fail') + '</p>'; return; }
     const schema = data.schemas.find(s => s.name === schemaName);
-    if (!schema) { targetEl.innerHTML = '<p>表单未找到</p>'; return; }
+    if (!schema) { targetEl.innerHTML = '<p>' + t('form_not_found') + '</p>'; return; }
     renderFormFromSchema(schema.id, targetEl, null);
   }).catch(() => {
-    targetEl.innerHTML = '<p>加载失败</p>';
+    targetEl.innerHTML = '<p>' + t('load_fail') + '</p>';
   });
 }
 
@@ -4964,6 +5439,77 @@ async function renderPermissionGrid(username) {
   } catch(e) { grid.innerHTML = ''; }
 }
 
+/* ── P13: 审批人设定 ── */
+async function loadApprovalRoutes() {
+  const card = document.getElementById('approvalRoutesCard');
+  if (!card) return;
+  // 仅 super_admin 可见
+  if (_authState.role !== 'super_admin') { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const list = document.getElementById('approvalRoutesList');
+  if (!list) return;
+  try {
+    const res = await authFetch(api('/api/approval-routes'));
+    const data = await res.json();
+    const routes = data.routes || [];
+    // 填充审批人下拉（admin/super_admin 用户）
+    const sel = document.getElementById('routeApprover');
+    if (sel) {
+      const cur = sel.value;
+      let opts = '<option value="">—</option>';
+      try {
+        const uRes = await authFetch(api('/api/permissions/users'));
+        const uData = await uRes.json();
+        (uData.users || []).filter(u => u.role === 'admin' || u.role === 'super_admin')
+          .forEach(u => { opts += `<option value="${escHtml(u.username)}">${escHtml(u.username)}</option>`; });
+      } catch(e) {}
+      sel.innerHTML = opts;
+      if (cur) sel.value = cur;
+    }
+    if (!routes.length) {
+      list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="routes_empty">暂无设定</div>';
+      return;
+    }
+    list.innerHTML = routes.map(r => `
+      <div class="oa-event-card" style="padding:10px 12px;margin-bottom:6px;">
+        <div class="oa-event-info">
+          <span style="font-weight:600;font-size:13px;">${t('event_' + (r.event_type === 'leave' ? 'leave' : r.event_type)) || r.event_type}</span>
+          <span style="font-size:12px;color:var(--text-muted);"> → ${escHtml(r.approver)}</span>
+        </div>
+        <div class="oa-event-actions">
+          <button class="oa-btn oa-btn-reject" onclick="deleteApprovalRoute(${r.id})" data-i18n="routes_delete">删除</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--danger);padding:12px;">' + t('load_fail') + '</div>';
+  }
+}
+
+async function saveApprovalRoute() {
+  const eventType = document.getElementById('routeEventType').value;
+  const approver = document.getElementById('routeApprover').value;
+  if (!approver) { showToast(t('routes_pick_approver'), 'error'); return; }
+  try {
+    const res = await authFetch(api('/api/approval-routes'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ event_type: eventType, approver }),
+    });
+    const data = await res.json();
+    if (data.ok) { showToast(t('routes_saved')); loadApprovalRoutes(); }
+    else showToast(data.error || t('routes_save_fail'), 'error');
+  } catch(e) { showToast(t('routes_save_fail'), 'error'); }
+}
+
+async function deleteApprovalRoute(routeId) {
+  if (!confirm(t('routes_delete_confirm'))) return;
+  try {
+    const res = await authFetch(api('/api/approval-routes/' + routeId), { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) { showToast(t('routes_deleted')); loadApprovalRoutes(); }
+    else showToast(data.error || t('routes_delete_fail'), 'error');
+  } catch(e) { showToast(t('routes_delete_fail'), 'error'); }
+}
+
 async function toggleUserGrant(username, module, action, currentSource) {
   try {
     if (currentSource === 'grant' || currentSource === 'deny') {
@@ -4973,7 +5519,7 @@ async function toggleUserGrant(username, module, action, currentSource) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, module, action }),
       });
-      showToast('已撤销「' + module + '.' + action + '」授权');
+      showToast(t('perm_revoked').replace('{m}', module + '.' + action));
     } else if (currentSource === 'none' || currentSource === 'role') {
       // 授予权限
       await authFetch(api('/api/permissions/grant'), {
@@ -4981,12 +5527,12 @@ async function toggleUserGrant(username, module, action, currentSource) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, module, action, grant_type: 'allow' }),
       });
-      showToast('已授予「' + module + '.' + action + '」权限');
+      showToast(t('perm_granted').replace('{m}', module + '.' + action));
     }
     renderPermissionGrid(username);
     // 刷新用户列表
     loadPermissionsPage();
-  } catch(e) { showToast('操作失败'); }
+  } catch(e) { showToast(t('op_fail')); }
 }
 
 async function initDefaultPermissions() {
@@ -4994,12 +5540,12 @@ async function initDefaultPermissions() {
     const res = await authFetch(api('/api/permissions/init-defaults'), { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
-      showToast('默认权限已初始化');
+      showToast(t('perm_init_done'));
       loadPermissionsPage();
     } else {
-      showToast('初始化失败');
+      showToast(t('init_fail'));
     }
-  } catch(e) { showToast('初始化失败'); }
+  } catch(e) { showToast(t('init_fail')); }
 }
 </script>
 </body>

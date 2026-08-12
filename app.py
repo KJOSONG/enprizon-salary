@@ -1521,6 +1521,9 @@ def oa_create_event():
     if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
     data['operator_id'] = session.get('username', 'unknown')
+    # P13: 按事件类型取指定审批人写入（未设定为 ''）
+    from core.database import get_approver_for_event
+    data['approver'] = get_approver_for_event(app.config['DATA_FOLDER'], data.get('event_type', ''))
     # payload / snapshot 是 dict，需要序列化为 JSON 字符串
     data['payload'] = json.dumps(data.get('payload', {}), ensure_ascii=False)
     data['snapshot'] = json.dumps(data.get('snapshot', {}), ensure_ascii=False)
@@ -1532,17 +1535,23 @@ def oa_create_event():
 @app.route('/api/oa/pending', methods=['GET'])
 @login_required
 def oa_pending():
-    """待审批事件列表"""
+    """待审批事件列表（P13: 按当前用户为审批人过滤，super_admin 全可见）"""
     from core.database import get_pending_events
-    events = get_pending_events(app.config['DATA_FOLDER'])
+    events = get_pending_events(
+        app.config['DATA_FOLDER'],
+        approver=session.get('username', ''),
+        is_super_admin=(session.get('role') == 'super_admin'))
     return jsonify({'events': events})
 
 @app.route('/api/oa/pending/count', methods=['GET'])
 @login_required
 def oa_pending_count():
-    """待审批数量"""
+    """待审批数量（P13: 与列表同一过滤规则）"""
     from core.database import get_pending_events
-    events = get_pending_events(app.config['DATA_FOLDER'])
+    events = get_pending_events(
+        app.config['DATA_FOLDER'],
+        approver=session.get('username', ''),
+        is_super_admin=(session.get('role') == 'super_admin'))
     return jsonify({'count': len(events)})
 
 @app.route('/api/oa/history', methods=['GET'])
@@ -1563,8 +1572,9 @@ def oa_approve_event(event_id):
     event = get_event(app.config['DATA_FOLDER'], event_id)
     if not event:
         return jsonify({'ok': False, 'error': '事件不存在'}), 404
-    if event['operator_id'] == username:
-        return jsonify({'ok': False, 'error': '不能审批自己提交的事件'}), 400
+    # P13: 自审限制——super_admin 例外，可批准自己提交的事件
+    if event['operator_id'] == username and session.get('role') != 'super_admin':
+        return jsonify({'ok': False, 'error': '不能批准自己提交的事件'}), 400
     ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
     if ok:
         # P8: 审批通过后落员工主档（hire/transfer/dismiss/resign），与 overrides 推导叠加
@@ -1596,6 +1606,59 @@ def oa_reject_event(event_id):
         if event:
             log_audit(app.config['DATA_FOLDER'], 'oa_reject',
                       event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}))
+    return jsonify({'ok': ok})
+
+
+# ── P13: 审批人路由（super_admin 后台指定） ─────────────
+
+ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave')
+
+def _require_super_admin():
+    """内部校验 super_admin，返回错误响应或 None"""
+    if session.get('role') != 'super_admin':
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_admin': True}), 403
+    return None
+
+@app.route('/api/approval-routes', methods=['GET'])
+@admin_required
+def api_approval_routes_list():
+    """P13: 审批人路由全表"""
+    from core.database import get_approval_routes
+    routes = get_approval_routes(app.config['DATA_FOLDER'])
+    return jsonify({'routes': routes})
+
+@app.route('/api/approval-routes', methods=['POST'])
+@admin_required
+def api_approval_routes_set():
+    """P13: 设置事件类型的指定审批人"""
+    _block = _require_super_admin()
+    if _block:
+        return _block
+    from core.database import set_approval_route, get_user_role, log_audit
+    data = request.get_json() or {}
+    event_type = (data.get('event_type') or '').strip()
+    approver = (data.get('approver') or '').strip()
+    if event_type not in ALLOWED_APPROVAL_EVENT_TYPES:
+        return jsonify({'ok': False, 'error': '无效的事件类型'}), 400
+    if not approver or not get_user_role(app.config['DATA_FOLDER'], approver):
+        return jsonify({'ok': False, 'error': '审批人不存在'}), 400
+    set_approval_route(app.config['DATA_FOLDER'], event_type, approver)
+    log_audit(app.config['DATA_FOLDER'], 'approval_route_set', '',
+              json.dumps({'event_type': event_type, 'approver': approver}))
+    return jsonify({'ok': True})
+
+@app.route('/api/approval-routes/<int:route_id>', methods=['DELETE'])
+@admin_required
+def api_approval_routes_delete(route_id):
+    """P13: 删除审批人路由（清除指定审批人，恢复为所有人可见）"""
+    _block = _require_super_admin()
+    if _block:
+        return _block
+    from core.database import delete_approval_route, log_audit
+    ok = delete_approval_route(app.config['DATA_FOLDER'], route_id)
+    if ok:
+        log_audit(app.config['DATA_FOLDER'], 'approval_route_delete', '',
+                  json.dumps({'route_id': route_id}))
     return jsonify({'ok': ok})
 
 
@@ -1739,12 +1802,20 @@ def leave_balance_adjust():
         return jsonify({'ok': False, 'error': '缺少员工ID'}), 400
     ok = adjust_leave_balance(app.config['DATA_FOLDER'], eid, year,
                               sick_entitled=data.get('sick_entitled'),
-                              sick_used=data.get('sick_used'))
+                              sick_used=data.get('sick_used'),
+                              annual_entitled=data.get('annual_entitled'),
+                              annual_used=data.get('annual_used'),
+                              comp_entitled=data.get('comp_entitled'),
+                              comp_used=data.get('comp_used'))
     if not ok:
         return jsonify({'ok': False, 'error': '无有效调整字段'}), 400
     log_audit(app.config['DATA_FOLDER'], 'leave_balance_adjust', eid,
               json.dumps({'year': year, 'sick_entitled': data.get('sick_entitled'),
-                          'sick_used': data.get('sick_used')}))
+                          'sick_used': data.get('sick_used'),
+                          'annual_entitled': data.get('annual_entitled'),
+                          'annual_used': data.get('annual_used'),
+                          'comp_entitled': data.get('comp_entitled'),
+                          'comp_used': data.get('comp_used')}))
     return jsonify({'ok': True})
 
 # ═══════════════════════════════════════════════════════════
@@ -1838,7 +1909,7 @@ def rebuild_main_data_from_collections(main_data):
 def collection_submit():
     """P9: 数据采集提交 — 写 collection_submissions + 合并 main_data + 重算"""
     from core.database import insert_collection_submission, update_collection_submission, \
-        get_collection_submissions, save_attendance_override, is_driver, add_driver, log_audit
+        get_collection_submissions, save_attendance_override, is_driver, mark_driver_flag, log_audit
     data = request.get_json() or {}
     form_type = data.get('form_type', '')
     date = data.get('submission_date', '')
@@ -1857,15 +1928,8 @@ def collection_submit():
             status = m.get('status', '')
             if not eid or not status:
                 continue
-            want_driver = 1 if m.get('is_driver') else 0
-            # P11: 勾选驾驶须已在司机名单（driver_roster）
-            if want_driver and not is_driver(app.config['DATA_FOLDER'], eid):
-                return jsonify({'ok': False,
-                                'error': f'员工 {eid} 不在司机名单，不能勾选驾驶'}), 400
-            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status,
-                                     is_driver=want_driver)
-            if want_driver:
-                add_driver(app.config['DATA_FOLDER'], eid)
+            # P12: 只写 status，驾驶标记改由井下采集的 drivers 处理
+            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
 
     # upsert collection_submissions by (form_type, date)
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
@@ -1878,6 +1942,17 @@ def collection_submit():
 
     # 合并 main_data + 重算（仅产量类；出勤已直写 attendance_overrides）
     if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
+        # P12: 井下采集勾选驾驶 → 只置 is_driver=1 不覆盖 status；须在司机名单（防绕过）
+        if form_type == 'underground':
+            drivers = []
+            for _shift in ('day', 'night'):
+                drivers += (payload.get(_shift) or {}).get('drivers') or []
+            for _eid in drivers:
+                if not is_driver(app.config['DATA_FOLDER'], _eid):
+                    return jsonify({'ok': False,
+                                    'error': f'员工 {_eid} 不在司机名单，不能勾选驾驶'}), 400
+            for _eid in drivers:
+                mark_driver_flag(app.config['DATA_FOLDER'], _eid, date)
         _merge_collection_to_main_data(APP_STATE['main_data'], form_type, date, payload)
         _recalc_internal()
 
@@ -2035,6 +2110,81 @@ def api_employee_groups_delete(group_id):
     log_audit(app.config['DATA_FOLDER'], 'employee_group_delete', '',
               json.dumps({'group_id': group_id}))
     return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════
+#  P12 API: 钻工队长名单 driller_captains
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/driller-captains', methods=['GET'])
+@login_required
+def api_driller_captains_list():
+    """P12: 钻工队长名单（钻工采集队长下拉数据源）"""
+    from core.database import get_driller_captains
+    captains = get_driller_captains(app.config['DATA_FOLDER'])
+    return jsonify({'captains': captains})
+
+@app.route('/api/driller-captains', methods=['POST'])
+@admin_required
+def api_driller_captains_create():
+    """P12: 新增钻工队长（admin+）；name 可空则从 employees 查"""
+    from core.database import get_conn, add_driller_captain, log_audit
+    data = request.get_json() or {}
+    eid = (data.get('employee_id') or '').strip()
+    if not eid:
+        return jsonify({'ok': False, 'error': '缺少员工ID'}), 400
+    name = (data.get('name') or '').strip()
+    if not name:
+        conn = None
+        try:
+            conn = get_conn(app.config['DATA_FOLDER'])
+            r = conn.execute("SELECT name FROM employees WHERE id=?", (eid,)).fetchone()
+            name = r['name'] if r else ''
+        except Exception:
+            name = ''
+        finally:
+            if conn:
+                conn.close()
+    if not name:
+        return jsonify({'ok': False, 'error': '缺少姓名（员工不存在）'}), 400
+    cid = add_driller_captain(app.config['DATA_FOLDER'], eid, name)
+    if not cid:
+        return jsonify({'ok': False, 'error': '该员工已在钻工队长名单'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'driller_captain_create', eid,
+              json.dumps({'name': name}))
+    return jsonify({'ok': True, 'captain': {'id': cid, 'employee_id': eid, 'name': name}})
+
+@app.route('/api/driller-captains/<int:captain_id>', methods=['PUT'])
+@admin_required
+def api_driller_captains_update(captain_id):
+    """P12: 更新钻工队长（name/sort_order，admin+）"""
+    from core.database import update_driller_captain, log_audit
+    data = request.get_json() or {}
+    ok = update_driller_captain(app.config['DATA_FOLDER'], captain_id,
+                                name=data.get('name'), sort_order=data.get('sort_order'))
+    if not ok:
+        return jsonify({'ok': False, 'error': '队长不存在或无有效字段'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'driller_captain_update', '',
+              json.dumps({'id': captain_id, **data}))
+    return jsonify({'ok': True})
+
+@app.route('/api/driller-captains/<int:captain_id>', methods=['DELETE'])
+@admin_required
+def api_driller_captains_delete(captain_id):
+    """P12: 删除钻工队长（admin+）"""
+    from core.database import delete_driller_captain, log_audit
+    delete_driller_captain(app.config['DATA_FOLDER'], captain_id)
+    log_audit(app.config['DATA_FOLDER'], 'driller_captain_delete', '',
+              json.dumps({'id': captain_id}))
+    return jsonify({'ok': True})
+
+@app.route('/api/driver-roster', methods=['GET'])
+@editor_required
+def api_driver_roster():
+    """P12: 司机名单 employee_id 列表（井下采集驾驶勾选数据源）"""
+    from core.database import list_drivers
+    drivers = [d['employee_id'] for d in list_drivers(app.config['DATA_FOLDER'])]
+    return jsonify({'drivers': drivers})
 
 
 # ═══════════════════════════════════════════════════════════

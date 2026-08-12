@@ -171,6 +171,7 @@ def init_db(data_folder):
             snapshot TEXT NOT NULL DEFAULT '{}',
             payload TEXT NOT NULL DEFAULT '{}',
             operator_id TEXT NOT NULL,
+            approver TEXT DEFAULT '',
             approved_by TEXT DEFAULT '',
             rejected_by TEXT DEFAULT '',
             reject_reason TEXT DEFAULT '',
@@ -370,10 +371,45 @@ def init_db(data_folder):
             description TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS driller_captains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
     """)
     # P10: 种子班组
     conn.execute("INSERT OR IGNORE INTO employee_groups (id, name, description) VALUES (1, 'LAMBA LAMBA', '评分班组 1')")
     conn.execute("INSERT OR IGNORE INTO employee_groups (id, name, description) VALUES (2, 'SAKA SAKA', '评分班组 2')")
+    # P12: 种子钻工队长名单（employee_id 优先匹配 employees 表，回退 make_employee_id，再回退姓名）
+    try:
+        from core.namematch import make_employee_id
+        _cap_names = ['BARAKA LAIZER', 'JOHN BOAY BURA', 'SHEDRACK PINIEL LAIZER']
+        _cap_eid = {}
+        for _r in conn.execute("SELECT id, name FROM employees").fetchall():
+            _cap_eid[str(_r['name'] or '').strip().upper()] = _r['id']
+        for _i, _nm in enumerate(_cap_names):
+            _eid = _cap_eid.get(_nm.strip().upper()) or make_employee_id(_nm) or _nm
+            conn.execute(
+                "INSERT OR IGNORE INTO driller_captains (employee_id, name, sort_order) VALUES (?,?,?)",
+                (_eid, _nm, _i))
+    except Exception:
+        pass
+    # P13: 旧库 employee_events 补 approver 列（兼容迁移）
+    try:
+        conn.execute("ALTER TABLE employee_events ADD COLUMN approver TEXT DEFAULT ''")
+    except Exception:
+        pass
+    # P13: 审批人路由表（event_type → 指定审批人，空 = 不指定）
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS approval_routes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL UNIQUE,
+            approver TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+    """)
     conn.commit()
     _migrate_json(conn, data_folder)
     conn.close()
@@ -627,6 +663,16 @@ def delete_attendance_override(data_folder, employee_id, date):
     conn.commit()
     conn.close()
 
+def mark_driver_flag(data_folder, employee_id, date):
+    """P12: 井下采集勾选驾驶 → 只置 is_driver=1，不覆盖已有 status（A/L 手动标记保留）"""
+    conn = get_conn(data_folder)
+    conn.execute(
+        "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,'P',1) "
+        "ON CONFLICT(employee_id,date) DO UPDATE SET is_driver=1",
+        (employee_id, date))
+    conn.commit()
+    conn.close()
+
 # ── 审计日志 ──────────────────────────────────
 
 def log_audit(data_folder, action, employee_id='', detail='{}'):
@@ -794,23 +840,62 @@ def apply_approved_event(data_folder, event):
     conn = get_conn(data_folder)
     try:
         if etype == 'hire':
-            name = payload.get('name', '')
-            dept = payload.get('department', '')
-            position = payload.get('position', '')
+            # P12: 全字段落库（payload 键 → employees 列，salary_type → default_type）
+            _fmap = [
+                ('name', 'name'), ('department', 'department'), ('position', 'position'),
+                ('gender', 'gender'), ('date_of_birth', 'date_of_birth'), ('phone', 'phone'),
+                ('skill_level', 'skill_level'), ('nida_number', 'nida_number'),
+                ('nssf_number', 'nssf_number'), ('bank_name', 'bank_name'),
+                ('bank_account', 'bank_account'), ('bank_owner', 'bank_owner'),
+                ('salary_type', 'default_type'), ('day_rate', 'day_rate'),
+                ('monthly_salary', 'monthly_salary'), ('team_id', 'team_id'),
+                ('custom_number', 'custom_number'),
+            ]
+            _cols = [c for _, c in _fmap]
+            _vals = [payload.get(k, '') for k, _ in _fmap]
             exists = conn.execute("SELECT 1 FROM employees WHERE id=?", (eid,)).fetchone()
             if exists:
+                _sets = ', '.join(f"{c}=COALESCE(NULLIF(?,''),{c})" for c in _cols)
                 conn.execute(
-                    "UPDATE employees SET name=COALESCE(NULLIF(?,''),name),"
-                    " department=COALESCE(NULLIF(?,''),department),"
-                    " position=COALESCE(NULLIF(?,''),position),"
+                    f"UPDATE employees SET {_sets},"
                     " hire_date=COALESCE(NULLIF(?,''),hire_date),"
                     " status='active' WHERE id=?",
-                    (name, dept, position, eff, eid))
+                    tuple(_vals) + (eff, eid))
             else:
+                _all_cols = ['id'] + _cols + ['hire_date', 'status']
+                _all_vals = [eid] + _vals + [eff or '', 'active']
+                _ph = ', '.join(['?'] * len(_all_cols))
                 conn.execute(
-                    "INSERT OR IGNORE INTO employees (id, name, department, position, status, hire_date)"
-                    " VALUES (?,?,?,?,?,?)",
-                    (eid, name, dept, position, 'active', eff or ''))
+                    f"INSERT OR IGNORE INTO employees ({', '.join(_all_cols)}) VALUES ({_ph})",
+                    _all_vals)
+            # P13: 入职头像 base64 dataURL 落盘（≤2MB，PNG/JPG）
+            avatar_data = payload.get('avatar_data', '') or ''
+            if avatar_data:
+                import base64, re
+                _m = re.match(r'^data:image/(png|jpe?g);base64,(.+)$', avatar_data, re.S)
+                if _m:
+                    _ext = '.png' if _m.group(1) == 'png' else '.jpg'
+                    try:
+                        _raw = base64.b64decode(_m.group(2))
+                    except Exception:
+                        _raw = b''
+                    if _raw and len(_raw) <= 2 * 1024 * 1024:
+                        _safe_eid = re.sub(r'[^A-Za-z0-9_\-]', '_', eid) or 'emp'
+                        _adir = os.path.join(os.path.dirname(os.path.dirname(
+                            os.path.abspath(__file__))), 'static', 'avatars')
+                        os.makedirs(_adir, exist_ok=True)
+                        if not os.path.exists(os.path.join(_adir, '.gitkeep')):
+                            open(os.path.join(_adir, '.gitkeep'), 'w').close()
+                        # 删除同 id 旧头像（可能扩展名不同）
+                        for _old in os.listdir(_adir):
+                            if _old.startswith(_safe_eid + '.'):
+                                os.remove(os.path.join(_adir, _old))
+                        _fname = _safe_eid + _ext
+                        with open(os.path.join(_adir, _fname), 'wb') as _f:
+                            _f.write(_raw)
+                        conn.execute(
+                            "UPDATE employees SET avatar_path=? WHERE id=?",
+                            (f'static/avatars/{_fname}', eid))
         elif etype == 'transfer':
             new_dept = payload.get('new_department', '')
             new_pos = payload.get('new_position', '')
@@ -1125,6 +1210,49 @@ def has_admin(data_folder):
     return row['cnt'] > 0
 
 
+# ── P13: 审批人路由 ─────────────────────────
+
+def get_approval_routes(data_folder):
+    """P13: 审批人路由全表 [{id, event_type, approver}]"""
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT id, event_type, approver FROM approval_routes ORDER BY id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def set_approval_route(data_folder, event_type, approver):
+    """P13: 设置某事件类型的指定审批人（UPSERT）"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        INSERT INTO approval_routes (event_type, approver, updated_at)
+        VALUES (?,?,datetime('now','localtime'))
+        ON CONFLICT(event_type) DO UPDATE SET
+            approver=excluded.approver,
+            updated_at=datetime('now','localtime')
+    """, (event_type, approver))
+    conn.commit()
+    conn.close()
+
+def delete_approval_route(data_folder, route_id):
+    """P13: 删除审批人路由，返回是否影响行"""
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM approval_routes WHERE id=?", (route_id,))
+    conn.commit()
+    affected = conn.total_changes
+    conn.close()
+    return affected > 0
+
+def get_approver_for_event(data_folder, event_type):
+    """P13: 取指定事件类型的审批人；未设定返回 ''"""
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT approver FROM approval_routes WHERE event_type=?",
+        (event_type,)
+    ).fetchone()
+    conn.close()
+    return (row['approver'] if row else '') or ''
+
 # ── P1: 员工生命周期事件 ─────────────────────
 
 def create_event(data_folder, data):
@@ -1132,26 +1260,28 @@ def create_event(data_folder, data):
     conn = get_conn(data_folder)
     cur = conn.execute("""
         INSERT INTO employee_events (employee_id, event_type, effective_date,
-            snapshot, payload, operator_id, status)
-        VALUES (?,?,?,?,?,?,?)
+            snapshot, payload, operator_id, approver, status)
+        VALUES (?,?,?,?,?,?,?,?)
     """, (data['employee_id'], data['event_type'], data['effective_date'],
           data.get('snapshot', '{}'), data.get('payload', '{}'),
-          data['operator_id'], data.get('status', 'pending')))
+          data['operator_id'], data.get('approver', ''), data.get('status', 'pending')))
     conn.commit()
     eid = cur.lastrowid
     conn.close()
     return eid
 
-def get_pending_events(data_folder):
-    """获取所有待审批事件"""
+def get_pending_events(data_folder, approver='', is_super_admin=False):
+    """获取待审批事件；approver 指定时仅返回该审批人或 super_admin 可见的事件，
+    未指定审批人（''）的事件所有人可见"""
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT e.*, em.name as employee_name
         FROM employee_events e
         LEFT JOIN employees em ON e.employee_id = em.id
         WHERE e.status = 'pending'
+          AND (? = '' OR e.approver = '' OR e.approver = ? OR ? = 1)
         ORDER BY e.created_at DESC
-    """).fetchall()
+    """, (approver, approver, 1 if is_super_admin else 0)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1404,23 +1534,21 @@ def insert_leave_request(data_folder, data):
     conn.close()
     return eid
 
-def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sick_used=None):
-    """P8: 手动调整员工病假余额（sick_entitled/sick_used，None 表示不修改）"""
+def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sick_used=None,
+                         annual_entitled=None, annual_used=None, comp_entitled=None, comp_used=None):
+    """P8/P12: 手动调整员工假期余额（annual/comp/sick 各 entitled/used，None 表示不修改）"""
     conn = get_conn(data_folder)
-    exists = conn.execute(
-        "SELECT 1 FROM leave_balances WHERE employee_id=? AND year=?", (employee_id, year)).fetchone()
-    if not exists:
-        conn.execute(
-            "INSERT OR IGNORE INTO leave_balances (employee_id, year, sick_entitled, sick_used) VALUES (?,?,14,0)",
-            (employee_id, year))
-        conn.commit()
+    conn.execute(
+        "INSERT OR IGNORE INTO leave_balances (employee_id, year) VALUES (?,?)",
+        (employee_id, year))
+    conn.commit()
     sets, vals = [], []
-    if sick_entitled is not None:
-        sets.append("sick_entitled=?")
-        vals.append(int(sick_entitled))
-    if sick_used is not None:
-        sets.append("sick_used=?")
-        vals.append(int(sick_used))
+    for col, val in [('sick_entitled', sick_entitled), ('sick_used', sick_used),
+                     ('annual_entitled', annual_entitled), ('annual_used', annual_used),
+                     ('comp_entitled', comp_entitled), ('comp_used', comp_used)]:
+        if val is not None:
+            sets.append(f"{col}=?")
+            vals.append(int(val))
     if not sets:
         conn.close()
         return False
@@ -2086,6 +2214,64 @@ def delete_employee_group(data_folder, group_id):
     # 解除员工关联 + 删除班组
     conn.execute("UPDATE employees SET team_id=0 WHERE team_id=?", (group_id,))
     conn.execute("DELETE FROM employee_groups WHERE id=?", (group_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ── P12: 钻工队长名单 driller_captains ────────────────────
+
+def get_driller_captains(data_folder):
+    """返回钻工队长名单 [{id, employee_id, name, sort_order}]，按 sort_order 排序"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("SELECT * FROM driller_captains ORDER BY sort_order, id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def add_driller_captain(data_folder, employee_id, name):
+    """新增钻工队长（sort_order 取 max+1）；重复 employee_id 返回 None"""
+    conn = get_conn(data_folder)
+    exists = conn.execute(
+        "SELECT 1 FROM driller_captains WHERE employee_id=?", (employee_id,)).fetchone()
+    if exists:
+        conn.close()
+        return None
+    row = conn.execute("SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM driller_captains").fetchone()
+    cur = conn.execute(
+        "INSERT INTO driller_captains (employee_id, name, sort_order) VALUES (?,?,?)",
+        (employee_id, name, row['n']))
+    conn.commit()
+    cid = cur.lastrowid
+    conn.close()
+    return cid
+
+def update_driller_captain(data_folder, captain_id, name=None, sort_order=None):
+    """更新钻工队长（name/sort_order 均可 None）；不存在返回 False"""
+    conn = get_conn(data_folder)
+    exists = conn.execute("SELECT 1 FROM driller_captains WHERE id=?", (captain_id,)).fetchone()
+    if not exists:
+        conn.close()
+        return False
+    sets, vals = [], []
+    if name is not None:
+        sets.append("name=?")
+        vals.append(name)
+    if sort_order is not None:
+        sets.append("sort_order=?")
+        vals.append(int(sort_order))
+    if not sets:
+        conn.close()
+        return False
+    vals.append(captain_id)
+    conn.execute(f"UPDATE driller_captains SET {', '.join(sets)} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+    return True
+
+def delete_driller_captain(data_folder, captain_id):
+    """删除钻工队长"""
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM driller_captains WHERE id=?", (captain_id,))
     conn.commit()
     conn.close()
     return True

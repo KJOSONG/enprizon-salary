@@ -1379,35 +1379,33 @@ body {
 }
 .sidebar-nav::-webkit-scrollbar { width: 4px; }
 .sidebar-nav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-.sidebar-footer {
-  border-top: 1px solid var(--border);
-  padding: 12px;
+/* ── 顶部语言切换 ── */
+.topbar-lang {
+  display: flex;
+  gap: 2px;
+  margin-right: 8px;
+}
+.topbar-lang .lang-toggle-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
-/* ── 侧边栏用户状态 ── */
-.sidebar-user {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-}
-.sidebar-user #userBadge {
-  display: none;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  background: rgba(34,197,94,0.15);
-  color: #22c55e;
-  border: 1px solid rgba(34,197,94,0.3);
-  text-align: center;
-}
-.sidebar-user .nav-btn {
+/* ── 顶部三道杠菜单 ── */
+.topbar-menu-item {
   display: block;
   width: 100%;
-  padding: 6px 10px;
-  font-size: 12px;
-  text-align: center;
+  text-align: left;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
 }
+.topbar-menu-item:hover { background: var(--accent-glow); color: var(--text); }
 
 /* ── 模块项 ── */
 .sidebar-module {
@@ -1488,18 +1486,6 @@ body {
   cursor: pointer;
   align-items: center;
   justify-content: center;
-}
-
-/* ── 侧边栏语言切换 ── */
-.sidebar-lang {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-.sidebar-lang .lang-toggle-btn {
-  flex: 1;
-  padding: 4px 8px;
-  font-size: 11px;
 }
 
 /* ── 主内容区 ── */
@@ -1648,11 +1634,6 @@ body {
   border-left: none;
   padding: 12px 8px;
 }
-.sidebar.collapsed .sidebar-footer { padding: 8px; }
-.sidebar.collapsed .sidebar-lang { justify-content: center; }
-.sidebar.collapsed .sidebar-lang .lang-toggle-btn { font-size: 10px; padding: 3px 6px; }
-.sidebar.collapsed .sidebar-user .nav-btn { font-size: 10px; padding: 4px 6px; }
-.sidebar.collapsed .sidebar-user #userBadgeSide { font-size: 10px; padding: 3px 6px; }
 
 /* ── 数据台底部双栏 ── */
 .dashboard-bottom-row {
@@ -1680,6 +1661,23 @@ body {
 .info-row:last-child { border-bottom: none; }
 .info-label { font-size: 12px; color: var(--text-muted); }
 .info-value { font-size: 13px; color: var(--text); font-weight: 500; max-width: 60%; text-align: right; }
+
+/* ── P12 选人弹层 / 已选标签统一样式 ── */
+.picker-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+  cursor: pointer; font-size: 13px;
+}
+.picker-row:last-child { border-bottom: none; }
+.picker-row:hover { background: var(--bg-secondary); }
+.picker-row input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.emp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  font-size: 12px; color: var(--text);
+}
 
 /* ── P1 时间线 ── */
 .timeline { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
@@ -1719,6 +1717,23 @@ body {
 .oa-btn-reject:hover { background: rgba(239,68,68,0.25); }
 .oa-reject-form { margin-top: 8px; display: flex; gap: 6px; align-items: center; }
 .oa-reject-form input { flex: 1; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-secondary); color: var(--text); font-size: 12px; }
+.oa-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* P13: 审批详情展开 */
+.oa-detail {
+  margin-top: 10px; padding: 10px 12px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.oa-detail-row {
+  display: flex; gap: 10px; padding: 4px 0;
+  font-size: 12px; border-bottom: 1px dashed var(--border-light);
+}
+.oa-detail-row:last-child { border-bottom: none; }
+.oa-detail-label { flex: 0 0 110px; color: var(--text-muted); }
+.oa-detail-value { flex: 1; min-width: 0; word-break: break-word; }
+/* P13: 通知铃铛面板 */
+.notif-item:hover { background: var(--bg-secondary); }
+.notif-item:last-child { border-bottom: none; }
 
 /* ── P3 三闸面板 ── */
 .gate-panel { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; }
@@ -1797,6 +1812,14 @@ body {
 /* ═══════════════════════════════════════════════════
    P4 手机端打磨: 触摸优化 + 响应式增强
    ═══════════════════════════════════════════════════ */
+
+/* ── 日期控件：暗色主题下调亮日历图标 ── */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8) sepia(0.3) saturate(0.5);
+  cursor: pointer;
+  opacity: 0.85;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
 /* ── 手机: 触摸目标最小 44px ── */
 @media (max-width: 900px) {
