@@ -17,3 +17,4 @@ data/source/*.xlsx
 # Codebuddy/Workbuddy project dirs
 .codebuddy/
 .workbuddy/
+.codebase-memory/
