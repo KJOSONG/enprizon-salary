@@ -154,6 +154,22 @@ def init_db(data_folder):
         );
         CREATE INDEX IF NOT EXISTS idx_events_employee ON employee_events(employee_id, effective_date);
         CREATE INDEX IF NOT EXISTS idx_events_status ON employee_events(status);
+        CREATE TABLE IF NOT EXISTS leave_balances (
+            employee_id TEXT NOT NULL,
+            year TEXT NOT NULL,
+            annual_entitled INTEGER DEFAULT 28,
+            annual_used INTEGER DEFAULT 0,
+            comp_entitled INTEGER DEFAULT 0,
+            comp_used INTEGER DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            PRIMARY KEY (employee_id, year)
+        );
+        CREATE TABLE IF NOT EXISTS driver_roster (
+            employee_id TEXT PRIMARY KEY,
+            allowance_per_day INTEGER DEFAULT 5000,
+            effective_from TEXT DEFAULT '',
+            note TEXT DEFAULT ''
+        );
     """)
     conn.commit()
 
@@ -809,3 +825,119 @@ def _table_exists(conn, table):
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
     ).fetchone()
     return bool(row)
+
+
+# ── P2: 假期余额 ─────────────────────
+
+def get_leave_balance(data_folder, employee_id, year):
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT * FROM leave_balances WHERE employee_id=? AND year=?",
+        (employee_id, year)).fetchone()
+    conn.close()
+    if not row:
+        return {
+            'annual_entitled': 28, 'annual_used': 0,
+            'comp_entitled': 0, 'comp_used': 0
+        }
+    return dict(row)
+
+def add_leave_balance(data_folder, employee_id, year, annual=0, comp=0):
+    conn = get_conn(data_folder)
+    conn.execute("""
+        INSERT INTO leave_balances (employee_id, year, annual_entitled, comp_entitled)
+        VALUES (?,?,?,?)
+        ON CONFLICT(employee_id, year) DO UPDATE SET
+            annual_entitled=annual_entitled+?,
+            comp_entitled=comp_entitled+?,
+            updated_at=datetime('now','localtime')
+    """, (employee_id, year, annual, comp, annual, comp))
+    conn.commit()
+    conn.close()
+
+def deduct_annual_leave(data_folder, employee_id, year, days):
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT annual_entitled, annual_used FROM leave_balances WHERE employee_id=? AND year=?",
+        (employee_id, year)).fetchone()
+    if not row or (row['annual_entitled'] - row['annual_used']) < days:
+        conn.close()
+        return False
+    conn.execute("""
+        UPDATE leave_balances SET annual_used=annual_used+?,
+            updated_at=datetime('now','localtime')
+        WHERE employee_id=? AND year=?
+    """, (days, employee_id, year))
+    conn.commit()
+    conn.close()
+    return True
+
+def deduct_comp_leave(data_folder, employee_id, year, days):
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT comp_entitled, comp_used FROM leave_balances WHERE employee_id=? AND year=?",
+        (employee_id, year)).fetchone()
+    if not row or (row['comp_entitled'] - row['comp_used']) < days:
+        conn.close()
+        return False
+    conn.execute("""
+        UPDATE leave_balances SET comp_used=comp_used+?,
+            updated_at=datetime('now','localtime')
+        WHERE employee_id=? AND year=?
+    """, (days, employee_id, year))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ── P2: 年假资格校验 ────────────────
+
+def check_annual_leave_eligible(data_folder, employee_id):
+    conn = get_conn(data_folder)
+    emp = conn.execute(
+        "SELECT nssf_enrolled, nida_number, hire_date FROM employees WHERE id=?",
+        (employee_id,)).fetchone()
+    conn.close()
+    reasons = []
+    if not emp:
+        return {'eligible': False, 'reasons': ['员工不存在']}
+    if not emp['nssf_enrolled']:
+        reasons.append('未参加NSSF')
+    if not emp['nida_number']:
+        reasons.append('NIDA证件号为空')
+    if emp['hire_date']:
+        import datetime
+        try:
+            hd = datetime.datetime.strptime(emp['hire_date'], '%Y-%m-%d')
+            if (datetime.datetime.now() - hd).days < 365:
+                reasons.append('入职不满1年({}天)'.format((datetime.datetime.now() - hd).days))
+        except:
+            reasons.append('入职日期格式无效')
+    else:
+        reasons.append('入职日期为空')
+    return {'eligible': len(reasons) == 0, 'reasons': reasons}
+
+
+# ── P2: 司机名单 ────────────────────
+
+def is_driver(data_folder, employee_id):
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT 1 FROM driver_roster WHERE employee_id=?", (employee_id,)).fetchone()
+    conn.close()
+    return bool(row)
+
+def list_drivers(data_folder):
+    conn = get_conn(data_folder)
+    rows = conn.execute("SELECT * FROM driver_roster").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def add_driver(data_folder, employee_id, allowance=5000, note=''):
+    conn = get_conn(data_folder)
+    conn.execute("""
+        INSERT OR REPLACE INTO driver_roster (employee_id, allowance_per_day, note)
+        VALUES (?,?,?)
+    """, (employee_id, allowance, note))
+    conn.commit()
+    conn.close()

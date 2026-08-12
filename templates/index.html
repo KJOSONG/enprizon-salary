@@ -247,7 +247,10 @@
         <div class="info-row"><span class="info-label">电话</span><span class="info-value" id="pfPhone">—</span></div>
         <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
         <div class="info-row"><span class="info-label" data-i18n="emp_bank_account">账号</span><span class="info-value" id="pfAccount">—</span></div>
+        <div class="info-row"><span class="info-label">年假余额</span><span class="info-value" id="pfAnnual">—</span></div>
+        <div class="info-row"><span class="info-label">调休余额</span><span class="info-value" id="pfComp">—</span></div>
       </div>
+      <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;">✎ 编辑</button>
     </div>
     <!-- 生命周期时间线 -->
     <div class="card" style="min-width:0;">
@@ -390,7 +393,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button id="attSaveBtn" class="editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" style="display:none;padding:6px 16px;background:var(--accent-gradient);color:white;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all var(--transition-normal);">保存并计算</button>
-        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 (P)=月薪默认 虚线下划线=手动更改 黄色虚线=月薪默认更改</span>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 (P)=月薪默认</span>
       </div>
     </div>
     <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
@@ -484,10 +487,41 @@
 </div>
 </div>
 
-<!-- ═══ P1 OA 审批：待审批 ═══ -->
+<!-- ═══ P2 OA 审批：待审批 ═══ -->
 <div class="page" id="page-oa-pending">
   <div class="card">
-    <h2 data-i18n="nav_oa_pending">待审批</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 data-i18n="nav_oa_pending">待审批</h2>
+      <button class="nav-btn" onclick="showLeaveForm()" style="padding:6px 14px;font-size:12px;">+ 新建请假</button>
+    </div>
+    <!-- 请假提交表单 -->
+    <div id="leaveForm" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;">
+      <h3 style="font-size:14px;margin-bottom:12px;">提交请假申请</h3>
+      <div class="form-row">
+        <label>员工ID</label><input type="text" id="leaveEmpId" placeholder="如: 100" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;">
+      </div>
+      <div class="form-row">
+        <label>类型</label><select id="leaveType" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;">
+          <option value="sick_leave">事假</option>
+          <option value="annual_leave">年假</option>
+          <option value="comp_leave">调休</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>日期</label><input type="date" id="leaveDate" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;">
+      </div>
+      <div class="form-row">
+        <label>天数</label><input type="number" id="leaveDays" value="1" min="1" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;width:80px;">
+      </div>
+      <div class="form-row">
+        <label>备注</label><input type="text" id="leaveNote" placeholder="请假原因" style="padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;flex:1;">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn-primary" onclick="submitLeave()" style="padding:6px 16px;font-size:12px;">提交</button>
+        <button class="btn-cancel" onclick="document.getElementById('leaveForm').style.display='none'" style="padding:6px 16px;font-size:12px;">取消</button>
+      </div>
+      <div id="leaveMsg" style="margin-top:8px;font-size:12px;"></div>
+    </div>
     <div id="oaPendingList">
       <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="oa_no_pending">暂无待审批事项</div>
     </div>
@@ -502,25 +536,49 @@
     </div>
   </div>
 </div>
+<!-- ═══ P2 产量录入：井下出渣 ═══ -->
 <div class="page" id="page-production-underground">
-  <div class="card" style="text-align:center;padding:60px 20px;">
-    <div style="font-size:48px;margin-bottom:16px;">⚒</div>
+  <div class="card">
     <h2 data-i18n="nav_production_underground">井下出渣</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">班组长录入本组井下产量（直写 shift_additions 表）</p>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="text" id="prodUgSearch" placeholder="搜索姓名..." style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <input type="date" id="prodUgDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <select id="prodUgShift" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="D">白班(D)</option><option value="N">夜班(N)</option><option value="B">D+N</option>
+      </select>
+      <button class="btn-primary" onclick="submitShiftProduction()" style="padding:6px 14px;font-size:12px;">提交</button>
+    </div>
+    <div id="prodUgResult" style="font-size:12px;margin-bottom:8px;"></div>
+    <div class="table-wrap"><table class="data-table" id="prodUgTable"><thead><tr><th>姓名</th><th>日期</th><th>班次</th><th>来源</th></tr></thead><tbody><tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
   </div>
 </div>
+<!-- ═══ P2 产量录入：钻工组 ═══ -->
 <div class="page" id="page-production-driller">
-  <div class="card" style="text-align:center;padding:60px 20px;">
-    <div style="font-size:48px;margin-bottom:16px;">⚒</div>
+  <div class="card">
     <h2 data-i18n="nav_production_driller">钻工组</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">班组长录入钻工队员+产量（直写 driller_additions）</p>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="text" id="prodDrSearch" placeholder="队长ID" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;width:100px;">
+      <input type="date" id="prodDrDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <button class="btn-primary" onclick="submitDrillerProduction()" style="padding:6px 14px;font-size:12px;">提交</button>
+    </div>
+    <div id="prodDrResult" style="font-size:12px;margin-bottom:8px;"></div>
+    <div class="table-wrap"><table class="data-table" id="prodDrTable"><thead><tr><th>队长</th><th>日期</th><th>来源</th></tr></thead><tbody><tr><td colspan="3" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
   </div>
 </div>
+<!-- ═══ P2 产量录入：破碎计件 ═══ -->
 <div class="page" id="page-production-crush">
-  <div class="card" style="text-align:center;padding:60px 20px;">
-    <div style="font-size:48px;margin-bottom:16px;">⚒</div>
+  <div class="card">
     <h2 data-i18n="nav_production_crush">破碎计件</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">录入破碎产量数据（直写 attendance_overrides C 状态）</p>
+    <div class="filter-bar" style="margin-bottom:12px;">
+      <input type="text" id="prodCrSearch" placeholder="员工ID" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;width:100px;">
+      <input type="date" id="prodCrDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <button class="btn-primary" onclick="submitCrushProduction()" style="padding:6px 14px;font-size:12px;">提交</button>
+    </div>
+    <div id="prodCrResult" style="font-size:12px;margin-bottom:8px;"></div>
+    <div class="table-wrap"><table class="data-table" id="prodCrTable"><thead><tr><th>姓名</th><th>日期</th><th>来源</th></tr></thead><tbody><tr><td colspan="3" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody></table></div>
   </div>
 </div>
 <div class="page" id="page-system-users">
@@ -932,6 +990,9 @@ const SUBPAGE_TARGETS = {
   'attendance':        'attendance',
   'oa/pending':        'oa-pending',
   'oa/history':        'oa-history',
+  'production/underground': 'production-underground',
+  'production/driller':     'production-driller',
+  'production/crush':       'production-crush',
   'system/params':     'settings',
   'system/users':      'settings',
 };
@@ -1518,6 +1579,15 @@ async function showEmployeeProfile(eid) {
     document.getElementById('pfBank').textContent = emp.bank_name;
     document.getElementById('pfAccount').textContent = emp.bank_account;
 
+    // 加载余额
+    try {
+      const balRes = await fetch(api('/api/leave/balance/' + eid + '?year=' + new Date().getFullYear()));
+      const balData = await balRes.json();
+      const b = balData.balance || {};
+      document.getElementById('pfAnnual').textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' 天';
+      document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' 天';
+    } catch(e) {}
+
     // 时间线
     const EVENT_LABELS = { hire: '入职', transfer: '调岗', dismiss: '离职',
       salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职' };
@@ -1540,6 +1610,43 @@ async function showEmployeeProfile(eid) {
   } catch (e) {
     console.error('Failed to load profile', e);
   }
+}
+
+function editEmployeeProfile() {
+  const eid = STATE.currentParams.id;
+  if (!eid) return;
+  const fields = ['position', 'skill_level', 'hire_date', 'nida_number', 'nssf_number',
+                  'bank_name', 'bank_account', 'bank_owner', 'phone'];
+  const fieldNames = ['岗位', '技能等级', '入职日期', 'NIDA', 'NSSF编号', '银行', '账号', '户名', '电话'];
+  const values = fields.map(f => document.getElementById('pf'+f.charAt(0).toUpperCase()+f.slice(1))?.textContent || '');
+  let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;width:400px;max-height:80vh;overflow-y:auto;padding:20px;">';
+  form += '<h3>编辑档案</h3>';
+  fields.forEach((f, i) => {
+    form += `<div class="form-row"><label>${fieldNames[i]}</label><input id="pfEdit_${f}" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>`;
+  });
+  form += '<div style="display:flex;gap:8px;margin-top:12px;">';
+  form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">保存</button>';
+  form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">取消</button>';
+  form += '</div><div id="pfEditMsg" style="margin-top:8px;font-size:12px;"></div></div>';
+  const modal = document.createElement('div');
+  modal.id = 'pfEditModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:499;';
+  modal.innerHTML = form;
+  document.body.appendChild(modal);
+}
+
+async function saveEmployeeProfile(eid) {
+  const fields = ['position', 'skill_level', 'hire_date', 'nida_number', 'nssf_number',
+                  'bank_name', 'bank_account', 'bank_owner', 'phone'];
+  const data = {};
+  fields.forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
+  const res = await authFetch(api('/api/employees/' + eid), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data),
+  });
+  const r = await res.json();
+  document.getElementById('pfEditMsg').textContent = r.ok ? '保存成功' : '保存失败';
+  document.getElementById('pfEditMsg').style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+  if (r.ok) { setTimeout(() => { document.getElementById('pfEditModal').remove(); showEmployeeProfile(eid); }, 800); }
 }
 
 async function removeOverride(eid, idx) {
@@ -2550,6 +2657,9 @@ function renderAttendance() {
     'P': {color: 'var(--success)', label: t('shift_P_label'), desc: t('shift_P_desc')},
     'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
     'L': {color: 'var(--warning)', label: t('shift_L_label'), desc: t('shift_L_desc')},
+    'S': {color: '#F59E0B', label: '事假', desc: '事假(待审批)'},
+    'Y': {color: '#06B6D4', label: '年假', desc: '年假'},
+    'T': {color: '#A855F7', label: '调休', desc: '调休'},
     'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
     'C': {color: '#F97316', label: t('shift_C_label'), desc: t('shift_C_desc')},
     '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
@@ -2595,24 +2705,20 @@ function renderAttendance() {
 }
 
 async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
-  // 原始为空 (无自动出勤):
-  //   破碎计件员工: '' → C → P → A → L → '' (手动标记后可旷工/请假/复位)
-  //   井下计件员工: '' → D → N → A → L → ''
-  //   其他员工:     '' → P → A → L → '' (标记出勤后可旷工/请假/复位)
-  // 原始非空 (有自动出勤):
-  //   C/R/D/N/B/P → A → L → '' → 恢复原始自动值
+  /* 循环: C/D/N/P → A → L → Y → T → '' → 恢复自动值
+     新增 S(事假)/Y(年假)/T(调休) — 与 L 同级, 均排除计件 */
   let nextStatus;
   const isCrush = empType === '破碎计件';
   const isUnderground = empType === '井下计件';
   if (autoVal === '' || autoVal === undefined) {
     const cycle = isCrush
-      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':''}
+      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''}
       : isUnderground
-      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':''}
-      : {'':'P', 'P':'A', 'A':'L', 'L':''};
+      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''}
+      : {'':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : (isCrush ? 'C' : isUnderground ? 'D' : 'P');
   } else {
-    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A'};
+    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A', 'S':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   }
   // 仅更新本地状态，不持久化
@@ -2915,7 +3021,8 @@ async function loadAuditLog() {
 // ════════════════════════════════════════════════
 const EVENT_LABELS_MAP = {
   hire: '入职', transfer: '调岗', dismiss: '离职',
-  salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职'
+  salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职',
+  sick_leave: '事假', annual_leave: '年假', comp_leave: '调休'
 };
 
 async function loadOAPending() {
@@ -2989,14 +3096,97 @@ async function loadOAHistory() {
   const container = document.getElementById('oaHistoryList');
   if (!container) return;
   try {
-    const res = await fetch(api('/api/oa/pending')); // 复用 pending 接口，历史需要新接口
+    const res = await fetch(api('/api/oa/pending'));
     const data = await res.json();
-    // TODO: 添加历史 API 后改为 fetch 全部事件
-    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">历史记录功能将在后续完善</div>';
+    const events = data.events || [];
+    if (events.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">暂无已处理事件</div>';
+      return;
+    }
+    container.innerHTML = events.map(ev => `
+      <div class="oa-event-card" style="opacity:0.7;">
+        <div class="oa-event-info">
+          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] || ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
+          <div class="oa-event-meta">
+            生效日期: ${ev.effective_date} · 状态: ${ev.status}
+            ${ev.reject_reason ? ' · 驳回原因: ' + escHtml(ev.reject_reason) : ''}
+          </div>
+        </div>
+      </div>`).join('');
   } catch (e) { container.innerHTML = '加载失败'; }
 }
 
-// 标签切换
+/* ── P2 请假提交 ── */
+function showLeaveForm() {
+  document.getElementById('leaveForm').style.display = 'block';
+  document.getElementById('leaveMsg').textContent = '';
+}
+
+async function submitLeave() {
+  const eid = document.getElementById('leaveEmpId').value.trim();
+  const type = document.getElementById('leaveType').value;
+  const date = document.getElementById('leaveDate').value;
+  const days = parseInt(document.getElementById('leaveDays').value) || 1;
+  const note = document.getElementById('leaveNote').value;
+  const msg = document.getElementById('leaveMsg');
+  if (!eid || !date) { msg.textContent = '请输入员工ID和日期'; msg.style.color = 'var(--danger)'; return; }
+  try {
+    const res = await authFetch(api('/api/oa/leave'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({employee_id: eid, event_type: type, effective_date: date, days, note}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = data.message || '提交成功';
+      msg.style.color = 'var(--success)';
+      document.getElementById('leaveForm').style.display = 'none';
+      loadOAPending();
+    } else {
+      msg.textContent = data.error || '提交失败';
+      msg.style.color = 'var(--danger)';
+    }
+  } catch (e) { msg.textContent = '网络错误: ' + e.message; msg.style.color = 'var(--danger)'; }
+}
+
+/* ── P2 产量录入 ── */
+async function submitShiftProduction() {
+  document.getElementById('prodUgResult').textContent = '';
+  const eid = document.getElementById('prodUgSearch').value.trim();
+  const date = document.getElementById('prodUgDate').value;
+  const shift = document.getElementById('prodUgShift').value;
+  if (!eid || !date) { document.getElementById('prodUgResult').textContent = '请输入姓名和日期'; return; }
+  const res = await authFetch(api('/api/production/shift'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({employee_id:eid, date, shift}),
+  });
+  const data = await res.json();
+  document.getElementById('prodUgResult').textContent = data.ok ? '已提交' : (data.error||'失败');
+  document.getElementById('prodUgResult').style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+}
+
+async function submitDrillerProduction() {
+  const eid = document.getElementById('prodDrSearch').value.trim();
+  const date = document.getElementById('prodDrDate').value;
+  if (!eid || !date) { document.getElementById('prodDrResult').textContent = '请输入队长ID和日期'; return; }
+  const res = await authFetch(api('/api/production/shift'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({employee_id:eid, date, shift:'D'}),
+  });
+  const data = await res.json();
+  document.getElementById('prodDrResult').textContent = data.ok ? '已提交' : (data.error||'失败');
+}
+
+async function submitCrushProduction() {
+  const eid = document.getElementById('prodCrSearch').value.trim();
+  const date = document.getElementById('prodCrDate').value;
+  if (!eid || !date) { document.getElementById('prodCrResult').textContent = '请输入员工ID和日期'; return; }
+  const res = await authFetch(api('/api/attendance/toggle'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({employee_id:eid, date, status:'C'}),
+  });
+  const data = await res.json();
+  document.getElementById('prodCrResult').textContent = data.ok ? '已标记 C(破碎出勤)' : (data.error||'失败');
+}
 document.querySelectorAll('.chart-label-toggle').forEach(cb => {
   cb.addEventListener('change', function() {
     const chartId = this.dataset.chart;

@@ -1158,6 +1158,107 @@ def oa_reject_event(event_id):
                       event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}))
     return jsonify({'ok': ok})
 
+
+# ═══════════════════════════════════════════════════════════
+#  P2 API: 考勤批量提交 + 请假 + 产量录入
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/attendance/batch', methods=['POST'])
+@editor_required
+def attendance_batch_submit():
+    from core.database import save_attendance_override, log_audit, is_driver, add_driver
+    data = request.get_json()
+    if not data or 'date' not in data or 'marks' not in data:
+        return jsonify({'ok': False, 'error': '缺少 date 或 marks'}), 400
+    date = data['date']
+    count = 0
+    for m in data['marks']:
+        eid = m.get('employee_id', '')
+        status = m.get('status', '')
+        if not eid or not status:
+            continue
+        save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+        count += 1
+        if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
+            add_driver(app.config['DATA_FOLDER'], eid)
+    log_audit(app.config['DATA_FOLDER'], 'attendance_batch', session.get('username',''),
+              json.dumps({'date': date, 'count': count}))
+    return jsonify({'ok': True, 'count': count})
+
+@app.route('/api/attendance/roster', methods=['GET'])
+def attendance_roster():
+    dept = request.args.get('department', '')
+    from core.database import list_employees_extended
+    emps = list_employees_extended(app.config['DATA_FOLDER'], status_filter='active', department=dept)
+    return jsonify({'employees': emps})
+
+@app.route('/api/oa/leave', methods=['POST'])
+@editor_required
+def oa_submit_leave():
+    from core.database import create_event, log_audit, check_annual_leave_eligible
+    data = request.get_json()
+    if not data or 'employee_id' not in data or 'event_type' not in data:
+        return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
+    event_type = data['event_type']
+    eid = data['employee_id']
+    if event_type == 'annual_leave':
+        chk = check_annual_leave_eligible(app.config['DATA_FOLDER'], eid)
+        if not chk['eligible']:
+            return jsonify({'ok': False, 'error': '年假资格不足: ' + ', '.join(chk['reasons'])}), 403
+    if event_type == 'comp_leave':
+        from core.database import deduct_comp_leave
+        import datetime as _dt
+        year = str(_dt.datetime.now().year)
+        days = data.get('days', 1)
+        ok = deduct_comp_leave(app.config['DATA_FOLDER'], eid, year, days)
+        if not ok:
+            return jsonify({'ok': False, 'error': '调休余额不足'}), 403
+        from core.database import save_attendance_override
+        save_attendance_override(app.config['DATA_FOLDER'], eid, data['effective_date'], 'T')
+        log_audit(app.config['DATA_FOLDER'], 'leave_comp', eid,
+                  json.dumps({'event_type': event_type, 'days': days, 'date': data['effective_date']}))
+        return jsonify({'ok': True, 'message': '调休已记录，余额已扣减'})
+    data['operator_id'] = session.get('username', 'unknown')
+    data['payload'] = json.dumps({
+        'days': data.get('days', 1),
+        'note': data.get('note', ''),
+        'event_type': event_type,
+    }, ensure_ascii=False)
+    event_id = create_event(app.config['DATA_FOLDER'], {
+        'employee_id': eid,
+        'event_type': event_type,
+        'effective_date': data['effective_date'],
+        'payload': data['payload'],
+        'snapshot': '{}',
+        'operator_id': data['operator_id'],
+    })
+    log_audit(app.config['DATA_FOLDER'], 'oa_create_event', eid,
+              json.dumps({'event_type': event_type, 'event_id': event_id}))
+    return jsonify({'ok': True, 'event_id': event_id})
+
+@app.route('/api/leave/balance/<employee_id>', methods=['GET'])
+def leave_balance(employee_id):
+    import datetime as _dt
+    year = request.args.get('year', str(_dt.datetime.now().year))
+    from core.database import get_leave_balance
+    balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year)
+    return jsonify({'balance': balance})
+
+@app.route('/api/production/shift', methods=['POST'])
+@editor_required
+def production_shift_entry():
+    data = request.get_json()
+    from core.database import get_conn, log_audit
+    conn = get_conn(app.config['DATA_FOLDER'])
+    conn.execute(
+        "INSERT OR REPLACE INTO shift_additions (employee_id, date, shift) VALUES (?,?,?)",
+        (data['employee_id'], data['date'], data.get('shift', 'D')))
+    conn.commit()
+    conn.close()
+    log_audit(app.config['DATA_FOLDER'], 'production_shift', data['employee_id'],
+              json.dumps(data))
+    return jsonify({'ok': True})
+
 # ═══════════════════════════════════════════════════════════
 #  API: NSSF（社保）
 # ═══════════════════════════════════════════════════════════
