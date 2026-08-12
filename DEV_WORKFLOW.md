@@ -64,6 +64,18 @@
 | **P9** | **数据采集模块重设计** | 4 表单（井下/钻工/破碎/出勤收集）+ 提交页 + 历史区 + 再编辑 + D+N 同表 |
 | **P10** | **评分模块重设计** | 班组 LAMBA/SAKA + 自定义工号 + 顶层月份 + 选班组自动出全员 + 一张张卡录入 |
 | **P11** | **系统清理 + 薪资总表新列** | 源文件管理 UI 删除 / 司机津贴独立设置删除 / 薪资总表增 driver_allowance 列 / 井下计件列改名 |
+| **P12** | **v5 需求对齐迭代** | 对照 PRD §0.1 / §11-P12 细分 / §13 验收，10 条有效反馈逐项落地 |
+| **P13** | **v6 需求对齐迭代** | 对照 PRD §0.2 / §11-P13 细分 / §13 验收，10 条有效反馈逐项落地（含 OA 自审规则、通知、审批人设定、中英双语） |
+
+**P12 提醒**：v4 验收后反馈不改架构，只做 IA/表单/命名/参数层修正，但涉及 3 处既有行为的**方向性调整**，动手前先看 PRD §5.1/5.2/5.5 的 v5 描述，避免按 v4 旧逻辑改：
+1. 员工档案弹窗 → 独立页（PRD §5.1）
+2. OA 三申请从列表底部按钮 → 侧栏平级子页，入职表单全字段（PRD §5.2）
+3. 驾驶勾选从出勤收集 → 井下出渣采集弹层（PRD §5.5.1 / C6）
+
+**P13 提醒**：v5 验收后反馈含 1 个 bug 修复（部门筛选）、1 个 IA 回退（档案子页移出侧栏）、1 个权限行为变更（OA 自审分角色）、1 个全局质量项（中英双语）。动手前先看 PRD §5.2/§0.2 的 v6 描述，注意 3 处**方向性调整**：
+1. 员工档案子页从侧栏移除，但保留 hash 直达（PRD §5.2）
+2. 请假申请从待审批页移到侧栏子页（PRD §5.2）
+3. OA 自审规则分角色：super_admin 可自批，其他角色仅可自驳（PRD §5.2 / D42）
 
 每个阶段在本地可独立验证；是否"上线"由部署时机（§10）决定。
 
@@ -94,7 +106,7 @@
 - SQLite `ALTER` 能力有限，结构变更优先"加表/加列"，避免复杂改列；必要时用版本化迁移脚本。
 - 旧 `kilwa.db` 冻结为只读归档（`archived_kilwa`），不回溯、不事件化。
 
-### 8.1 v4 新增（对应 PRD §8）
+### 8.1 v4/v5 新增（对应 PRD §8）
 
 - **employees 扩 5 列**：`gender TEXT` / `date_of_birth TEXT` / `avatar_path TEXT` / `custom_number TEXT` / `team_id INTEGER`（P7 阶段加）
 - **新表 collection_submissions**：数据采集提交主表（form_type / submission_date / payload / operator_id / month / version），P9 阶段建
@@ -102,6 +114,16 @@
 - **新表 employee_groups**：班组表（id / name / description），P10 阶段建；种入 LAMBA LAMBA、SAKA SAKA
 - **leave_requests 扩 leave_type**：新增 `sick` 病假，P8 阶段
 - **leave_balances 扩**：新增病假额度（默认 14 天/年），P8 阶段
+- **v5 新表 driller_captains**：钻工队长名单（employee_id UNIQUE / name / sort_order），P12 阶段建；初始种入 3 人（BARAKA LAIZER / JOHN BOAY BURA / SHEDRACK PINIEL LAIZER），计薪参数页维护
+
+### 8.2 v6 新增（对应 PRD §0.2 / §8）
+
+- **审批人设定**（v6 #9）：复用 `user_grants` 或新建 `approval_routes`（event_type / approver_username / 优先级），super_admin 后台维护；未指定走默认审批流
+- **OA 自审规则**（v6 #3）：逻辑改动，无表结构变化——`oa_approve_event` 增加"非 super_admin 且 operator_id==当前用户 → 400"
+- **通知**（v6 #8）：无新表（基于 `employee_events` pending 状态 + `oa_pending/count` 派生红点）；如需要已读状态则新建 `notifications` 表（P13 实施时定）
+- **请假子页**（v6 #4）：IA 调整，无表结构变化
+- **中英双语**（v6 #10）：纯 i18n.js 键补齐 + index.html 硬编码文案替换，无表结构变化
+- **v5 settings**：**移除** `driver_allowance`（旧全局手工津贴）在计薪参数页的读写；司机津贴单价沿用既有默认 5,000/班，不新增配置键
 
 ---
 

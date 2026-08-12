@@ -9,6 +9,8 @@
 - `REFACTOR_SPEC.md`：重构 PRD（需求、验收标准、用户流程），评审后少改
 - `DEV_WORKFLOW.md`：工程协作约定（分支模型、纵向切片、提交/推送纪律、部署时机）
 - `docs/P0_DATA_MODEL_AND_API.md`：P0 数据模型 + API 契约，重构期新表/新接口的权威来源
+- `docs/P12_OA_PROFILE_COLLECTION_REFINEMENT.md`：P12 阶段详设（OA 子页化 / 档案独立页 / 数据采集修正 / 系统清理收尾），实施对照清单
+- `docs/P13_OA_NOTIFY_QA_REFINEMENT.md`：P13 阶段详设（筛选修复 / OA 自审规则 / 请假子页 / 通知铃铛 / 审批人设定 / 中英双语审查），实施对照清单
 
 ## 协作流程
 
@@ -250,6 +252,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | **`collection_submissions`** | **P9 新增**：数据采集提交主表（井下/钻工/破碎/出勤收集 4 类） | P9 |
 | **`collection_history`** | **P9 新增**：编辑历史版本表（旧 payload 留档） | P9 |
 | **`employee_groups`** | **P10 新增**：班组表（LAMBA LAMBA / SAKA SAKA 等） | P10 |
+| **`driller_captains`** | **v5 新增**：钻工队长名单（当前 3 人，计薪参数页维护） | v5 |
 
 ### 硬排除名单（`app.py:40-45`）
 
@@ -332,7 +335,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET | `/production` | editor+ | 产量数据 |
 | GET | `/production-verify` | editor+ | 钻工产量核对 |
 | GET | `/daily-wages` | editor+ | 日工资明细 |
-| GET | `/driller-captains` | editor+ | 钻工队长/队员列表 |
+| GET | `/driller-captains` | editor+ | 钻工队长/队员列表（读主数据） |
+| **GET/POST/PUT/DELETE** | **`/api/driller-captains`** | **admin+** | **P12 新增**：`driller_captains` 名单 CRUD（计薪参数页维护，钻工采集队长下拉数据源） |
 | GET | `/audit-log` | admin+ | 审计日志 |
 | POST | `/export` | editor+ | 薪资 Excel（3 Sheet） |
 | POST | `/export/employees` | editor+ | 员工花名册 Excel |
@@ -386,7 +390,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ## 重构状态（2026-08-12）
 
 **分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
-**阶段**: **P0-P11 全部完成，v4 本地验收通过**（REFACTOR_SPEC.md v4 已落地）
+**阶段**: **P0-P12 全部完成，v5 本地验收通过**（REFACTOR_SPEC.md v5 已落地，P12 代码已改未提交）
+**v6**: 验收后 10 条有效反馈已对齐并入 **REFACTOR_SPEC.md v6**，实施归入 **P13**（DEV_WORKFLOW §5），尚未动代码
 **服务器**: 仍在运行 `main` 分支旧代码，待部署切换 refactor 分支
 
 ### 重构新增主要功能
@@ -405,13 +410,12 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | P9 | 数据采集模块重设计（4 表单 + 提交页+历史区+再编辑 + D+N 同表 + reload 持久化） |
 | P10 | 评分模块重设计（班组 LAMBA/SAKA + 自定义工号 + 一张张卡 + month 维度） |
 | P11 | 系统清理 + 薪资总表新列（源文件管理 UI 删除 / 司机津贴 is_driver 机制 / driver_allowance 列 / 生产薪资改名） |
+| **P12** | **v5 需求对齐迭代**（OA 三申请独立子页+入职全字段 / 档案独立页+简历头像+余额可改 / 姓名可选中复制 / 井下三列标签+双备注+驾驶勾选 / 钻工队长名单化+添加队伍 / 出勤收集按部门 / 采集选中框对齐 / 计薪参数删司机津贴+队长名单 / 评分系统改名） |
+| **P13** | **v6 需求对齐迭代**（部门筛选修复 / 档案子页移出侧栏 / OA 自审分角色+审批详情 / 请假子页 / 侧栏折叠样式 / 入职头像 / 入职后跳转待审 / 通知铃铛红点 / 后台指定审批人 / 全页面中英双语） |
 
 ### 下一步
 
-1. **部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`（v4 本地验收已通过）
-2. **数据库迁移**：服务器首次启动 init_db 自动 ALTER（employees 新列/leave_balances 病假/attendance_overrides is_driver/scoring_cards month UNIQUE 重建/新表）；**改前建议先备份**
-3. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
-2. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
-3. **项目记忆**：`.memory` 软连接（已完成，2026-08-12）
+1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
+2. **P13 实施**：按 REFACTOR_SPEC.md v6（§0.2/§11-P13）落地 10 条有效反馈，逐项对照 §13 验收
+3. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
 4. **git 清理**：提交误跟踪的 `data/kilwa.db-wal`/`data/kilwa.db-shm` 删除（.gitignore 已补防）
-5. **v4 PRD 实施**：按 P6→P11 顺序推进；每个阶段独立本地验证后再合并
