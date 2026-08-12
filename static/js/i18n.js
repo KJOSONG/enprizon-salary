@@ -317,6 +317,16 @@ const I18N_DICT = {
     search_type_attendance: '出勤',
     search_type_salary: '薪资',
     search_type_production: '产量',
+    /* ── 表单自定义 ── */
+    form_manage_desc: '管理表单定义和字段，修改后即时生效',
+    form_schema_list: '表单定义列表',
+    form_create_new: '+ 新建表单',
+    form_select_hint: '在左侧选择一个表单以编辑其字段',
+    form_fields: '字段',
+    form_no_schemas: '暂无表单定义',
+    form_no_fields: '暂无字段',
+    form_add_field: '+ 添加字段',
+    form_required: '必填',
 
     /* ── Toast ── */
     toast_calc_done: '计算完成',
@@ -763,6 +773,16 @@ const I18N_DICT = {
     search_type_attendance: 'Attendance',
     search_type_salary: 'Salary',
     search_type_production: 'Production',
+    /* ── Form Customization ── */
+    form_manage_desc: 'Manage form definitions and fields, changes take effect instantly',
+    form_schema_list: 'Form Schema List',
+    form_create_new: '+ New Form',
+    form_select_hint: 'Select a form on the left to edit its fields',
+    form_fields: 'Fields',
+    form_no_schemas: 'No form definitions',
+    form_no_fields: 'No fields',
+    form_add_field: '+ Add Field',
+    form_required: 'Required',
 
     /* ── Toast ── */
     toast_calc_done: 'Calculation complete',

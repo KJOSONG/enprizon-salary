@@ -286,6 +286,91 @@ def global_search():
     results = search_all(app.config['DATA_FOLDER'], q, scope)
     return jsonify({'ok': True, 'results': results, 'q': q, 'scope': scope})
 
+# ═══════════════════════════════════════════════════════════
+#  API: 表单自定义管理
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/forms/schemas', methods=['GET'])
+@login_required
+def api_form_schemas():
+    from core.database import list_form_schemas
+    schemas = list_form_schemas(app.config['DATA_FOLDER'])
+    return jsonify({'ok': True, 'schemas': schemas})
+
+@app.route('/api/forms/schema/<int:schema_id>', methods=['GET'])
+@login_required
+def api_form_schema(schema_id):
+    from core.database import get_form_schema
+    schema = get_form_schema(app.config['DATA_FOLDER'], schema_id)
+    if not schema:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+    return jsonify({'ok': True, 'schema': schema})
+
+@app.route('/api/forms/schema', methods=['POST'])
+@super_admin_required
+def api_create_form_schema():
+    from core.database import create_form_schema
+    data = request.get_json(silent=True) or {}
+    if not data.get('name'):
+        return jsonify({'ok': False, 'error': 'missing_name'}), 400
+    try:
+        sid = create_form_schema(app.config['DATA_FOLDER'], data)
+        _audit('form_schema_create', '', json.dumps({'name': data['name']}))
+        return jsonify({'ok': True, 'id': sid})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+@app.route('/api/forms/schema/<int:schema_id>', methods=['PUT'])
+@super_admin_required
+def api_update_form_schema(schema_id):
+    from core.database import update_form_schema
+    data = request.get_json(silent=True) or {}
+    update_form_schema(app.config['DATA_FOLDER'], schema_id, data)
+    _audit('form_schema_update', '', json.dumps({'id': schema_id}))
+    return jsonify({'ok': True})
+
+@app.route('/api/forms/schema/<int:schema_id>', methods=['DELETE'])
+@super_admin_required
+def api_delete_form_schema(schema_id):
+    from core.database import delete_form_schema
+    delete_form_schema(app.config['DATA_FOLDER'], schema_id)
+    _audit('form_schema_delete', '', json.dumps({'id': schema_id}))
+    return jsonify({'ok': True})
+
+@app.route('/api/forms/schema/<int:schema_id>/fields', methods=['POST'])
+@super_admin_required
+def api_add_form_field(schema_id):
+    from core.database import add_form_field
+    data = request.get_json(silent=True) or {}
+    if not data.get('field_key'):
+        return jsonify({'ok': False, 'error': 'missing_field_key'}), 400
+    add_form_field(app.config['DATA_FOLDER'], schema_id, data)
+    _audit('form_field_add', '', json.dumps({'schema_id': schema_id, 'key': data['field_key']}))
+    return jsonify({'ok': True})
+
+@app.route('/api/forms/schema/<int:schema_id>/fields/<int:field_id>', methods=['PUT'])
+@super_admin_required
+def api_update_form_field(schema_id, field_id):
+    from core.database import update_form_field
+    data = request.get_json(silent=True) or {}
+    update_form_field(app.config['DATA_FOLDER'], field_id, data)
+    return jsonify({'ok': True})
+
+@app.route('/api/forms/schema/<int:schema_id>/fields/<int:field_id>', methods=['DELETE'])
+@super_admin_required
+def api_delete_form_field(schema_id, field_id):
+    from core.database import delete_form_field
+    delete_form_field(app.config['DATA_FOLDER'], field_id)
+    return jsonify({'ok': True})
+
+@app.route('/api/forms/seed-defaults', methods=['POST'])
+@super_admin_required
+def api_seed_default_forms():
+    from core.database import seed_default_forms
+    seed_default_forms(app.config['DATA_FOLDER'])
+    _audit('form_seed_defaults', '', '{}')
+    return jsonify({'ok': True})
+
 def strip_dept(dept):
     """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门；纯顶层部门保留原名"""
     if not dept:
@@ -3016,8 +3101,9 @@ def _gunicorn_init():
     _app_initialized = True
     from core.database import init_db
     init_db(app.config['DATA_FOLDER'])
-    from core.database import init_default_permissions
+    from core.database import init_default_permissions, seed_default_forms
     init_default_permissions(app.config['DATA_FOLDER'])
+    seed_default_forms(app.config['DATA_FOLDER'])
     loaded = auto_load_source()
     if loaded:
         print('  ✓ 源数据已自动加载')
@@ -3028,10 +3114,11 @@ if __name__ != '__main__':
     _gunicorn_init()
 
 if __name__ == '__main__':
-    from core.database import init_db, init_default_permissions
+    from core.database import init_db, init_default_permissions, seed_default_forms
     _app_initialized = True
     init_db(app.config['DATA_FOLDER'])
     init_default_permissions(app.config['DATA_FOLDER'])
+    seed_default_forms(app.config['DATA_FOLDER'])
 
     port = find_free_port(8080)
     print('=' * 50)

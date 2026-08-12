@@ -657,10 +657,21 @@
   </div>
 </div>
 <div class="page" id="page-system-forms">
-  <div class="card" style="text-align:center;padding:60px 20px;">
-    <div style="font-size:48px;margin-bottom:16px;">📝</div>
-    <h2 data-i18n="nav_system_forms">表单自定义</h2>
-    <p style="color:var(--text-muted);" data-i18n="placeholder_desc">将在后续阶段实现</p>
+  <div class="card">
+    <h2>📝 <span data-i18n="nav_system_forms">表单自定义</span></h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;" data-i18n="form_manage_desc">管理表单定义和字段，修改后即时生效</p>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      <!-- 左侧: 表单列表 -->
+      <div style="flex:0 0 280px;background:var(--bg-secondary);padding:12px;border-radius:var(--radius);border:1px solid var(--border);">
+        <h3 style="font-size:12px;margin-bottom:8px;" data-i18n="form_schema_list">表单定义列表</h3>
+        <div id="formSchemaList"></div>
+        <button class="btn-primary" onclick="createNewForm()" style="margin-top:8px;font-size:11px;" data-i18n="form_create_new">+ 新建表单</button>
+      </div>
+      <!-- 右侧: 字段编辑器 -->
+      <div id="formFieldEditor" style="flex:1;min-width:300px;background:var(--bg-secondary);padding:12px;border-radius:var(--radius);border:1px solid var(--border);">
+        <p style="color:var(--text-muted);font-size:12px;" data-i18n="form_select_hint">在左侧选择一个表单以编辑其字段</p>
+      </div>
+    </div>
   </div>
 </div>
 <div class="page" id="page-system-archive">
@@ -1208,6 +1219,8 @@ function showTargetPage(module, subPage) {
 
   // P4: 权限管理页面加载
   if (module === 'system' && subPage === 'users') loadPermissionsPage();
+  // P4: 表单管理页面加载
+  if (module === 'system' && subPage === 'forms') loadFormSchemas();
 }
 
 function showPlaceholder(module, subPage) {
@@ -3393,6 +3406,195 @@ document.querySelectorAll('.chart-label-toggle').forEach(cb => {
     }
   });
 });
+
+// ══════════════════════════════════════════════════════
+// P4: 表单自定义
+// ══════════════════════════════════════════════════════
+
+let _formSchemas = [];
+let _currentFormSchema = null;
+
+async function loadFormSchemas() {
+  try {
+    const res = await authFetch(api('/api/forms/schemas'));
+    const data = await res.json();
+    if (!data.ok) return;
+    _formSchemas = data.schemas;
+    renderFormSchemaList();
+  } catch(e) {}
+}
+
+function renderFormSchemaList() {
+  const el = document.getElementById('formSchemaList');
+  if (!el) return;
+  if (_formSchemas.length === 0) {
+    el.innerHTML = '<p style="color:var(--text-muted);font-size:11px;" data-i18n="form_no_schemas">暂无表单定义</p>';
+    return;
+  }
+  el.innerHTML = _formSchemas.map(s => `
+    <div class="form-schema-card${_currentFormSchema && _currentFormSchema.id === s.id ? ' active' : ''}"
+         onclick="selectFormSchema(${s.id})"
+         style="padding:8px 10px;margin-bottom:4px;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:${_currentFormSchema && _currentFormSchema.id === s.id ? 'rgba(0,112,243,0.1)' : 'transparent'}">
+      <div style="font-weight:500;font-size:12px;">${escHtml(s.name)}</div>
+      <div style="font-size:10px;color:var(--text-muted);">${escHtml(s.description || '')} · ${s.field_count} 个字段</div>
+    </div>
+  `).join('');
+}
+
+async function selectFormSchema(id) {
+  try {
+    const res = await authFetch(api('/api/forms/schema/' + id));
+    const data = await res.json();
+    if (!data.ok) return;
+    _currentFormSchema = data.schema;
+    renderFormSchemaList();
+    renderFieldEditor();
+  } catch(e) {}
+}
+
+function renderFieldEditor() {
+  const el = document.getElementById('formFieldEditor');
+  if (!el || !_currentFormSchema) return;
+
+  const s = _currentFormSchema;
+  let html = `<h3 style="font-size:12px;margin-bottom:8px;">${escHtml(s.name)} — <span data-i18n="form_fields">字段</span></h3>`;
+  html += '<div style="max-height:400px;overflow-y:auto;margin-bottom:8px;">';
+
+  if (!s.fields || s.fields.length === 0) {
+    html += '<p style="color:var(--text-muted);font-size:11px;" data-i18n="form_no_fields">暂无字段</p>';
+  } else {
+    s.fields.forEach((f, i) => {
+      const typeLabel = f.field_type || 'text';
+      html += `<div style="padding:6px 8px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px;font-size:11px;">
+        <span style="width:20px;color:var(--text-muted);">${i+1}.</span>
+        <b>${escHtml(f.field_key)}</b>
+        <span style="color:var(--accent);">${typeLabel}</span>
+        <span>${escHtml(f.label_zh)}</span>
+        ${f.required ? '<span style="color:#F44336;">*</span>' : ''}
+        <span style="flex:1;"></span>
+        <button class="btn-primary" style="font-size:9px;padding:1px 5px;" onclick="deleteFormField(${f.id})">✕</button>
+      </div>`;
+    });
+  }
+  html += '</div>';
+  // 添加字段表单
+  html += `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;font-size:11px;">
+    <input type="text" id="newFieldKey" placeholder="字段名" style="width:80px;padding:3px 5px;">
+    <select id="newFieldType" style="width:70px;padding:3px 5px;">
+      <option value="text">text</option>
+      <option value="number">number</option>
+      <option value="select">select</option>
+      <option value="date">date</option>
+      <option value="textarea">textarea</option>
+      <option value="checkbox">checkbox</option>
+    </select>
+    <input type="text" id="newFieldLabelZh" placeholder="中文标签" style="width:80px;padding:3px 5px;">
+    <input type="text" id="newFieldLabelEn" placeholder="英文标签" style="width:80px;padding:3px 5px;">
+    <label><input type="checkbox" id="newFieldRequired" checked> <span data-i18n="form_required">必填</span></label>
+    <button class="btn-primary" onclick="addFormField()" style="font-size:10px;padding:3px 8px;" data-i18n="form_add_field">+ 添加字段</button>
+  </div>`;
+  el.innerHTML = html;
+}
+
+async function addFormField() {
+  if (!_currentFormSchema) return;
+  const key = document.getElementById('newFieldKey').value.trim();
+  const type = document.getElementById('newFieldType').value;
+  const labelZh = document.getElementById('newFieldLabelZh').value.trim();
+  const labelEn = document.getElementById('newFieldLabelEn').value.trim();
+  const required = document.getElementById('newFieldRequired').checked;
+  if (!key) { showToast('字段名不能为空'); return; }
+
+  try {
+    await authFetch(api('/api/forms/schema/' + _currentFormSchema.id + '/fields'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        field_key: key, field_type: type, label_zh: labelZh, label_en: labelEn,
+        required: required ? 1 : 0, sort_order: (_currentFormSchema.fields ? _currentFormSchema.fields.length : 0) + 1
+      }),
+    });
+    selectFormSchema(_currentFormSchema.id);
+    showToast('字段已添加');
+  } catch(e) { showToast('添加失败'); }
+}
+
+async function deleteFormField(fieldId) {
+  if (!_currentFormSchema) return;
+  try {
+    await authFetch(api('/api/forms/schema/' + _currentFormSchema.id + '/fields/' + fieldId), { method: 'DELETE' });
+    selectFormSchema(_currentFormSchema.id);
+    showToast('字段已删除');
+  } catch(e) { showToast('删除失败'); }
+}
+
+async function createNewForm() {
+  const name = prompt('表单名称 (英文标识):');
+  if (!name) return;
+  const desc = prompt('描述:', '');
+  try {
+    const res = await authFetch(api('/api/forms/schema'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: desc || '', table_name: 'employees' }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('表单已创建');
+      loadFormSchemas();
+    }
+  } catch(e) { showToast('创建失败'); }
+}
+
+/* ── 通用表单渲染器 ── */
+function renderFormFromSchema(schemaId, targetEl, submitCallback) {
+  const schema = _formSchemas.find(s => s.id === schemaId);
+  if (!schema) { targetEl.innerHTML = '<p>表单未找到</p>'; return; }
+
+  // fetch full schema with fields
+  authFetch(api('/api/forms/schema/' + schemaId)).then(async res => {
+    const data = await res.json();
+    if (!data.ok) { targetEl.innerHTML = '<p>加载失败</p>'; return; }
+    const s = data.schema;
+    let html = '<div class="schema-form">';
+    (s.fields || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(f => {
+      const lang = getLang();
+      const label = lang === 'en' ? (f.label_en || f.label_zh) : f.label_zh;
+      const placeholder = lang === 'en' ? (f.placeholder_en || '') : (f.placeholder_zh || '');
+      const req = f.required ? ' required' : '';
+      const defVal = f.default_value || '';
+
+      html += `<div class="form-row" style="margin-bottom:8px;">
+        <label style="min-width:100px;font-size:12px;">${escHtml(label)}${f.required ? ' *' : ''}</label>`;
+
+      if (f.field_type === 'select') {
+        let options = [];
+        try { options = JSON.parse(f.options || '[]'); } catch(e) {}
+        html += `<select name="${escHtml(f.field_key)}"${req} style="flex:1;padding:4px 8px;">`;
+        options.forEach(opt => {
+          html += `<option value="${escHtml(opt)}"${opt === defVal ? ' selected' : ''}>${opt}</option>`;
+        });
+        html += '</select>';
+      } else if (f.field_type === 'textarea') {
+        html += `<textarea name="${escHtml(f.field_key)}"${req} placeholder="${escHtml(placeholder)}" style="flex:1;padding:4px 8px;min-height:60px;">${escHtml(defVal)}</textarea>`;
+      } else if (f.field_type === 'checkbox') {
+        html += `<input type="checkbox" name="${escHtml(f.field_key)}"${defVal === '1' || defVal === 'true' ? ' checked' : ''}>`;
+      } else if (f.field_type === 'date') {
+        html += `<input type="date" name="${escHtml(f.field_key)}"${req} value="${escHtml(defVal)}" style="flex:1;padding:4px 8px;">`;
+      } else if (f.field_type === 'number') {
+        html += `<input type="number" name="${escHtml(f.field_key)}"${req} value="${escHtml(defVal)}" placeholder="${escHtml(placeholder)}" style="flex:1;padding:4px 8px;">`;
+      } else {
+        html += `<input type="text" name="${escHtml(f.field_key)}"${req} value="${escHtml(defVal)}" placeholder="${escHtml(placeholder)}" style="flex:1;padding:4px 8px;">`;
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    targetEl.innerHTML = html;
+    if (submitCallback) submitCallback(targetEl);
+  }).catch(() => {
+    targetEl.innerHTML = '<p>加载失败</p>';
+  });
+}
 
 // ══════════════════════════════════════════════════════
 // P4: 全局搜索

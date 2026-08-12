@@ -222,6 +222,31 @@ def init_db(data_folder):
             daily_s REAL DEFAULT 0,
             UNIQUE(record_date, team)
         );
+        CREATE TABLE IF NOT EXISTS form_schemas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT DEFAULT '',
+            table_name TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE TABLE IF NOT EXISTS form_fields (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            schema_id INTEGER NOT NULL,
+            field_key TEXT NOT NULL,
+            field_type TEXT NOT NULL DEFAULT 'text',
+            label_zh TEXT NOT NULL DEFAULT '',
+            label_en TEXT NOT NULL DEFAULT '',
+            options TEXT DEFAULT '[]',
+            placeholder_zh TEXT DEFAULT '',
+            placeholder_en TEXT DEFAULT '',
+            required INTEGER DEFAULT 0,
+            visible_roles TEXT DEFAULT '[]',
+            sort_order INTEGER DEFAULT 0,
+            is_custom INTEGER DEFAULT 0,
+            default_value TEXT DEFAULT '',
+            FOREIGN KEY (schema_id) REFERENCES form_schemas(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
 
@@ -1341,3 +1366,174 @@ def search_all(data_folder, query, scope='all'):
 
     conn.close()
     return results[:30]
+
+
+# ── P4: 表单自定义 ──────────────────
+
+def list_form_schemas(data_folder):
+    conn = get_conn(data_folder)
+    rows = conn.execute("SELECT * FROM form_schemas ORDER BY created_at").fetchall()
+    # 为每个 schema 附加字段数
+    result = []
+    for r in rows:
+        cnt = conn.execute("SELECT COUNT(*) FROM form_fields WHERE schema_id=?", (r['id'],)).fetchone()[0]
+        result.append({**dict(r), 'field_count': cnt})
+    conn.close()
+    return result
+
+def get_form_schema(data_folder, schema_id):
+    conn = get_conn(data_folder)
+    schema = conn.execute("SELECT * FROM form_schemas WHERE id=?", (schema_id,)).fetchone()
+    if not schema:
+        conn.close()
+        return None
+    fields = conn.execute(
+        "SELECT * FROM form_fields WHERE schema_id=? ORDER BY sort_order",
+        (schema_id,)).fetchall()
+    conn.close()
+    return {**dict(schema), 'fields': [dict(f) for f in fields]}
+
+def create_form_schema(data_folder, data):
+    conn = get_conn(data_folder)
+    cur = conn.execute(
+        "INSERT INTO form_schemas (name, description, table_name) VALUES (?,?,?)",
+        (data['name'], data.get('description', ''), data.get('table_name', '')))
+    sid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return sid
+
+def update_form_schema(data_folder, schema_id, data):
+    conn = get_conn(data_folder)
+    sets = []
+    vals = []
+    for k in ['name', 'description', 'table_name']:
+        if k in data:
+            sets.append(f"{k}=?")
+            vals.append(data[k])
+    if sets:
+        sets.append("updated_at=datetime('now','localtime')")
+        vals.append(schema_id)
+        conn.execute(f"UPDATE form_schemas SET {', '.join(sets)} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+
+def delete_form_schema(data_folder, schema_id):
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM form_fields WHERE schema_id=?", (schema_id,))
+    conn.execute("DELETE FROM form_schemas WHERE id=?", (schema_id,))
+    conn.commit()
+    conn.close()
+
+def add_form_field(data_folder, schema_id, data):
+    conn = get_conn(data_folder)
+    conn.execute("""
+        INSERT INTO form_fields (schema_id, field_key, field_type, label_zh, label_en,
+            options, placeholder_zh, placeholder_en, required, visible_roles,
+            sort_order, is_custom, default_value)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (schema_id, data['field_key'], data.get('field_type', 'text'),
+          data.get('label_zh', ''), data.get('label_en', ''),
+          json.dumps(data.get('options', [])),
+          data.get('placeholder_zh', ''), data.get('placeholder_en', ''),
+          data.get('required', 0), json.dumps(data.get('visible_roles', [])),
+          data.get('sort_order', 0), data.get('is_custom', 0),
+          data.get('default_value', '')))
+    conn.commit()
+    conn.close()
+
+def update_form_field(data_folder, field_id, data):
+    conn = get_conn(data_folder)
+    sets = []
+    vals = []
+    for k in ['field_key', 'field_type', 'label_zh', 'label_en', 'placeholder_zh',
+              'placeholder_en', 'required', 'sort_order', 'is_custom', 'default_value']:
+        if k in data:
+            sets.append(f"{k}=?")
+            vals.append(data[k])
+    if 'options' in data:
+        sets.append("options=?")
+        vals.append(json.dumps(data['options']))
+    if 'visible_roles' in data:
+        sets.append("visible_roles=?")
+        vals.append(json.dumps(data['visible_roles']))
+    if sets:
+        vals.append(field_id)
+        conn.execute(f"UPDATE form_fields SET {', '.join(sets)} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+
+def delete_form_field(data_folder, field_id):
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM form_fields WHERE id=?", (field_id,))
+    conn.commit()
+    conn.close()
+
+def seed_default_forms(data_folder):
+    """初始化预设表单（入职/档案编辑），幂等"""
+    conn = get_conn(data_folder)
+    # 检查是否已有表单
+    count = conn.execute("SELECT COUNT(*) FROM form_schemas").fetchone()[0]
+    if count > 0:
+        conn.close()
+        return
+
+    # 入职表单
+    conn.execute("INSERT INTO form_schemas (name, description, table_name) VALUES (?,?,?)",
+                 ('employee_onboarding', '员工入职表单', 'employees'))
+    sid = conn.execute("SELECT id FROM form_schemas WHERE name='employee_onboarding'").fetchone()['id']
+
+    onboarding_fields = [
+        ('name', 'text', '姓名', 'Name', 1, 1),
+        ('department', 'text', '部门', 'Department', 1, 2),
+        ('position', 'text', '岗位', 'Position', 0, 3),
+        ('hire_date', 'date', '入职日期', 'Hire Date', 1, 4),
+        ('nida_number', 'text', 'NIDA 证件号', 'NIDA Number', 0, 5),
+        ('nssf_number', 'text', 'NSSF 社保号', 'NSSF Number', 0, 6),
+        ('phone', 'text', '电话', 'Phone', 0, 7),
+        ('bank_name', 'text', '银行名称', 'Bank Name', 0, 8),
+        ('bank_account', 'text', '银行账号', 'Bank Account', 0, 9),
+        ('bank_owner', 'text', '户名', 'Account Owner', 0, 10),
+        ('default_type', 'select', '薪资类型', 'Salary Type', 1, 11),
+        ('day_rate', 'number', '日薪基数', 'Day Rate', 0, 12),
+        ('monthly_salary', 'number', '月薪基数', 'Monthly Salary', 0, 13),
+    ]
+    for f_key, f_type, lzh, len_val, req, order in onboarding_fields:
+        options = '[]'
+        df = ''
+        if f_key == 'default_type':
+            options = json.dumps(['day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'])
+            df = 'day_rate'
+        conn.execute("""
+            INSERT INTO form_fields (schema_id, field_key, field_type, label_zh, label_en,
+                options, required, sort_order, is_custom, default_value)
+            VALUES (?,?,?,?,?,?,?,?,0,?)
+        """, (sid, f_key, f_type, lzh, len_val, options, req, order, df))
+
+    # 档案编辑表单
+    conn.execute("INSERT INTO form_schemas (name, description, table_name) VALUES (?,?,?)",
+                 ('employee_profile', '员工档案编辑', 'employees'))
+    sid2 = conn.execute("SELECT id FROM form_schemas WHERE name='employee_profile'").fetchone()['id']
+
+    profile_fields = onboarding_fields + [
+        ('skill_level', 'text', '技能等级', 'Skill Level', 0, 14),
+        ('status', 'select', '状态', 'Status', 1, 15),
+        ('custom_fields', 'text', '自定义字段(JSON)', 'Custom Fields', 0, 16),
+    ]
+    for f_key, f_type, lzh, len_val, req, order in profile_fields:
+        options = '[]'
+        df = ''
+        if f_key == 'default_type':
+            options = json.dumps(['day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'])
+            df = 'day_rate'
+        elif f_key == 'status':
+            options = json.dumps(['active', 'inactive'])
+            df = 'active'
+        conn.execute("""
+            INSERT INTO form_fields (schema_id, field_key, field_type, label_zh, label_en,
+                options, required, sort_order, is_custom, default_value)
+            VALUES (?,?,?,?,?,?,?,?,0,?)
+        """, (sid2, f_key, f_type, lzh, len_val, options, req, order, df))
+
+    conn.commit()
+    conn.close()
