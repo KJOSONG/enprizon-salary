@@ -12,3 +12,8 @@ uploads/*
 *.bak.*
 data/source/*.xlsx
 !data/source/.gitkeep
+.memory
+
+# Codebuddy/Workbuddy project dirs
+.codebuddy/
+.workbuddy/
