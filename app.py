@@ -2400,8 +2400,13 @@ def get_salary():
         result = calculate_all(md, APP_STATE['employees'], overrides=overrides, exclusions=exclusions,
                                pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
                                bonus_penalties=bonus_penalties)
-        return jsonify({'result': result, 'headless': not bool(md.get('dates'))})
-    return jsonify({'result': APP_STATE.get('salary_result'), 'headless': APP_STATE.get('headless', False)})
+        if isinstance(result, dict):
+            result['month'] = month  # 新算的临时结果，直接挂元数据
+        return jsonify({'result': result, 'month': month, 'headless': not bool(md.get('dates'))})
+    res = APP_STATE.get('salary_result')
+    if isinstance(res, dict):
+        res = {**res, 'month': APP_STATE.get('month', '')}  # 浅拷贝，防污染缓存
+    return jsonify({'result': res, 'month': APP_STATE.get('month', ''), 'headless': APP_STATE.get('headless', False)})
 
 # ═══════════════════════════════════════════════════════════
 #  API: 薪资双路径核对

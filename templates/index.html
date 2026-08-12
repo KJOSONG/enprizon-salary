@@ -1015,8 +1015,9 @@ async function checkAuth() {
       try {
         const sRes = await fetch(api('/salary'));
         const sData = await sRes.json();
-        if (sData.result && sData.result.month) {
-          STATE.currentMonth = sData.result.month;
+        const m = (sData.result && sData.result.month) || sData.month;
+        if (m) {
+          STATE.currentMonth = m;
           updatePeriodBar();
         }
       } catch(e) {}
@@ -1171,12 +1172,13 @@ async function submitLogin() {
       // P11-fix: 登录成功后确保 currentMonth 有值（init() 登录前跑，未登录时 /salary 401）
       if (!STATE.currentMonth) {
         try {
-          const sRes = await fetch(api('/salary'));
-          const sData = await sRes.json();
-          if (sData.result && sData.result.month) {
-            STATE.currentMonth = sData.result.month;
-            updatePeriodBar();
-          }
+        const sRes = await fetch(api('/salary'));
+        const sData = await sRes.json();
+        const m = (sData.result && sData.result.month) || sData.month;
+        if (m) {
+          STATE.currentMonth = m;
+          updatePeriodBar();
+        }
         } catch(e) {}
       }
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
@@ -1553,9 +1555,10 @@ function toggleCollapseSidebar() {
       loadProductionData();
       loadSourceInfo();
       populateMonthSelect(data.result);
-      // 设置当前月份并更新周期条
-      if (data.result.month) {
-        STATE.currentMonth = data.result.month;
+      // 设置当前月份并更新周期条（兼容 result.month 与外层 month）
+      const m = (data.result && data.result.month) || data.month;
+      if (m) {
+        STATE.currentMonth = m;
         updatePeriodBar();
       }
     }
