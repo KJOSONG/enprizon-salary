@@ -10,7 +10,8 @@
   <link rel="stylesheet" href="{{ static_url('css/style.css') }}?v={{ version }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>!function(){var t=localStorage.getItem('enprizon-theme');t==='dark'&&document.documentElement.classList.add('dark')}();</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js">
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js">
@@ -108,7 +109,21 @@
       <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
       <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
     </div>
-    <button class="nav-btn" id="exportBtn" onclick="exportAll()" title="导出完整报表" style="font-size:12px;padding:4px 10px;" data-i18n="btn_export">📥 导出报表</button>
+    <button class="nav-btn" id="exportBtn" onclick="exportAll()" title="导出完整报表" data-i18n="btn_export">📥 导出报表</button>
+    <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="切换主题" data-i18n-title="theme_toggle">☀️</button>
+    <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="通知" style="display:none;" data-i18n-title="notif_title">
+      <span class="notif-icon">🔔</span>
+      <span class="notif-badge" id="notifBadge" style="display:none;"></span>
+    </button>
+    <div class="notif-panel" id="notifPanel" style="display:none;">
+      <div class="notif-panel-header">
+        <span data-i18n="notif_title">通知</span>
+        <span class="notif-count" id="notifCount"></span>
+      </div>
+      <div class="notif-list" id="notifList">
+        <div style="text-align:center;color:var(--muted-foreground);padding:20px;" data-i18n="notif_loading">加载中...</div>
+      </div>
+    </div>
     <!-- 三道杠折叠菜单：收纳工具与用户操作 -->
     <div class="topbar-menu-wrap" id="topbarMenuWrap" style="position:relative;">
       <button class="nav-btn" id="topbarMenuBtn" onclick="toggleTopbarMenu()" title="菜单" style="font-size:16px;padding:4px 10px;">☰</button>
@@ -645,6 +660,13 @@
       </div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_ug_mode_desc">评分模式: 井下工人走固定月薪+司机津贴+评分奖金; 计件模式保持原有逻辑</p>
     </div>
+    <!-- P15: 评分奖金池参数（NICKEL(H) 门槛/单价） -->
+    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+      <h3 style="margin-bottom:8px;font-size:13px;" data-i18n="pool_params_title">评分奖金池参数</h3>
+      <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;" data-i18n="pool_threshold">NICKEL(H)门槛</label><input type="number" id="cfg_nh_threshold" class="cfg-input" step="1" onchange="saveConfig()"></div>
+      <div class="form-row"><label style="min-width:90px;" data-i18n="pool_price">单价(TZS/车次)</label><input type="number" id="cfg_nh_price" class="cfg-input" step="1" onchange="saveConfig()"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="pool_params_desc">总池 = max(NICKEL(H)车次 − 门槛, 0) × 单价；半池 = 总池×50%</p>
+    </div>
     <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
       <h3 style="margin-bottom:8px;font-size:13px;">🤒 <span data-i18n="settings_sick_leave">病假年额度</span></h3>
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_sick_days">天数/年</label><input type="number" id="cfg_sick_days" class="cfg-input" data-key="sick_leave_days" step="1" onchange="saveConfig()"></div>
@@ -802,7 +824,12 @@
         <option value="1" data-i18n="team1">班组1</option><option value="2" data-i18n="team2">班组2</option>
       </select>
     </div>
-    <div class="table-wrap"><table class="data-table" id="sumTable"><thead><tr><th data-i18n="sum_th_id">编号</th><th data-i18n="sum_th_name">员工</th><th data-i18n="sum_th_peer">互评均值</th><th data-i18n="sum_th_worker">工友行为分</th><th data-i18n="sum_th_mgmt">管理行为分</th><th data-i18n="sum_th_final">最终行为分</th><th data-i18n="sum_th_coef">系数</th><th data-i18n="sum_th_dev">偏离</th></tr></thead><tbody><tr><td colspan="8" style="text-align:center;color:var(--text-muted);" data-i18n="sum_pick_team_hint">选择班组查看</td></tr></tbody></table></div>
+    <!-- P15: 奖金池展示卡 -->
+    <div id="poolCard" style="display:none;margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;" data-i18n="pool_title">奖金池</div>
+      <div id="poolCardBody" style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;"></div>
+    </div>
+    <div class="table-wrap"><table class="data-table" id="sumTable"><thead><tr><th data-i18n="sum_th_id">编号</th><th data-i18n="sum_th_name">员工</th><th data-i18n="sum_th_peer">互评均值</th><th data-i18n="sum_th_worker">工友行为分</th><th data-i18n="sum_th_mgmt">管理行为分</th><th data-i18n="sum_th_final">最终行为分</th><th data-i18n="sum_th_coef">系数</th><th data-i18n="sum_th_dev">偏离</th><th data-i18n="sum_th_bonus">奖金(TZS)</th></tr></thead><tbody><tr><td colspan="9" style="text-align:center;color:var(--text-muted);" data-i18n="sum_pick_team_hint">选择班组查看</td></tr></tbody></table></div>
     <!-- 三闸面板 -->
     <div class="gate-panel" id="gatePanel" style="margin-top:16px;display:none;">
       <h3 style="font-size:13px;margin-bottom:8px;" data-i18n="gate_title">三闸检测</h3>
@@ -817,14 +844,14 @@
   <div class="card">
     <h2 data-i18n="nav_scoring_objective">客观录入</h2>
     <div class="filter-bar" style="margin-bottom:12px;">
-      <input type="date" id="objDate" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <select id="objTeam" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"><option value="" data-i18n="scoring_sel_team">选择班组</option></select>
+      <input type="date" id="objDate" onchange="onObjDateChange()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <select id="objTeam" onchange="onObjDateChange()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"><option value="" data-i18n="scoring_sel_team">选择班组</option></select>
       <input type="number" id="objWeek" data-i18n-placeholder="obj_week" placeholder="周次" min="1" style="width:70px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:600px;">
-      <label style="font-size:12px;" data-i18n="obj_planned">计划出渣量</label><input type="number" id="objPlanned" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <label style="font-size:12px;" data-i18n="obj_actual">实际出渣量</label><input type="number" id="objActual" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <label style="font-size:12px;" data-i18n="obj_total_h">在井总时长(h)</label><input type="number" id="objTotalH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_planned">计划出渣量</label><input type="number" id="objPlanned" oninput="checkObjPlanned()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_actual">实际出渣量</label><input type="number" id="objActual" readonly style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);color:var(--text-muted);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_total_h">在井总时长(h)</label><input type="number" id="objTotalH" value="10" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
       <label style="font-size:12px;" data-i18n="obj_eff_h">有效作业(h)</label><input type="number" id="objEffH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
     </div>
     <button class="btn-primary" onclick="submitObjective()" style="margin-top:12px;padding:8px 20px;font-size:13px;" data-i18n="btn_submit">提交</button>
@@ -1138,6 +1165,30 @@ function showToast(msg, type='success') {
   t._timer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+/* ── 主题切换（浅色/深色） ── */
+function initTheme() {
+  const saved = localStorage.getItem('enprizon-theme');
+  if (saved === 'dark') {
+    document.documentElement.classList.add('dark');
+    updateThemeIcon('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+    updateThemeIcon('light');
+  }
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  const mode = isDark ? 'dark' : 'light';
+  localStorage.setItem('enprizon-theme', mode);
+  updateThemeIcon(mode);
+}
+
+function updateThemeIcon(mode) {
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) btn.textContent = mode === 'dark' ? '🌙' : '☀️';
+}
+
 /* ── 登录系统 ── */
 let _authState = { logged_in: false, username: '', role: '', has_admin: false };
 
@@ -1188,6 +1239,7 @@ function updateAuthUI() {
   // 周期条按钮权限
   const exportBtn = document.getElementById('exportBtn');
   if (exportBtn) exportBtn.style.display = _authState.logged_in ? '' : 'none';
+  if (_authState.logged_in) { loadNotifCount(); } else { const b = document.getElementById('notifBell'); if (b) b.style.display = 'none'; }
 
   // viewer 用户隐藏所有编辑相关操作
   const roleLevels = { super_admin: 3, admin: 2, editor: 1, viewer: 0 };
@@ -1737,6 +1789,7 @@ async function loadDashboard() {
 }
 
 (async function init() {
+  initTheme();
   await checkAuth();
   // P14.1: 未登录直接弹出登录框，不再空白加载
   if (!_authState.logged_in) {
@@ -1953,7 +2006,7 @@ async function renderEmployeeTable() {
         <td style="color:var(--text-muted);font-size:11px;">${escHtml(e.id)}</td>
         <td class="left">
           <a href="#employees/profile?id=${encodeURIComponent(e.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'});"
-             style="color:var(--accent);text-decoration:none;font-weight:600;user-select:text;">${escHtml(e.name)}</a>
+             style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(e.name)}</a>
         </td>
         <td class="left" style="color:var(--text-muted);">${escHtml(e.department||'—')}</td>
         <td>${escHtml(e.position||'—')}</td>
@@ -3663,6 +3716,11 @@ async function loadConfig() {
     // P5-b: underground_mode
     const ugMode = document.getElementById('cfg_ug_mode');
     if (ugMode) ugMode.value = cfg.underground_mode || 'piecework';
+    // P15: 评分奖金池参数
+    const th = document.getElementById('cfg_nh_threshold');
+    if (th) th.value = cfg.scoring_nh_threshold != null ? cfg.scoring_nh_threshold : 600;
+    const pr = document.getElementById('cfg_nh_price');
+    if (pr) pr.value = cfg.scoring_nh_price != null ? cfg.scoring_nh_price : 20000;
   } catch(e) {}
 }
 
@@ -3704,6 +3762,9 @@ async function doSaveConfig() {
     crush_price: _num('cfg_crush_price', 300),
     underground_mode: document.getElementById('cfg_ug_mode').value || 'piecework',
     sick_leave_days: _num('cfg_sick_days', 14),
+    // P15: 评分奖金池参数（0 合法，不兜底吞值）
+    scoring_nh_threshold: _num('cfg_nh_threshold', 600),
+    scoring_nh_price: _num('cfg_nh_price', 20000),
   };
   const res = await authFetch(api('/config'), {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -3994,6 +4055,7 @@ async function oaApprove(eventId) {
   if (data.ok) {
     showToast(t('approved_label'));
     loadOAPending();
+    loadNotifCount();
   } else {
     showToast(data.error || t('op_fail'), 'error');
   }
@@ -4022,6 +4084,7 @@ async function oaReject(eventId) {
   if (data.ok) {
     showToast(t('rejected_label'));
     loadOAPending();
+    loadNotifCount();
   } else {
     showToast(data.error || t('op_fail'), 'error');
   }
@@ -4052,6 +4115,87 @@ async function loadOAHistory() {
 }
 
 /* ── P13: 通知铃铛 / 红点 / 待审批面板 ── */
+let _notifEvents = [];
+async function loadNotifCount() {
+  const bell = document.getElementById('notifBell');
+  const badge = document.getElementById('notifBadge');
+  if (!bell || !badge) return;
+  if (!_authState.logged_in) { bell.style.display = 'none'; return; }
+  bell.style.display = '';
+  try {
+    const res = await fetch(api('/api/oa/pending'));
+    const data = await res.json();
+    const prevCount = _notifEvents.length;
+    _notifEvents = data.events || [];
+    const newCount = _notifEvents.length;
+    if (newCount > 0) {
+      badge.style.display = '';
+      const count = document.getElementById('notifCount');
+      if (count) count.textContent = newCount + ' ' + t('notif_submitter');
+      // 有新通知时摇动铃铛
+      if (newCount > prevCount) {
+        bell.classList.add('has-notif');
+        setTimeout(() => bell.classList.remove('has-notif'), 600);
+      }
+    } else {
+      badge.style.display = 'none';
+      bell.classList.remove('has-notif');
+    }
+  } catch (e) { /* 静默失败 */ }
+}
+
+function toggleNotifPanel() {
+  const panel = document.getElementById('notifPanel');
+  if (!panel) return;
+  if (panel.style.display === 'block') {
+    panel.style.display = 'none';
+  } else {
+    renderNotifPanel();
+    panel.style.display = 'block';
+  }
+}
+
+function renderNotifPanel() {
+  const list = document.getElementById('notifList');
+  const count = document.getElementById('notifCount');
+  if (!list) return;
+  if (_notifEvents.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:var(--muted-foreground);padding:20px;" data-i18n="notif_empty">暂无待审批</div>';
+    if (count) count.textContent = '';
+    return;
+  }
+  if (count) count.textContent = _notifEvents.length + ' ' + t('notif_submitter');
+  const EVENT_LABELS_MAP = window.EVENT_LABELS_MAP || {};
+  list.innerHTML = _notifEvents.map(ev => `
+    <div class="notif-item" onclick="closeNotifAndGo('${ev.id}')">
+      <div class="notif-item-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type}</div>
+      <div class="notif-item-name">${escHtml(ev.employee_name || ev.employee_id)}</div>
+      <div class="notif-item-meta">
+        <span>${t('oa_effective_date')}: ${ev.effective_date}</span>
+        <span>${t('notif_submitter')}: ${escHtml(ev.operator_id)}</span>
+      </div>
+    </div>`).join('');
+}
+
+function closeNotifAndGo(eventId) {
+  const panel = document.getElementById('notifPanel');
+  if (panel) panel.style.display = 'none';
+  navigate('employees', 'oa-pending');
+  // 等待页面渲染后滚动到对应卡片
+  setTimeout(() => {
+    const card = document.getElementById('oaCard' + eventId);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 300);
+}
+
+// 点击面板外部关闭
+document.addEventListener('click', function(e) {
+  const panel = document.getElementById('notifPanel');
+  const bell = document.getElementById('notifBell');
+  if (panel && bell && panel.style.display === 'block' && !bell.contains(e.target) && !panel.contains(e.target)) {
+    panel.style.display = 'none';
+  }
+});
 /* ── P2 请假提交（P13: 独立子页） ── */
 function showLeaveForm() {
   navigate('employees', 'leave');
@@ -4246,6 +4390,7 @@ async function submitApply(type) {
         navigate('employees', 'list');
         switchEmpTab('oa-pending');
         loadOAPending();
+        loadNotifCount();
         showToast(t('hire_submit_goto_pending'));
       } else if (type === 'transfer') {
         document.getElementById('transferSearch').value = '';
@@ -4420,16 +4565,6 @@ function renderEmpChips(names) {
 }
 
 /* 通用出勤/成员选择弹层 */
-let _driverRoster = null;
-async function ensureDriverRoster() {
-  if (_driverRoster) return _driverRoster;
-  try {
-    const res = await fetch(api('/api/driver-roster'));
-    const data = await res.json();
-    _driverRoster = (data.drivers || []).map(String);
-  } catch(e) { _driverRoster = []; }
-  return _driverRoster;
-}
 
 async function openEmpPicker(kw, hiddenId, displayId, opts) {
   opts = opts || {};
@@ -4438,20 +4573,18 @@ async function openEmpPicker(kw, hiddenId, displayId, opts) {
   const list = filterEmpByDept(pool, kw);
   const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
   const curDrivers = opts.driverHiddenId ? (document.getElementById(opts.driverHiddenId).value || '').split(',').filter(Boolean) : [];
-  const driverSet = opts.showDriver ? await ensureDriverRoster() : [];
   _pickerKw = kw;
   _pickerTarget = { hiddenId: hiddenId, displayId: displayId, showDriver: !!opts.showDriver, driverHiddenId: opts.driverHiddenId || '' };
   const modal = document.getElementById('empPickerModal');
   document.getElementById('empPickerList').innerHTML = list.length ? list.map(e => {
-    const inRoster = driverSet.includes(String(e.id));
     return `
     <label class="picker-row">
       <input type="checkbox" class="picker-check" value="${escHtml(e.id)}" ${cur.includes(e.id) ? 'checked' : ''}>
       <span>${escHtml(e.name)}</span>
       <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
         <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
-        ${opts.showDriver ? `<label class="driver-tag" title="${inRoster ? '' : t('not_in_driver_roster')}" style="display:flex;align-items:center;gap:3px;font-size:12px;color:${inRoster ? 'var(--text)' : 'var(--text-dim)'};cursor:${inRoster ? 'pointer' : 'not-allowed'};">
-          <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${curDrivers.includes(e.id) ? 'checked' : ''} ${inRoster ? '' : 'disabled'}> ${t('col_driving')}
+        ${opts.showDriver ? `<label class="driver-tag" title="${t('col_driving')}" style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--text);cursor:pointer;">
+          <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${curDrivers.includes(e.id) ? 'checked' : ''}> ${t('col_driving')}
         </label>` : ''}
       </span>
     </label>`;
@@ -5144,10 +5277,17 @@ async function submitScoreCard() {
     msg.style.color = 'var(--danger)';
     return;
   }
+  // P15: 每班驾驶 ≤2 人（匿名原则）
+  const driverRows = rows.filter(r => r.driving != null && r.driving !== '');
+  if (driverRows.length > 2) {
+    msg.textContent = t('obj_driving_max');
+    msg.style.color = 'var(--danger)';
+    return;
+  }
   try {
     const res = await authFetch(api('/api/scoring/card'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ week: parseInt(week), team_id: parseInt(teamId), card_no: card.card_no, source, rows }),
+      body: JSON.stringify({ week: parseInt(week), team_id: parseInt(teamId), card_no: card.card_no, source, month: STATE.currentMonth || '', rows }),
     });
     const data = await res.json();
     if (data.ok) {
@@ -5174,13 +5314,37 @@ async function submitScoreCard() {
 
 async function loadScoringSummary() {
   const team = document.getElementById("sumTeam").value;
+  const month = STATE.currentMonth || '';
   const tbody = document.querySelector("#sumTable tbody");
-  tbody.innerHTML = "<tr><td colspan=8>" + t('loading') + "</td></tr>";
-  const res = await fetch(api("/api/scoring/summary/" + team));
+  tbody.innerHTML = "<tr><td colspan=9>" + t('loading') + "</td></tr>";
+  const res = await fetch(api("/api/scoring/summary/" + team + (month ? "?month=" + encodeURIComponent(month) : "")));
   const data = await res.json();
-  const inds = data.individuals || [], gates = data.gates || {};
-  if (!inds.length) { tbody.innerHTML = "<tr><td colspan=8 style=color:var(--text-muted)>" + t('no_scores') + "</td></tr>"; return; }
-  tbody.innerHTML = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td></tr>").join("");
+  const inds = data.individuals || [], gates = data.gates || {}, pool = data.pool || {};
+  // P15: 奖金池展示卡
+  const poolCard = document.getElementById("poolCard"), poolBody = document.getElementById("poolCardBody");
+  if (pool && Object.keys(pool).length) {
+    poolCard.style.display = "block";
+    const fmt = (n) => Number(n || 0).toLocaleString();
+    let html = "";
+    html += "<div><span style=color:var(--text-muted)>" + t('pool_nh') + ":</span> <b>" + fmt(pool.nh_count) + "</b></div>";
+    html += "<div><span style=color:var(--text-muted)>" + t('pool_total') + ":</span> <b>" + fmt(pool.total_pool) + "</b></div>";
+    html += "<div><span style=color:var(--text-muted)>" + t('pool_half') + ":</span> <b>" + fmt(pool.half_pool) + "</b></div>";
+    html += "<div><span style=color:var(--text-muted)>" + t('pool_ratio') + ":</span> <b>" + (pool.distribution_ratio*100).toFixed(0) + "%</b></div>";
+    html += "<div><span style=color:var(--text-muted)>" + t('pool_actual') + ":</span> <b>" + fmt(pool.actual_pool) + "</b></div>";
+    if (pool.objective_missing && pool.total_pool > 0) {
+      html += "<div style=color:var(--danger)>" + t('pool_missing_obj') + "</div>";
+    }
+    if (pool.total_pool === 0) {
+      html += "<div style=color:var(--text-muted)>" + t('pool_zero') + "</div>";
+    }
+    html += "<div style=color:" + (pool.conserved ? "var(--success)" : "var(--danger)") + ">" +
+            (pool.conserved ? t('pool_conserved') : t('pool_not_conserved')) + "</div>";
+    poolBody.innerHTML = html;
+  } else {
+    poolCard.style.display = "none";
+  }
+  if (!inds.length) { tbody.innerHTML = "<tr><td colspan=9 style=color:var(--text-muted)>" + t('no_scores') + "</td></tr>"; return; }
+  tbody.innerHTML = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td><td>"+Number(r.bonus||0).toLocaleString()+"</td></tr>").join("");
   const panel = document.getElementById("gatePanel"); panel.style.display = "block";
   document.getElementById("gate1").innerHTML = t('gate1_pre')+"极差="+gates.variance_range+(gates.zero_variance_triggered?t('gate_abnormal'):"✅");
   document.getElementById("gate1").style.color = gates.zero_variance_triggered?"var(--danger)":"var(--success)";
@@ -5188,6 +5352,50 @@ async function loadScoringSummary() {
   document.getElementById("gate2").style.color = gates.max_tier_triggered?"var(--danger)":"var(--success)";
   document.getElementById("gate3").innerHTML = t('gate3_pre')+gates.deviation_count+" > "+t('gate_threshold')+(gates.mgmt_deviation_triggered?t('gate_abnormal'):"✅");
   document.getElementById("gate3").style.color = gates.mgmt_deviation_triggered?"var(--danger)":"var(--success)";
+}
+
+// P15: 客观录入 — 日期/班组变化：自动带出实际出渣量（只读）+ 预填已提交记录（可编辑）
+async function onObjDateChange() {
+  const date = document.getElementById("objDate").value;
+  const msg = document.getElementById("objMsg");
+  msg.textContent = '';
+  if (!date) return;
+  try {
+    const res = await authFetch(api("/api/objective/suggest?date=" + encodeURIComponent(date)));
+    const d = await res.json();
+    if (d.ok) {
+      document.getElementById("objActual").value = d.total_output || 0;
+      msg.textContent = t('obj_auto_fill') + ': ' + (d.total_output || 0);
+      msg.style.color = "var(--success)";
+    }
+  } catch(e) {}
+  const team = document.getElementById("objTeam").value;
+  if (team) {
+    try {
+      const res2 = await authFetch(api("/api/objective/daily/" + team));
+      const d2 = await res2.json();
+      const rec = (d2.records || []).find(r => r.record_date === date);
+      if (rec) {
+        document.getElementById("objPlanned").value = rec.planned_output;
+        document.getElementById("objTotalH").value = rec.total_hours;
+        document.getElementById("objEffH").value = rec.effective_hours;
+        msg.textContent = t('obj_edit_existing');
+        msg.style.color = "var(--text-muted)";
+      }
+    } catch(e) {}
+  }
+  if (!document.getElementById("objTotalH").value) document.getElementById("objTotalH").value = 10;
+  checkObjPlanned();
+}
+
+// P15: 计划出渣量未填 → 提醒该日不计入发放
+function checkObjPlanned() {
+  const msg = document.getElementById("objMsg");
+  const planned = document.getElementById("objPlanned").value;
+  if (msg && (!planned || parseFloat(planned) <= 0)) {
+    msg.textContent = t('obj_planned_warn');
+    msg.style.color = "var(--danger)";
+  }
 }
 
 async function submitObjective() {
@@ -5202,6 +5410,11 @@ async function submitObjective() {
     effective_hours: parseFloat(document.getElementById("objEffH").value) || 0,
   };
   if (!data.record_date || !data.week) { msg.textContent = t('obj_need_date_week'); msg.style.color = "var(--danger)"; return; }
+  if (!data.planned_output || data.planned_output <= 0) {
+    msg.textContent = t('obj_planned_warn');
+    msg.style.color = "var(--danger)";
+    return;
+  }
   const res = await authFetch(api("/api/objective/entry"), {
     method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data),
   });

@@ -408,6 +408,85 @@ ATTACH DATABASE 'data/kilwa.db' AS archived_kilwa;
 
 ---
 
+### 3.9 评分与客观层表（P3+P10，2026-08-13 回写）
+
+权威 schema 见 `core/database.py`（init_db 内 `CREATE TABLE IF NOT EXISTS`）。评分奖金三层模型数值以《生产团队绩效考核体系管理手册.docx》为准（详见 `REFACTOR_SPEC.md` §5.6.6）。
+
+**scoring_cards** — 评分卡主表（旧表，P10 起录入走新表 `scoring_card_entries`，本表保留兼容）
+
+```sql
+CREATE TABLE scoring_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    week INTEGER NOT NULL,
+    team INTEGER NOT NULL,          -- 班组 id（对应 employee_groups.id）
+    card_no TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '工友',  -- '工友' | '管理'
+    month TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(week, team, card_no, source, month)
+);
+```
+
+**scoring_entries** — 评分明细（旧表，按被评人一行；新录入写入 `scoring_card_entries`）
+
+```sql
+CREATE TABLE scoring_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL REFERENCES scoring_cards(id),
+    target_wid TEXT NOT NULL,           -- 被评人工号（如 W1）
+    target_employee_id TEXT NOT NULL,   -- 被评人 employee_id
+    initiative INTEGER DEFAULT 0,       -- 6 维：主动/勤快/纪律/协作/安全/驾驶
+    diligence INTEGER DEFAULT 0,
+    discipline INTEGER DEFAULT 0,
+    cooperation INTEGER DEFAULT 0,
+    safety INTEGER DEFAULT 0,
+    driving INTEGER DEFAULT NULL,       -- 仅驾驶员评，非驾驶员 NULL
+    UNIQUE(card_id, target_wid)
+);
+```
+
+**scoring_card_entries** — 评分明细（**新表，P10 重设计，奖金计算读此表**）
+
+```sql
+CREATE TABLE scoring_card_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    week INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,           -- 班组 id
+    card_no TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '工友',
+    subject_employee_id TEXT NOT NULL,  -- 被评人 employee_id
+    subject_name TEXT,
+    initiative INTEGER, diligence INTEGER, discipline INTEGER,
+    cooperation INTEGER, safety INTEGER, driving INTEGER,
+    operator_id TEXT,                   -- 评分人
+    submitted_at TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(week, team_id, card_no, source, subject_employee_id)
+);
+```
+
+**objective_records** — 客观层数据（R1/R2 → 当日 S）
+
+```sql
+CREATE TABLE objective_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_date TEXT NOT NULL,
+    team INTEGER NOT NULL,              -- 班组 id
+    planned_output REAL DEFAULT 0,      -- 计划出渣量（管理手工设定）
+    actual_output REAL DEFAULT 0,       -- 实际出渣量（由井下采集自动带出：当日 nh+nl+mw）
+    total_hours REAL DEFAULT 0,         -- 在井总时长
+    effective_hours REAL DEFAULT 0,     -- 有效作业时间
+    week INTEGER NOT NULL,
+    daily_s REAL DEFAULT 0,             -- 当日 S = R1×70% + R2×30%（计划=0 时 = R2×30%）
+    UNIQUE(record_date, team)
+);
+```
+
+计算函数：
+- `save_objective_entry()`（`core/database.py`）：R1 = actual/planned×100（不封顶）、R2 = min(effective/total×100, 100)、daily_s = R1×0.7 + R2×0.3（planned=0 时 S = R2×0.3）
+- `get_monthly_objective()`（`core/database.py`）：月度 S = 全月当日 S 均值；发放比例 **90/80/70/60 五档**（≥90→1.0, 80-89→0.95, 70-79→0.9, 60-69→0.8, <60→0.7）
+
+---
+
 ## 4. 现有表演进
 
 ### 4.1 attendance_overrides（出勤覆盖表）
@@ -672,6 +751,44 @@ CREATE INDEX IF NOT EXISTS idx_prod_track ON production_records(track, date);
 | GET | `/api/daily-wages` | V+ | 日工资明细 |
 | POST | `/api/export` | M+ | 薪资 Excel 导出 |
 | POST | `/api/export/all` | M+ | 英文版全量导出（7 Sheet） |
+
+### 5.11 评分与客观层 API（P3+P10，2026-08-13 回写）
+
+权限缩写：S=super_admin, A=admin, M=editor(编辑), V=viewer，"+"表示及以上。
+
+**评分卡录入（新表 `scoring_card_entries`，P10 主路径）**
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/scoring/card` | M+ | 提交/更新一张评分卡。Body: {week, team_id, card_no, source, rows:[{subject_employee_id, subject_name, initiative, diligence, discipline, cooperation, safety, driving}]}。先删后插 |
+| GET | `/api/scoring/card` | M+ | 读取一张卡明细。Query: team_id, week, card_no, source |
+| DELETE | `/api/scoring/card` | M+ | 删除一张卡。Query: team_id, week, card_no, source |
+| GET | `/api/scoring/entries` | M+ | 查询评分明细（新表）。Query: team_id, week, source |
+| GET | `/api/scoring/team/<int:team_id>/month/<month>` | M+ | 按班组+月份取评分全员列表（含 custom_number 工号） |
+| POST | `/api/scoring/card/batch` | M+ | 批量提交（**兼容接口，写旧表** scoring_cards/scoring_entries，供 Excel 导入脚本使用） |
+
+**评分汇总/配置/奖金**
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/scoring/summary/<int:team>` | M+ | 班组汇总：逐人 peer_behavior / mgmt_behavior / final_behavior（管理 1.5 票）/ coefficient / deviation + 三闸 gates（零方差/最高档/管理偏离）。**读新表，旧表回退** |
+| GET | `/api/scoring/week/<int:team>/<int:week>` | M+ | 周评分卡列表（旧表） |
+| GET | `/api/scoring/config` | A+ | 评分配置（mgmt_vote_weight=1.5 / mgmt_deviation_threshold=15 / zero_variance_threshold=8 / max_tier_ratio=0.3） |
+| POST | `/api/scoring/config` | A+ | 更新评分配置 |
+| GET | `/api/scoring/bonus/<int:team>` | M+ | 班组奖金池预览。Query: half_pool（前端可传半池值）→ 返回 team_pool = half_pool×distribution_ratio、ratio、monthly_s |
+
+**客观层（R1/R2 → S）**
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/objective/entry` | M+ | 客观层录入。Body: {record_date, team, week, planned_output, actual_output, total_hours, effective_hours}。返回 daily_s。**actual_output 可由前端从井下采集自动带出** |
+| GET | `/api/objective/daily/<int:team>` | M+ | 班组客观记录列表 |
+| GET | `/api/objective/monthly/<int:team>` | M+ | 月度 S 汇总（monthly_s + distribution_ratio，分档 90/80/70/60） |
+
+**奖金计算链路**（`core/calculator.py` `_get_scoring_bonus`，scoring 模式并入净额）：
+- 半池 = max((当月 NICKEL(H) 车次 − 600), 0) × 20,000 × 50%（仅 NICKEL(H)，NICKEL(L)/MAWE 不计）
+- 班实际池 = 半池 × distribution_ratio（来自 `get_monthly_objective`）
+- 个人奖金 = 班实际池 × (个人系数 ÷ Σ本班系数)；读新表 `scoring_card_entries`（旧表回退），与 summary 共用系数逻辑
 
 ---
 

@@ -783,6 +783,11 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if dt: month_prefix = dt[:7]; break
     working_days = 26  # 月薪按 26 天均分
 
+    # P15: 产量层奖金池（scoring 模式）— 与计件同源 shift_production，month 已过滤
+    pool_info = compute_scoring_pool(main_data, pricing)
+    if underground_mode == 'scoring':
+        _SCORING_BONUS_CACHE.clear()
+
     att_overrides = {}
     manual_p = defaultdict(set)
     if data_folder:
@@ -896,25 +901,25 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         bonus = int(bp.get('bonus', 0) or 0)
         penalty = int(bp.get('penalty', 0) or 0)
 
-        # P3: 评分奖金并入（从 scoring 数据读取）
-        scoring_bonus = _get_scoring_bonus(data_folder, eid)
+        # P15: 评分奖金并入（scoring 模式门；piecework 模式绝不发奖金）
+        scoring_bonus = 0
+        if underground_mode == 'scoring':
+            scoring_bonus = _get_scoring_bonus(data_folder, eid, month_prefix, pool_info, emp.get('team_id'))
         if scoring_bonus > 0:
             bonus += scoring_bonus
 
-        # P11: 司机津贴（5,000/天 × 该月出勤勾选"驾驶"天数；须在 driver_roster 名单内，两种模式通用）
+        # P15: 司机津贴（5,000/天 × 该月出勤勾选"驾驶"天数；任何人勾选即计，不要求司机名单）
         driver_days = 0
         if data_folder:
             try:
                 db_path = os.path.join(data_folder, 'kilwa.db')
                 if os.path.exists(db_path):
                     dc = sqlite3.connect(db_path)
-                    dr = dc.execute("SELECT 1 FROM driver_roster WHERE employee_id=?", (eid,)).fetchone()
-                    if dr:
-                        crows = dc.execute(
-                            "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND date LIKE ? AND is_driver=1",
-                            (eid, month_prefix + '%')).fetchone()
-                        if crows:
-                            driver_days = crows[0]
+                    crows = dc.execute(
+                        "SELECT COUNT(*) FROM attendance_overrides WHERE employee_id=? AND date LIKE ? AND is_driver=1",
+                        (eid, month_prefix + '%')).fetchone()
+                    if crows:
+                        driver_days = crows[0]
                     dc.close()
             except:
                 driver_days = 0
@@ -1381,72 +1386,144 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         mod.PRICE_CRUSH = old_cr
     return result
 
+# ═══════════════════════════════════════════════════════════
+#  P15: 评分奖金三层模型（产量层/客观层/主观层，对齐手册）
+#  summary 端点与 _get_scoring_bonus 共用本区函数，保证展示与计薪一致
+# ═══════════════════════════════════════════════════════════
+
+def compute_scoring_pool(main_data, pricing):
+    """R1 产量层：当月 NICKEL(H) 车次 → 总池/半池。
+    仅 NICKEL（H）（全角括号），NICKEL（L）/MAWE 不参与。"""
+    threshold = int(pricing.get('scoring_nh_threshold', 600) or 600)
+    price     = int(pricing.get('scoring_nh_price', 20000) or 20000)
+    nh_count = 0
+    for day in main_data.get('shift_production', []):
+        dp = day.get('day_prod') or {}
+        np = day.get('night_prod') or {}
+        nh_count += int(dp.get('NICKEL（H）', 0) or 0) + int(np.get('NICKEL（H）', 0) or 0)
+    total_pool = max(nh_count - threshold, 0) * price
+    return {'nh_count': nh_count, 'total_pool': total_pool, 'half_pool': total_pool // 2}
+
+
+def normalize_scoring_entries(entries):
+    """R4: 新旧表行归一化 → [{subject_employee_id, subject_name, source, avg}]。
+    匿名原则：不依赖 operator_id；driving 非空才入第 6 维。"""
+    out = []
+    for e in entries:
+        eid = e.get('subject_employee_id') or e.get('target_employee_id') or e.get('employee_id') or ''
+        if not eid:
+            continue
+        dims = [e.get('initiative'), e.get('diligence'), e.get('discipline'),
+                e.get('cooperation'), e.get('safety')]
+        if e.get('driving') not in (None, ''):
+            dims.append(e.get('driving'))
+        filled = [d for d in dims if d]
+        if not filled:
+            continue
+        out.append({
+            'subject_employee_id': eid,
+            'subject_name': e.get('subject_name') or e.get('target_wid') or e.get('wid') or eid,
+            'source': e.get('source', '工友'),
+            'avg': sum(filled) / len(filled),
+        })
+    return out
+
+
+def _trimmed_mean(votes):
+    """去极值：>=3 票剔最高/最低各 1 后取均值；<3 直接取均值。返回 (均值, 有效票数)。"""
+    v = [x for x in votes if x > 0]
+    if not v:
+        return 0.0, 0
+    if len(v) >= 3:
+        v.sort()
+        v = v[1:-1]
+    return sum(v) / len(v), len(v)
+
+
+def compute_scoring_individuals(normalized, config):
+    """R4 共享系数：分票(工友/管理) → 去极值 → 管理 1.5 票加权 → 系数表。
+    返回 {eid: {wid, peer_avg, peer_behavior, mgmt_behavior, final_behavior,
+               coefficient, deviation, peer_votes, mgmt_votes}}"""
+    mgmt_w = float(config.get('mgmt_vote_weight', 1.5))
+    by_target = defaultdict(list)
+    for r in normalized:
+        by_target[r['subject_employee_id']].append(r)
+    out = {}
+    for eid, rows in by_target.items():
+        peers = [r for r in rows if r['source'] != '管理']
+        mgmts = [r for r in rows if r['source'] == '管理']
+        peer_avg, peer_n = _trimmed_mean([r['avg'] for r in peers])
+        mgmt_avg, _ = _trimmed_mean([r['avg'] for r in mgmts])
+        peer_behavior = (peer_avg - 1) / 4 * 100 if peer_avg > 0 else 0
+        mgmt_behavior = (mgmt_avg - 1) / 4 * 100 if mgmt_avg > 0 else 0
+        if mgmt_behavior > 0:
+            final_behavior = (peer_behavior * peer_n + mgmt_behavior * mgmt_w) / (peer_n + mgmt_w)
+        else:
+            final_behavior = peer_behavior
+        coefficient = 1.2 if final_behavior >= 85 else \
+                      1.0 if final_behavior >= 70 else \
+                      0.8 if final_behavior >= 60 else 0.5
+        out[eid] = {
+            'wid': rows[0]['subject_name'],
+            'peer_avg': round(peer_avg, 2), 'peer_behavior': round(peer_behavior, 2),
+            'mgmt_behavior': round(mgmt_behavior, 2), 'final_behavior': round(final_behavior, 2),
+            'coefficient': coefficient,
+            'deviation': round(abs(peer_behavior - mgmt_behavior), 2) if mgmt_behavior > 0 else 0,
+            'peer_votes': peer_n, 'mgmt_votes': len(mgmts),
+        }
+    return out
+
+
+def compute_team_bonuses(data_folder, team_id, month, pool_info):
+    """R3 单班全量奖金：新表优先 + 旧表回退；无客观数据 → 发 0（用户决策）；
+    最大余数法保证 Σ个人奖金 == 班实际池。"""
+    from core.database import get_scoring_card_entries, get_all_scoring_entries, \
+                              get_monthly_objective, get_scoring_config
+    entries = get_scoring_card_entries(data_folder, team_id=team_id, month=month)
+    if not entries:
+        try:
+            entries = get_all_scoring_entries(data_folder, team_id)
+        except Exception:
+            entries = []
+    norm = normalize_scoring_entries(entries)
+    if not norm:
+        return {'individuals': {}, 'sum_coef': 0, 'monthly_s': 0, 'distribution_ratio': 0.7,
+                'actual_pool': 0, 'bonuses': {}, 'conserved': True, 'objective_missing': True}
+    individuals = compute_scoring_individuals(norm, get_scoring_config(data_folder))
+    obj = get_monthly_objective(data_folder, team_id, month)
+    if obj['monthly_s'] == 0:   # 无客观数据 → 不发（未填计划不计入发放）
+        return {'individuals': individuals, 'sum_coef': 0, 'monthly_s': 0,
+                'distribution_ratio': obj['distribution_ratio'], 'actual_pool': 0,
+                'bonuses': {eid: 0 for eid in individuals}, 'conserved': True,
+                'objective_missing': True}
+    actual_pool = int(pool_info['half_pool'] * obj['distribution_ratio'])
+    sum_coef = sum(i['coefficient'] for i in individuals.values())
+    if actual_pool <= 0 or sum_coef <= 0:
+        return {'individuals': individuals, 'sum_coef': sum_coef, 'monthly_s': obj['monthly_s'],
+                'distribution_ratio': obj['distribution_ratio'], 'actual_pool': actual_pool,
+                'bonuses': {eid: 0 for eid in individuals}, 'conserved': True,
+                'objective_missing': False}
+    # 最大余数法：保证 Σ个人奖金 == 班实际池
+    exact = {eid: actual_pool * ind['coefficient'] / sum_coef for eid, ind in individuals.items()}
+    floors = {eid: int(x) for eid, x in exact.items()}
+    remain = actual_pool - sum(floors.values())
+    for eid in sorted(exact, key=lambda k: exact[k] - int(exact[k]), reverse=True)[:remain]:
+        floors[eid] += 1
+    return {'individuals': individuals, 'sum_coef': sum_coef, 'monthly_s': obj['monthly_s'],
+            'distribution_ratio': obj['distribution_ratio'], 'actual_pool': actual_pool,
+            'bonuses': floors, 'conserved': sum(floors.values()) == actual_pool,
+            'objective_missing': False}
+
+
 # ── P3: 评分奖金并入 ──────────────────
-def _get_scoring_bonus(data_folder, employee_id):
-    """从评分数据获取员工个人奖金(如未计算评分别返回0)"""
-    import sqlite3 as _sqlite
-    db_path = os.path.join(data_folder, 'kilwa.db')
-    try:
-        conn = _sqlite.connect(db_path)
-        # 查找该员工在哪个班组
-        row = conn.execute(
-            "SELECT DISTINCT sc.team FROM scoring_entries se JOIN scoring_cards sc ON se.card_id=sc.id WHERE se.target_employee_id=? LIMIT 1",
-            (employee_id,)).fetchone()
-        if not row:
-            conn.close()
-            return 0
-        team = row[0]
-        # 获取客观层月度数据
-        from core.database import get_monthly_objective
-        obj = get_monthly_objective(data_folder, team)
-        if obj['monthly_s'] == 0:
-            conn.close()
-            return 0
-        # 计算个人系数
-        entries = conn.execute("""
-            SELECT se.*, sc.source FROM scoring_entries se
-            JOIN scoring_cards sc ON se.card_id = sc.id
-            WHERE sc.team=? AND se.target_employee_id=?
-        """, (team, employee_id)).fetchall()
-        if not entries:
-            conn.close()
-            return 0
-        # 简化的个人系数计算(去极值)
-        dim_avgs = []
-        for e in entries:
-            dims = [e['initiative'], e['diligence'], e['discipline'], e['cooperation'], e['safety']]
-            if e['driving'] is not None:
-                dims.append(e['driving'])
-            avg = sum(dims) / len([d for d in dims if d > 0]) if any(d > 0 for d in dims) else 0
-            dim_avgs.append(avg)
-        if not dim_avgs:
-            conn.close()
-            return 0
-        # 去最高最低
-        if len(dim_avgs) >= 3:
-            dim_avgs.sort()
-            dim_avgs = dim_avgs[1:-1]
-        peer_avg = sum(dim_avgs) / len(dim_avgs)
-        behavior = (peer_avg - 1) / 4 * 100
-        if behavior >= 85: coef = 1.2
-        elif behavior >= 70: coef = 1.0
-        elif behavior >= 60: coef = 0.8
-        else: coef = 0.5
-        # 获取所有成员系数和
-        all_eids = conn.execute("""
-            SELECT DISTINCT target_employee_id FROM scoring_entries se
-            JOIN scoring_cards sc ON se.card_id=sc.id WHERE sc.team=?
-        """, (team,)).fetchall()
-        sum_coef = 0
-        for r in all_eids:
-            sum_coef += coef  # 简化: 所有成员用相同系数
-        conn.close()
-        if sum_coef == 0:
-            return 0
-        # 假设半池=总池/2, 总池默认为= monthly_s检查
-        half_pool = 6000000  # 默认半池(需从产量层计算)
-        actual_pool = half_pool * obj['distribution_ratio']
-        bonus = int(actual_pool * (coef / sum_coef))
-        return bonus
-    except Exception:
+_SCORING_BONUS_CACHE = {}
+
+def _get_scoring_bonus(data_folder, employee_id, month_prefix='', pool_info=None, team_id=0):
+    """从评分数据获取员工个人奖金（无池/无班组 → 0）。
+    结果按 (data_folder, month, team) 缓存，calculate_all 每次先 clear。"""
+    if not pool_info or pool_info.get('total_pool', 0) <= 0 or not team_id:
         return 0
+    key = (data_folder, month_prefix, team_id)
+    if key not in _SCORING_BONUS_CACHE:
+        _SCORING_BONUS_CACHE[key] = compute_team_bonuses(data_folder, team_id, month_prefix, pool_info)
+    return int(_SCORING_BONUS_CACHE[key]['bonuses'].get(employee_id, 0) or 0)

@@ -518,7 +518,7 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, phone
+               nssf_enrolled, phone, team_id
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -541,6 +541,7 @@ def load_employees_from_db(data_folder):
             'advance_total': 0,
             'phone': r['phone'] or '',
             'nssf_enrolled': bool(r['nssf_enrolled']),
+            'team_id': r['team_id'] or 0,   # P15: 评分奖金按班组归属
         })
 
     # 离职过滤
@@ -1696,7 +1697,7 @@ def rebuild_main_data_from_collections(main_data):
 def collection_submit():
     """P9: 数据采集提交 — 写 collection_submissions + 合并 main_data + 重算"""
     from core.database import insert_collection_submission, update_collection_submission, \
-        get_collection_submissions, save_attendance_override, is_driver, mark_driver_flag, log_audit
+        get_collection_submissions, save_attendance_override, mark_driver_flag, log_audit
     data = request.get_json() or {}
     form_type = data.get('form_type', '')
     date = data.get('submission_date', '')
@@ -1729,15 +1730,11 @@ def collection_submit():
 
     # 合并 main_data + 重算（仅产量类；出勤已直写 attendance_overrides）
     if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
-        # P12: 井下采集勾选驾驶 → 只置 is_driver=1 不覆盖 status；须在司机名单（防绕过）
+        # P15: 井下采集勾选驾驶 → 只置 is_driver=1 不覆盖 status（任何人勾选即计司机津贴，不要求司机名单）
         if form_type == 'underground':
             drivers = []
             for _shift in ('day', 'night'):
                 drivers += (payload.get(_shift) or {}).get('drivers') or []
-            for _eid in drivers:
-                if not is_driver(app.config['DATA_FOLDER'], _eid):
-                    return jsonify({'ok': False,
-                                    'error': f'员工 {_eid} 不在司机名单，不能勾选驾驶'}), 400
             for _eid in drivers:
                 mark_driver_flag(app.config['DATA_FOLDER'], _eid, date)
         _merge_collection_to_main_data(APP_STATE['main_data'], form_type, date, payload)
@@ -1992,16 +1989,21 @@ def scoring_submit_card():
         team_id = data.get('team_id')
         card_no = data.get('card_no')
         source = data.get('source', '工友')
+        month = data.get('month', '') or (APP_STATE.get('month') or '')
         rows = data.get('rows') or []
         if week is None or team_id is None or not card_no:
             return jsonify({'ok': False, 'error': '缺少 week/team_id/card_no'}), 400
         if not rows:
             return jsonify({'ok': False, 'error': '缺少评分行'}), 400
-        delete_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source)
-        save_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source, rows)
+        # P15: 每班驾驶 ≤2 人（匿名原则：一张卡内最多 2 名驾驶员有驾驶维评分；driving<=0 不计）
+        driver_count = sum(1 for r in rows if int(r.get('driving') or 0) > 0)
+        if driver_count > 2:
+            return jsonify({'ok': False, 'error': '每班驾驶最多勾选 2 人'}), 400
+        delete_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source, month)
+        save_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source, rows, month)
         log_audit(app.config['DATA_FOLDER'], 'scoring_card_entries', session.get('username',''),
                   json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no,
-                              'source': source, 'count': len(rows)}))
+                              'source': source, 'month': month, 'count': len(rows)}))
         return jsonify({'ok': True, 'count': len(rows)})
     # 旧格式 entries（P3 逐行）兼容保留
     if 'entries' not in data:
@@ -2058,9 +2060,11 @@ def scoring_card_delete():
     source = data.get('source', request.args.get('source', '工友'))
     if week is None or team_id is None or not card_no:
         return jsonify({'ok': False, 'error': '缺少 week/team_id/card_no'}), 400
-    delete_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source)
+    delete_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source,
+                                month=data.get('month') or request.args.get('month', ''))
     log_audit(app.config['DATA_FOLDER'], 'scoring_card_delete', '',
-              json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no, 'source': source}))
+              json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no,
+                          'source': source, 'month': data.get('month') or request.args.get('month', '')}))
     return jsonify({'ok': True})
 
 # ── P10: 评分录入（班组+月份，一张卡一人） ──
@@ -2160,85 +2164,90 @@ def scoring_week_cards(team, week):
 @app.route('/api/scoring/summary/<int:team>', methods=['GET'])
 @login_required
 def scoring_summary(team):
-    from core.database import get_scoring_card_entries, get_scoring_config
-    # P14.8: 汇总改为从 scoring_card_entries（新明细表）读取，兼容旧 scoring_entries 若存在
-    entries = get_scoring_card_entries(app.config['DATA_FOLDER'], team_id=team)
-    if not entries:
-        # 回退旧表（历史数据）
-        try:
-            from core.database import get_all_scoring_entries
-            entries = get_all_scoring_entries(app.config['DATA_FOLDER'], team)
-            entries = [{
-                'subject_employee_id': e.get('target_employee_id', e.get('employee_id', '')),
-                'subject_name': e.get('target_wid', e.get('wid', '')),
-                'week': e.get('week'), 'card_no': e.get('card_no', str(e.get('card_id', ''))),
-                'source': e.get('source', '工友'),
-                'initiative': e.get('initiative'), 'diligence': e.get('diligence'),
-                'discipline': e.get('discipline'), 'cooperation': e.get('cooperation'),
-                'safety': e.get('safety'), 'driving': e.get('driving'),
-            } for e in entries]
-        except Exception:
-            entries = []
-    config = get_scoring_config(app.config['DATA_FOLDER'])
-    import collections
-    by_target = collections.defaultdict(lambda: {'peer_scores': [], 'mgmt_scores': []})
-    target_names = {}
-    for e in entries:
-        eid = e['subject_employee_id']
-        dims = [e['initiative'], e['diligence'], e['discipline'], e['cooperation'], e['safety']]
-        if e['driving'] is not None:
-            dims.append(e['driving'])
-        filled = [d for d in dims if d]
-        avg = sum(filled) / len(filled) if filled else 0
-        if e['source'] == '工友':
-            by_target[eid]['peer_scores'].append(avg)
-        else:
-            by_target[eid]['mgmt_scores'].append(avg)
-        if eid not in target_names:
-            target_names[eid] = e['subject_name'] or eid
+    """P15: 评分汇总（与 _get_scoring_bonus 共用共享函数，含去极值 + 三闸 R7 豁免）
+    ?month= 缺省用当前月；响应含 pool 块 + individuals[].bonus"""
+    from core.calculator import compute_scoring_pool, compute_team_bonuses
+    from core.database import get_scoring_config
+    from core.pricing import load_config
+    data_folder = app.config['DATA_FOLDER']
+    month = request.args.get('month', '') or (APP_STATE.get('month') or '')
+    # 产量层：与计薪同源 main_data（month 已过滤）
+    pricing = load_config(data_folder)
+    main_data = APP_STATE.get('main_data') or {}
+    pool = compute_scoring_pool(main_data, pricing)
+    # 单班全量（新表优先 + 旧表回退 + 守恒），内部已做分票/去极值/1.5票加权/系数
+    tb = compute_team_bonuses(data_folder, team, month, pool)
     result = []
-    mgmt_vote_weight = config.get('mgmt_vote_weight', 1.5)
-    for eid, scores in by_target.items():
-        peer_avg = sum(scores['peer_scores']) / len(scores['peer_scores']) if scores['peer_scores'] else 0
-        peer_behavior = (peer_avg - 1) / 4 * 100 if peer_avg > 0 else 0
-        mgmt_avg = sum(scores['mgmt_scores']) / len(scores['mgmt_scores']) if scores['mgmt_scores'] else 0
-        mgmt_behavior = (mgmt_avg - 1) / 4 * 100 if mgmt_avg > 0 else 0
-        peer_votes = len(scores['peer_scores'])
-        if scores['mgmt_scores']:
-            final_behavior = (peer_behavior * peer_votes + mgmt_behavior * mgmt_vote_weight) / (peer_votes + mgmt_vote_weight)
-        else:
-            final_behavior = peer_behavior
-        if final_behavior >= 85: coef = 1.2
-        elif final_behavior >= 70: coef = 1.0
-        elif final_behavior >= 60: coef = 0.8
-        else: coef = 0.5
-        deviation = abs(peer_behavior - mgmt_behavior) if mgmt_behavior > 0 else 0
-        result.append({'employee_id': eid, 'wid': target_names.get(eid, eid),
-                       'peer_avg': round(peer_avg, 2), 'peer_behavior': round(peer_behavior, 2),
-                       'mgmt_behavior': round(mgmt_behavior, 2), 'final_behavior': round(final_behavior, 2),
-                       'coefficient': coef, 'deviation': round(deviation, 2),
-                       'peer_votes': peer_votes})
+    for eid, ind in tb['individuals'].items():
+        row = dict(ind)
+        row['employee_id'] = eid
+        row['bonus'] = tb['bonuses'].get(eid, 0)
+        result.append(row)
+    # 三闸 + R7 豁免（全班 final_behavior>=85 且 max(deviation)<10 → 最高档上限失效）
     behaviors = [r['final_behavior'] for r in result]
+    deviations = [r['deviation'] for r in result]
     variance_range = max(behaviors) - min(behaviors) if len(behaviors) > 1 else 0
+    config = get_scoring_config(data_folder)
     max_tier_count = sum(1 for r in result if r['coefficient'] >= 1.1)
     max_tier_ratio = max_tier_count / max(len(result), 1)
     deviation_threshold = config.get('mgmt_deviation_threshold', 15)
     dev_count = sum(1 for r in result if r['deviation'] > deviation_threshold)
+    r7_exempt = bool(result) and all(r['final_behavior'] >= 85 for r in result) and max(deviations) < 10
     gates = {
         'zero_variance_triggered': variance_range <= config.get('zero_variance_threshold', 8) and len(behaviors) > 1,
-        'max_tier_triggered': max_tier_ratio > config.get('max_tier_ratio', 0.3),
+        'max_tier_triggered': (max_tier_ratio > config.get('max_tier_ratio', 0.3)) and not r7_exempt,
         'mgmt_deviation_triggered': dev_count > 0,
         'variance_range': round(variance_range, 2),
         'max_tier_count': max_tier_count, 'max_tier_ratio': round(max_tier_ratio, 4),
         'deviation_count': dev_count,
+        'r7_exempt': r7_exempt,
     }
-    return jsonify({'individuals': result, 'gates': gates})
+    pool_block = {
+        'nh_count': pool['nh_count'],
+        'total_pool': pool['total_pool'],
+        'half_pool': pool['half_pool'],
+        'monthly_s': tb['monthly_s'],
+        'distribution_ratio': tb['distribution_ratio'],
+        'actual_pool': tb['actual_pool'],
+        'sum_coef': tb['sum_coef'],
+        'objective_missing': tb['objective_missing'],
+        'conserved': tb['conserved'],
+    }
+    return jsonify({'individuals': result, 'gates': gates, 'pool': pool_block, 'month': month})
+
+@app.route('/api/objective/suggest', methods=['GET'])
+@login_required
+def objective_suggest():
+    """P15: 返回当日井下采集总产量（NH+NL+MAWE 之和），供客观录入自动带出（只读，禁止手填）"""
+    date = request.args.get('date', '')
+    if not date:
+        return jsonify({'ok': False, 'error': '缺少 date'}), 400
+    total = 0
+    for day in (APP_STATE.get('main_data') or {}).get('shift_production', []):
+        if day.get('date') != date:
+            continue
+        dp = day.get('day_prod') or {}
+        np = day.get('night_prod') or {}
+        for k in ('NICKEL（H）', 'NICKEL（L）', 'MAWE'):
+            total += int(dp.get(k, 0) or 0) + int(np.get(k, 0) or 0)
+    return jsonify({'ok': True, 'date': date, 'total_output': total})
 
 @app.route('/api/objective/entry', methods=['POST'])
 @editor_required
 def objective_entry():
     from core.database import save_objective_entry, log_audit
     data = request.get_json()
+    # P15: 实际出渣量强制自动带出 = 当日井下总产量(NH+NL+MAWE)，忽略客户端提交值（禁止手填）
+    date = data.get('record_date', '')
+    auto_actual = 0
+    for day in (APP_STATE.get('main_data') or {}).get('shift_production', []):
+        if day.get('date') != date:
+            continue
+        dp = day.get('day_prod') or {}
+        np = day.get('night_prod') or {}
+        for k in ('NICKEL（H）', 'NICKEL（L）', 'MAWE'):
+            auto_actual += int(dp.get(k, 0) or 0) + int(np.get(k, 0) or 0)
+    data['actual_output'] = auto_actual
     daily_s = save_objective_entry(app.config['DATA_FOLDER'], data['record_date'],
         data['team'], data['planned_output'], data['actual_output'],
         data['total_hours'], data['effective_hours'], data['week'])
@@ -2257,7 +2266,8 @@ def objective_daily(team):
 @login_required
 def objective_monthly(team):
     from core.database import get_monthly_objective
-    summary = get_monthly_objective(app.config['DATA_FOLDER'], team)
+    month = request.args.get('month') or APP_STATE.get('month', '')   # P15: 按月过滤
+    summary = get_monthly_objective(app.config['DATA_FOLDER'], team, month or None)
     return jsonify(summary)
 
 @app.route('/api/scoring/config', methods=['GET'])
@@ -2276,18 +2286,6 @@ def scoring_config_save():
     log_audit(app.config['DATA_FOLDER'], 'scoring_config', session.get('username',''), json.dumps(data))
     return jsonify({'ok': True})
 
-@app.route('/api/scoring/bonus/<int:team>', methods=['GET'])
-@login_required
-def scoring_bonus(team):
-    from core.database import get_monthly_objective, is_driver
-    obj = get_monthly_objective(app.config['DATA_FOLDER'], team)
-    team_pool = request.args.get('half_pool', 0, type=int)
-    actual_pool = team_pool * obj['distribution_ratio']
-    # 加载该班组的个人汇总
-    from flask import jsonify as _j
-    import requests as _r
-    # 复用 scoring_summary 结果
-    return jsonify({'team_pool': int(actual_pool), 'ratio': obj['distribution_ratio'], 'monthly_s': obj['monthly_s']})
 # ═══════════════════════════════════════════════════════════
 #  API: NSSF（社保）
 # ═══════════════════════════════════════════════════════════

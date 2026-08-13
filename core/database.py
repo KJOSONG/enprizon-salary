@@ -257,7 +257,8 @@ def init_db(data_folder):
             driving INTEGER,
             operator_id TEXT,
             submitted_at TEXT DEFAULT (datetime('now','localtime')),
-            UNIQUE(week, team_id, card_no, source, subject_employee_id)
+            month TEXT DEFAULT '',
+            UNIQUE(week, team_id, card_no, source, month, subject_employee_id)
         );
         CREATE INDEX IF NOT EXISTS idx_sce_team_week ON scoring_card_entries(team_id, week);
         CREATE TABLE IF NOT EXISTS objective_records (
@@ -359,6 +360,59 @@ def init_db(data_folder):
                 ALTER TABLE scoring_cards_new RENAME TO scoring_cards;
             """)
     except Exception as _e:
+        pass
+    # P15: scoring_card_entries 加 month 列 + 重建 UNIQUE（含 month），仿 scoring_cards P10-fix
+    try:
+        conn.execute("ALTER TABLE scoring_card_entries ADD COLUMN month TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass  # 列已存在则跳过
+    try:
+        _sce_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='scoring_card_entries'").fetchone()
+        _sce_ddl = _sce_sql['sql'] if _sce_sql else ''
+        _sce_uniq_idx = _sce_ddl.find('UNIQUE')
+        _sce_uniq_txt = _sce_ddl[_sce_uniq_idx:] if _sce_uniq_idx >= 0 else ''
+        if 'month' not in _sce_uniq_txt:
+            conn.executescript("""
+                CREATE TABLE scoring_card_entries_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    week INTEGER NOT NULL,
+                    team_id INTEGER NOT NULL,
+                    card_no TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT '工友',
+                    subject_employee_id TEXT NOT NULL,
+                    subject_name TEXT,
+                    initiative INTEGER,
+                    diligence INTEGER,
+                    discipline INTEGER,
+                    cooperation INTEGER,
+                    safety INTEGER,
+                    driving INTEGER,
+                    operator_id TEXT,
+                    submitted_at TEXT DEFAULT (datetime('now','localtime')),
+                    month TEXT DEFAULT '',
+                    UNIQUE(week, team_id, card_no, source, month, subject_employee_id)
+                );
+                INSERT INTO scoring_card_entries_new
+                    (id, week, team_id, card_no, source, subject_employee_id, subject_name,
+                     initiative, diligence, discipline, cooperation, safety, driving,
+                     operator_id, submitted_at, month)
+                    SELECT id, week, team_id, card_no, source, subject_employee_id, subject_name,
+                     initiative, diligence, discipline, cooperation, safety, driving,
+                     operator_id, submitted_at, COALESCE(month,'') FROM scoring_card_entries;
+                DROP TABLE scoring_card_entries;
+                ALTER TABLE scoring_card_entries_new RENAME TO scoring_card_entries;
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sce_team_week ON scoring_card_entries(team_id, week)")
+    except Exception as _e:
+        pass
+    # P15: 回填 month = submitted_at 前 7 位（8月 162 行）
+    try:
+        conn.execute(
+            "UPDATE scoring_card_entries SET month=substr(submitted_at,1,7) WHERE month='' OR month IS NULL")
+        conn.commit()
+    except Exception:
         pass
     # P9: 数据采集提交 + 编辑历史
     conn.executescript("""
@@ -627,7 +681,11 @@ def load_config(data_folder):
     row = conn.execute("SELECT value FROM settings WHERE key='config'").fetchone()
     conn.close()
     if row:
-        return json.loads(row['value'])
+        cfg = json.loads(row['value'])
+        # P15: 新键兜底（旧库 config 无此键时补默认，.get() 双保险）
+        cfg.setdefault('scoring_nh_threshold', 600)
+        cfg.setdefault('scoring_nh_price', 20000)
+        return cfg
     # 返回默认值
     return {
         'underground_prices': {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAWE': 4000},
@@ -636,6 +694,8 @@ def load_config(data_folder):
         'nssf_rate': 0.10,
         'underground_mode': 'piecework',
         'sick_leave_days': 14,
+        'scoring_nh_threshold': 600,   # P15: 产量层 NICKEL(H) 门槛（车次）
+        'scoring_nh_price': 20000,     # P15: 产量层超门槛单价（TZS/车次）
     }
 
 def save_config(data_folder, config):
@@ -1689,25 +1749,26 @@ def get_all_scoring_entries(data_folder, team):
 
 # ── P14.8: 评分原始记录（一张卡 9 行明细） ──
 
-def save_scoring_card_entries(data_folder, week, team_id, card_no, source, rows):
-    """保存一张评分卡的全部行（按 UNIQUE 键 UPSERT，重录覆盖）"""
+def save_scoring_card_entries(data_folder, week, team_id, card_no, source, rows, month=None):
+    """保存一张评分卡的全部行（按 UNIQUE 键 UPSERT，重录覆盖）。P15: month 参数，None 兼容旧调用"""
     conn = get_conn(data_folder)
     for r in rows:
         conn.execute("""
             INSERT OR REPLACE INTO scoring_card_entries
                 (week, team_id, card_no, source, subject_employee_id, subject_name,
-                 initiative, diligence, discipline, cooperation, safety, driving)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                 initiative, diligence, discipline, cooperation, safety, driving, month)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (week, team_id, card_no, source,
               r.get('subject_employee_id', '') or r.get('employee_id', ''),
               r.get('subject_name', '') or r.get('name', ''),
               r.get('initiative'), r.get('diligence'), r.get('discipline'),
-              r.get('cooperation'), r.get('safety'), r.get('driving')))
+              r.get('cooperation'), r.get('safety'), r.get('driving'),
+              month or r.get('month') or ''))
     conn.commit()
     conn.close()
 
-def get_scoring_card_entries(data_folder, team_id=None, week=None, card_no=None, source=None):
-    """按条件组合查询评分原始记录"""
+def get_scoring_card_entries(data_folder, team_id=None, week=None, card_no=None, source=None, month=None):
+    """按条件组合查询评分原始记录。P15: month 参数（None 不过滤，兼容旧调用）"""
     conn = get_conn(data_folder)
     where, params = [], []
     if team_id is not None:
@@ -1718,6 +1779,8 @@ def get_scoring_card_entries(data_folder, team_id=None, week=None, card_no=None,
         where.append('card_no=?'); params.append(card_no)
     if source:
         where.append('source=?'); params.append(source)
+    if month:
+        where.append('month=?'); params.append(month)
     sql = 'SELECT * FROM scoring_card_entries'
     if where:
         sql += ' WHERE ' + ' AND '.join(where)
@@ -1726,12 +1789,17 @@ def get_scoring_card_entries(data_folder, team_id=None, week=None, card_no=None,
     conn.close()
     return [dict(r) for r in rows]
 
-def delete_scoring_card_entries(data_folder, week, team_id, card_no, source):
-    """删除整张卡（重录时先删再插）"""
+def delete_scoring_card_entries(data_folder, week, team_id, card_no, source, month=None):
+    """删除整张卡（重录时先删再插）。P15: month 参数，None 兼容旧调用（按旧 UNIQUE 语义）"""
     conn = get_conn(data_folder)
-    conn.execute("""
-        DELETE FROM scoring_card_entries WHERE week=? AND team_id=? AND card_no=? AND source=?
-    """, (week, team_id, card_no, source))
+    if month:
+        conn.execute("""
+            DELETE FROM scoring_card_entries WHERE week=? AND team_id=? AND card_no=? AND source=? AND month=?
+        """, (week, team_id, card_no, source, month))
+    else:
+        conn.execute("""
+            DELETE FROM scoring_card_entries WHERE week=? AND team_id=? AND card_no=? AND source=?
+        """, (week, team_id, card_no, source))
     conn.commit()
     conn.close()
 
@@ -1749,23 +1817,30 @@ def save_objective_entry(data_folder, record_date, team, planned, actual, total_
     conn.close()
     return daily_s
 
-def get_objective_records(data_folder, team):
+def get_objective_records(data_folder, team, month=None):
+    """P15: 支持按月过滤（month='YYYY-MM'，None 不过滤兼容旧调用）"""
     conn = get_conn(data_folder)
-    rows = conn.execute(
-        "SELECT * FROM objective_records WHERE team=? ORDER BY record_date", (team,)).fetchall()
+    if month:
+        rows = conn.execute(
+            "SELECT * FROM objective_records WHERE team=? AND substr(record_date,1,7)=? ORDER BY record_date",
+            (team, month)).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM objective_records WHERE team=? ORDER BY record_date", (team,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
-def get_monthly_objective(data_folder, team):
-    rows = get_objective_records(data_folder, team)
+def get_monthly_objective(data_folder, team, month=None):
+    # P15 用户决策：无计划出渣量（planned<=0）的记录不计入发放（不参与 S 汇总）
+    rows = [r for r in get_objective_records(data_folder, team, month) if r['planned_output'] > 0]
     if not rows:
         return {'monthly_s': 0, 'distribution_ratio': 0.7, 'planned_sum': 0, 'actual_sum': 0}
     monthly_s = sum(r['daily_s'] for r in rows) / max(len(rows), 1)
-    if monthly_s >= 95: ratio = 1.0
-    elif monthly_s >= 85: ratio = 0.95
-    elif monthly_s >= 75: ratio = 0.9
-    elif monthly_s >= 65: ratio = 0.85
-    elif monthly_s >= 55: ratio = 0.8
+    # P15: 手册 90/80/70/60 五档（无 0.85 档）
+    if monthly_s >= 90: ratio = 1.0
+    elif monthly_s >= 80: ratio = 0.95
+    elif monthly_s >= 70: ratio = 0.9
+    elif monthly_s >= 60: ratio = 0.8
     else: ratio = 0.7
     return {'monthly_s': round(monthly_s, 2), 'distribution_ratio': ratio,
             'planned_sum': sum(r['planned_output'] for r in rows),
