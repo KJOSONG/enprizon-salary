@@ -106,7 +106,7 @@
 
       <!-- 出勤 -->
       <section class="tab-page" id="tab-attendance">
-        <div class="empty-state"><div class="empty-state__icon">⏱</div><div class="empty-state__title" data-i18n="building">建设中</div><div class="empty-state__desc" data-i18n="building_desc_att">出勤模块即将上线</div></div>
+        <div id="attRoot"></div>
       </section>
     </main>
 
@@ -158,6 +158,11 @@
     lang: localStorage.getItem('m_lang') || 'zh',
     shiftFilter: 'all',
     charts: {},
+    attendance: null,
+    attBatch: false,
+    attBatchSel: null,
+    _batchStatus: '',
+    attJump: '',
   };
 
   const I18N = {
@@ -171,7 +176,8 @@
           annual_leave:'年假', comp_leave:'调休', sick_leave:'病假', leave_type:'请假类型', start_date:'开始日期', reason:'事由', submitted:'已提交', fill_date:'请选择日期', days:'天', load_fail:'加载失败',
           oa_hire:'入职', oa_transfer:'调岗', oa_dismiss:'离职', oa_resign:'辞职', oa_leave:'请假', oa_salary:'薪资变更', gender:'性别', nida:'NIDA', nssf:'NSSF', bank:'银行',
           col_ug:'井下出渣', col_dr:'钻工组', col_cr:'破碎计件', col_att:'出勤收集', col_emps:'参与人员', members:'队员', date:'日期', drivers:'司机', captain:'队长',
-          pick_captain:'选择队长', add_team:'添加队伍', remove:'移除', submit:'提交', all_depts:'全部部门', recent_submits:'最近提交', no_submit:'暂无提交', submits:'条', no_history:'暂无历史' },
+          pick_captain:'选择队长', add_team:'添加队伍', remove:'移除', submit:'提交', all_depts:'全部部门', recent_submits:'最近提交', no_submit:'暂无提交', submits:'条', no_history:'暂无历史',
+          search:'搜索', att_month:'出勤 - ', batch_mark:'批量', cancel_batch:'取消', apply_selected:'应用到已选', selected:'已选', edit_att:'修改出勤', jump_date:'跳转日期', today:'今天', need_editor:'需要编辑权限', quick_actions:'快捷操作', leave_sick:'病假登记', att_current:'本月', st_p:'日薪/月薪', st_a:'旷工', st_l:'请假', st_d:'井下白班', st_n:'井下夜班', st_c:'破碎', pick_status:'请选择状态', pick_emp:'请选择人员', next:'继续' },
     en: { username:'Username', password:'Password', login:'Login', tab_dashboard:'Dashboard', tab_employees:'Employees', tab_collection:'Collect', tab_attendance:'Attend',
           loading:'Loading...', all:'All', day_shift:'Day', night_shift:'Night', trend:'Trend', day_night:'Day vs Night',
           driller_output:'Driller', ore_type:'Ore Type', crush_output:'Crush', building:'Building',
@@ -182,7 +188,8 @@
           annual_leave:'Annual', comp_leave:'Comp', sick_leave:'Sick', leave_type:'Leave type', start_date:'Start', reason:'Reason', submitted:'Submitted', fill_date:'Pick a date', days:'d', load_fail:'Load failed',
           oa_hire:'Hire', oa_transfer:'Transfer', oa_dismiss:'Dismiss', oa_resign:'Resign', oa_leave:'Leave', oa_salary:'Pay change', gender:'Gender', nida:'NIDA', nssf:'NSSF', bank:'Bank',
           col_ug:'Underground', col_dr:'Driller', col_cr:'Crush', col_att:'Attendance', col_emps:'Workers', members:'Members', date:'Date', drivers:'Drivers', captain:'Captain',
-          pick_captain:'Pick captain', add_team:'Add team', remove:'Remove', submit:'Submit', all_depts:'All depts', recent_submits:'Recent', no_submit:'No submit', submits:'subs', no_history:'No history' },
+          pick_captain:'Pick captain', add_team:'Add team', remove:'Remove', submit:'Submit', all_depts:'All depts', recent_submits:'Recent', no_submit:'No submit', submits:'subs', no_history:'No history',
+          search:'Search', att_month:'Attendance - ', batch_mark:'Batch', cancel_batch:'Cancel', apply_selected:'Apply to selected', selected:'Selected', edit_att:'Edit attendance', jump_date:'Jump to date', today:'Today', need_editor:'Editor access required', quick_actions:'Quick actions', leave_sick:'Sick leave', att_current:'This month', st_p:'Day/Monthly', st_a:'Absent', st_l:'Leave', st_d:'UG Day', st_n:'UG Night', st_c:'Crush', pick_status:'Pick a status', pick_emp:'Pick employees', next:'Next' },
   };
   function t(key){ return (I18N[STATE.lang] && I18N[STATE.lang][key]) || I18N.zh[key] || key; }
 
@@ -210,6 +217,7 @@
     window.scrollTo(0,0);
     if(name==='dashboard' && !STATE.dashboard) loadDashboard();
     if(name==='employees'){ if(!STATE.employees.length) loadEmployees(); loadOAPendingCount(); }
+    if(name==='attendance') loadAttendance();
   }
   function loadOAPendingCount(){ api('/api/oa/pending/count').then(d=>{ document.getElementById('oa-pending-n').textContent = d.count||0; }).catch(()=>{}); }
   function pushPage(){ document.getElementById('topback').classList.add('visible'); }
@@ -603,6 +611,100 @@
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;}
     const marks=STATE.employees.filter(e=>!document.getElementById('attDept').value||e.department===document.getElementById('attDept').value).map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
     colSubmit('attendance', { submission_date:date, marks }); }
+
+  // ── 出勤模块 (Phase 4) ──
+  const ATT_STATUS = ['P','A','L','D','N','C'];
+  function attStatusLabel(s){ return t('st_'+s.toLowerCase()); }
+  function loadAttendance(){
+    const root=document.getElementById('attRoot');
+    root.innerHTML='<div class="loading" style="padding:32px;text-align:center;color:var(--muted-foreground);">'+t('loading')+'</div>';
+    api('/attendance').then(d=>{
+      STATE.attendance=d; STATE.attBatch=false; STATE.attBatchSel=new Set(); STATE._batchStatus='';
+      buildAttUI();
+    }).catch(()=>{ root.innerHTML='<div class="empty-state">'+t('load_fail')+'</div>'; });
+  }
+  function buildAttUI(){
+    const d=STATE.attendance; if(!d) return;
+    const ym = (d.dates&&d.dates[0]||'').slice(0,7);
+    const ymLabel = ym? (ym.slice(0,4)+'年'+parseInt(ym.slice(5,7),10)+'月') : '';
+    const depts=[...new Set((d.rows||[]).map(r=>r.department).filter(Boolean))].sort();
+    const root=document.getElementById('attRoot');
+    root.innerHTML =
+      '<div class="att-month">'+t('att_month')+ymLabel+'</div>'
+      + '<div class="att-toolbar">'
+      + '<input class="att-search" id="attSearch" placeholder="🔍 '+t('search')+'" oninput="renderAttGrid()">'
+      + '<select id="attDept" onchange="renderAttGrid()"><option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select>'
+      + '<button class="icon-btn" onclick="openAttJump()" title="'+t('jump_date')+'">📅</button>'
+      + '<button class="icon-btn" id="attBatchBtn" onclick="toggleAttBatch()">'+t('batch_mark')+'</button>'
+      + '</div>'
+      + '<div id="attGrid" class="att-grid"></div>'
+      + '<div id="attBatchPanel" class="att-batch" style="display:none;">'
+      + '  <div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="attBatchDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+      + '  <div class="seg-row" id="attBatchStatus"></div>'
+      + '  <button class="btn btn-primary btn-block" onclick="applyAttBatch()">'+t('apply_selected')+' (<span id="attBatchCount">0</span>)</button>'
+      + '</div>'
+      + '<div class="quick-actions"><button class="btn" onclick="quickLeave()">+ '+t('leave_apply')+'</button><button class="btn" onclick="quickSick()">+ '+t('leave_sick')+'</button></div>';
+    renderAttGrid();
+  }
+  function renderAttGrid(){
+    const d=STATE.attendance; if(!d) return;
+    const q=(document.getElementById('attSearch').value||'').toLowerCase().trim();
+    const dept=document.getElementById('attDept').value;
+    const today=new Date().toISOString().slice(0,10);
+    const rows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)));
+    const grid=document.getElementById('attGrid'); if(!grid) return;
+    if(!rows.length){ grid.innerHTML='<div class="empty-state">'+t('no_emp')+'</div>'; return; }
+    grid.innerHTML=rows.map(r=>{
+      const sel = STATE.attBatch ? '<input type="checkbox" class="att-sel" data-eid="'+esc(r.id)+'" '+(STATE.attBatchSel.has(r.id)?'checked':'')+' onchange="onAttSel(\''+esc(r.id)+'\',this.checked)">' : '';
+      const cells=d.dates.map(dt=>{ const st=r.days[dt]||''; const isToday=dt===today; const jp=dt===STATE.attJump?' att-jump':''; return '<div class="att-cell'+jp+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'" onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')"><div class="att-cell__d'+(isToday?' att-today':'')+'">'+dt.slice(5)+'</div><div class="att-cell__s st-'+st+'">'+(st||'·')+'</div></div>'; }).join('');
+      return '<div class="att-card">'
+        + '<div class="att-card__head">'+sel+'<div class="avatar">'+esc(initials(r.name))+'</div><div class="att-card__meta"><div class="att-card__name">'+esc(r.name||'')+'</div><div class="att-card__num">#'+esc(r.custom_number||r.id)+'</div></div></div>'
+        + '<div class="att-row">'+cells+'</div>'
+        + '</div>';
+    }).join('');
+    if(STATE.attBatch) renderAttBatchStatus();
+  }
+  function initials(name){ if(!name) return '?'; const p=String(name).trim().split(/\s+/); return (p[0][0]+(p[1]?p[1][0]:'')).toUpperCase(); }
+  function openAttEdit(eid, date){
+    const r=STATE.attendance.rows.find(x=>x.id===eid);
+    const cur=(r&&r.days[date])||'';
+    const name=r? r.name : eid;
+    let html='<div class="att-edit-name">'+esc(name)+'</div>'
+      + '<div class="att-edit-cur">'+t('edit_att')+': <b class="st-'+cur+'">'+(cur||'·')+'</b></div>'
+      + '<div class="att-edit-btns">'+ATT_STATUS.map(s=>'<button class="att-st-btn st-'+s+'" onclick="doAttToggle(\''+esc(eid)+'\',\''+date+'\',\''+s+'\')"><span class="att-st-dot st-'+s+'"></span>'+s+' · '+attStatusLabel(s)+'</button>').join('')+'</div>';
+    document.getElementById('sheet-title').textContent=t('edit_att')+' - '+date;
+    document.getElementById('sheet-body').innerHTML=html;
+    document.getElementById('sheet').classList.add('show');
+  }
+  function doAttToggle(eid, date, status){
+    api('/attendance/toggle',{method:'POST',body:JSON.stringify({employee_id:eid,date,status})}).then(r=>{
+      if(r.ok){ const row=STATE.attendance.rows.find(x=>x.id===eid); if(row) row.days[date]=status; closeSheet(); renderAttGrid(); toast(t('saved')); }
+      else if(r.need_admin){ toast(t('need_editor'),'error'); }
+      else toast(r.error||t('fail'),'error');
+    }).catch(()=>toast(t('fail'),'error'));
+  }
+  function toggleAttBatch(){ STATE.attBatch=!STATE.attBatch; if(!STATE.attBatch){ STATE.attBatchSel.clear(); } document.getElementById('attBatchPanel').style.display=STATE.attBatch?'block':'none'; const b=document.getElementById('attBatchBtn'); if(b) b.textContent=STATE.attBatch?t('cancel_batch'):t('batch_mark'); renderAttGrid(); }
+  function onAttSel(eid, checked){ if(checked) STATE.attBatchSel.add(eid); else STATE.attBatchSel.delete(eid); const c=document.getElementById('attBatchCount'); if(c) c.textContent=STATE.attBatchSel.size; }
+  function renderAttBatchStatus(){ const box=document.getElementById('attBatchStatus'); if(!box) return; box.innerHTML=ATT_STATUS.map(s=>'<button class="seg-opt st-'+s+'" onclick="setBatchStatus(\''+s+'\')">'+s+'</button>').join(''); }
+  function setBatchStatus(s){ STATE._batchStatus=s; document.querySelectorAll('#attBatchStatus .seg-opt').forEach(b=>b.classList.toggle('active', b.textContent===s)); }
+  function applyAttBatch(){
+    const date=document.getElementById('attBatchDate').value; const st=STATE._batchStatus;
+    if(!date){ toast(t('fill_date'),'warning'); return; }
+    if(!st){ toast(t('pick_status'),'warning'); return; }
+    const ids=[...STATE.attBatchSel];
+    if(!ids.length){ toast(t('pick_emp'),'warning'); return; }
+    Promise.all(ids.map(eid=>api('/attendance/toggle',{method:'POST',body:JSON.stringify({employee_id:eid,date,status:st})}))).then(res=>{
+      let ok=0; res.forEach((r,i)=>{ if(r.ok){ const row=STATE.attendance.rows.find(x=>x.id===ids[i]); if(row) row.days[date]=st; ok++; } });
+      toast(t('saved')+' ('+ok+'/'+ids.length+')'); renderAttGrid();
+    }).catch(()=>toast(t('fail'),'error'));
+  }
+  function openAttJump(){ const today=new Date().toISOString().slice(0,10); const body=document.getElementById('sheet-body'); body.innerHTML='<div class="field"><label class="field__label">'+t('jump_date')+'</label><input type="date" id="attJumpDate" value="'+(STATE.attendance.dates.includes(today)?today:STATE.attendance.dates[0]||today)+'"></div><button class="btn btn-primary btn-block" onclick="doAttJump()">'+t('jump_date')+'</button>'; openSheet(t('jump_date'), body); }
+  function doAttJump(){ const dt=document.getElementById('attJumpDate').value; closeSheet(); if(!dt) return; STATE.attJump=dt; renderAttGrid(); const cell=document.querySelector('.att-cell[data-d="'+dt+'"]'); if(cell) cell.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'}); }
+
+  // 请假快捷入口
+  function quickLeave(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openLeave(document.getElementById(\'ql-emp\').value)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
+  function quickSick(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
+  function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
 
   // 采集 Tab 进入时刷新首页
   // ── 启动 ──
