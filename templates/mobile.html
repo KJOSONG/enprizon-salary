@@ -11,14 +11,15 @@
   <title>ENPRIZON LINDI</title>
   <link rel="stylesheet" href="{{ static_url('css/mobile.css') }}?v={{ version }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:wght@600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <!-- 登录页（未认证时显示） -->
   <div id="login-screen" class="login-wrap" style="display:none;">
     <div class="login-logo">
       <h1>ENPRIZON LINDI</h1>
-      <p>薪资与产量管理系统 · 移动端</p>
+      <p data-i18n="login_sub">薪资与产量管理系统 · 移动端</p>
     </div>
     <form id="login-form" onsubmit="return doLogin(event)">
       <div class="field">
@@ -37,21 +38,28 @@
   <div id="app" style="display:none;">
     <!-- 顶栏 -->
     <header class="top-bar">
-      <button class="top-bar__back" id="topback" onclick="popPage()">‹</button>
+      <button class="top-bar__back" id="topback" onclick="popPage()" aria-label="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="22" height="22"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
       <div style="flex:1; min-width:0;">
         <div class="top-bar__title" id="top-title" data-i18n="tab_dashboard">数据台</div>
         <div class="top-bar__month" id="top-month" onclick="openMonthSheet()">—</div>
       </div>
       <div class="top-bar__actions">
-        <button class="icon-btn" id="search-btn" onclick="toggleSearch()" title="搜索">🔍</button>
-        <button class="icon-btn" id="lang-btn" onclick="toggleLang()" title="语言">🌐</button>
-        <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="主题">🌙</button>
+        <button class="icon-btn" id="search-btn" onclick="toggleSearch()" title="搜索" aria-label="搜索">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </button>
+        <button class="icon-btn lang-pill" id="lang-btn" onclick="toggleLang()" title="语言">中</button>
+        <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="主题" aria-label="主题">
+          <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
       </div>
     </header>
 
     <!-- 搜索栏（默认隐藏） -->
     <div id="search-bar" style="display:none; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--border);">
-      <input type="search" id="search-input" placeholder="搜索..." oninput="onSearch(this.value)" style="width:100%; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:12px; background:var(--background);">
+      <input type="search" id="search-input" data-i18n-placeholder="search" placeholder="搜索..." oninput="onSearch(this.value)" style="width:100%; min-height:44px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--background);">
     </div>
 
     <main class="main-content">
@@ -167,33 +175,21 @@
     attJump: '',
   };
 
-  const I18N = {
-    zh: { username:'用户名', password:'密码', login:'登录', tab_dashboard:'数据台', tab_employees:'员工', tab_collection:'采集', tab_attendance:'出勤',
-          loading:'加载中...', all:'全部', day_shift:'白班', night_shift:'夜班', trend:'产量趋势', day_night:'白班 vs 夜班',
-          driller_output:'钻工组产量', ore_type:'矿石类型占比', crush_output:'破碎产量', building:'建设中',
-          building_desc_emp:'员工模块即将上线', building_desc_coll:'数据采集模块即将上线', building_desc_att:'出勤模块即将上线',
-          month:'月份', total:'合计', day:'白班', night:'夜班', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'袋', emp:'人', daily_avg:'日均', day_max:'日最高',
-          emp_list:'员工列表', oa_pending:'待审', oa_history:'已审批', basic_info:'基本信息', edit_profile:'编辑档案', dept:'部门', team:'班组', position:'岗位', salary_type:'薪资类别', phone:'电话', alias:'别名',
-          leave_apply:'请假申请', approve:'批准', reject:'驳回', reject_reason:'驳回原因', no_emp:'无员工', no_oa:'暂无审批', saved:'已保存', save_fail:'保存失败', approved:'已批准', rejected:'已驳回', fail:'操作失败',
-          annual_leave:'年假', comp_leave:'调休', sick_leave:'病假', leave_type:'请假类型', start_date:'开始日期', reason:'事由', submitted:'已提交', fill_date:'请选择日期', days:'天', load_fail:'加载失败',
-          oa_hire:'入职', oa_transfer:'调岗', oa_dismiss:'离职', oa_resign:'辞职', oa_leave:'请假', oa_salary:'薪资变更', gender:'性别', nida:'NIDA', nssf:'NSSF', bank:'银行',
-          col_ug:'井下出渣', col_dr:'钻工组', col_cr:'破碎计件', col_att:'出勤收集', col_emps:'参与人员', members:'队员', date:'日期', drivers:'司机', captain:'队长',
-          pick_captain:'选择队长', add_team:'添加队伍', remove:'移除', submit:'提交', all_depts:'全部部门', recent_submits:'最近提交', no_submit:'暂无提交', submits:'条', no_history:'暂无历史',
-          search:'搜索', att_month:'出勤 - ', batch_mark:'批量', cancel_batch:'取消', apply_selected:'应用到已选', selected:'已选', edit_att:'修改出勤', jump_date:'跳转日期', today:'今天', need_editor:'需要编辑权限', quick_actions:'快捷操作', leave_sick:'病假登记', att_current:'本月', st_p:'日薪/月薪', st_a:'旷工', st_l:'请假', st_d:'井下白班', st_n:'井下夜班', st_c:'破碎', pick_status:'请选择状态', pick_emp:'请选择人员', next:'继续' },
-    en: { username:'Username', password:'Password', login:'Login', tab_dashboard:'Dashboard', tab_employees:'Employees', tab_collection:'Collect', tab_attendance:'Attend',
-          loading:'Loading...', all:'All', day_shift:'Day', night_shift:'Night', trend:'Trend', day_night:'Day vs Night',
-          driller_output:'Driller', ore_type:'Ore Type', crush_output:'Crush', building:'Building',
-          building_desc_emp:'Employees module coming', building_desc_coll:'Collection module coming', building_desc_att:'Attendance module coming',
-          month:'Month', total:'Total', day:'Day', night:'Night', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'bags', emp:'ppl', daily_avg:'Daily Avg', day_max:'Day Max',
-          emp_list:'Employees', oa_pending:'Pending', oa_history:'Processed', basic_info:'Basic Info', edit_profile:'Edit', dept:'Dept', team:'Team', position:'Position', salary_type:'Pay Type', phone:'Phone', alias:'Alias',
-          leave_apply:'Leave', approve:'Approve', reject:'Reject', reject_reason:'Reject reason', no_emp:'No employees', no_oa:'Nothing to review', saved:'Saved', save_fail:'Save failed', approved:'Approved', rejected:'Rejected', fail:'Failed',
-          annual_leave:'Annual', comp_leave:'Comp', sick_leave:'Sick', leave_type:'Leave type', start_date:'Start', reason:'Reason', submitted:'Submitted', fill_date:'Pick a date', days:'d', load_fail:'Load failed',
-          oa_hire:'Hire', oa_transfer:'Transfer', oa_dismiss:'Dismiss', oa_resign:'Resign', oa_leave:'Leave', oa_salary:'Pay change', gender:'Gender', nida:'NIDA', nssf:'NSSF', bank:'Bank',
-          col_ug:'Underground', col_dr:'Driller', col_cr:'Crush', col_att:'Attendance', col_emps:'Workers', members:'Members', date:'Date', drivers:'Drivers', captain:'Captain',
-          pick_captain:'Pick captain', add_team:'Add team', remove:'Remove', submit:'Submit', all_depts:'All depts', recent_submits:'Recent', no_submit:'No submit', submits:'subs', no_history:'No history',
-          search:'Search', att_month:'Attendance - ', batch_mark:'Batch', cancel_batch:'Cancel', apply_selected:'Apply to selected', selected:'Selected', edit_att:'Edit attendance', jump_date:'Jump to date', today:'Today', need_editor:'Editor access required', quick_actions:'Quick actions', leave_sick:'Sick leave', att_current:'This month', st_p:'Day/Monthly', st_a:'Absent', st_l:'Leave', st_d:'UG Day', st_n:'UG Night', st_c:'Crush', pick_status:'Pick a status', pick_emp:'Pick employees', next:'Next' },
-  };
-  function t(key){ return (I18N[STATE.lang] && I18N[STATE.lang][key]) || I18N.zh[key] || key; }
+  const I18N = null; // 已废弃：统一使用 static/js/i18n.js 的 I18N_DICT
+  function t(key, vars){
+    let s;
+    if (window.I18N_DICT) {
+      const dict = I18N_DICT[STATE.lang] || I18N_DICT.zh || {};
+      s = dict[key] !== undefined ? dict[key] : key;
+    } else {
+      // 兼容回退：i18n.js 未加载时返回 key 本身
+      s = key;
+    }
+    if (vars && s.includes('{')) {
+      for (const k in vars) s = s.split('{'+k+'}').join(String(vars[k]));
+    }
+    return s;
+  }
 
   // ── 工具 ──
   function api(path, opts){ return fetch(path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts)).then(r=>r.json()); }
@@ -201,10 +197,22 @@
   function toast(msg, type){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(type?(' '+type):''); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2500); }
 
   // ── 主题/语言 ──
-  function applyTheme(){ document.documentElement.classList.toggle('dark', STATE.theme==='dark'); document.getElementById('theme-btn').textContent = STATE.theme==='dark'?'☀️':'🌙'; const tc=document.querySelector('meta[name="theme-color"]'); if(tc) tc.setAttribute('content', STATE.theme==='dark'?'hsl(30 15% 6%)':'hsl(40 16% 98%)'); }
+  function applyTheme(){
+    document.documentElement.classList.toggle('dark', STATE.theme==='dark');
+    const moon=document.getElementById('theme-icon-moon'), sun=document.getElementById('theme-icon-sun');
+    if(moon) moon.style.display = STATE.theme==='dark'?'none':'block';
+    if(sun) sun.style.display = STATE.theme==='dark'?'block':'none';
+    const tc=document.querySelector('meta[name="theme-color"]');
+    if(tc) tc.setAttribute('content', STATE.theme==='dark'?'hsl(12 71.43% 1.37%)':'hsl(40 16% 98%)');
+  }
   function toggleTheme(){ STATE.theme = STATE.theme==='dark'?'light':'dark'; localStorage.setItem('m_theme', STATE.theme); applyTheme(); }
-  function applyLang(){ document.querySelectorAll('[data-i18n]').forEach(e=>{ const k=e.getAttribute('data-i18n'); if(I18N[STATE.lang][k]) e.textContent=I18N[STATE.lang][k]; }); document.documentElement.lang = STATE.lang; }
-  function toggleLang(){ STATE.lang = STATE.lang==='zh'?'en':'zh'; localStorage.setItem('m_lang', STATE.lang); applyLang(); if(STATE.activeTab==='dashboard') renderDashboard(); }
+  function applyLang(){
+    document.querySelectorAll('[data-i18n]').forEach(e=>{ const k=e.getAttribute('data-i18n'); if(k) e.textContent=t(k); });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(e=>{ const k=e.getAttribute('data-i18n-placeholder'); if(k) e.placeholder=t(k); });
+    document.documentElement.lang = STATE.lang;
+    const lb=document.getElementById('lang-btn'); if(lb) lb.textContent = STATE.lang==='zh'?'中':'EN';
+  }
+  function toggleLang(){ STATE.lang = STATE.lang==='zh'?'en':'zh'; localStorage.setItem('m_lang', STATE.lang); applyLang(); if(activeTab==='dashboard') renderDashboard(); }
 
   // ── Tab 路由 ──
   const TAB_TITLES = { dashboard:'tab_dashboard', employees:'tab_employees', collection:'tab_collection', attendance:'tab_attendance' };
@@ -711,6 +719,7 @@
   // 采集 Tab 进入时刷新首页
   // ── 启动 ──
   applyTheme();
+  applyLang();
   checkAuth();
   </script>
 </body>
