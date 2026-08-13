@@ -171,7 +171,7 @@ def admin_change_password():
     data = request.get_json(silent=True) or {}
     old_password = data.get('old_password', '')
     new_password = data.get('new_password', '')
-    if not new_password or len(new_password) < 4:
+    if not new_password or len(new_password) < 6:
         return jsonify({'ok': False, 'error': 'password_too_short'})
     if not verify_admin(app.config['DATA_FOLDER'], session['username'], old_password):
         return jsonify({'ok': False, 'error': 'invalid_old_password'})
@@ -205,6 +205,41 @@ def update_user_role():
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
+
+@app.route('/admin/users/create', methods=['POST'])
+@super_admin_required
+def create_user():
+    """超级管理员新增登录用户（含角色）"""
+    from core.database import create_admin_user
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    role = (data.get('role') or 'viewer').strip()
+    result = create_admin_user(app.config['DATA_FOLDER'], username, password, role)
+    if result == 'ok':
+        _audit('user_create', username, json.dumps({'role': role}))
+        return jsonify({'ok': True})
+    if result == 'exists':
+        return jsonify({'ok': False, 'error': '用户名已存在'}), 400
+    if result == 'invalid_role':
+        return jsonify({'ok': False, 'error': '无效角色'}), 400
+    return jsonify({'ok': False, 'error': '用户名或密码不合法（密码至少6位）'}), 400
+
+@app.route('/admin/users/reset-password', methods=['POST'])
+@super_admin_required
+def reset_user_password():
+    """超级管理员重置指定用户密码（不要求旧密码）"""
+    from core.database import reset_admin_password
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    new_password = data.get('new_password') or ''
+    result = reset_admin_password(app.config['DATA_FOLDER'], username, new_password)
+    if result == 'ok':
+        _audit('user_password_reset', username, json.dumps({}))
+        return jsonify({'ok': True})
+    if result == 'not_found':
+        return jsonify({'ok': False, 'error': '用户不存在'}), 404
+    return jsonify({'ok': False, 'error': '密码至少6位'}), 400
 
 # ═══════════════════════════════════════════════════════════
 #  API: 细粒度权限管理（super_admin 管理授权）
@@ -2477,6 +2512,65 @@ def get_production():
                                   'kibiriti': v['kibiriti']}
                                 for v in driller_summary],
     })
+
+# ═══════════════════════════════════════════════════════════
+#  API: 数据台产量仪表盘（P15: 白夜班分离 + 钻工逐日明细 + 破碎）
+# ═══════════════════════════════════════════════════════════
+
+@app.route('/api/production/dashboard', methods=['GET'])
+@login_required
+def get_production_dashboard():
+    md = APP_STATE.get('main_data', {})
+    shift_prod = md.get('shift_production', [])
+    driller_prod = md.get('driller_production', [])
+    crush_prod = md.get('crush_production', [])
+
+    # ── 井下产量: 白班/夜班/合计 三者分离 ──
+    shift_daily = []
+    for d in shift_prod:
+        dp = d.get('day_prod') or {}
+        np = d.get('night_prod') or {}
+        shift_daily.append({
+            'date': d['date'],
+            'day_nh': dp.get('NICKEL（H）', 0) or 0,
+            'day_nl': dp.get('NICKEL（L）', 0) or 0,
+            'day_mw': dp.get('MAWE', 0) or 0,
+            'night_nh': np.get('NICKEL（H）', 0) or 0,
+            'night_nl': np.get('NICKEL（L）', 0) or 0,
+            'night_mw': np.get('MAWE', 0) or 0,
+            'total_nh': (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0),
+            'total_nl': (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0),
+            'total_mw': (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0),
+        })
+
+    # ── 钻工产量: 逐日明细（非队长汇总） ──
+    driller_daily = []
+    for d in driller_prod:
+        driller_daily.append({
+            'date': d['date'],
+            'captain': d['captain'],
+            'nh': d['nh'],
+            'nl': d['nl'],
+            'mw': d['mw'],
+            'members': d.get('members', []),
+        })
+
+    # ── 破碎产量: 逐日 ──
+    crush_daily = []
+    for c in crush_prod:
+        crush_daily.append({
+            'date': c['date'],
+            'bags': c['bags'],
+            'personnel_count': len(c.get('personnel', [])),
+        })
+
+    return jsonify({
+        'month': md.get('dates', [''])[0][:7] if md.get('dates') else '',
+        'shift_production': shift_daily,
+        'driller_production': driller_daily,
+        'crush_production': crush_daily,
+    })
+
 
 # ═══════════════════════════════════════════════════════════
 #  API: 产量核验（逐日对比钻工组与井下合计）

@@ -1274,12 +1274,54 @@ def set_user_role(data_folder, username, role):
     conn.close()
 
 def set_admin_password(data_folder, username, password):
+    """更新指定用户密码（UPSERT，保留已有 role，避免改密码把角色重置为默认 admin）"""
     conn = get_conn(data_folder)
     pwd_hash = _hash_password(password)
-    conn.execute("INSERT OR REPLACE INTO admin_users (username, password_hash) VALUES (?, ?)",
-                 (username, pwd_hash))
+    conn.execute("""
+        INSERT INTO admin_users (username, password_hash, role)
+        VALUES (?, ?, 'admin')
+        ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash
+    """, (username, pwd_hash))
     conn.commit()
     conn.close()
+
+def create_admin_user(data_folder, username, password, role):
+    """创建新登录用户（含角色）。返回 'ok' / 'exists' / 'invalid_role' / 'invalid_input'"""
+    username = (username or '').strip()
+    password = password or ''
+    if not username or len(password) < 6:
+        return 'invalid_input'
+    if role not in ROLE_LEVELS:
+        return 'invalid_role'
+    conn = get_conn(data_folder)
+    exists = conn.execute("SELECT 1 FROM admin_users WHERE username=?", (username,)).fetchone()
+    if exists:
+        conn.close()
+        return 'exists'
+    pwd_hash = _hash_password(password)
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, role) VALUES (?, ?, ?)",
+        (username, pwd_hash, role))
+    conn.commit()
+    conn.close()
+    return 'ok'
+
+def reset_admin_password(data_folder, username, new_password):
+    """超级管理员重置指定用户密码（不要求旧密码，保留 role）。返回 'ok' / 'not_found' / 'invalid_input'"""
+    username = (username or '').strip()
+    new_password = new_password or ''
+    if not username or len(new_password) < 6:
+        return 'invalid_input'
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT 1 FROM admin_users WHERE username=?", (username,)).fetchone()
+    if not row:
+        conn.close()
+        return 'not_found'
+    pwd_hash = _hash_password(new_password)
+    conn.execute("UPDATE admin_users SET password_hash=? WHERE username=?", (pwd_hash, username))
+    conn.commit()
+    conn.close()
+    return 'ok'
 
 def verify_admin(data_folder, username, password):
     conn = get_conn(data_folder)

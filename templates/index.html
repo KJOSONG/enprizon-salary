@@ -156,47 +156,112 @@
 <!-- ═══ 主内容 ═══ -->
 <div class="main">
 
-<!-- ─── 数据台 ─── -->
+<!-- ─── 数据台（P15 重构: 纯产量导向多维度仪表盘） ─── -->
 <div class="page active" id="page-dashboard">
   <div class="data-dashboard">
-    <!-- ═══ 数据概览 ═══ -->
-    <div class="card" id="dashboardStatsCard">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_overview">数据概览</h2>
-        <span class="source-badge" id="sourceBadge"><span class="dot online"></span> <span data-i18n="dash_connected">已连接</span></span>
-      </div>
-      <div id="headlessBannerDash" style="display:none;background:linear-gradient(135deg,rgba(251,191,36,0.1),rgba(245,158,11,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--warning);" data-i18n="headless_banner_dash">📋 预览模式 — 当月暂无源数据，仅支持出勤记录与奖金/罚款</div>
-      <div class="dashboard-grid" id="dashboardStats">
-        <div class="stat-glass loading-skeleton"><div class="value">—</div><div class="label" data-i18n="dash_loading">加载中</div></div>
+
+    <!-- ═══ 控制栏 ═══ -->
+    <div class="dash-controls">
+      <div class="dash-controls-row">
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" data-i18n="dash_month">月份</label>
+          <select id="dashMonthSelect" class="dash-select"></select>
+        </div>
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" data-i18n="dash_date_from">日期起</label>
+          <input type="date" id="dashDateFrom" class="dash-input">
+        </div>
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" data-i18n="dash_date_to">日期止</label>
+          <input type="date" id="dashDateTo" class="dash-input">
+        </div>
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" data-i18n="dash_shift">班次</label>
+          <div class="dash-segmented" id="dashShiftToggle">
+            <button class="dash-seg-btn active" data-value="all" data-i18n="dash_shift_all">全部</button>
+            <button class="dash-seg-btn" data-value="day" data-i18n="dash_shift_day">白班</button>
+            <button class="dash-seg-btn" data-value="night" data-i18n="dash_shift_night">夜班</button>
+          </div>
+        </div>
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" data-i18n="dash_ore">矿石</label>
+          <div class="dash-segmented" id="dashOreToggle">
+            <button class="dash-seg-btn active" data-value="all" data-i18n="dash_ore_all">全部</button>
+            <button class="dash-seg-btn" data-value="nh" style="color:var(--nh-blue);">NH</button>
+            <button class="dash-seg-btn" data-value="nl" style="color:var(--nl-green);">NL</button>
+            <button class="dash-seg-btn" data-value="mw" style="color:var(--mw-pink);">MW</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- ═══ 产量趋势 + 核验（双栏） ═══ -->
-    <div class="dashboard-bottom-row">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_trend">产量趋势 · NICKEL(H)(L) / MAWE</h2>
-        </div>
-        <div class="chart-box" style="border:none;padding:0;background:transparent;box-shadow:none;">
-          <div class="chart-toolbar" style="margin-bottom:8px;">
-            <label style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
-              <input type="checkbox" class="chart-label-toggle" data-chart="chartDailyProd" checked style="accent-color:var(--accent);"> <span data-i18n="dash_show_labels">显示标签</span>
-            </label>
-          </div>
-          <canvas id="chartDailyProd" height="240"></canvas>
+    <!-- ═══ KPI 卡片（6 张） ═══ -->
+    <div class="dash-kpi-grid" id="dashKpiGrid">
+      <div class="stat-glass kpi-skeleton"><div class="value">—</div><div class="label" data-i18n="dash_loading">加载中</div></div>
+    </div>
+
+    <!-- ═══ 产量趋势图（主图，全宽） ═══ -->
+    <div class="card dash-chart-card">
+      <h2 class="dash-chart-title" data-i18n="dash_prod_trend_new">产量趋势</h2>
+      <div class="chart-box">
+        <canvas id="chartProdTrend" height="280"></canvas>
+      </div>
+    </div>
+
+    <!-- ═══ 白班 vs 夜班 对比（双柱图，全宽） ═══ -->
+    <div class="card dash-chart-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <h2 class="dash-chart-title" data-i18n="dash_day_night_compare">白班 vs 夜班 对比</h2>
+        <div class="dash-segmented dash-segmented-sm" id="dashDayNightOreTab">
+          <button class="dash-seg-btn active" data-value="total" data-i18n="dash_ore_total">合计</button>
+          <button class="dash-seg-btn" data-value="nh" style="color:var(--nh-blue);">NH</button>
+          <button class="dash-seg-btn" data-value="nl" style="color:var(--nl-green);">NL</button>
+          <button class="dash-seg-btn" data-value="mw" style="color:var(--mw-pink);">MW</button>
         </div>
       </div>
+      <div class="chart-box">
+        <canvas id="chartDayNight" height="260"></canvas>
+      </div>
+    </div>
 
-      <div class="card" style="min-width:0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="dash_prod_verify">产量核验 ⚡</h2>
-          <span id="verifyStatus" style="font-size:12px;"></span>
+    <!-- ═══ 双栏: 钻工组产量 + 矿石占比 ═══ -->
+    <div class="dash-two-col">
+      <div class="card dash-chart-card">
+        <h2 class="dash-chart-title" data-i18n="dash_driller_group">钻工组产量对比</h2>
+        <div class="chart-box">
+          <canvas id="chartDrillerGroup" height="280"></canvas>
         </div>
-        <div class="table-wrap verify-wrap">
-          <table class="data-table" id="verifyTable" style="font-size:10px;">
-            <thead id="verifyHead"></thead>
-            <tbody id="verifyBody"></tbody>
-          </table>
+      </div>
+      <div class="card dash-chart-card">
+        <h2 class="dash-chart-title" data-i18n="dash_ore_ratio">矿石类型占比</h2>
+        <div class="chart-box" style="max-width:320px;margin:0 auto;">
+          <canvas id="chartOrePie" height="280"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 破碎产量（横向表格） ═══ -->
+    <div class="card dash-chart-card">
+      <h2 class="dash-chart-title" data-i18n="dash_crush_prod">破碎产量</h2>
+      <div class="dash-crush-wrap" id="dashCrushTable">
+        <div class="loading-skeleton" style="text-align:center;padding:20px;color:var(--text-muted);" data-i18n="dash_loading">加载中</div>
+      </div>
+    </div>
+
+    <!-- ═══ 钻工组逐日明细 Modal ═══ -->
+    <div class="modal-overlay" id="drillerDetailModal" style="display:none;">
+      <div class="modal-panel modal-lg">
+        <div class="modal-header">
+          <h3 id="drillerDetailTitle"></h3>
+          <button class="modal-close" onclick="closeDrillerDetail()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="table-wrap">
+            <table class="data-table" id="drillerDetailTable">
+              <thead><tr><th data-i18n="col_date">日期</th><th>NH</th><th>NL</th><th>MW</th><th data-i18n="col_total">合计</th></tr></thead>
+              <tbody id="drillerDetailBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -741,6 +806,39 @@
 </div>
 </div>
 
+<!-- ═══ 用户管理：新增用户弹窗 ═══ -->
+<div class="modal-overlay" id="createUserModal" style="display:none;">
+  <div class="modal-box" style="max-width:360px;">
+    <h3 style="margin:0 0 12px;font-size:15px;" data-i18n="user_mgmt_add">新增用户</h3>
+    <label style="font-size:12px;display:block;margin-bottom:4px;" data-i18n="user_create_username">用户名</label>
+    <input type="text" id="cuUsername" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:10px;">
+    <label style="font-size:12px;display:block;margin-bottom:4px;" data-i18n="user_create_password">密码（至少6位）</label>
+    <input type="password" id="cuPassword" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:10px;">
+    <label style="font-size:12px;display:block;margin-bottom:4px;" data-i18n="user_create_role">角色</label>
+    <select id="cuRole" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:12px;"></select>
+    <div id="cuMsg" style="font-size:12px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn-cancel" onclick="document.getElementById('createUserModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-primary" onclick="submitCreateUser()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 用户管理：重置密码弹窗 ═══ -->
+<div class="modal-overlay" id="resetPwdModal" style="display:none;">
+  <div class="modal-box" style="max-width:360px;">
+    <h3 style="margin:0 0 12px;font-size:15px;" data-i18n="user_reset_pwd">重置密码</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;" data-i18n="user_reset_for">用户：<span id="rpUsername" style="color:var(--text);"></span></p>
+    <label style="font-size:12px;display:block;margin-bottom:4px;" data-i18n="user_create_password">新密码（至少6位）</label>
+    <input type="password" id="rpPassword" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:12px;">
+    <div id="rpMsg" style="font-size:12px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn-cancel" onclick="document.getElementById('resetPwdModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-primary" onclick="submitResetPwd()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ P9 数据采集：井下出渣 ═══ -->
 <div class="page" id="page-collection-underground">
   <div class="card">
@@ -921,7 +1019,8 @@
   <div class="card">
     <h2>🔐 <span data-i18n="user_mgmt_title">用户权限管理</span></h2>
     <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;" data-i18n="user_mgmt_desc">设置各用户的角色和操作权限</p>
-    <div style="margin-bottom:12px;display:flex;gap:8px;">
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn-primary" onclick="openCreateUserModal()" style="padding:6px 16px;font-size:12px;" data-i18n="user_mgmt_add">＋ 新增用户</button>
       <button class="btn-primary" onclick="initDefaultPermissions()" data-i18n="perm_init_defaults">初始化默认权限</button>
     </div>
     <div class="table-wrap">
@@ -1386,8 +1485,26 @@ async function submitLogin() {
     if (data.ok) {
       closeLoginModal();
       await checkAuth();
-      // P14.2: 登录成功后立即渲染首页（数据台/薪资表/员工表），无需手动切月
+      // P14.2: 登录成功后立即渲染首页
       await loadDashboard();
+      // 同时加载薪资/员工数据供其他页面使用
+      try {
+        const sr = await fetch(api('/salary'));
+        const sd = await sr.json();
+        if (sd.result && sd.result.employees) {
+          STATE.salaryResult = sd.result;
+          STATE.currentMonth = sd.result.month || sd.month;
+          updatePeriodBar();
+          const er = await fetch(api('/api/employees'));
+          const ed = await er.json();
+          STATE._empAll = STATE.employees = ed.employees;
+          renderSalaryTable(sd.result);
+          renderEmployeeTable();
+          populateMonthSelect(sd.result);
+          const recalcBtn = document.getElementById('recalcBtn');
+          if (recalcBtn) recalcBtn.disabled = false;
+        }
+      } catch(e) {}
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
     } else {
       errEl.textContent = data.error === 'invalid_credentials' ? t('err_invalid_credentials') :
@@ -1763,33 +1880,22 @@ function toggleCollapseSidebar() {
 //  页面加载: 检查自动加载数据
 // ════════════════════════════════════════════════
 
-// P14.2: 登录后拉取薪资 + 员工数据并渲染首页（登录成功与 init 复用）
+// P14.2: 登录后拉取数据并渲染首页
 async function loadDashboard() {
   try {
-    const res = await fetch(api('/salary'));
+    // P15: 数据台改为纯产量仪表盘，仅请求 /api/production/dashboard
+    const res = await fetch(api('/api/production/dashboard'));
     const data = await res.json();
-    if (data.result && data.result.employees) {
-      STATE.salaryResult = data.result;
-      STATE._headless = data.headless || false;
-      const r2 = await fetch(api('/api/employees'));
-      const d2 = await r2.json();
-      STATE._empAll = STATE.employees = d2.employees;
-      STATE._headless = d2.headless || STATE._headless;
-      renderDashboard(data.result);
-      renderSalaryTable(data.result);
-      const recalcBtn = document.getElementById('recalcBtn');
-      if (recalcBtn) recalcBtn.disabled = false;
-      renderEmployeeTable();
-      loadProductionData();
-      loadSourceInfo();
-      populateMonthSelect(data.result);
-      // 设置当前月份并更新周期条（兼容 result.month 与外层 month）
-      const m = (data.result && data.result.month) || data.month;
-      if (m) {
-        STATE.currentMonth = m;
-        updatePeriodBar();
-      }
-    }
+    STATE._dashData = data;
+    STATE._dashFilters = {
+      shift: 'all',
+      ore: 'all',
+      dateFrom: '',
+      dateTo: '',
+      dayNightOre: 'total',
+    };
+    initDashControls(data);
+    renderDashboard();
   } catch(e) { /* 登录后可重试 */ }
 }
 
@@ -1800,9 +1906,27 @@ async function loadDashboard() {
   if (!_authState.logged_in) {
     openLoginModal();
   }
-  // P14.2: 登录后首屏自动渲染（登录成功由 loadDashboard 调用；这里仅已登录时兜底）
+  // P14.2: 登录后首屏自动渲染
   if (_authState.logged_in) {
     await loadDashboard();
+    // 同时加载薪资/员工数据供其他页面使用
+    try {
+      const sr = await fetch(api('/salary'));
+      const sd = await sr.json();
+      if (sd.result && sd.result.employees) {
+        STATE.salaryResult = sd.result;
+        STATE.currentMonth = sd.result.month || sd.month;
+        updatePeriodBar();
+        const er = await fetch(api('/api/employees'));
+        const ed = await er.json();
+        STATE._empAll = STATE.employees = ed.employees;
+        renderSalaryTable(sd.result);
+        renderEmployeeTable();
+        populateMonthSelect(sd.result);
+        const recalcBtn = document.getElementById('recalcBtn');
+        if (recalcBtn) recalcBtn.disabled = false;
+      }
+    } catch(e) {}
   }
   // P0 导航初始化：解析 hash 路由
   renderSidebar();
@@ -1814,57 +1938,515 @@ async function loadDashboard() {
 })();
 
 // ════════════════════════════════════════════════
-//  数据台 Dashboard
+//  P15 数据台 Dashboard（纯产量导向多维度交互仪表盘）
 // ════════════════════════════════════════════════
-function renderDashboard(result) {
-  const typeLabels = getTYPE_LABELS();
 
-  const driverAllowance = (result.employees || []).reduce((s, e) => s + (e.driver_allowance || 0), 0);
-  document.getElementById('dashboardStats').innerHTML = `
-    <div class="stat-glass">
-      <div class="value">${result.employees.length}</div>
-      <div class="label">${t('dash_total_emp')}</div>
+// ── 矿石颜色常量 ──
+const ORE_COLORS = {
+  nh: { line: '#60A5FA', bg: 'rgba(96,165,250,0.15)', solid: '#3B82F6' },
+  nl: { line: '#34D399', bg: 'rgba(52,211,153,0.15)', solid: '#10B981' },
+  mw: { line: '#F472B6', bg: 'rgba(244,114,182,0.15)', solid: '#EC4899' },
+};
+
+// ── 初始化控制栏 ──
+function initDashControls(data) {
+  // 月份选择
+  const sel = document.getElementById('dashMonthSelect');
+  fetch(api('/available-months')).then(r => r.json()).then(months => {
+    sel.innerHTML = '';
+    months.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      if (m === data.month) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (!months.length) {
+      sel.innerHTML = '<option value="">—</option>';
+    }
+  });
+
+  // 日期范围
+  if (data.shift_production && data.shift_production.length) {
+    const dates = data.shift_production.map(d => d.date).sort();
+    document.getElementById('dashDateFrom').value = dates[0];
+    document.getElementById('dashDateTo').value = dates[dates.length - 1];
+    STATE._dashFilters.dateFrom = dates[0];
+    STATE._dashFilters.dateTo = dates[dates.length - 1];
+  }
+
+  // 事件绑定
+  sel.addEventListener('change', () => {
+    const m = sel.value;
+    if (m) {
+      STATE.currentMonth = m;
+      updatePeriodBar();
+      fetch(api('/set-month'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month: m }) })
+        .then(() => fetch(api('/api/production/dashboard')))
+        .then(r => r.json())
+        .then(d => {
+          STATE._dashData = d;
+          initDashControls(d);
+          renderDashboard();
+        });
+    }
+  });
+
+  document.getElementById('dashDateFrom').addEventListener('change', applyDashFilters);
+  document.getElementById('dashDateTo').addEventListener('change', applyDashFilters);
+
+  // Segmented buttons
+  document.querySelectorAll('#dashShiftToggle .dash-seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#dashShiftToggle .dash-seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      STATE._dashFilters.shift = btn.dataset.value;
+      applyDashFilters();
+    });
+  });
+
+  document.querySelectorAll('#dashOreToggle .dash-seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#dashOreToggle .dash-seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      STATE._dashFilters.ore = btn.dataset.value;
+      applyDashFilters();
+    });
+  });
+
+  document.querySelectorAll('#dashDayNightOreTab .dash-seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#dashDayNightOreTab .dash-seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      STATE._dashFilters.dayNightOre = btn.dataset.value;
+      renderDayNightCompare();
+    });
+  });
+}
+
+// ── 获取过滤后的井下产量数据 ──
+function getFilteredShiftData() {
+  const data = STATE._dashData;
+  if (!data || !data.shift_production) return [];
+  const f = STATE._dashFilters;
+  let rows = data.shift_production;
+  if (f.dateFrom) rows = rows.filter(d => d.date >= f.dateFrom);
+  if (f.dateTo) rows = rows.filter(d => d.date <= f.dateTo);
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return rows;
+}
+
+// ── 根据班次和矿石获取产量值 ──
+function getProdValue(d, shift, ore) {
+  const prefix = shift === 'day' ? 'day_' : shift === 'night' ? 'night_' : 'total_';
+  return d[prefix + ore] || 0;
+}
+
+// ── 统一过滤后刷新全部图表 ──
+function applyDashFilters() {
+  const f = STATE._dashFilters;
+  f.dateFrom = document.getElementById('dashDateFrom').value;
+  f.dateTo = document.getElementById('dashDateTo').value;
+  renderDashboard();
+}
+
+// ── 主渲染入口 ──
+function renderDashboard() {
+  renderDashboardKPI();
+  renderProductionTrend();
+  renderDayNightCompare();
+  renderDrillerGroupChart();
+  renderCategoryPie();
+  renderCrushTable();
+}
+
+// ── KPI 卡片（6 张） ──
+function renderDashboardKPI() {
+  const data = STATE._dashData;
+  const f = STATE._dashFilters;
+  const rows = getFilteredShiftData();
+
+  let totalNH = 0, totalNL = 0, totalMW = 0;
+  let peakVal = 0, peakDate = '';
+  let dayTotal = 0, nightTotal = 0;
+  let activeDays = 0;
+
+  rows.forEach(d => {
+    const nh = getProdValue(d, f.shift, 'nh');
+    const nl = getProdValue(d, f.shift, 'nl');
+    const mw = getProdValue(d, f.shift, 'mw');
+    if (f.ore === 'all' || f.ore === 'nh') totalNH += nh;
+    if (f.ore === 'all' || f.ore === 'nl') totalNL += nl;
+    if (f.ore === 'all' || f.ore === 'mw') totalMW += mw;
+
+    const dailySum = (f.ore === 'all') ? (nh + nl + mw) : (f.ore === 'nh' ? nh : f.ore === 'nl' ? nl : mw);
+    if (dailySum > 0) activeDays++;
+    if (dailySum > peakVal) { peakVal = dailySum; peakDate = d.date; }
+
+    // 白夜班比用全量（不过滤班次）
+    const dnh = (d.day_nh || 0) + (d.day_nl || 0) + (d.day_mw || 0);
+    const nnh = (d.night_nh || 0) + (d.night_nl || 0) + (d.night_mw || 0);
+    dayTotal += dnh;
+    nightTotal += nnh;
+  });
+
+  const dailyAvg = activeDays > 0 ? Math.round((totalNH + totalNL + totalMW) / activeDays) : 0;
+  const ratioStr = nightTotal > 0 ? (dayTotal / nightTotal).toFixed(1) + ' : 1' : dayTotal > 0 ? '∞ : 1' : '—';
+
+  const grid = document.getElementById('dashKpiGrid');
+  grid.innerHTML = `
+    <div class="stat-glass kpi-ore kpi-nh">
+      <div class="value">${fmtNum(totalNH)}</div>
+      <div class="label">NH <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
+    </div>
+    <div class="stat-glass kpi-ore kpi-nl">
+      <div class="value">${fmtNum(totalNL)}</div>
+      <div class="label">NL <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
+    </div>
+    <div class="stat-glass kpi-ore kpi-mw">
+      <div class="value">${fmtNum(totalMW)}</div>
+      <div class="label">MW <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
     </div>
     <div class="stat-glass">
-      <div class="value" style="color:var(--success)">${fmtNum(result.total_gross)}</div>
-      <div class="label">${t('dash_total_gross')}</div>
+      <div class="value">${fmtNum(dailyAvg)}</div>
+      <div class="label" data-i18n="dash_daily_avg">日均车次</div>
     </div>
-    <div class="stat-glass">
-      <div class="value" style="color:var(--success)">+${fmtNum(result.total_bonus||0)}</div>
-      <div class="label">${t('dash_total_bonus')}</div>
+    <div class="stat-glass kpi-peak">
+      <div class="value">${peakVal > 0 ? fmtNum(peakVal) : '—'}</div>
+      <div class="label">${peakDate ? peakDate.slice(5) : ''} <span data-i18n="dash_daily_peak">日最高</span></div>
     </div>
-    <div class="stat-glass">
-      <div class="value" style="color:var(--danger)">-${fmtNum(result.total_penalty||0)}</div>
-      <div class="label">${t('dash_total_penalty')}</div>
-    </div>
-    <div class="stat-glass">
-      <div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div>
-      <div class="label">${t('dash_advance_deduct')}</div>
-    </div>
-    <div class="stat-glass">
-      <div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div>
-      <div class="label">${t('dash_nssf_deduct')}</div>
-    </div>
-    <div class="stat-glass driver-allowance-card">
-      <div class="value" style="color:var(--success)">${fmtNum(driverAllowance)}</div>
-      <div class="label">${t('dash_driver_allowance')}</div>
-    </div>
-    <div class="stat-glass">
-      <div class="value" style="color:var(--accent)">${fmtNum(result.total_net)}</div>
-      <div class="label">${t('dash_total_net')}</div>
-    </div>
-    <div class="stat-glass">
-      <div class="value" style="font-size:16px;">
-        ${result.employees.filter(e => e.salary_type === 'piece_underground').length}
-        <span style="font-size:13px;color:var(--text-muted);">/ ${result.employees.filter(e => e.salary_type === 'piece_driller').length}
-        / ${result.employees.filter(e => e.salary_type === 'day_rate').length}</span>
-      </div>
-      <div class="label">${t('dash_ug_dr_dayrate')}</div>
+    <div class="stat-glass kpi-ratio">
+      <div class="value">${ratioStr}</div>
+      <div class="label" data-i18n="dash_day_night_ratio">白夜班比</div>
     </div>
   `;
-  // Headless banner
-  const banner = document.getElementById('headlessBannerDash');
-  if (banner) banner.style.display = STATE._headless ? 'block' : 'none';
+  // 刷新 i18n
+  if (typeof refreshI18n === 'function') refreshI18n();
+}
+
+// ── 产量趋势图（主图）K 线式悬停 ──
+function renderProductionTrend() {
+  const rows = getFilteredShiftData();
+  const f = STATE._dashFilters;
+  destroyChart('chartProdTrend');
+
+  if (!rows.length) return;
+
+  const dates = rows.map(d => d.date.slice(5));
+  const datasets = [];
+  const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
+
+  oreKeys.forEach(key => {
+    datasets.push({
+      label: key.toUpperCase(),
+      data: rows.map(d => getProdValue(d, f.shift, key)),
+      borderColor: ORE_COLORS[key].line,
+      backgroundColor: ORE_COLORS[key].bg,
+      fill: true, tension: 0.35, borderWidth: 2,
+      pointRadius: 2, pointHoverRadius: 5,
+      pointBackgroundColor: ORE_COLORS[key].line,
+      pointBorderColor: '#0A0F1A', pointBorderWidth: 1,
+    });
+  });
+
+  renderChart('chartProdTrend', 'line', { labels: dates, datasets }, {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      datalabels: { display: false },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true, pointStyle: 'circle' } },
+      tooltip: {
+        backgroundColor: 'rgba(15,23,42,0.95)',
+        titleColor: '#94A3B8',
+        bodyColor: '#E2E8F0',
+        borderColor: 'rgba(37,99,235,0.3)',
+        borderWidth: 1,
+        padding: 12,
+        titleFont: { size: 12, weight: '600' },
+        bodyFont: { size: 12 },
+        callbacks: {
+          label: function(ctx) {
+            const d = rows[ctx.dataIndex];
+            if (!d) return '';
+            const key = ctx.dataset.label.toLowerCase();
+            const day = d['day_' + key] || 0;
+            const night = d['night_' + key] || 0;
+            const dot = key === 'nh' ? '●' : key === 'nl' ? '●' : '●';
+            return `${dot} ${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${t('dash_shift_day')}${fmtNum(day)}/${t('dash_shift_night')}${fmtNum(night)})`;
+          }
+        }
+      },
+    },
+    scales: {
+      x: { grid: { color: 'rgba(37,99,235,0.08)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+      y: { grid: { color: 'rgba(37,99,235,0.06)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+    },
+    onClick: function(e, elements) {
+      if (elements.length > 0) {
+        const idx = elements[0].index;
+        const d = rows[idx];
+        showDayDetailPopup(d);
+      }
+    }
+  });
+}
+
+// ── 当日产量详情弹窗 ──
+function showDayDetailPopup(d) {
+  const html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
+      <div><div style="color:var(--nh-blue);font-size:20px;font-weight:700;">${fmtNum(d.day_nh + d.night_nh)}</div><div style="font-size:11px;color:var(--text-muted);">NH</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nh)} / ${t('dash_shift_night')} ${fmtNum(d.night_nh)}</div></div>
+      <div><div style="color:var(--nl-green);font-size:20px;font-weight:700;">${fmtNum(d.day_nl + d.night_nl)}</div><div style="font-size:11px;color:var(--text-muted);">NL</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nl)} / ${t('dash_shift_night')} ${fmtNum(d.night_nl)}</div></div>
+      <div><div style="color:var(--mw-pink);font-size:20px;font-weight:700;">${fmtNum(d.day_mw + d.night_mw)}</div><div style="font-size:11px;color:var(--text-muted);">MW</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_mw)} / ${t('dash_shift_night')} ${fmtNum(d.night_mw)}</div></div>
+    </div>
+  `;
+  showToast(html, '', 4000);
+}
+
+// ── 白班 vs 夜班 对比（双柱图） ──
+function renderDayNightCompare() {
+  const rows = getFilteredShiftData();
+  const f = STATE._dashFilters;
+  const ore = f.dayNightOre;
+  destroyChart('chartDayNight');
+
+  if (!rows.length) return;
+
+  const dates = rows.map(d => d.date.slice(5));
+  const dayColor = ore === 'total' ? '#60A5FA' : ORE_COLORS[ore] ? ORE_COLORS[ore].line : '#60A5FA';
+  const nightColor = ore === 'total' ? '#1E40AF' : ORE_COLORS[ore] ? ORE_COLORS[ore].solid : '#1E40AF';
+
+  const getVal = (d, shift) => {
+    if (ore === 'total') {
+      return (d[shift + '_nh'] || 0) + (d[shift + '_nl'] || 0) + (d[shift + '_mw'] || 0);
+    }
+    return d[shift + '_' + ore] || 0;
+  };
+
+  renderChart('chartDayNight', 'bar', {
+    labels: dates,
+    datasets: [
+      {
+        label: t('dash_shift_day'),
+        data: rows.map(d => getVal(d, 'day')),
+        backgroundColor: dayColor + '99',
+        borderColor: dayColor,
+        borderWidth: 1, borderRadius: 4,
+      },
+      {
+        label: t('dash_shift_night'),
+        data: rows.map(d => getVal(d, 'night')),
+        backgroundColor: nightColor + '99',
+        borderColor: nightColor,
+        borderWidth: 1, borderRadius: 4,
+      },
+    ]
+  }, {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      datalabels: { display: false },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: '#64748B', font: { size: 10 } } },
+      y: { grid: { color: 'rgba(37,99,235,0.06)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+    },
+  });
+}
+
+// ── 钻工组产量对比（堆叠柱状图） ──
+function renderDrillerGroupChart() {
+  const data = STATE._dashData;
+  const f = STATE._dashFilters;
+  destroyChart('chartDrillerGroup');
+
+  if (!data || !data.driller_production || !data.driller_production.length) return;
+
+  // 过滤日期范围
+  let rows = data.driller_production;
+  if (f.dateFrom) rows = rows.filter(d => d.date >= f.dateFrom);
+  if (f.dateTo) rows = rows.filter(d => d.date <= f.dateTo);
+
+  // 按队长汇总
+  const captains = {};
+  rows.forEach(d => {
+    const cap = d.captain;
+    if (!captains[cap]) captains[cap] = { nh: 0, nl: 0, mw: 0, daily: [] };
+    captains[cap].nh += d.nh || 0;
+    captains[cap].nl += d.nl || 0;
+    captains[cap].mw += d.mw || 0;
+    captains[cap].daily.push(d);
+  });
+
+  const capNames = Object.keys(captains);
+  if (!capNames.length) return;
+
+  const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
+  const datasets = [];
+  oreKeys.forEach(key => {
+    datasets.push({
+      label: key.toUpperCase(),
+      data: capNames.map(c => captains[c][key] || 0),
+      backgroundColor: ORE_COLORS[key].line + 'CC',
+      borderColor: ORE_COLORS[key].solid,
+      borderWidth: 1, borderRadius: 4,
+    });
+  });
+
+  renderChart('chartDrillerGroup', 'bar', {
+    labels: capNames,
+    datasets: datasets,
+  }, {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      datalabels: { display: false },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true } },
+    },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { color: '#64748B', font: { size: 10 } } },
+      y: { stacked: true, grid: { color: 'rgba(37,99,235,0.06)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+    },
+    onClick: function(e, elements) {
+      if (elements.length > 0) {
+        const capName = capNames[elements[0].index];
+        if (captains[capName]) {
+          showDrillerDetail(capName, captains[capName].daily);
+        }
+      }
+    }
+  });
+}
+
+// ── 钻工组逐日明细 Modal ──
+function showDrillerDetail(captain, dailyData) {
+  document.getElementById('drillerDetailTitle').textContent = captain + ' — ' + t('dash_driller_daily');
+  let html = '';
+  let totalNH = 0, totalNL = 0, totalMW = 0;
+  dailyData.sort((a, b) => a.date.localeCompare(b.date));
+  dailyData.forEach(d => {
+    const nh = d.nh || 0, nl = d.nl || 0, mw = d.mw || 0;
+    totalNH += nh; totalNL += nl; totalMW += mw;
+    html += `<tr><td>${d.date}</td><td class="num">${fmtNum(nh)}</td><td class="num">${fmtNum(nl)}</td><td class="num">${fmtNum(mw)}</td><td class="num bold">${fmtNum(nh + nl + mw)}</td></tr>`;
+  });
+  html += `<tr style="border-top:2px solid var(--accent);font-weight:700;"><td class="left">${t('col_total')}</td><td class="num">${fmtNum(totalNH)}</td><td class="num">${fmtNum(totalNL)}</td><td class="num">${fmtNum(totalMW)}</td><td class="num bold">${fmtNum(totalNH + totalNL + totalMW)}</td></tr>`;
+  document.getElementById('drillerDetailBody').innerHTML = html;
+  document.getElementById('drillerDetailModal').style.display = 'flex';
+}
+
+function closeDrillerDetail() {
+  document.getElementById('drillerDetailModal').style.display = 'none';
+}
+
+// ── 矿石类型占比（环形图） ──
+function renderCategoryPie() {
+  const rows = getFilteredShiftData();
+  const f = STATE._dashFilters;
+  destroyChart('chartOrePie');
+
+  if (!rows.length) return;
+
+  let totalNH = 0, totalNL = 0, totalMW = 0;
+  rows.forEach(d => {
+    totalNH += getProdValue(d, f.shift, 'nh');
+    totalNL += getProdValue(d, f.shift, 'nl');
+    totalMW += getProdValue(d, f.shift, 'mw');
+  });
+
+  const total = totalNH + totalNL + totalMW;
+  if (total === 0) return;
+
+  renderChart('chartOrePie', 'doughnut', {
+    labels: ['NH', 'NL', 'MW'],
+    datasets: [{
+      data: [totalNH, totalNL, totalMW],
+      backgroundColor: [ORE_COLORS.nh.solid, ORE_COLORS.nl.solid, ORE_COLORS.mw.solid],
+      borderColor: '#0A0F1A',
+      borderWidth: 2,
+      hoverOffset: 8,
+    }]
+  }, {
+    responsive: true, maintainAspectRatio: false,
+    cutout: '60%',
+    plugins: {
+      datalabels: { display: false },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true } },
+      tooltip: {
+        callbacks: {
+          label: function(ctx) {
+            const pct = ((ctx.raw / total) * 100).toFixed(1);
+            return `${ctx.label}: ${fmtNum(ctx.raw)} (${pct}%)`;
+          }
+        }
+      }
+    },
+    onClick: function(e, elements) {
+      if (elements.length > 0) {
+        const oreMap = { 0: 'nh', 1: 'nl', 2: 'mw' };
+        const ore = oreMap[elements[0].index];
+        // 联动：设置矿石筛选并刷新
+        document.querySelectorAll('#dashOreToggle .dash-seg-btn').forEach(b => b.classList.remove('active'));
+        const targetBtn = document.querySelector(`#dashOreToggle [data-value="${ore}"]`);
+        if (targetBtn) targetBtn.classList.add('active');
+        STATE._dashFilters.ore = ore;
+        applyDashFilters();
+      }
+    }
+  });
+}
+
+// ── 破碎产量（横向表格） ──
+function renderCrushTable() {
+  const data = STATE._dashData;
+  if (!data || !data.crush_production || !data.crush_production.length) {
+    document.getElementById('dashCrushTable').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);" data-i18n="dash_no_data">暂无数据</div>';
+    if (typeof refreshI18n === 'function') refreshI18n();
+    return;
+  }
+
+  const dates = data.crush_production.map(d => d.date).sort();
+  const dateMap = {};
+  data.crush_production.forEach(d => { dateMap[d.date] = d; });
+
+  let headHtml = '<tr><th class="crush-col-date" data-i18n="dash_crush_item">项目</th>';
+  let bagsHtml = '<tr><td class="crush-col-date crush-label" data-i18n="dash_crush_bags">袋数</td>';
+  let pplHtml = '<tr><td class="crush-col-date crush-label" data-i18n="dash_crush_people">人数</td>';
+  let totalBags = 0;
+
+  dates.forEach(dt => {
+    const d = dateMap[dt];
+    headHtml += `<th class="num">${dt.slice(5)}</th>`;
+    if (d) {
+      bagsHtml += `<td class="num crush-has-data">${fmtNum(d.bags)}</td>`;
+      pplHtml += `<td class="num crush-has-data">${d.personnel_count}</td>`;
+      totalBags += d.bags || 0;
+    } else {
+      bagsHtml += '<td class="num crush-no-data">—</td>';
+      pplHtml += '<td class="num crush-no-data">—</td>';
+    }
+  });
+
+  headHtml += '<th class="num crush-col-total" data-i18n="col_total">合计</th>';
+  bagsHtml += `<td class="num bold crush-col-total">${fmtNum(totalBags)}</td>`;
+  pplHtml += '<td class="num crush-col-total">—</td>';
+
+  headHtml += '</tr>';
+  bagsHtml += '</tr>';
+  pplHtml += '</tr>';
+
+  document.getElementById('dashCrushTable').innerHTML = `
+    <div class="table-wrap dash-crush-table-wrap">
+      <table class="data-table dash-crush-table">
+        <thead>${headHtml}</thead>
+        <tbody>${bagsHtml}${pplHtml}</tbody>
+      </table>
+    </div>
+  `;
+  if (typeof refreshI18n === 'function') refreshI18n();
+}
+
+// ── 销毁所有数据台图表 ──
+function destroyAllDashCharts() {
+  ['chartProdTrend', 'chartDayNight', 'chartDrillerGroup', 'chartOrePie'].forEach(id => destroyChart(id));
 }
 
 // ════════════════════════════════════════════════
@@ -3358,139 +3940,17 @@ async function exportAll() {
 }
 
 // ════════════════════════════════════════════════
-//  图表
+//  P15: 数据台刷新（替换旧 loadProductionData）
 // ════════════════════════════════════════════════
 async function loadProductionData() {
-  const res = await fetch(api('/production'));
-  STATE.productionData = await res.json();
-  renderProductionCharts(STATE.productionData);
-
-  // 产量核验
-  const v_res = await fetch(api('/production-verify'));
-  STATE._verifyData = await v_res.json();
-  renderVerifyTable();
-}
-
-function renderVerifyTable() {
-  const data = STATE._verifyData;
-  if (!data) return;
-  const dates = Object.keys(data).sort();
-  let allMatch = true;
-
-  // 收集钻工队长（按首次出现顺序）
-  const captains = new Set();
-  for (const dt of dates) {
-    for (const g of data[dt].driller_groups || []) {
-      captains.add(g.captain);
-    }
-  }
-
-  // 表头
-  let headHtml = '<tr><th style="min-width:60px;">' + t('verify_captain_col') + '</th>';
-  for (const dt of dates) {
-    headHtml += `<th style="min-width:28px;font-size:9px;" colspan="3">${dt.slice(5)}</th>`;
-  }
-  headHtml += '</tr>';
-  headHtml += '<tr><th style="min-width:60px;"></th>';
-  for (const dt of dates) {
-    headHtml += '<th style="font-size:8px;">NH</th><th style="font-size:8px;">NL</th><th style="font-size:8px;">MW</th>';
-  }
-  headHtml += '</tr>';
-  document.getElementById('verifyHead').innerHTML = headHtml;
-
-  // 表体
-  let bodyHtml = '';
-  for (const cap of captains) {
-    bodyHtml += `<tr><td class="left" style="white-space:nowrap;">${escHtml(cap)}</td>`;
-    for (const dt of dates) {
-      const g = (data[dt].driller_groups || []).find(c => c.captain === cap);
-      bodyHtml += `<td class="num">${g ? fmtNum(g.nh) : '-'}</td>`;
-      bodyHtml += `<td class="num">${g ? fmtNum(g.nl) : '-'}</td>`;
-      bodyHtml += `<td class="num">${g ? fmtNum(g.mw) : '-'}</td>`;
-    }
-    bodyHtml += '</tr>';
-  }
-
-  // 分隔行
-  bodyHtml += '<tr style="border-top:2px solid var(--accent);"><td class="left" style="font-weight:600;">' + t('verify_driller_total') + '</td>';
-  for (const dt of dates) {
-    const dtot = data[dt].driller_total || {};
-    bodyHtml += `<td class="num bold">${fmtNum(dtot.nh)}</td>`;
-    bodyHtml += `<td class="num bold">${fmtNum(dtot.nl)}</td>`;
-    bodyHtml += `<td class="num bold">${fmtNum(dtot.mw)}</td>`;
-  }
-  bodyHtml += '</tr>';
-
-  bodyHtml += '<tr><td class="left" style="font-weight:600;">' + t('verify_ug_total') + '</td>';
-  for (const dt of dates) {
-    const st = data[dt].shift_total || {};
-    bodyHtml += `<td class="num bold">${fmtNum(st.nh)}</td>`;
-    bodyHtml += `<td class="num bold">${fmtNum(st.nl)}</td>`;
-    bodyHtml += `<td class="num bold">${fmtNum(st.mw)}</td>`;
-  }
-  bodyHtml += '</tr>';
-
-  // 核验行
-  bodyHtml += '<tr><td class="left" style="font-weight:600;">' + t('verify_check') + '</td>';
-  for (const dt of dates) {
-    const m = data[dt].match;
-    if (!m) allMatch = false;
-    const color = m ? 'var(--success)' : 'var(--danger)';
-    bodyHtml += `<td style="text-align:center;color:${color};font-size:12px;" colspan="3">${m ? '✅' : '❌'}</td>`;
-  }
-  bodyHtml += '</tr>';
-  document.getElementById('verifyBody').innerHTML = bodyHtml;
-  document.getElementById('verifyStatus').textContent = allMatch ? t('verify_all_match') : t('verify_mismatch');
-  document.getElementById('verifyStatus').style.color = allMatch ? 'var(--success)' : 'var(--danger)';
-}
-
-function getChartOpts(showLabels) {
-  return {
-    plugins: {
-      datalabels: {
-        display: showLabels,
-        color: '#94A3B8',
-        font: {size: 10, weight: '500'},
-        anchor: 'end', align: 'end',
-        formatter: v => v ? fmtNum(Math.round(v)) : '',
-      },
-      legend: {
-        position: 'bottom',
-        labels: {
-          boxWidth: 12, padding: 12, font: {size: 11, color: '#94A3B8'},
-          usePointStyle: true, pointStyle: 'circle',
-        },
-      },
-    },
-    scales: {
-      x: {
-        grid: {color: 'rgba(37,99,235,0.08)', drawBorder: false},
-        ticks: {color: '#64748B', font: {size: 10}},
-      },
-      y: {
-        grid: {color: 'rgba(37,99,235,0.06)', drawBorder: false},
-        ticks: {color: '#64748B', font: {size: 10}},
-      },
-    },
-  };
-}
-
-function renderProductionCharts(data) {
-  const show = () => document.querySelector('#chartDailyProd').closest('.chart-box').querySelector('.chart-label-toggle').checked;
-
-  if (data.shift_production && data.shift_production.length) {
-    const dates = data.shift_production.map(d => d.date);
-    renderChart('chartDailyProd', 'line', {
-      labels: dates,
-      datasets: [
-        {label:'NH', data: data.shift_production.map(d=>d.nh||0), borderColor:'#60A5FA', backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(96,165,250,0.25)');g.addColorStop(1,'rgba(96,165,250,0.02)');return g;}, fill:true, tension:.35, borderWidth:2, pointRadius:3, pointBackgroundColor:'#60A5FA', pointBorderColor:'#0A0F1A', pointBorderWidth:1},
-        {label:'NL', data: data.shift_production.map(d=>d.nl||0), borderColor:'#34D399', backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(52,211,153,0.25)');g.addColorStop(1,'rgba(52,211,153,0.02)');return g;}, fill:true, tension:.35, borderWidth:2, pointRadius:3, pointBackgroundColor:'#34D399', pointBorderColor:'#0A0F1A', pointBorderWidth:1},
-        {label:'MW', data: data.shift_production.map(d=>d.mw||0), borderColor:'#F472B6', backgroundColor:ctx=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(244,114,182,0.2)');g.addColorStop(1,'rgba(244,114,182,0.02)');return g;}, fill:true, tension:.35, borderWidth:2, pointRadius:3, pointBackgroundColor:'#F472B6', pointBorderColor:'#0A0F1A', pointBorderWidth:1},
-      ]
-    }, {responsive:true, maintainAspectRatio:false, ...getChartOpts(show())});
-  } else {
-    destroyChart('chartDailyProd');
-  }
+  // P15: 数据台改用 /api/production/dashboard
+  try {
+    const res = await fetch(api('/api/production/dashboard'));
+    const data = await res.json();
+    STATE._dashData = data;
+    initDashControls(data);
+    renderDashboard();
+  } catch(e) {}
 }
 
 function destroyChart(canvasId) {
@@ -3694,7 +4154,10 @@ async function loadUserList() {
             ${ROLE_OPTIONS.map(r => `<option value="${r.value}" ${u.role === r.value ? 'selected' : ''}>${t(r.label)}</option>`).join('')}
           </select>
         </td>
-        <td><span class="role-status" id="status_${escHtml(u.username)}" style="font-size:11px;"></span></td>
+        <td>
+          <span class="role-status" id="status_${escHtml(u.username)}" style="font-size:11px;margin-right:6px;"></span>
+          <button class="nav-btn" onclick="openResetPwdModal('${escHtml(u.username)}')" style="font-size:10px;padding:2px 8px;" data-i18n="user_mgmt_reset_pwd">重置密码</button>
+        </td>
       </tr>
     `).join('');
   } catch(e) {}
@@ -3714,6 +4177,88 @@ async function changeUserRole(username, role) {
     if (data.ok) showToast(t('user_mgmt_saved'));
   } catch(e) {
     if (statusEl) statusEl.textContent = '✗';
+  }
+}
+
+function openCreateUserModal() {
+  document.getElementById('cuUsername').value = '';
+  document.getElementById('cuPassword').value = '';
+  const sel = document.getElementById('cuRole');
+  sel.innerHTML = ROLE_OPTIONS.map(r => `<option value="${r.value}">${t(r.label)}</option>`).join('');
+  sel.value = 'viewer';
+  document.getElementById('cuMsg').textContent = '';
+  document.getElementById('createUserModal').style.display = 'flex';
+}
+
+async function submitCreateUser() {
+  const msg = document.getElementById('cuMsg');
+  const username = document.getElementById('cuUsername').value.trim();
+  const password = document.getElementById('cuPassword').value;
+  const role = document.getElementById('cuRole').value;
+  if (!username || password.length < 6) {
+    msg.textContent = t('user_pwd_min');
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  try {
+    const res = await authFetch(api('/admin/users/create'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, role }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = t('user_created');
+      msg.style.color = 'var(--success)';
+      showToast(t('user_created'));
+      document.getElementById('createUserModal').style.display = 'none';
+      loadUserList();
+    } else {
+      msg.textContent = t('user_create_fail') + (data.error ? '：' + data.error : '');
+      msg.style.color = 'var(--danger)';
+    }
+  } catch(e) {
+    msg.textContent = t('fail');
+    msg.style.color = 'var(--danger)';
+  }
+}
+
+function openResetPwdModal(username) {
+  document.getElementById('rpUsername').textContent = username;
+  document.getElementById('rpPassword').value = '';
+  document.getElementById('rpMsg').textContent = '';
+  document.getElementById('resetPwdModal').style.display = 'flex';
+  window._rpTarget = username;
+}
+
+async function submitResetPwd() {
+  const msg = document.getElementById('rpMsg');
+  const username = window._rpTarget;
+  const new_password = document.getElementById('rpPassword').value;
+  if (new_password.length < 6) {
+    msg.textContent = t('user_pwd_min');
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  try {
+    const res = await authFetch(api('/admin/users/reset-password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, new_password }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = t('user_pwd_reset');
+      msg.style.color = 'var(--success)';
+      showToast(t('user_pwd_reset'));
+      document.getElementById('resetPwdModal').style.display = 'none';
+    } else {
+      msg.textContent = t('user_reset_fail') + (data.error ? '：' + data.error : '');
+      msg.style.color = 'var(--danger)';
+    }
+  } catch(e) {
+    msg.textContent = t('fail');
+    msg.style.color = 'var(--danger)';
   }
 }
 
@@ -5882,8 +6427,10 @@ async function loadPermissionsPage() {
         </td>
         <td><span class="role-status" id="status_${escHtml(u.username)}" style="font-size:11px;"></span></td>
         <td>
-          <button class="btn-primary" style="font-size:10px;padding:2px 6px;"
+          <button class="btn-primary" style="font-size:10px;padding:2px 6px;margin-right:4px;"
             onclick="togglePermPanel('${escHtml(u.username)}')" data-i18n="perm_expand">展开权限</button>
+          <button class="nav-btn" style="font-size:10px;padding:2px 6px;"
+            onclick="openResetPwdModal('${escHtml(u.username)}')" data-i18n="user_mgmt_reset_pwd">重置密码</button>
         </td>
       </tr>`;
     }).join('');

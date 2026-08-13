@@ -2328,3 +2328,347 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .notif-badge { animation: none !important; }
   .card:hover { transform: none !important; }
 }
+
+/* ═══════════════════════════════════════════════════════
+   P15 数据台重构 — 产量仪表盘样式
+   ═══════════════════════════════════════════════════════ */
+
+/* ── 矿石颜色 CSS 变量 ── */
+:root {
+  --nh-blue: #60A5FA;
+  --nl-green: #34D399;
+  --mw-pink: #F472B6;
+  --nh-blue-solid: #3B82F6;
+  --nl-green-solid: #10B981;
+  --mw-pink-solid: #EC4899;
+}
+
+/* ── 控制栏 ── */
+.dash-controls {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.dash-controls-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.dash-ctrl-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dash-ctrl-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+.dash-select {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  min-width: 100px;
+  cursor: pointer;
+}
+.dash-input {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 130px;
+}
+
+/* ── Segmented Button ── */
+.dash-segmented {
+  display: inline-flex;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.dash-segmented-sm .dash-seg-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.dash-seg-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.dash-seg-btn:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.dash-seg-btn:hover {
+  color: var(--text);
+  background: rgba(37, 99, 235, 0.08);
+}
+.dash-seg-btn.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+/* ── KPI 卡片网格 ── */
+.dash-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.dash-kpi-grid .stat-glass {
+  padding: 14px 12px;
+  text-align: center;
+}
+.dash-kpi-grid .stat-glass .value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.dash-kpi-grid .stat-glass .label {
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── KPI 矿石颜色 ── */
+.kpi-nh .value { color: var(--nh-blue); }
+.kpi-nl .value { color: var(--nl-green); }
+.kpi-mw .value { color: var(--mw-pink); }
+.kpi-peak .value { color: var(--warning); font-size: 20px !important; }
+.kpi-ratio .value { color: #A78BFA; }
+.kpi-unit { font-size: 10px; font-weight: 400; opacity: 0.7; }
+
+/* ── 图表卡片 ── */
+.dash-chart-card {
+  margin-bottom: 16px;
+}
+.dash-chart-title {
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.chart-box {
+  position: relative;
+}
+
+/* ── 双栏布局 ── */
+.dash-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ── 破碎表格 ── */
+.dash-crush-wrap {
+  overflow: hidden;
+}
+.dash-crush-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.dash-crush-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.dash-crush-table th,
+.dash-crush-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.dash-crush-table .crush-col-date {
+  position: sticky;
+  left: 0;
+  background: var(--card-bg);
+  z-index: 1;
+  min-width: 60px;
+  text-align: left;
+  font-weight: 600;
+}
+.dash-crush-table .crush-col-total {
+  position: sticky;
+  right: 0;
+  background: var(--card-bg);
+  z-index: 1;
+  font-weight: 700;
+  border-left: 2px solid var(--accent);
+}
+.crush-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.crush-has-data {
+  color: var(--text);
+  font-weight: 500;
+}
+.crush-no-data {
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+/* ── 钻工明细 Modal ── */
+#drillerDetailModal.modal-overlay {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.modal-lg {
+  max-width: 680px;
+  width: 95%;
+}
+.modal-panel {
+  background: var(--card-bg, #1A1F2E);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  animation: modal-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.modal-close:hover {
+  color: var(--text);
+}
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-body .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.modal-body .data-table th {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.modal-body .data-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  text-align: center;
+  color: var(--text);
+}
+.modal-body .data-table tr:hover td {
+  background: rgba(37, 99, 235, 0.04);
+}
+.modal-body .data-table .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.modal-body .data-table .bold {
+  font-weight: 700;
+  color: var(--accent);
+}
+.modal-body .data-table .left {
+  text-align: left;
+  font-weight: 500;
+}
+
+/* ── KPI 骨架屏 ── */
+.kpi-skeleton {
+  grid-column: 1 / -1;
+}
+
+/* ── 响应式 ── */
+@media (max-width: 1024px) {
+  .dash-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .dash-two-col {
+    grid-template-columns: 1fr;
+  }
+  .dash-controls-row {
+    gap: 10px;
+  }
+  .dash-ctrl-group {
+    flex: 1 1 auto;
+    min-width: 80px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dash-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dash-kpi-grid .stat-glass .value {
+    font-size: 20px;
+  }
+  .dash-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dash-select,
+  .dash-input {
+    width: 100%;
+  }
+  .dash-segmented {
+    width: 100%;
+    justify-content: center;
+  }
+  .dash-seg-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 11px;
+  }
+}

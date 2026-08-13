@@ -11,6 +11,8 @@
 - `docs/P0_DATA_MODEL_AND_API.md`：P0 数据模型 + API 契约，重构期新表/新接口的权威来源
 - `docs/P12_OA_PROFILE_COLLECTION_REFINEMENT.md`：P12 阶段详设（OA 子页化 / 档案独立页 / 数据采集修正 / 系统清理收尾），实施对照清单
 - `docs/P13_OA_NOTIFY_QA_REFINEMENT.md`：P13 阶段详设（筛选修复 / OA 自审规则 / 请假子页 / 通知铃铛 / 审批人设定 / 中英双语审查），实施对照清单
+- `docs/P14_USER_FEEDBACK_2026_08_13.md`：P14 阶段详设（v7 用户反馈 8 条：登录入口/首屏渲染/scoring 互斥/计薪模式开关/档案编辑/例外覆盖/评分录入/评分记录）
+- `docs/P15_DASHBOARD_REFACTOR.md`：P15 阶段详设（数据台重构：纯产量导向多维度交互仪表盘，6 张 KPI 卡片 + 5 个图表区 + 破碎表格）
 
 ## 协作流程
 
@@ -89,7 +91,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 - 不设 `KILWA_SECRET_KEY` → 每次重启随机生成 → 全部用户登出
 - 装饰器链：`@require_super_admin` → `@require_admin` → `@require_editor` → `@login_required`
 - **P4 新增**：`@require_permission(module, action)` 细粒度权限（角色继承 + 单独授权），已接入 OA 审批 + 导出端点
-- 密码存储：SHA256(username + salt + password)，salt 随机生成存入 `admin_users`
+- 密码存储：SHA256(salt + password)，salt 随机生成存入 `admin_users`（格式 `salt:hash`）
 - 默认账号 `user/qweasd`（viewer），`KEJU` 首次登录自动升级为 super_admin
 
 ## 启动初始化
@@ -341,6 +343,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET/POST | `/config` | admin+ | 读取/修改定价、NSSF 费率 |
 | GET | `/nssf/list` | editor+ | NSSF 社保名单 |
 | GET | `/production` | editor+ | 产量数据 |
+| **GET** | **`/api/production/dashboard`** | **login_required** | **P15 新增**：数据台产量仪表盘（白夜班分离 + 钻工逐日明细 + 破碎） |
 | GET | `/production-verify` | editor+ | 钻工产量核对 |
 | GET | `/daily-wages` | editor+ | 日工资明细 |
 | GET | `/driller-captains` | editor+ | 钻工队长/队员列表（读主数据） |
@@ -352,7 +355,9 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | POST | `/export/all` | editor+ | 英文版全量导出（7 Sheet） |
 | GET | `/admin/users` | super_admin | 用户管理页面 |
 | POST | `/admin/users/role` | super_admin | 修改用户角色 |
-| POST | `/api/admin/change-password` | 登录用户 | 修改自身密码 |
+| POST | `/admin/users/create` | super_admin | 新增登录用户（含角色，密码≥6位） |
+| POST | `/admin/users/reset-password` | super_admin | 重置指定用户密码（免旧密码，保留角色） |
+| POST | `/api/admin/change-password` | 登录用户 | 修改自身密码（密码≥6位） |
 | GET | `/api/permissions/users` | admin+ | 用户权限矩阵 |
 | POST | `/api/permissions/grant` | super_admin | 单独授权 |
 | DELETE | `/api/permissions/grant` | super_admin | 撤销授权 |
@@ -424,6 +429,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **纯采集改造** | **移除 Excel 数据源**（_run_pipeline 纯 DB 模式 / 删除 scan_source_files+upload-source+download-source / employees 从 DB 读取 / 月份从采集数据生成 / 采集提交自动触发计算 / data/source 清空） |
 | **P14（待实施）** | **v7 需求对齐迭代**（未登录弹登录 / 登录后首屏自动渲染 / 井下scoring与piecework互斥 / 计薪模式单一开关 / 档案页薪资类型编辑 / 档案页临时例外 / 评分录入页完全重做对齐参考卡 / 评分记录可查 + 档案页4条：删表单模式按钮/班组仅井下/工号自动生成/编辑按钮归位），详见 `docs/P14_USER_FEEDBACK_2026_08_13.md` |
 | **P14.5** | **员工档案增强**：新增 `alias` 别名列（展示+可编辑，档案页头部姓名上方 + 基本信息首行双处显示）；工号标签统一为"工号"（custom_number）；**部门仅超级管理员可直改**，非超管改部门走 OA 调岗审批（后端 `api_employee_update` 守卫 403）；编辑表单字段顺序与档案展示页一致；中英文 i18n 已适配（`emp_alias`/`emp_custom_number`/`dept_superadmin_only`） |
+| **P15（实施中）** | **数据台重构**（纯产量导向多维度交互仪表盘：移除薪资卡片 / 6 张产量 KPI / 趋势图增强白夜班切换 / 白夜班双柱对比 / 钻工组堆叠柱状图下钻 / 矿石环形图联动 / 破碎横向表格），详见 `docs/P15_DASHBOARD_REFACTOR.md` |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
 
