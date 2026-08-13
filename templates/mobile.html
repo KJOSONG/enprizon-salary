@@ -88,7 +88,14 @@
 
       <!-- 员工 -->
       <section class="tab-page" id="tab-employees">
-        <div class="empty-state"><div class="empty-state__icon">👷</div><div class="empty-state__title" data-i18n="building">建设中</div><div class="empty-state__desc" data-i18n="building_desc_emp">员工模块即将上线</div></div>
+        <div class="segmented" id="emp-seg" style="margin-bottom:12px;">
+          <div class="segmented__option active" data-v="list" onclick="setEmpSeg('list')" data-i18n="emp_list">员工列表</div>
+          <div class="segmented__option" data-v="pending" onclick="setEmpSeg('pending')"><span data-i18n="oa_pending">待审</span>(<span id="oa-pending-n">0</span>)</div>
+          <div class="segmented__option" data-v="history" onclick="setEmpSeg('history')" data-i18n="oa_history">已审批</div>
+        </div>
+        <div id="emp-list"></div>
+        <div id="emp-detail" style="display:none;"></div>
+        <div id="oa-list" style="display:none;"></div>
       </section>
 
       <!-- 采集 -->
@@ -157,12 +164,20 @@
           loading:'加载中...', all:'全部', day_shift:'白班', night_shift:'夜班', trend:'产量趋势', day_night:'白班 vs 夜班',
           driller_output:'钻工组产量', ore_type:'矿石类型占比', crush_output:'破碎产量', building:'建设中',
           building_desc_emp:'员工模块即将上线', building_desc_coll:'数据采集模块即将上线', building_desc_att:'出勤模块即将上线',
-          month:'月份', total:'合计', day:'白班', night:'夜班', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'袋', emp:'人', daily_avg:'日均', day_max:'日最高' },
+          month:'月份', total:'合计', day:'白班', night:'夜班', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'袋', emp:'人', daily_avg:'日均', day_max:'日最高',
+          emp_list:'员工列表', oa_pending:'待审', oa_history:'已审批', basic_info:'基本信息', edit_profile:'编辑档案', dept:'部门', team:'班组', position:'岗位', salary_type:'薪资类别', phone:'电话', alias:'别名',
+          leave_apply:'请假申请', approve:'批准', reject:'驳回', reject_reason:'驳回原因', no_emp:'无员工', no_oa:'暂无审批', saved:'已保存', save_fail:'保存失败', approved:'已批准', rejected:'已驳回', fail:'操作失败',
+          annual_leave:'年假', comp_leave:'调休', sick_leave:'病假', leave_type:'请假类型', start_date:'开始日期', reason:'事由', submitted:'已提交', fill_date:'请选择日期', days:'天', load_fail:'加载失败',
+          oa_hire:'入职', oa_transfer:'调岗', oa_dismiss:'离职', oa_resign:'辞职', oa_leave:'请假', oa_salary:'薪资变更', gender:'性别', nida:'NIDA', nssf:'NSSF', bank:'银行' },
     en: { username:'Username', password:'Password', login:'Login', tab_dashboard:'Dashboard', tab_employees:'Employees', tab_collection:'Collect', tab_attendance:'Attend',
           loading:'Loading...', all:'All', day_shift:'Day', night_shift:'Night', trend:'Trend', day_night:'Day vs Night',
           driller_output:'Driller', ore_type:'Ore Type', crush_output:'Crush', building:'Building',
           building_desc_emp:'Employees module coming', building_desc_coll:'Collection module coming', building_desc_att:'Attendance module coming',
-          month:'Month', total:'Total', day:'Day', night:'Night', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'bags', emp:'ppl', daily_avg:'Daily Avg', day_max:'Day Max' },
+          month:'Month', total:'Total', day:'Day', night:'Night', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'bags', emp:'ppl', daily_avg:'Daily Avg', day_max:'Day Max',
+          emp_list:'Employees', oa_pending:'Pending', oa_history:'Processed', basic_info:'Basic Info', edit_profile:'Edit', dept:'Dept', team:'Team', position:'Position', salary_type:'Pay Type', phone:'Phone', alias:'Alias',
+          leave_apply:'Leave', approve:'Approve', reject:'Reject', reject_reason:'Reject reason', no_emp:'No employees', no_oa:'Nothing to review', saved:'Saved', save_fail:'Save failed', approved:'Approved', rejected:'Rejected', fail:'Failed',
+          annual_leave:'Annual', comp_leave:'Comp', sick_leave:'Sick', leave_type:'Leave type', start_date:'Start', reason:'Reason', submitted:'Submitted', fill_date:'Pick a date', days:'d', load_fail:'Load failed',
+          oa_hire:'Hire', oa_transfer:'Transfer', oa_dismiss:'Dismiss', oa_resign:'Resign', oa_leave:'Leave', oa_salary:'Pay change', gender:'Gender', nida:'NIDA', nssf:'NSSF', bank:'Bank' },
   };
   function t(key){ return (I18N[STATE.lang] && I18N[STATE.lang][key]) || I18N.zh[key] || key; }
 
@@ -189,7 +204,9 @@
     document.getElementById('topback').classList.remove('visible');
     window.scrollTo(0,0);
     if(name==='dashboard' && !STATE.dashboard) loadDashboard();
+    if(name==='employees'){ if(!STATE.employees.length) loadEmployees(); loadOAPendingCount(); }
   }
+  function loadOAPendingCount(){ api('/api/oa/pending/count').then(d=>{ document.getElementById('oa-pending-n').textContent = d.count||0; }).catch(()=>{}); }
   function pushPage(){ document.getElementById('topback').classList.add('visible'); }
   function popPage(){ document.getElementById('topback').classList.remove('visible'); }
 
@@ -226,7 +243,7 @@
     });
   }
   function showLogin(){ document.getElementById('login-screen').style.display='flex'; document.getElementById('app').style.display='none'; }
-  function showApp(){ document.getElementById('login-screen').style.display='none'; document.getElementById('app').style.display='flex'; applyTheme(); applyLang(); loadDashboard(); }
+  function showApp(){ document.getElementById('login-screen').style.display='none'; document.getElementById('app').style.display='flex'; applyTheme(); applyLang(); loadDashboard(); loadOAPendingCount(); }
   function doLogin(e){
     e.preventDefault();
     const u=document.getElementById('login-user').value.trim(), p=document.getElementById('login-pass').value;
@@ -327,6 +344,146 @@
     const rows = cp.map(c=>{ total+=c.bags; return '<div class="crush-row"><span class="crush-row__date">'+c.date.slice(5)+'</span><span>'+c.personnel_count+' '+t('emp')+'</span><span class="crush-row__bags">'+fmt(c.bags)+' '+t('bags')+'</span></div>'; }).join('');
     document.getElementById('crush-list').innerHTML = rows + '<div class="crush-total"><span>'+t('total')+'</span><span>'+fmt(total)+' '+t('bags')+'</span></div>';
   }
+
+  // ── 员工模块 (Phase 2) ──
+  STATE.employees = [];
+  STATE.empSeg = 'list';
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function setEmpSeg(v){
+    STATE.empSeg = v;
+    document.querySelectorAll('#emp-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v));
+    document.getElementById('emp-list').style.display = v==='list'?'block':'none';
+    document.getElementById('emp-detail').style.display = 'none';
+    document.getElementById('oa-list').style.display = v==='list'?'none':'block';
+    if(v==='list') renderEmpList();
+    else loadOA(v);
+  }
+
+  function loadEmployees(){
+    return api('/api/employees').then(d=>{ STATE.employees = (d.employees||[]); renderEmpList(); });
+  }
+  function empCard(e){
+    const initial = (e.name||'?').slice(0,1);
+    return '<div class="card-item" onclick="openEmpProfile(\''+esc(e.id)+'\')">'
+      + '<div class="card-item__avatar">'+(e.avatar_path?('<img src="'+esc(e.avatar_path)+'">'):esc(initial))+'</div>'
+      + '<div class="card-item__body"><div class="card-item__title">'+esc(e.name||'')+(e.alias?(' ('+esc(e.alias)+')'):'')+'</div>'
+      + '<div class="card-item__meta">#'+(e.custom_number||e.id||'')+' · '+(e.team||'')+' · '+(e.position||'')+'</div></div>'
+      + '<div class="card-item__trailing">›</div></div>';
+  }
+  function renderEmpList(){
+    const q = (STATE._search||'').toLowerCase();
+    const list = STATE.employees.filter(e=> !q || (e.name||'').toLowerCase().includes(q) || (e.alias||'').toLowerCase().includes(q) || String(e.custom_number||'').includes(q));
+    const el = document.getElementById('emp-list');
+    if(!list.length){ el.innerHTML='<div class="empty-state"><div class="empty-state__icon">🔍</div><div class="empty-state__desc">'+t('no_emp')+'</div></div>'; return; }
+    el.innerHTML = list.map(empCard).join('') + '<div class="empty-state__desc" style="text-align:center;padding:8px 0;">'+list.length+' '+t('emp')+'</div>';
+  }
+
+  function openEmpProfile(id){
+    pushPage();
+    document.getElementById('emp-list').style.display='none';
+    document.getElementById('emp-detail').style.display='block';
+    document.getElementById('emp-detail').innerHTML='<div class="loading">'+t('loading')+'</div>';
+    api('/api/employees/'+encodeURIComponent(id)).then(d=>{
+      if(!d.employee){ document.getElementById('emp-detail').innerHTML='<div class="empty-state">'+t('no_emp')+'</div>'; return; }
+      renderEmpProfile(d.employee);
+    }).catch(()=>{ document.getElementById('emp-detail').innerHTML='<div class="empty-state">'+t('load_fail')+'</div>'; });
+  }
+  function kv(k,v){ return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:var(--text-sm);"><span style="color:var(--muted-foreground);">'+k+'</span><span>'+esc(v)+'</span></div>'; }
+  function renderEmpProfile(e){
+    const role = STATE.auth && STATE.auth.role;
+    const canEdit = role==='admin' || role==='super_admin';
+    let html = '';
+    html += '<div style="text-align:center;padding:12px 0;"><div class="card-item__avatar" style="width:72px;height:72px;font-size:28px;margin:0 auto 8px;">'+(e.avatar_path?('<img src="'+esc(e.avatar_path)+'">'):esc((e.name||'?').slice(0,1)))+'</div>'
+      + '<div style="font-size:var(--text-xl);font-weight:700;">'+esc(e.name||'')+(e.alias?(' ('+esc(e.alias)+')'):'')+'</div>'
+      + '<div style="color:var(--muted-foreground);font-size:var(--text-sm);">#'+(e.custom_number||e.id||'')+'</div></div>';
+    html += '<div class="card"><div class="card-title">'+t('basic_info')+'</div>';
+    const base = STATE.employees.find(x=>x.id===e.id) || {};
+    [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['salary_type',e.override_type||e.default_type],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']].forEach(r=>{ if(r[1]!=null&&r[1]!=='') html+=kv(t(r[0]), r[1]); });
+    html += '</div>';
+    html += '<div style="display:flex;gap:8px;margin:12px 0;">'
+      + '<button class="btn btn-block" onclick="openLeave(\''+esc(e.id)+'\')">'+t('leave_apply')+'</button>'
+      + (canEdit?'<button class="btn btn-primary btn-block" onclick="openEditEmp(\''+esc(e.id)+'\')">'+t('edit_profile')+'</button>':'')
+      + '</div>';
+    document.getElementById('emp-detail').innerHTML = html;
+  }
+
+  function openEditEmp(id){
+    const e = STATE.employees.find(x=>x.id===id) || {};
+    const role = STATE.auth && STATE.auth.role;
+    const body = document.getElementById('sheet-body');
+    body.innerHTML = '<div class="field"><label class="field__label">'+t('team')+'</label><input id="ed-team" value="'+esc(e.team||'')+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('position')+'</label><input id="ed-position" value="'+esc(e.position||'')+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('phone')+'</label><input id="ed-phone" value="'+esc(e.phone||'')+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('alias')+'</label><input id="ed-alias" value="'+esc(e.alias||'')+'"></div>'
+      + (role==='super_admin'?'<div class="field"><label class="field__label">'+t('dept')+'</label><input id="ed-dept" value="'+esc(e.department||'')+'"></div>':'')
+      + '<button class="btn btn-primary btn-block" onclick="submitEditEmp(\''+esc(id)+'\')">'+t('submit')+'</button>';
+    openSheet(t('edit_profile'), body);
+  }
+  function submitEditEmp(id){
+    const data = { team: document.getElementById('ed-team').value.trim(), position: document.getElementById('ed-position').value.trim(), phone: document.getElementById('ed-phone').value.trim(), alias: document.getElementById('ed-alias').value.trim() };
+    if(STATE.auth.role==='super_admin') data.department = document.getElementById('ed-dept').value.trim();
+    api('/api/employees/'+encodeURIComponent(id), { method:'POST', body: JSON.stringify(data) }).then(r=>{
+      if(r.ok){ toast(t('saved')); closeSheet(); loadEmployees(); }
+      else if(r.error && r.error.includes('部门')){ toast(r.error,'warning'); }
+      else toast(t('save_fail'),'error');
+    }).catch(()=>toast(t('save_fail'),'error'));
+  }
+
+  // ── OA 审批 ──
+  function loadOA(mode){
+    const el = document.getElementById('oa-list');
+    el.innerHTML='<div class="loading">'+t('loading')+'</div>';
+    const url = mode==='history' ? '/api/oa/history' : '/api/oa/pending';
+    api(url).then(d=>{
+      const evs = d.events||[];
+      if(mode!=='history'){ document.getElementById('oa-pending-n').textContent = evs.length; }
+      if(!evs.length){ el.innerHTML='<div class="empty-state"><div class="empty-state__icon">✅</div><div class="empty-state__desc">'+t('no_oa')+'</div></div>'; return; }
+      el.innerHTML = evs.map(ev=>oaCard(ev, mode)).join('');
+    }).catch(()=>{ el.innerHTML='<div class="empty-state">'+t('load_fail')+'</div>'; });
+  }
+  function oaCard(ev, mode){
+    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary') };
+    let summary='';
+    try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : ''); } catch(e){}
+    let html = '<div class="card-item" style="flex-direction:column;align-items:stretch;">'
+      + '<div style="display:flex;justify-content:space-between;width:100%;"><span class="card-item__title">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="card-item__meta">'+esc(ev.employee_name||ev.employee_id)+'</span></div>'
+      + (summary?'<div class="card-item__meta">'+esc(summary)+'</div>':'')
+      + '<div class="card-item__meta">'+esc(ev.effective_date||'')+'</div>';
+    if(mode==='pending'){
+      html += '<div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-primary btn-block" onclick="approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn btn-block" onclick="rejectOA('+ev.id+')">'+t('reject')+'</button></div>';
+    } else {
+      const st = ev.status==='approved'?t('approved'):t('rejected');
+      html += '<div class="card-item__meta" style="margin-top:4px;">'+st+(ev.reject_reason?(': '+esc(ev.reject_reason)):'')+'</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+  function approveOA(id){ api('/api/oa/events/'+id+'/approve', { method:'POST', body:'{}' }).then(r=>{ if(r.ok){ toast(t('approved')); loadOA('pending'); } else toast(r.error||t('fail'),'error'); }); }
+  function rejectOA(id){ const reason=prompt(t('reject_reason')||'驳回原因'); if(!reason) return; api('/api/oa/events/'+id+'/reject', { method:'POST', body: JSON.stringify({reject_reason:reason}) }).then(r=>{ if(r.ok){ toast(t('rejected')); loadOA('pending'); } else toast(r.error||t('fail'),'error'); }); }
+
+  // ── 请假 ──
+  function openLeave(empId){
+    const body = document.getElementById('sheet-body');
+    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="annual_leave">'+t('annual_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick_leave">'+t('sick_leave')+'</option></select></div>'
+      + '<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
+      + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitLeave(\''+esc(empId)+'\')">'+t('submit')+'</button>';
+    openSheet(t('leave_apply'), body);
+  }
+  function submitLeave(empId){
+    const type = document.getElementById('lv-type').value;
+    const date = document.getElementById('lv-date').value;
+    const note = document.getElementById('lv-note').value.trim();
+    if(!date){ toast(t('fill_date'),'warning'); return; }
+    const payload = { employee_id: empId, event_type: type, effective_date: date, note, days: 1 };
+    api('/api/oa/leave', { method:'POST', body: JSON.stringify(payload) }).then(r=>{
+      if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error');
+    }).catch(()=>toast(t('fail'),'error'));
+  }
+
+  // ── 全局搜索（员工列表过滤）──
+  function onSearch(v){ STATE._search = v||''; if(activeTab==='employees' && STATE.empSeg==='list') renderEmpList(); }
 
   // ── 启动 ──
   applyTheme();
