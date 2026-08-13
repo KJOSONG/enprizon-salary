@@ -821,9 +821,10 @@ _MOBILE_UA_TOKENS = ('iphone', 'ipad', 'ipod', 'android', 'mobile', 'windows pho
 
 @app.before_request
 def mobile_redirect():
-    """移动端 UA 访问 / 时重定向到 /m；桌面端访问 /m 不反向跳转（便于调试）"""
+    """移动端 UA 访问 / 时重定向到 /m；桌面端访问 /m 不反向跳转（便于调试）。
+    使用 url_for 以尊重 KILWA_SCRIPT_NAME 子路径（如 /salary），避免重定向到根 /m 导致 404。"""
     if request.path == '/' and any(t in request.headers.get('User-Agent', '').lower() for t in _MOBILE_UA_TOKENS):
-        return redirect('/m')
+        return redirect(url_for('mobile_index'))
 
 # ═══════════════════════════════════════════════════════════
 #  API: 数据源信息
