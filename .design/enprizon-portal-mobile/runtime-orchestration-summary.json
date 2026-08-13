@@ -1,0 +1,243 @@
+{
+  "skillProvenance": {
+    "name": "solo-design",
+    "version": "1.0.0",
+    "version_source": "built-in"
+  },
+  "project": {
+    "resolvedLane": "library_bound",
+    "selectedIntentWorkflowRead": true,
+    "contextRequirementsLoaded": [
+      {
+        "path": "shared-runtime/runtime-boundaries/lane-runtime-contracts.md",
+        "readStatus": "loaded",
+        "bodyRead": true
+      },
+      {
+        "path": "shared-runtime/agent-dispatch-runtime/lane-dispatch-index.md",
+        "readStatus": "loaded",
+        "bodyRead": true
+      },
+      {
+        "path": "delivery-quality/page-rendering-quality-gate.md",
+        "readStatus": "loaded",
+        "bodyRead": true
+      },
+      {
+        "path": "delivery-quality/design-artifact-validation.md",
+        "readStatus": "loaded",
+        "bodyRead": true
+      },
+      {
+        "path": "delivery-quality/delivery-evidence-contract.md",
+        "readStatus": "loaded",
+        "bodyRead": true
+      }
+    ],
+    "contextReadScope": "library-bound-strict",
+    "validationRunDiscipline": "library-bound",
+    "lowValueCallWatchdog": {
+      "noProgressNextAction": "dispatch"
+    },
+    "deviceType": "mobile",
+    "viewportMode": "document-scroll",
+    "mainAgentPostDispatchMutations": [
+      {"file": ".design", "reason": "fix validation errors: add id/type/version/createdAt/devMetadata fields, fix canvasData.group"}
+    ],
+    "expectedDispatches": [
+      {"nodeId": "page-portal", "htmlSrc": "pages/portal.html", "status": "completed", "changedFiles": ["pages/portal.html"], "toolCallLedger": {"todoWriteCalls": 0, "previewCalls": 0, "validationCalls": 0, "helperScriptCalls": 0, "imageGenCalls": 0, "source": "main-agent-runtime-trace", "traceDigest": "sha256:dispatch-page-portal"}}
+    ],
+    "dispatchPreflightManifest": [
+      {
+        "recorded_at": "2026-08-13T19:52:01.458Z",
+        "generatedBy": "build-page-dispatch-manifest.mjs",
+        "packetType": "LibraryBoundPagePacket",
+        "laneContract": {
+          "resolvedLane": "library_bound",
+          "packetType": "LibraryBoundPagePacket",
+          "pageRuntimeGuide": "intent-workflows/intent-page-library-bound/library-bound-page-runtime.md",
+          "dispatchContract": "intent-workflows/intent-page-library-bound/dispatch-contract.md"
+        },
+        "taskLinePresent": true,
+        "outputPathPresent": true,
+        "sharedTemplate": "intent-workflows/intent-page-library-bound/library-bound-page-runtime.md",
+        "nodeId": "page-portal",
+        "htmlSrc": "pages/portal.html",
+        "supplementaryReads": [],
+        "allowedWritePaths": [
+          "pages/portal.html",
+          "assets/"
+        ],
+        "forbiddenWriteRoots": [
+          "*.design",
+          "runtime-orchestration-summary.json",
+          "validation-report.json",
+          "finish-readiness-report.json",
+          "restore-contract-report.json",
+          "page-generation-summary.json"
+        ],
+        "toolPolicy": {
+          "todoWriteAllowed": false,
+          "validationScriptsAllowed": false,
+          "previewAllowed": false,
+          "helperScriptsAllowed": false,
+          "designFileWriteAllowed": false,
+          "allowedWritePaths": [
+            "pages/portal.html",
+            "assets/"
+          ]
+        },
+        "skillRuntime": {
+          "skillDir": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design",
+          "deterministicToolDir": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling",
+          "toolPaths": {
+            "applyHtmlHeadContract": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/apply-html-head-contract.mjs",
+            "recordDispatchCompletion": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/record-dispatch-completion.mjs",
+            "buildPageDispatchManifest": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/build-page-dispatch-manifest.mjs",
+            "validateDesignWorkspace": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/validate-design-workspace.mjs",
+            "validateFinishReadiness": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/validate-finish-readiness.mjs",
+            "validateRestoreContract": "/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/validate-restore-contract.mjs"
+          },
+          "requiredForPageSubAgent": [
+            "applyHtmlHeadContract",
+            "recordDispatchCompletion"
+          ],
+          "pathInjection": "absolute",
+          "pathContract": "Do not use {SKILL_DIR} placeholders inside Page Sub-Agent packets; use toolPaths.* absolute paths.",
+          "commandTemplates": {
+            "recordDispatchCompletion": "node '/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/record-dispatch-completion.mjs' '/Users/osong/AI专用分析文件/enprizon-salary/.design/enprizon-portal-mobile' --node-id='page-portal' --html-src='pages/portal.html' --status=completed --changed-files=<comma-separated-project-relative-files> --trace-digest=<main-agent-runtime-trace-digest> --tool-ledger-json=<tool-ledger-json-or-file>"
+          }
+        },
+        "cssFilePath": "/Users/osong/AI专用分析文件/enprizon-salary/.design/enprizon-portal-mobile/colors_and_type.css",
+        "htmlFilePath": "/Users/osong/AI专用分析文件/enprizon-salary/.design/enprizon-portal-mobile/pages/portal.html",
+        "brandPrefix": "enprizon",
+        "aestheticsMode": "library-bound",
+        "toolDisciplineBlockPresent": true,
+        "fillHtmlHeadCommand": "node '/Users/osong/.trae-cn/builtin/design/default/skills/solo-design/shared-runtime/deterministic-tooling/apply-html-head-contract.mjs' '/Users/osong/AI专用分析文件/enprizon-salary/.design/enprizon-portal-mobile/colors_and_type.css' '/Users/osong/AI专用分析文件/enprizon-salary/.design/enprizon-portal-mobile/pages/portal.html' --title='ENPRIZON Portal' --lang='zh-CN' --prefix='enprizon' --replace-head",
+        "headFillMode": "replace-head-after-body",
+        "viewportMode": "document-scroll",
+        "completionSchemaExpected": "full",
+        "restoreFields": null,
+        "restoreContractStatus": null,
+        "restoreCompactPacket": null,
+        "deterministicCommands": null,
+        "sourceAuthorityLock": null,
+        "preDispatchFileHashes": {
+          ".design": "432bae7c4563b46bb349c7dd22bd26a02eaa7e6aa4d0a3668b8e6a96e8bdc566"
+        },
+        "contextPreflight": {
+          "workflowPath": "intent-workflows/intent-page-library-bound/INTENT_WORKFLOW.md",
+          "requiredContextFiles": [
+            "shared-runtime/runtime-boundaries/lane-runtime-contracts.md",
+            "shared-runtime/agent-dispatch-runtime/lane-dispatch-index.md",
+            "delivery-quality/page-rendering-quality-gate.md",
+            "delivery-quality/design-artifact-validation.md",
+            "delivery-quality/delivery-evidence-contract.md"
+          ],
+          "optionalContextFiles": [
+            "visual-experience/visual-experience-guidelines.md"
+          ],
+          "passed": true
+        },
+        "pageSliceOnly": true,
+        "requiredFieldsPresent": true,
+        "missingFields": [],
+        "fillHtmlHeadCommandValid": true,
+        "mobileNavigation": {
+          "required": false,
+          "appliesToThisPage": false,
+          "canonicalHtmlIncluded": false,
+          "missingFields": []
+        },
+        "persistedToSummary": true,
+        "taskQueryAudited": false,
+        "proofSource": "summary-only",
+        "largeWorkflowFilesInTaskQuery": null
+      }
+    ],
+    "readScopeLedger": [
+      {
+        "actor": "page-sub-agent",
+        "lane": "library_bound",
+        "path": "intent-workflows/intent-page-library-bound/library-bound-page-runtime.md",
+        "reason": "page runtime guide",
+        "scopeClass": "page-runtime",
+        "declaredBeforeRead": true,
+        "recordedAt": "2026-08-13T19:43:46.190Z",
+        "nodeId": "page-portal",
+        "htmlSrc": "pages/portal.html"
+      },
+      {
+        "actor": "page-sub-agent",
+        "lane": "library_bound",
+        "path": "intent-workflows/intent-page-library-bound/dispatch-contract.md",
+        "reason": "dispatch contract",
+        "scopeClass": "dispatch-contract",
+        "declaredBeforeRead": true,
+        "recordedAt": "2026-08-13T19:43:46.190Z",
+        "nodeId": "page-portal",
+        "htmlSrc": "pages/portal.html"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "nodeId": "page-portal",
+      "htmlSrc": "pages/portal.html",
+      "title": "ENPRIZON Portal",
+      "pageType": "showcase",
+      "qualityRisks": [],
+      "brandPrefix": "enprizon",
+      "cssPath": "/Users/osong/.trae-cn/design_libraries/dl_builtin_golden_time/colors_and_type.css",
+      "deviceType": "mobile",
+      "viewportMode": "document-scroll"
+    }
+  ],
+  "designSource": {
+    "brandPrefix": "enprizon",
+    "libraryIdentity": {
+      "name": "Golden Time",
+      "id": "dl_builtin_golden_time",
+      "version": "",
+      "versionSource": null,
+      "scope": "built-in-global",
+      "path": "/Users/osong/.trae-cn/design_libraries/dl_builtin_golden_time"
+    },
+    "actualTokenNameReference": [
+      "--background",
+      "--card",
+      "--card-foreground",
+      "--foreground",
+      "--muted",
+      "--muted-foreground",
+      "--primary",
+      "--primary-foreground",
+      "--accent",
+      "--accent-foreground",
+      "--border",
+      "--ring",
+      "--radius",
+      "--font-sans",
+      "--spacing",
+      "--shadow-xs",
+      "--shadow-sm",
+      "--shadow"
+    ],
+    "componentPlan": [
+      {
+        "slug": "card",
+        "previewFile": "/Users/osong/.trae-cn/design_libraries/dl_builtin_golden_time/preview/component-card.html",
+        "contractFile": "/Users/osong/.trae-cn/design_libraries/dl_builtin_golden_time/components/card.json"
+      }
+    ],
+    "tokenFidelity": "strict",
+    "designDecisionSummary": "ENPRIZON portal navigation page with 3 system entry cards. Mobile-first responsive design using Golden Time dark theme tokens. Cards stack vertically on mobile, horizontal on desktop. Touch-friendly 44px minimum targets.",
+    "componentIndexSummary": [
+      "card: premium dashboard surface for metrics/narratives, warm neutral contrast, spacious internal rhythm"
+    ],
+    "allowedComponents": [
+      "card"
+    ],
+    "forbiddenInventedComponents": []
+  }
+}

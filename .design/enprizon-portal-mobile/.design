@@ -1,0 +1,40 @@
+{
+  "data": [
+    {
+      "nodeId": "page-portal",
+      "id": "page-portal",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1755114226000,
+      "htmlSrc": "pages/portal.html",
+      "title": "ENPRIZON Portal",
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 1,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 375,
+          "sourceHash": "fnv1a-b96b91aa",
+          "measuredAt": 1786652459617
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/portal.html"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "mobile",
+    "designLibrary": {
+      "name": "Golden Time",
+      "id": "dl_builtin_golden_time",
+      "version": "",
+      "versionSource": null,
+      "scope": "built-in-global",
+      "path": "/Users/osong/.trae-cn/design_libraries/dl_builtin_golden_time"
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "data": [
+    {
+      "id": "page-dashboard",
+      "title": "数据台",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1786650737286,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-f3386325",
+          "measuredAt": 1786653873035
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/dashboard.html"
+      }
+    },
+    {
+      "id": "page-employees",
+      "title": "员工",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1786650737286,
+      "canvasData": {
+        "x": 0,
+        "y": 722,
+        "group": 1,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-f9fe1d5f",
+          "measuredAt": 1786653401231
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/employees.html"
+      }
+    },
+    {
+      "id": "page-collection",
+      "title": "数据采集",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1786650737286,
+      "canvasData": {
+        "x": 0,
+        "y": 1099,
+        "group": 2,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-aaee76c0",
+          "measuredAt": 1786653401231
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/collection.html"
+      }
+    },
+    {
+      "id": "page-attendance",
+      "title": "出勤",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1786650737286,
+      "canvasData": {
+        "x": 0,
+        "y": 1476,
+        "group": 3,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-1c3331f7",
+          "measuredAt": 1786653401231
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/attendance.html"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "designLibrary": {
+      "name": "Golden Time",
+      "id": "dl_builtin_golden_time",
+      "version": null,
+      "versionSource": "metadata.json",
+      "scope": "built-in-global",
+      "path": "/Users/osong/.trae-cn/design_libraries/dl_builtin_golden_time"
+    }
+  }
+}
