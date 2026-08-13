@@ -394,16 +394,21 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 | 文件 | 职责 | 状态 |
 |------|------|------|
-| `templates/mobile.html` | 移动端 SPA 骨架 + 内联 JS（登录 / 4 Tab / 数据台） | Phase 1 已完成 |
-| `static/css/mobile.css` | Golden Time token + 移动端布局/组件样式 | Phase 1 已完成 |
+| `templates/mobile.html` | 移动端 SPA 骨架 + 内联 JS（登录 / 4 Tab / 数据台 / 员工 / 采集 / 出勤） | **Phase 1-5 全部完成** |
+| `static/css/mobile.css` | Golden Time token + 移动端布局/组件样式（含出勤网格、Sheet、批量标记） | **Phase 1-5 全部完成** |
 | `app.py` 路由 `/m` + `before_request` UA 检测 | 移动端 UA 访问 `/` → 302 跳 `/m`；桌面端访问 `/m` 不反向跳 | Phase 1 已完成 |
+| `static/manifest.webmanifest` + `static/icons/icon.svg` | PWA 可安装清单 + SVG 图标（**未启用 Service Worker**，避免子路径部署缓存失效） | Phase 5 已完成 |
 
 **技术特点**：
 - 4 标签底部 Tab Bar：📊数据台 / 👥员工 / 📋采集 / ⏱出勤（spec 为 4 项，不含薪资）
 - 顶栏含月份切换、搜索、🌐语言(中/EN)、🌙主题切换，均 localStorage 持久化
 - 所有 API 调用经 `fetch()` + `credentials:'same-origin'` 携带 session cookie；未登录显示登录页
-- 数据台 Phase 1：6 KPI + 产量趋势/白夜班/钻工堆叠/矿石环形 4 图 + 破碎卡片列表（Chart.js）
+- 数据台：6 KPI + 产量趋势/白夜班/钻工堆叠/矿石环形 4 图 + 破碎卡片列表（Chart.js）
+- 员工：列表/档案/编辑/OA 待审-已审批/请假申请（复用既有 OA 端点）
+- 采集：井下出渣/钻工组/破碎计件/出勤收集 4 表单 + 首页历史（复用 P9 采集端点；editor 权限）
+- 出勤：横向滑动 31 天网格 + 长按/点按状态编辑 Sheet + 批量标记模式 + 部门筛选 + 日期跳转 + 请假/病假快捷入口（复用 `/attendance` + `/attendance/toggle`；editor 权限）
 - 无构建系统，纯 HTML + 内联 CSS/JS；设计 token 继承桌面端 `style.css`
+- PWA 可安装（manifest + SVG 图标）；**刻意不启用 Service Worker**——系统在 `/salary/` 子路径且频繁部署，SW 缓存会导致新版本 `mobile.html` 不刷新
 - 后端零改动（仅新增 `/m` 路由 + UA 重定向）
 
 > ⚠️ **`.design/enprizon-mobile/` 与 `.design/enprizon-portal-mobile/` 是设计工具导出原型（HTML/图标/json），不是可运行代码**，已被 `.gitignore` 排除、不纳入版本跟踪。请勿将其误认为已上线的移动端；真正的实现是上表的 `mobile.html` + `mobile.css`，目前仅在 `feature/mobile-p16` 分支、Phase 1（数据台）完成，员工/采集/出勤三模块待 Phase 2-4 实施。
@@ -433,8 +438,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ## 重构状态（2026-08-14 更新）
 
-**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照）。**P16 移动端开发在 `feature/mobile-p16` 分支进行**（本地 main 与 origin/main 已对齐至 `855cf58`，服务器同版本）
-**阶段**: **P0-P15 全部完成，P16（移动端）Phase 1（数据台）已完成，Phase 2-4 待实施**
+**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照）。**P16 移动端开发已完成全部 5 个 Phase（feature/mobile-p16 分支，尚未合并部署）**
+**阶段**: **P0-P15 全部完成，P16（移动端）Phase 1-5 全部完成（数据台/员工/采集/出勤/收尾），待合并 `feature/mobile-p16` → `main` 并部署**
 **纯采集模式**: 已移除 Excel 数据源依赖（`scan_source_files`/`parser.parse_all` 已删）。薪资全部由 P9 采集（井下/钻工/破碎/出勤4类）驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **8月数据**: 已导入本地（employees 130人 / overrides 202条 / collection_submissions 40条 / attendance_overrides 538条 / leave_balances 108 / leave_requests 7），本地验证 gross 20,859,271 TZS
 **部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary）
@@ -480,8 +485,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
-1. **P16 移动端**：Phase 1（数据台）已完成并提交 `feature/mobile-p16`；待 Phase 2 员工 / Phase 3 采集 / Phase 4 出勤 / Phase 5 收尾部署（详见任务列表）
-2. **本地验收**：`python3 app.py` 检查所有页面无 JS 错误（纯采集模式）
+1. **P16 移动端**：Phase 1-5 全部完成（数据台/员工/采集/出勤/收尾），已提交 `feature/mobile-p16`；待合并到 `main` 并部署至阿里云（需用户批准 push + 服务器 restart）
+2. **本地验收**：`python3 app.py` 启动后 `/m` 返回 200、iPhone UA 访问 `/` 302 跳 `/m`、4 个 Tab 接口（dashboard/employees/collection/attendance）均验证通过（viewer 可读；采集/出勤编辑需 editor，POST 经 403 鉴权门验证）
 3. **git 清理**：确认 `data/kilwa.db-wal`/`data/kilwa.db-shm` 未被误跟踪（.gitignore 已补防）
 4. **8月数据**：本地导入已完成，服务器部署后按需重新导入
 
