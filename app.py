@@ -2222,39 +2222,13 @@ def scoring_summary(team):
     }
     return jsonify({'individuals': result, 'gates': gates, 'pool': pool_block, 'month': month})
 
-@app.route('/api/objective/suggest', methods=['GET'])
-@login_required
-def objective_suggest():
-    """P15: 返回当日井下采集总产量（NH+NL+MAWE 之和），供客观录入自动带出（只读，禁止手填）"""
-    date = request.args.get('date', '')
-    if not date:
-        return jsonify({'ok': False, 'error': '缺少 date'}), 400
-    total = 0
-    for day in (APP_STATE.get('main_data') or {}).get('shift_production', []):
-        if day.get('date') != date:
-            continue
-        dp = day.get('day_prod') or {}
-        np = day.get('night_prod') or {}
-        for k in ('NICKEL（H）', 'NICKEL（L）', 'MAWE'):
-            total += int(dp.get(k, 0) or 0) + int(np.get(k, 0) or 0)
-    return jsonify({'ok': True, 'date': date, 'total_output': total})
-
 @app.route('/api/objective/entry', methods=['POST'])
 @editor_required
 def objective_entry():
     from core.database import save_objective_entry, log_audit
     data = request.get_json()
-    # P15: 实际出渣量强制自动带出 = 当日井下总产量(NH+NL+MAWE)，忽略客户端提交值（禁止手填）
-    date = data.get('record_date', '')
-    auto_actual = 0
-    for day in (APP_STATE.get('main_data') or {}).get('shift_production', []):
-        if day.get('date') != date:
-            continue
-        dp = day.get('day_prod') or {}
-        np = day.get('night_prod') or {}
-        for k in ('NICKEL（H）', 'NICKEL（L）', 'MAWE'):
-            auto_actual += int(dp.get(k, 0) or 0) + int(np.get(k, 0) or 0)
-    data['actual_output'] = auto_actual
+    # 实际出渣量改为手动录入（产量采集无按班组提交来源，不再从产量自动带出）
+    data['actual_output'] = float(data.get('actual_output') or 0)
     daily_s = save_objective_entry(app.config['DATA_FOLDER'], data['record_date'],
         data['team'], data['planned_output'], data['actual_output'],
         data['total_hours'], data['effective_hours'], data['week'])

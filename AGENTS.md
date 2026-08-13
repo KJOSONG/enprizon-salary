@@ -180,7 +180,7 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 - **① 产量层**：总池**仅由 NICKEL(H) 车次生成** = max((NICKEL(H) 车次 − 600), 0) × 20,000；NICKEL(L)/MAWE 不计；<600 车次 → 无池；半池 = 总池×50%
 - **② 客观层**：S = R1×70% + R2×30%（R1=实际出渣÷计划出渣，不封顶；R2=有效÷在井，≤100）；月度 S = 当日 S 均值；发放比例 **90/80/70/60 五档**（≥90→100%, 80-89→95%, 70-79→90%, 60-69→80%, <60→70%）；班实际池 = 半池×发放比例
 - **③ 主观层**：6 维互评去极值 → 行为分=(均值−1)/4×100 → 系数（≥85→1.2/70-84→1.0/60-69→0.8/<60→0.5），管理 1.5 票加权；个人奖金 = 班实际池×(个人系数÷Σ本班系数)
-- **渣产量（总产量）只进客观层 R1 定折扣，不参与奖金池生成**；R1 实际出渣量由井下采集自动汇总
+- **渣产量（总产量）只进客观层 R1 定折扣，不参与奖金池生成**；R1 实际出渣量**改由手动录入**（产量采集无按班组提交来源，不再从产量自动带出）
 - 代码注意：`_get_scoring_bonus` 读新表 `scoring_card_entries`（含旧表回退），与 `/api/scoring/summary` 共用系数逻辑；发放比例分档在 `get_monthly_objective`（`core/database.py`）统一为 90/80/70/60；半池禁止硬编码
 
 ### 出勤状态字母
@@ -237,7 +237,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 | 表 | 说明 | 阶段 |
 |-----|------|------|
-| `employees` | 员工主档（P1：position/skill_level/hire_date/NIDA/NSSF/银行；**P7 增** gender/date_of_birth/avatar_path；**P10 增** custom_number/team_id） | P0+P1+P7+P10 |
+| `employees` | 员工主档（P1：position/skill_level/hire_date/NIDA/NSSF/银行；**P7 增** gender/date_of_birth/avatar_path；**P10 增** custom_number/team_id；**P14.5 增** alias 别名） | P0+P1+P7+P10+P14.5 |
 | `overrides` | 薪资例外：永久/临时（逐步被 employee_events 取代） | P0 |
 | `attendance_overrides` | 手动出勤标记 P/A/L/D/N/C/S/Y/T/**P(病假)** | P0+P8 |
 | `settings` | 系统配置 key-value（定价/NSSF/underground_mode/scoring） | P0 |
@@ -253,7 +253,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | `leave_requests` | 请假申请（**P8 增** leave_type='sick' 病假） | P2+P5+P8 |
 | `driver_roster` | 司机白名单 | P2 |
 | `scoring_cards/entries` | 评分卡 + 6 维评分（**P10 重设计**：班组+全员+自定义工号+一张张卡；奖金计算读**新表** `scoring_card_entries`） | P3+P10 |
-| `objective_records` | 客观产量数据（R1/R2→S；R1 实际出渣量由井下采集自动汇总，计划出渣量手工录入） | P3 |
+| `objective_records` | 客观产量数据（R1/R2→S；R1 实际出渣量**手工录入**、计划出渣量手工录入） | P3 |
 | `permissions` | 细粒度权限定义（模块×动作） | P4 |
 | `user_grants` | 用户单独授权（覆盖角色默认） | P4 |
 | `form_schemas/fields` | Schema 驱动表单定义 | P4 |
@@ -423,6 +423,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **P13** | **v6 需求对齐迭代**（部门筛选修复 / 档案子页移出侧栏 / OA 自审分角色+审批详情 / 请假子页 / 侧栏折叠样式 / 入职头像 / 入职后跳转待审 / 通知铃铛红点 / 后台指定审批人 / 全页面中英双语） |
 | **纯采集改造** | **移除 Excel 数据源**（_run_pipeline 纯 DB 模式 / 删除 scan_source_files+upload-source+download-source / employees 从 DB 读取 / 月份从采集数据生成 / 采集提交自动触发计算 / data/source 清空） |
 | **P14（待实施）** | **v7 需求对齐迭代**（未登录弹登录 / 登录后首屏自动渲染 / 井下scoring与piecework互斥 / 计薪模式单一开关 / 档案页薪资类型编辑 / 档案页临时例外 / 评分录入页完全重做对齐参考卡 / 评分记录可查 + 档案页4条：删表单模式按钮/班组仅井下/工号自动生成/编辑按钮归位），详见 `docs/P14_USER_FEEDBACK_2026_08_13.md` |
+| **P14.5** | **员工档案增强**：新增 `alias` 别名列（展示+可编辑，档案页头部姓名上方 + 基本信息首行双处显示）；工号标签统一为"工号"（custom_number）；**部门仅超级管理员可直改**，非超管改部门走 OA 调岗审批（后端 `api_employee_update` 守卫 403）；编辑表单字段顺序与档案展示页一致；中英文 i18n 已适配（`emp_alias`/`emp_custom_number`/`dept_superadmin_only`） |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
 

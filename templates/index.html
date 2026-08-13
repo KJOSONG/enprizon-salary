@@ -426,6 +426,7 @@
           </div>
         </div>
         <div class="profile-fields" id="profileFields">
+          <div class="info-row"><span class="info-label" data-i18n="emp_alias">别名</span><span class="info-value" id="pfAliasRow">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_gender">性别</span><span class="info-value" id="pfGender">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_dob">出生日期</span><span class="info-value" id="pfDob">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_age">年龄</span><span class="info-value" id="pfAge">—</span></div>
@@ -854,7 +855,7 @@
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;max-width:600px;">
       <label style="font-size:12px;" data-i18n="obj_planned">计划出渣量</label><input type="number" id="objPlanned" oninput="checkObjPlanned()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-      <label style="font-size:12px;" data-i18n="obj_actual">实际出渣量</label><input type="number" id="objActual" readonly style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);color:var(--text-muted);font-size:13px;">
+      <label style="font-size:12px;" data-i18n="obj_actual">实际出渣量</label><input type="number" id="objActual" placeholder="手动录入" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
       <label style="font-size:12px;" data-i18n="obj_total_h">在井总时长(h)</label><input type="number" id="objTotalH" value="10" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
       <label style="font-size:12px;" data-i18n="obj_eff_h">有效作业(h)</label><input type="number" id="objEffH" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
     </div>
@@ -2049,6 +2050,7 @@ async function loadEmployeeProfilePage(eid) {
     document.getElementById('pfDept').textContent = emp.department;
     document.getElementById('pfCustomNumber').textContent = emp.custom_number || emp.id;
     document.getElementById('pfAlias').textContent = emp.alias || '—';
+    document.getElementById('pfAliasRow').textContent = emp.alias || '—';
     document.getElementById('pfPosition').textContent = emp.position;
     document.getElementById('pfSkill').textContent = emp.skill_level;
     document.getElementById('pfHireDate').textContent = emp.hire_date;
@@ -5374,21 +5376,12 @@ async function loadScoringSummary() {
   document.getElementById("gate3").style.color = gates.mgmt_deviation_triggered?"var(--danger)":"var(--success)";
 }
 
-// P15: 客观录入 — 日期/班组变化：自动带出实际出渣量（只读）+ 预填已提交记录（可编辑）
+// 客观录入 — 日期/班组变化：实际出渣量改为手动录入（不再从产量自动带出）+ 预填已提交记录（可编辑）
 async function onObjDateChange() {
   const date = document.getElementById("objDate").value;
   const msg = document.getElementById("objMsg");
   msg.textContent = '';
   if (!date) return;
-  try {
-    const res = await authFetch(api("/api/objective/suggest?date=" + encodeURIComponent(date)));
-    const d = await res.json();
-    if (d.ok) {
-      document.getElementById("objActual").value = d.total_output || 0;
-      msg.textContent = t('obj_auto_fill') + ': ' + (d.total_output || 0);
-      msg.style.color = "var(--success)";
-    }
-  } catch(e) {}
   const team = document.getElementById("objTeam").value;
   if (team) {
     try {
@@ -5397,9 +5390,14 @@ async function onObjDateChange() {
       const rec = (d2.records || []).find(r => r.record_date === date);
       if (rec) {
         document.getElementById("objPlanned").value = rec.planned_output;
+        document.getElementById("objActual").value = rec.actual_output;
         document.getElementById("objTotalH").value = rec.total_hours;
         document.getElementById("objEffH").value = rec.effective_hours;
         msg.textContent = t('obj_edit_existing');
+        msg.style.color = "var(--text-muted)";
+      } else {
+        document.getElementById("objActual").value = '';
+        msg.textContent = t('obj_actual_manual');
         msg.style.color = "var(--text-muted)";
       }
     } catch(e) {}
