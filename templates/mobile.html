@@ -6,10 +6,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="hsl(40 16% 98%)">
-  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="manifest" href="{{ static_url('manifest.webmanifest') }}">
   <meta name="mobile-web-app-capable" content="yes">
   <title>ENPRIZON LINDI</title>
-  <link rel="stylesheet" href="/static/css/mobile.css?v={{ version }}">
+  <link rel="stylesheet" href="{{ static_url('css/mobile.css') }}?v={{ version }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -145,9 +145,9 @@
     </div>
   </div>
 
-  <script src="/static/js/i18n.js?v={{ version }}"></script>
-  <script src="/static/js/chart.umd.min.js"></script>
-  <script src="/static/js/chartjs-plugin-datalabels.min.js"></script>
+  <script src="{{ static_url('js/i18n.js') }}?v={{ version }}"></script>
+  <script src="{{ static_url('js/chart.umd.min.js') }}"></script>
+  <script src="{{ static_url('js/chartjs-plugin-datalabels.min.js') }}"></script>
   <script>
   // ═══════════════════════════════════════════════
   //  P16 移动端 SPA — Phase 1: 骨架 + 数据台
