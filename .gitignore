@@ -26,3 +26,6 @@ data/kilwa_data.b64.txt
 .codebuddy/
 .workbuddy/
 .codebase-memory/
+
+# 设计工具工作目录（非应用代码，含 .DS_Store / 图标 / json）
+.design/
