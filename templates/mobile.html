@@ -100,7 +100,8 @@
 
       <!-- 采集 -->
       <section class="tab-page" id="tab-collection">
-        <div class="empty-state"><div class="empty-state__icon">📋</div><div class="empty-state__title" data-i18n="building">建设中</div><div class="empty-state__desc" data-i18n="building_desc_coll">数据采集模块即将上线</div></div>
+        <div id="col-home"></div>
+        <div id="col-form" style="display:none;"></div>
       </section>
 
       <!-- 出勤 -->
@@ -168,7 +169,9 @@
           emp_list:'员工列表', oa_pending:'待审', oa_history:'已审批', basic_info:'基本信息', edit_profile:'编辑档案', dept:'部门', team:'班组', position:'岗位', salary_type:'薪资类别', phone:'电话', alias:'别名',
           leave_apply:'请假申请', approve:'批准', reject:'驳回', reject_reason:'驳回原因', no_emp:'无员工', no_oa:'暂无审批', saved:'已保存', save_fail:'保存失败', approved:'已批准', rejected:'已驳回', fail:'操作失败',
           annual_leave:'年假', comp_leave:'调休', sick_leave:'病假', leave_type:'请假类型', start_date:'开始日期', reason:'事由', submitted:'已提交', fill_date:'请选择日期', days:'天', load_fail:'加载失败',
-          oa_hire:'入职', oa_transfer:'调岗', oa_dismiss:'离职', oa_resign:'辞职', oa_leave:'请假', oa_salary:'薪资变更', gender:'性别', nida:'NIDA', nssf:'NSSF', bank:'银行' },
+          oa_hire:'入职', oa_transfer:'调岗', oa_dismiss:'离职', oa_resign:'辞职', oa_leave:'请假', oa_salary:'薪资变更', gender:'性别', nida:'NIDA', nssf:'NSSF', bank:'银行',
+          col_ug:'井下出渣', col_dr:'钻工组', col_cr:'破碎计件', col_att:'出勤收集', col_emps:'参与人员', members:'队员', date:'日期', drivers:'司机', captain:'队长',
+          pick_captain:'选择队长', add_team:'添加队伍', remove:'移除', submit:'提交', all_depts:'全部部门', recent_submits:'最近提交', no_submit:'暂无提交', submits:'条', no_history:'暂无历史' },
     en: { username:'Username', password:'Password', login:'Login', tab_dashboard:'Dashboard', tab_employees:'Employees', tab_collection:'Collect', tab_attendance:'Attend',
           loading:'Loading...', all:'All', day_shift:'Day', night_shift:'Night', trend:'Trend', day_night:'Day vs Night',
           driller_output:'Driller', ore_type:'Ore Type', crush_output:'Crush', building:'Building',
@@ -177,7 +180,9 @@
           emp_list:'Employees', oa_pending:'Pending', oa_history:'Processed', basic_info:'Basic Info', edit_profile:'Edit', dept:'Dept', team:'Team', position:'Position', salary_type:'Pay Type', phone:'Phone', alias:'Alias',
           leave_apply:'Leave', approve:'Approve', reject:'Reject', reject_reason:'Reject reason', no_emp:'No employees', no_oa:'Nothing to review', saved:'Saved', save_fail:'Save failed', approved:'Approved', rejected:'Rejected', fail:'Failed',
           annual_leave:'Annual', comp_leave:'Comp', sick_leave:'Sick', leave_type:'Leave type', start_date:'Start', reason:'Reason', submitted:'Submitted', fill_date:'Pick a date', days:'d', load_fail:'Load failed',
-          oa_hire:'Hire', oa_transfer:'Transfer', oa_dismiss:'Dismiss', oa_resign:'Resign', oa_leave:'Leave', oa_salary:'Pay change', gender:'Gender', nida:'NIDA', nssf:'NSSF', bank:'Bank' },
+          oa_hire:'Hire', oa_transfer:'Transfer', oa_dismiss:'Dismiss', oa_resign:'Resign', oa_leave:'Leave', oa_salary:'Pay change', gender:'Gender', nida:'NIDA', nssf:'NSSF', bank:'Bank',
+          col_ug:'Underground', col_dr:'Driller', col_cr:'Crush', col_att:'Attendance', col_emps:'Workers', members:'Members', date:'Date', drivers:'Drivers', captain:'Captain',
+          pick_captain:'Pick captain', add_team:'Add team', remove:'Remove', submit:'Submit', all_depts:'All depts', recent_submits:'Recent', no_submit:'No submit', submits:'subs', no_history:'No history' },
   };
   function t(key){ return (I18N[STATE.lang] && I18N[STATE.lang][key]) || I18N.zh[key] || key; }
 
@@ -485,6 +490,121 @@
   // ── 全局搜索（员工列表过滤）──
   function onSearch(v){ STATE._search = v||''; if(activeTab==='employees' && STATE.empSeg==='list') renderEmpList(); }
 
+  // ── 数据采集 (Phase 3) ──
+  STATE.colType = '';
+  function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
+  function empChecklistHTML(hid, selected){
+    const sel = new Set(selected||[]);
+    return '<div id="'+hid+'List" style="max-height:36vh;overflow:auto;border:1px solid var(--border);border-radius:12px;padding:4px;margin-top:6px;">'
+      + STATE.employees.map(e=>'<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);font-size:14px;"><input type="checkbox" value="'+esc(e.id)+'" '+(sel.has(e.id)?'checked':'')+' onchange="syncChecklist(\''+hid+'\')"> <span>'+esc(e.name||'')+' <span style="color:var(--muted-foreground);font-size:11px;">#'+esc(e.custom_number||e.id)+'</span></span></label>').join('')
+      + '</div>';
+  }
+  function syncChecklist(hid){ document.getElementById(hid).value=[...document.querySelectorAll('#'+hid+'List input:checked')].map(c=>c.value).join(','); }
+
+  function loadCollectionHome(){
+    const home = document.getElementById('col-home');
+    const types = [['underground',t('col_ug'),'⛏'],['driller',t('col_dr'),'🔩'],['crush',t('col_cr'),'🪨'],['attendance',t('col_att'),'📋']];
+    home.innerHTML = types.map(([ty,label,icon])=>'<div class="card-item" onclick="openColForm(\''+ty+'\')"><div class="card-item__avatar">'+icon+'</div><div class="card-item__body"><div class="card-item__title">'+label+'</div><div class="card-item__meta" id="col-cnt-'+ty+'">—</div></div><div class="card-item__trailing">›</div></div>').join('')
+      + '<div class="card-title" style="margin-top:12px;">'+t('recent_submits')+'</div><div id="col-recent"></div>';
+    ['underground','driller','crush','attendance'].forEach(ty=>{
+      api('/api/collection/history?form_type='+ty).then(d=>{ const s=(d.submissions||[]); const el=document.getElementById('col-cnt-'+ty); if(el) el.textContent = s.length? (s.length+' '+t('submits')+' · '+(s[0].submission_date||'')) : t('no_submit'); });
+    });
+    api('/api/collection/history').then(d=>{
+      const subs=(d.submissions||[]).slice(0,6);
+      const el=document.getElementById('col-recent');
+      if(!el) return;
+      el.innerHTML = subs.length? subs.map(s=>'<div class="crush-row"><span class="crush-row__date">'+esc(s.submission_date||'')+'</span><span>'+t(s.form_type)||s.form_type+'</span></div>').join('') : '<div class="empty-state__desc" style="text-align:center;">'+t('no_history')+'</div>';
+    }).catch(()=>{});
+  }
+  function openColForm(ty){ STATE.colType=ty; pushPage(); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
+    if(ty==='underground') renderUgForm(); else if(ty==='driller') renderDrForm(); else if(ty==='crush') renderCrForm(); else renderAttForm(); }
+  function backColHome(){ document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; popPage(); loadCollectionHome(); }
+
+  function colSubmit(ty, payload){ const date=document.getElementById('colDate').value; if(!date){ toast(t('fill_date'),'warning'); return; }
+    api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) }).then(r=>{ if(r.ok){ toast(t('submitted')); backColHome(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
+
+  // 井下出渣
+  function renderUgForm(){
+    const d=new Date().toISOString().slice(0,10);
+    const shift=(p)=> '<div class="field"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="0" min="0"></div>'
+      + '<div class="field"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="0" min="0"></div>'
+      + '<div class="field"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="0" min="0"></div>'
+      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div id="'+p+'EmpsBox"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div id="'+p+'DriversBox"></div></div>';
+    document.getElementById('col-form').innerHTML = '<h3 class="section-title">'+t('col_ug')+'</h3>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="card-title">'+t('day_shift')+'</div>'+shift('ugDay')
+      + '<div class="card-title">'+t('night_shift')+'</div>'+shift('ugNight')
+      + '<button class="btn btn-primary btn-block" onclick="submitUg()">'+t('submit')+'</button>';
+    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',[]);
+    document.getElementById('ugDayDriversBox').innerHTML=empChecklistHTML('ugDayDrivers',[]);
+    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',[]);
+    document.getElementById('ugNightDriversBox').innerHTML=empChecklistHTML('ugNightDrivers',[]);
+  }
+  function submitUg(){ colSubmit('underground', { submission_date:document.getElementById('colDate').value,
+    day:{ nh:+document.getElementById('ugDayNh').value||0, nl:+document.getElementById('ugDayNl').value||0, mw:+document.getElementById('ugDayMw').value||0, emps:ck('ugDayEmps'), drivers:ck('ugDayDrivers') },
+    night:{ nh:+document.getElementById('ugNightNh').value||0, nl:+document.getElementById('ugNightNl').value||0, mw:+document.getElementById('ugNightMw').value||0, emps:ck('ugNightEmps'), drivers:ck('ugNightDrivers') } }); }
+
+  // 钻工组
+  STATE._drSlots=[];
+  async function renderDrForm(){
+    const d=new Date().toISOString().slice(0,10);
+    STATE._drSlots=[{captain:'',nh:0,nl:0,mw:0,members:[]}];
+    let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
+    STATE._drCaps=caps;
+    document.getElementById('col-form').innerHTML='<h3 class="section-title">'+t('col_dr')+'</h3>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div id="drSlots"></div>'
+      + '<button class="btn btn-block" onclick="addDrSlotM()" style="margin:8px 0;">+ '+t('add_team')+'</button>'
+      + '<button class="btn btn-primary btn-block" onclick="submitDr()">'+t('submit')+'</button>';
+    renderDrSlotsM();
+  }
+  function capOpts(sel){ return (STATE._drCaps||[]).map(c=>'<option value="'+esc(c.employee_id)+'" '+(String(sel)===String(c.employee_id)?'selected':'')+'>'+esc(c.name)+'</option>').join(''); }
+  function renderDrSlotsM(){ const c=document.getElementById('drSlots'); if(!c) return;
+    c.innerHTML=STATE._drSlots.map((s,i)=>'<div class="card" style="padding:10px;"><div class="field"><label class="field__label">'+t('captain')+'</label><select id="drCap'+i+'" onchange="STATE._drSlots['+i+'].captain=this.value"><option value="">'+t('pick_captain')+'</option>'+capOpts(s.captain)+'</select></div>'
+      + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div id="drMemBox'+i+'"></div></div>'
+      + (STATE._drSlots.length>1?'<button class="btn btn-block" onclick="removeDrSlotM('+i+')" style="margin-top:6px;">'+t('remove')+'</button>':'')+'</div>').join('');
+    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[]); });
+  }
+  function syncDrSlotsFromDom(){ STATE._drSlots.forEach((s,i)=>{ const c=document.getElementById('drCap'+i); if(c) s.captain=c.value; const nh=document.getElementById('drNh'+i); if(nh) s.nh=+nh.value||0; const nl=document.getElementById('drNl'+i); if(nl) s.nl=+nl.value||0; const mw=document.getElementById('drMw'+i); if(mw) s.mw=+mw.value||0; s.members=ck('drMem'+i); }); }
+  function addDrSlotM(){ syncDrSlotsFromDom(); STATE._drSlots.push({captain:'',nh:0,nl:0,mw:0,members:[]}); renderDrSlotsM(); }
+  function removeDrSlotM(i){ syncDrSlotsFromDom(); STATE._drSlots.splice(i,1); renderDrSlotsM(); }
+  function submitDr(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;} const teams=[];
+    for(let i=0;i<STATE._drSlots.length;i++){ const cap=document.getElementById('drCap'+i).value; if(!cap) continue; teams.push({ captain:cap, nh:+document.getElementById('drNh'+i).value||0, nl:+document.getElementById('drNl'+i).value||0, mw:+document.getElementById('drMw'+i).value||0, members:ck('drMem'+i) }); }
+    if(!teams.length){ toast(t('pick_captain'),'warning'); return; }
+    colSubmit('driller', { submission_date:date, teams }); }
+
+  // 破碎计件
+  function renderCrForm(){ const d=new Date().toISOString().slice(0,10);
+    document.getElementById('col-form').innerHTML='<h3 class="section-title">'+t('col_cr')+'</h3>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="0" min="0"></div>'
+      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="crEmps"><div id="crEmpsBox"></div></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitCr()">'+t('submit')+'</button>';
+    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',[]);
+  }
+  function submitCr(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;}
+    colSubmit('crush', { submission_date:date, bags:+document.getElementById('crBags').value||0, emps:ck('crEmps') }); }
+
+  // 出勤收集
+  async function renderAttForm(){ const d=new Date().toISOString().slice(0,10); const pool=STATE.employees;
+    const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
+    document.getElementById('col-form').innerHTML='<h3 class="section-title">'+t('col_att')+'</h3>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+'<option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitAtt()">'+t('submit')+'</button>';
+    renderAttRoster();
+  }
+  function renderAttRoster(){ const sel=document.getElementById('attDept').value; const list=STATE.employees.filter(e=>!sel||e.department===sel);
+    const box=document.getElementById('attRoster'); if(!box) return;
+    box.innerHTML=list.map(e=>'<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border);"><select id="attSt'+esc(e.id)+'" style="padding:4px 6px;border:1px solid var(--border);border-radius:8px;font-size:13px;"><option value="P">P</option><option value="A">A</option><option value="L">L</option><option value="D">D</option><option value="N">N</option><option value="C">C</option></select><span style="flex:1;">'+esc(e.name||'')+' <span style="color:var(--muted-foreground);font-size:11px;">#'+esc(e.custom_number||e.id)+'</span></span></div>').join(''); }
+  function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;}
+    const marks=STATE.employees.filter(e=>!document.getElementById('attDept').value||e.department===document.getElementById('attDept').value).map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
+    colSubmit('attendance', { submission_date:date, marks }); }
+
+  // 采集 Tab 进入时刷新首页
   // ── 启动 ──
   applyTheme();
   checkAuth();
