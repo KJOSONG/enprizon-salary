@@ -1988,3 +1988,11 @@ function switchLang(lang) {
 document.addEventListener('DOMContentLoaded', function() {
   applyI18n();
 });
+
+/* ════════════════════════════════════════════════
+   P17 修复：const 声明不挂 window，移动端 t() 读 window.I18N_DICT 恒 undefined
+   显式挂载到 window，桌面端词法作用域引用不受影响
+   ════════════════════════════════════════════════ */
+if (typeof window !== 'undefined') {
+  window.I18N_DICT = I18N_DICT;
+}
