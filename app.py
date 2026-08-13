@@ -225,10 +225,10 @@ def create_user():
         return jsonify({'ok': False, 'error': '无效角色'}), 400
     return jsonify({'ok': False, 'error': '用户名或密码不合法（密码至少6位）'}), 400
 
-@app.route('/admin/users/reset-password', methods=['POST'])
+@app.route('/admin/users/change-password', methods=['POST'])
 @super_admin_required
-def reset_user_password():
-    """超级管理员重置指定用户密码（不要求旧密码）"""
+def change_user_password():
+    """超级管理员修改指定用户密码（不要求旧密码）"""
     from core.database import reset_admin_password
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
@@ -240,6 +240,41 @@ def reset_user_password():
     if result == 'not_found':
         return jsonify({'ok': False, 'error': '用户不存在'}), 404
     return jsonify({'ok': False, 'error': '密码至少6位'}), 400
+
+@app.route('/admin/users/rename', methods=['POST'])
+@super_admin_required
+def rename_user():
+    """超级管理员重命名用户（同步 user_grants 授权 + approval_routes 审批人）"""
+    from core.database import rename_admin_user
+    data = request.get_json(silent=True) or {}
+    old_username = (data.get('username') or '').strip()
+    new_username = (data.get('new_username') or '').strip()
+    result = rename_admin_user(app.config['DATA_FOLDER'], old_username, new_username)
+    if result == 'ok':
+        _audit('user_rename', old_username, json.dumps({'new_username': new_username}))
+        return jsonify({'ok': True})
+    if result == 'not_found':
+        return jsonify({'ok': False, 'error': '用户不存在'}), 404
+    if result == 'exists':
+        return jsonify({'ok': False, 'error': '用户名已存在'}), 400
+    return jsonify({'ok': False, 'error': '用户名不合法'}), 400
+
+@app.route('/admin/users/delete', methods=['POST'])
+@super_admin_required
+def delete_user():
+    """超级管理员删除用户（自动清理 user_grants 授权 + approval_routes 审批人）"""
+    from core.database import delete_admin_user
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    result = delete_admin_user(app.config['DATA_FOLDER'], username)
+    if result == 'ok':
+        _audit('user_delete', username, json.dumps({}))
+        return jsonify({'ok': True})
+    if result == 'not_found':
+        return jsonify({'ok': False, 'error': '用户不存在'}), 404
+    if result == 'last_super_admin':
+        return jsonify({'ok': False, 'error': '不能删除最后一个超级管理员'}), 400
+    return jsonify({'ok': False, 'error': '删除失败'}), 400
 
 # ═══════════════════════════════════════════════════════════
 #  API: 细粒度权限管理（super_admin 管理授权）

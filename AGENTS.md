@@ -208,7 +208,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 - **图表**：Chart.js v4.4.7 + chartjs-plugin-datalabels
 - **P4 新增**：全局搜索（顶栏，防抖300ms，跨 employees/salary/production/attendance）
 - **P4 新增**：移动端响应式（44px触摸目标、16px防iOS缩放、侧边栏手势、底部导航）
-- **暗系工业风 UI**：`static/css/style.css`（~1900 lines），CNPC 主题色系
+- **Golden Time 暖白编辑风 UI**：`static/css/style.css`（~1900 lines），暖白编辑风主题色系
 
 ### 前端数据流
 
@@ -356,7 +356,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET | `/admin/users` | super_admin | 用户管理页面 |
 | POST | `/admin/users/role` | super_admin | 修改用户角色 |
 | POST | `/admin/users/create` | super_admin | 新增登录用户（含角色，密码≥6位） |
-| POST | `/admin/users/reset-password` | super_admin | 重置指定用户密码（免旧密码，保留角色） |
+| POST | `/admin/users/change-password` | super_admin | 修改指定用户密码（免旧密码，保留角色） |
 | POST | `/api/admin/change-password` | 登录用户 | 修改自身密码（密码≥6位） |
 | GET | `/api/permissions/users` | admin+ | 用户权限矩阵 |
 | POST | `/api/permissions/grant` | super_admin | 单独授权 |
@@ -381,7 +381,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | 文件 | 职责 |
 |------|------|
 | `templates/index.html` | 单页 SPA（~4000 lines，15+ 页面标签，全部 JS 内联） |
-| `static/css/style.css` | 暗系工业风 UI 主题（~1940 lines，含 P4 响应式） |
+| `static/css/style.css` | Golden Time 暖白编辑风 UI 主题（~1940 lines，含 P4 响应式） |
 | `static/js/i18n.js` | 中英文翻译字典（800+ 键）+ 运行时切换引擎 |
 | `static/js/chart.umd.min.js` | Chart.js v4.4.7 |
 | `static/js/chartjs-plugin-datalabels.min.js` | 图表数据标签插件 |

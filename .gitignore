@@ -7,6 +7,9 @@ data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/*.db.bak*
+data/*.db.bak*-wal
+data/*.db.bak*-shm
 _work/
 uploads/*
 !uploads/.gitkeep

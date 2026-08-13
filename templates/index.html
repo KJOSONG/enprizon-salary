@@ -786,24 +786,6 @@
       </table>
     </div>
   </div>
-
-  <!-- ═══ 用户权限管理（仅 super_admin 可见） ═══ -->
-  <div class="card" id="userMgmtCard" style="display:none;">
-    <h2>👥 <span data-i18n="user_mgmt_title">用户权限管理</span></h2>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;" data-i18n="user_mgmt_desc">设置各用户的角色和操作权限</p>
-    <div class="table-wrap" style="max-height:300px;overflow-y:auto;">
-      <table class="data-table" style="font-size:12px;">
-        <thead>
-          <tr>
-            <th data-i18n="user_mgmt_th_username">用户名</th>
-            <th data-i18n="user_mgmt_th_role">角色</th>
-            <th data-i18n="user_mgmt_th_actions">操作</th>
-          </tr>
-        </thead>
-        <tbody id="userMgmtBody"></tbody>
-      </table>
-</div>
-</div>
 </div>
 
 <!-- ═══ 用户管理：新增用户弹窗 ═══ -->
@@ -824,17 +806,32 @@
   </div>
 </div>
 
-<!-- ═══ 用户管理：重置密码弹窗 ═══ -->
+<!-- ═══ 用户管理：修改密码弹窗 ═══ -->
 <div class="modal-overlay" id="resetPwdModal" style="display:none;">
   <div class="modal-box" style="max-width:360px;">
-    <h3 style="margin:0 0 12px;font-size:15px;" data-i18n="user_reset_pwd">重置密码</h3>
-    <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;" data-i18n="user_reset_for">用户：<span id="rpUsername" style="color:var(--text);"></span></p>
+    <h3 style="margin:0 0 12px;font-size:15px;" data-i18n="user_reset_pwd">修改密码</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;"><span data-i18n="user_reset_for">用户：</span><span id="rpUsername" style="color:var(--text);"></span></p>
     <label style="font-size:12px;display:block;margin-bottom:4px;" data-i18n="user_create_password">新密码（至少6位）</label>
     <input type="password" id="rpPassword" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:12px;">
     <div id="rpMsg" style="font-size:12px;margin-bottom:8px;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn-cancel" onclick="document.getElementById('resetPwdModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
       <button class="btn-primary" onclick="submitResetPwd()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 用户管理：重命名用户弹窗 ═══ -->
+<div class="modal-overlay" id="renameUserModal" style="display:none;">
+  <div class="modal-box" style="max-width:360px;">
+    <h3 style="margin:0 0 12px;font-size:15px;" data-i18n="user_rename_title">重命名用户</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;"><span data-i18n="user_rename_old">原用户名：</span><span id="ruOldUsername" style="color:var(--text);"></span></p>
+    <label style="font-size:12px;display:block;margin-bottom:4px;" data-i18n="user_rename_new">新用户名</label>
+    <input type="text" id="ruNewUsername" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:12px;">
+    <div id="ruMsg" style="font-size:12px;margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn-cancel" onclick="document.getElementById('renameUserModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-primary" onclick="submitRenameUser()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
     </div>
   </div>
 </div>
@@ -1942,10 +1939,11 @@ async function loadDashboard() {
 // ════════════════════════════════════════════════
 
 // ── 矿石颜色常量 ──
+// Golden Time 暖色图表色系：暖陶土 / 金橄榄 / 琥珀
 const ORE_COLORS = {
-  nh: { line: '#60A5FA', bg: 'rgba(96,165,250,0.15)', solid: '#3B82F6' },
-  nl: { line: '#34D399', bg: 'rgba(52,211,153,0.15)', solid: '#10B981' },
-  mw: { line: '#F472B6', bg: 'rgba(244,114,182,0.15)', solid: '#EC4899' },
+  nh: { line: '#B05A3C', bg: 'rgba(176,90,60,0.12)', solid: '#B05A3C', label: 'NH' },
+  nl: { line: '#B09F4A', bg: 'rgba(176,159,74,0.12)', solid: '#B09F4A', label: 'NL' },
+  mw: { line: '#E8923E', bg: 'rgba(232,146,62,0.12)', solid: '#E8923E', label: 'MW' },
 };
 
 // ── 初始化控制栏 ──
@@ -2124,7 +2122,7 @@ function renderDashboardKPI() {
   if (typeof refreshI18n === 'function') refreshI18n();
 }
 
-// ── 产量趋势图（主图）K 线式悬停 ──
+// ── 产量趋势图（主图）Golden Time 暖色 + 标签 + 悬停 ──
 function renderProductionTrend() {
   const rows = getFilteredShiftData();
   const f = STATE._dashFilters;
@@ -2137,15 +2135,16 @@ function renderProductionTrend() {
   const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
 
   oreKeys.forEach(key => {
+    const c = ORE_COLORS[key];
     datasets.push({
       label: key.toUpperCase(),
       data: rows.map(d => getProdValue(d, f.shift, key)),
-      borderColor: ORE_COLORS[key].line,
-      backgroundColor: ORE_COLORS[key].bg,
-      fill: true, tension: 0.35, borderWidth: 2,
-      pointRadius: 2, pointHoverRadius: 5,
-      pointBackgroundColor: ORE_COLORS[key].line,
-      pointBorderColor: '#0A0F1A', pointBorderWidth: 1,
+      borderColor: c.line,
+      backgroundColor: c.bg,
+      fill: true, tension: 0.35, borderWidth: 2.5,
+      pointRadius: 2, pointHoverRadius: 6,
+      pointBackgroundColor: c.line,
+      pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
     });
   });
 
@@ -2153,17 +2152,24 @@ function renderProductionTrend() {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      datalabels: { display: false },
-      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true, pointStyle: 'circle' } },
+      datalabels: {
+        display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+        color: function(ctx) { return ORE_COLORS[ctx.dataset.label.toLowerCase()].line; },
+        font: { size: 9, weight: '600' },
+        anchor: 'end', align: 'top',
+        offset: 2,
+        formatter: v => v ? Math.round(v) : '',
+      },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true, pointStyle: 'circle' } },
       tooltip: {
-        backgroundColor: 'rgba(15,23,42,0.95)',
-        titleColor: '#94A3B8',
-        bodyColor: '#E2E8F0',
-        borderColor: 'rgba(37,99,235,0.3)',
+        backgroundColor: 'rgba(59,53,43,0.95)',
+        titleColor: '#cbc0aa',
+        bodyColor: '#fbfaf9',
+        borderColor: 'rgba(203,192,170,0.4)',
         borderWidth: 1,
         padding: 12,
-        titleFont: { size: 12, weight: '600' },
-        bodyFont: { size: 12 },
+        titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
+        bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
         callbacks: {
           label: function(ctx) {
             const d = rows[ctx.dataIndex];
@@ -2171,21 +2177,18 @@ function renderProductionTrend() {
             const key = ctx.dataset.label.toLowerCase();
             const day = d['day_' + key] || 0;
             const night = d['night_' + key] || 0;
-            const dot = key === 'nh' ? '●' : key === 'nl' ? '●' : '●';
-            return `${dot} ${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${t('dash_shift_day')}${fmtNum(day)}/${t('dash_shift_night')}${fmtNum(night)})`;
+            return `${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${t('dash_shift_day')}${fmtNum(day)} / ${t('dash_shift_night')}${fmtNum(night)})`;
           }
         }
       },
     },
     scales: {
-      x: { grid: { color: 'rgba(37,99,235,0.08)' }, ticks: { color: '#64748B', font: { size: 10 } } },
-      y: { grid: { color: 'rgba(37,99,235,0.06)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+      x: { grid: { color: 'rgba(203,192,170,0.15)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
     },
     onClick: function(e, elements) {
       if (elements.length > 0) {
-        const idx = elements[0].index;
-        const d = rows[idx];
-        showDayDetailPopup(d);
+        showDayDetailPopup(rows[elements[0].index]);
       }
     }
   });
@@ -2195,15 +2198,15 @@ function renderProductionTrend() {
 function showDayDetailPopup(d) {
   const html = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
-      <div><div style="color:var(--nh-blue);font-size:20px;font-weight:700;">${fmtNum(d.day_nh + d.night_nh)}</div><div style="font-size:11px;color:var(--text-muted);">NH</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nh)} / ${t('dash_shift_night')} ${fmtNum(d.night_nh)}</div></div>
-      <div><div style="color:var(--nl-green);font-size:20px;font-weight:700;">${fmtNum(d.day_nl + d.night_nl)}</div><div style="font-size:11px;color:var(--text-muted);">NL</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nl)} / ${t('dash_shift_night')} ${fmtNum(d.night_nl)}</div></div>
-      <div><div style="color:var(--mw-pink);font-size:20px;font-weight:700;">${fmtNum(d.day_mw + d.night_mw)}</div><div style="font-size:11px;color:var(--text-muted);">MW</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_mw)} / ${t('dash_shift_night')} ${fmtNum(d.night_mw)}</div></div>
+      <div><div style="color:#B05A3C;font-size:20px;font-weight:700;">${fmtNum(d.day_nh + d.night_nh)}</div><div style="font-size:11px;color:var(--text-muted);">NH</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nh)} / ${t('dash_shift_night')} ${fmtNum(d.night_nh)}</div></div>
+      <div><div style="color:#B09F4A;font-size:20px;font-weight:700;">${fmtNum(d.day_nl + d.night_nl)}</div><div style="font-size:11px;color:var(--text-muted);">NL</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nl)} / ${t('dash_shift_night')} ${fmtNum(d.night_nl)}</div></div>
+      <div><div style="color:#E8923E;font-size:20px;font-weight:700;">${fmtNum(d.day_mw + d.night_mw)}</div><div style="font-size:11px;color:var(--text-muted);">MW</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_mw)} / ${t('dash_shift_night')} ${fmtNum(d.night_mw)}</div></div>
     </div>
   `;
   showToast(html, '', 4000);
 }
 
-// ── 白班 vs 夜班 对比（双柱图） ──
+// ── 白班 vs 夜班 对比（双柱图）Golden Time ──
 function renderDayNightCompare() {
   const rows = getFilteredShiftData();
   const f = STATE._dashFilters;
@@ -2213,8 +2216,9 @@ function renderDayNightCompare() {
   if (!rows.length) return;
 
   const dates = rows.map(d => d.date.slice(5));
-  const dayColor = ore === 'total' ? '#60A5FA' : ORE_COLORS[ore] ? ORE_COLORS[ore].line : '#60A5FA';
-  const nightColor = ore === 'total' ? '#1E40AF' : ORE_COLORS[ore] ? ORE_COLORS[ore].solid : '#1E40AF';
+  // Golden Time 暖色：day = 暖金，night = 矿石色
+  const dayColor = ore === 'total' ? '#BEAF87' : ORE_COLORS[ore] ? ORE_COLORS[ore].line : '#BEAF87';
+  const nightColor = ore === 'total' ? '#574D42' : ORE_COLORS[ore] ? ORE_COLORS[ore].solid : '#574D42';
 
   const getVal = (d, shift) => {
     if (ore === 'total') {
@@ -2244,17 +2248,34 @@ function renderDayNightCompare() {
   }, {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      datalabels: { display: false },
-      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true } },
+      datalabels: {
+        display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+        color: '#978365',
+        font: { size: 9, weight: '600' },
+        anchor: 'end', align: 'top',
+        offset: 1,
+        formatter: v => v ? Math.round(v) : '',
+      },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true } },
+      tooltip: {
+        backgroundColor: 'rgba(59,53,43,0.95)',
+        titleColor: '#cbc0aa',
+        bodyColor: '#fbfaf9',
+        borderColor: 'rgba(203,192,170,0.4)',
+        borderWidth: 1,
+        padding: 12,
+        titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
+        bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
+      },
     },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#64748B', font: { size: 10 } } },
-      y: { grid: { color: 'rgba(37,99,235,0.06)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+      x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
     },
   });
 }
 
-// ── 钻工组产量对比（堆叠柱状图） ──
+// ── 钻工组产量对比（堆叠柱状图）Golden Time ──
 function renderDrillerGroupChart() {
   const data = STATE._dashData;
   const f = STATE._dashFilters;
@@ -2262,12 +2283,10 @@ function renderDrillerGroupChart() {
 
   if (!data || !data.driller_production || !data.driller_production.length) return;
 
-  // 过滤日期范围
   let rows = data.driller_production;
   if (f.dateFrom) rows = rows.filter(d => d.date >= f.dateFrom);
   if (f.dateTo) rows = rows.filter(d => d.date <= f.dateTo);
 
-  // 按队长汇总
   const captains = {};
   rows.forEach(d => {
     const cap = d.captain;
@@ -2299,12 +2318,36 @@ function renderDrillerGroupChart() {
   }, {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      datalabels: { display: false },
-      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true } },
+      datalabels: {
+        display: function(ctx) {
+          // 只在堆叠段顶部显示总标签，避免内部碎片
+          const total = ctx.chart.data.datasets.reduce((s, ds) => s + (ds.data[ctx.dataIndex] || 0), 0);
+          return ctx.datasetIndex === ctx.chart.data.datasets.length - 1 && total > 0;
+        },
+        color: '#574d42',
+        font: { size: 10, weight: '700', family: "'Fraunces', ui-serif, serif" },
+        anchor: 'end', align: 'top',
+        offset: 2,
+        formatter: function(v, ctx) {
+          const total = ctx.chart.data.datasets.reduce((s, ds) => s + (ds.data[ctx.dataIndex] || 0), 0);
+          return Math.round(total);
+        },
+      },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true } },
+      tooltip: {
+        backgroundColor: 'rgba(59,53,43,0.95)',
+        titleColor: '#cbc0aa',
+        bodyColor: '#fbfaf9',
+        borderColor: 'rgba(203,192,170,0.4)',
+        borderWidth: 1,
+        padding: 12,
+        titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
+        bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
+      },
     },
     scales: {
-      x: { stacked: true, grid: { display: false }, ticks: { color: '#64748B', font: { size: 10 } } },
-      y: { stacked: true, grid: { color: 'rgba(37,99,235,0.06)' }, ticks: { color: '#64748B', font: { size: 10 } } },
+      x: { stacked: true, grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      y: { stacked: true, grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
     },
     onClick: function(e, elements) {
       if (elements.length > 0) {
@@ -2337,7 +2380,7 @@ function closeDrillerDetail() {
   document.getElementById('drillerDetailModal').style.display = 'none';
 }
 
-// ── 矿石类型占比（环形图） ──
+// ── 矿石类型占比（环形图）Golden Time ──
 function renderCategoryPie() {
   const rows = getFilteredShiftData();
   const f = STATE._dashFilters;
@@ -2355,12 +2398,16 @@ function renderCategoryPie() {
   const total = totalNH + totalNL + totalMW;
   if (total === 0) return;
 
+  const nhPct = total > 0 ? (totalNH / total * 100).toFixed(1) : 0;
+  const nlPct = total > 0 ? (totalNL / total * 100).toFixed(1) : 0;
+  const mwPct = total > 0 ? (totalMW / total * 100).toFixed(1) : 0;
+
   renderChart('chartOrePie', 'doughnut', {
     labels: ['NH', 'NL', 'MW'],
     datasets: [{
       data: [totalNH, totalNL, totalMW],
       backgroundColor: [ORE_COLORS.nh.solid, ORE_COLORS.nl.solid, ORE_COLORS.mw.solid],
-      borderColor: '#0A0F1A',
+      borderColor: '#fbfaf9',
       borderWidth: 2,
       hoverOffset: 8,
     }]
@@ -2368,9 +2415,25 @@ function renderCategoryPie() {
     responsive: true, maintainAspectRatio: false,
     cutout: '60%',
     plugins: {
-      datalabels: { display: false },
-      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12, font: { size: 11 }, color: '#94A3B8', usePointStyle: true } },
+      datalabels: {
+        color: '#fbfaf9',
+        font: { size: 11, weight: '700', family: "'Fraunces', ui-serif, serif" },
+        formatter: function(v, ctx) {
+          const pcts = [nhPct, nlPct, mwPct];
+          return v > 0 ? pcts[ctx.dataIndex] + '%' : '';
+        },
+        display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+      },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true } },
       tooltip: {
+        backgroundColor: 'rgba(59,53,43,0.95)',
+        titleColor: '#cbc0aa',
+        bodyColor: '#fbfaf9',
+        borderColor: 'rgba(203,192,170,0.4)',
+        borderWidth: 1,
+        padding: 12,
+        titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
+        bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
         callbacks: {
           label: function(ctx) {
             const pct = ((ctx.raw / total) * 100).toFixed(1);
@@ -2383,7 +2446,6 @@ function renderCategoryPie() {
       if (elements.length > 0) {
         const oreMap = { 0: 'nh', 1: 'nl', 2: 'mw' };
         const ore = oreMap[elements[0].index];
-        // 联动：设置矿石筛选并刷新
         document.querySelectorAll('#dashOreToggle .dash-seg-btn').forEach(b => b.classList.remove('active'));
         const targetBtn = document.querySelector(`#dashOreToggle [data-value="${ore}"]`);
         if (targetBtn) targetBtn.classList.add('active');
@@ -4156,7 +4218,7 @@ async function loadUserList() {
         </td>
         <td>
           <span class="role-status" id="status_${escHtml(u.username)}" style="font-size:11px;margin-right:6px;"></span>
-          <button class="nav-btn" onclick="openResetPwdModal('${escHtml(u.username)}')" style="font-size:10px;padding:2px 8px;" data-i18n="user_mgmt_reset_pwd">重置密码</button>
+          <button class="nav-btn" onclick="openResetPwdModal('${escHtml(u.username)}')" style="font-size:10px;padding:2px 8px;" data-i18n="user_mgmt_reset_pwd">修改密码</button>
         </td>
       </tr>
     `).join('');
@@ -4241,7 +4303,7 @@ async function submitResetPwd() {
     return;
   }
   try {
-    const res = await authFetch(api('/admin/users/reset-password'), {
+    const res = await authFetch(api('/admin/users/change-password'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, new_password }),
@@ -4259,6 +4321,68 @@ async function submitResetPwd() {
   } catch(e) {
     msg.textContent = t('fail');
     msg.style.color = 'var(--danger)';
+  }
+}
+
+function openRenameUserModal(username) {
+  document.getElementById('ruOldUsername').textContent = username;
+  document.getElementById('ruNewUsername').value = username;
+  document.getElementById('ruMsg').textContent = '';
+  document.getElementById('renameUserModal').style.display = 'flex';
+  window._ruTarget = username;
+}
+
+async function submitRenameUser() {
+  const msg = document.getElementById('ruMsg');
+  const old_username = window._ruTarget;
+  const new_username = document.getElementById('ruNewUsername').value.trim();
+  if (!new_username) {
+    msg.textContent = t('user_rename_invalid');
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  try {
+    const res = await authFetch(api('/admin/users/rename'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: old_username, new_username }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = t('user_renamed');
+      msg.style.color = 'var(--success)';
+      showToast(t('user_renamed'));
+      document.getElementById('renameUserModal').style.display = 'none';
+      loadPermissionsPage();
+      loadApprovalRoutes();
+    } else {
+      msg.textContent = t('user_rename_fail') + (data.error ? '：' + data.error : '');
+      msg.style.color = 'var(--danger)';
+    }
+  } catch(e) {
+    msg.textContent = t('fail');
+    msg.style.color = 'var(--danger)';
+  }
+}
+
+async function deleteUser(username) {
+  if (!confirm(t('user_delete_confirm') + '「' + username + '」？')) return;
+  try {
+    const res = await authFetch(api('/admin/users/delete'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(t('user_deleted'));
+      loadPermissionsPage();
+      loadApprovalRoutes();
+    } else {
+      showToast((data.error ? t('user_delete_fail') + '：' + data.error : t('user_delete_fail')), 'error');
+    }
+  } catch(e) {
+    showToast(t('user_delete_fail'), 'error');
   }
 }
 
@@ -6430,7 +6554,11 @@ async function loadPermissionsPage() {
           <button class="btn-primary" style="font-size:10px;padding:2px 6px;margin-right:4px;"
             onclick="togglePermPanel('${escHtml(u.username)}')" data-i18n="perm_expand">展开权限</button>
           <button class="nav-btn" style="font-size:10px;padding:2px 6px;"
-            onclick="openResetPwdModal('${escHtml(u.username)}')" data-i18n="user_mgmt_reset_pwd">重置密码</button>
+            onclick="openResetPwdModal('${escHtml(u.username)}')" data-i18n="user_mgmt_reset_pwd">修改密码</button>
+          ${isSelf ? '' : `<button class="nav-btn" style="font-size:10px;padding:2px 6px;margin-left:4px;"
+            onclick="openRenameUserModal('${escHtml(u.username)}')" data-i18n="user_mgmt_rename">重命名</button>
+          <button class="oa-btn oa-btn-reject" style="font-size:10px;padding:2px 6px;margin-left:4px;"
+            onclick="deleteUser('${escHtml(u.username)}')" data-i18n="user_mgmt_delete">删除</button>`}
         </td>
       </tr>`;
     }).join('');

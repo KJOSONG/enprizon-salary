@@ -1323,6 +1323,69 @@ def reset_admin_password(data_folder, username, new_password):
     conn.close()
     return 'ok'
 
+def rename_admin_user(data_folder, old_username, new_username):
+    """重命名登录用户（同步 user_grants 授权 + approval_routes 审批人）。
+    返回 'ok' / 'not_found' / 'exists' / 'invalid_input'"""
+    old_username = (old_username or '').strip()
+    new_username = (new_username or '').strip()
+    if not old_username or not new_username:
+        return 'invalid_input'
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT 1 FROM admin_users WHERE username=?", (old_username,)).fetchone()
+    if not row:
+        conn.close()
+        return 'not_found'
+    dup = conn.execute("SELECT 1 FROM admin_users WHERE username=? AND username<>?", (new_username, old_username)).fetchone()
+    if dup:
+        conn.close()
+        return 'exists'
+    try:
+        # user_grants.username 外键引用 admin_users.username，重命名时需临时关闭外键
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN")
+        conn.execute("UPDATE admin_users SET username=? WHERE username=?", (new_username, old_username))
+        conn.execute("UPDATE user_grants SET username=? WHERE username=?", (new_username, old_username))
+        conn.execute("UPDATE approval_routes SET approver=? WHERE approver=?", (new_username, old_username))
+        conn.execute("COMMIT")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.close()
+        return 'ok'
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+        except Exception:
+            pass
+        conn.close()
+        return 'invalid_input'
+
+def delete_admin_user(data_folder, username):
+    """删除登录用户（自动清理 user_grants 授权 + approval_routes 审批人设定）。
+    返回 'ok' / 'not_found' / 'last_super_admin'"""
+    username = (username or '').strip()
+    if not username:
+        return 'not_found'
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
+    if not row:
+        conn.close()
+        return 'not_found'
+    # 防止删除最后一个 super_admin（系统锁定）
+    if row['role'] == 'super_admin':
+        cnt = conn.execute("SELECT COUNT(*) AS c FROM admin_users WHERE role='super_admin'").fetchone()['c']
+        if cnt <= 1:
+            conn.close()
+            return 'last_super_admin'
+    conn.execute("DELETE FROM user_grants WHERE username=?", (username,))
+    conn.execute("DELETE FROM approval_routes WHERE approver=?", (username,))
+    conn.execute("DELETE FROM admin_users WHERE username=?", (username,))
+    conn.commit()
+    conn.close()
+    return 'ok'
+
 def verify_admin(data_folder, username, password):
     conn = get_conn(data_folder)
     row = conn.execute("SELECT password_hash FROM admin_users WHERE username=?", (username,)).fetchone()
