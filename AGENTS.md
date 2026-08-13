@@ -96,7 +96,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 
 ## 启动初始化
 
-- **本地** `python3 app.py`：`init_db()` + `_migrate_json()`（旧 JSON 一次性迁移）+ `auto_load_source()`（扫描 `data/source/` 加载当前月份）
+- **本地** `python3 app.py`：`init_db()` + `_migrate_json()`（旧 JSON 一次性迁移）+ `auto_load_source()`（从采集数据 + DB 重建当前月份，`data/source/` 已不再使用）
 - **Gunicorn**：`_gunicorn_init()` 通过 `_app_initialized` 标志防止重复初始化
 - `_ensure_viewer_account()` 自动创建默认 viewer 账号 + 升级 KEJU 为 super_admin
 - `_migrate_json()` 仅在 `overrides` 表为空时运行一次（检测到有数据则跳过）
@@ -108,17 +108,19 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 
 ## 架构要点
 
-### 数据流水线
+### 数据流水线（纯采集模式）
+
 ```
-data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
-  ├── 主文件（产量+出勤）→ parser.parse_all()
-  ├── 通讯录 → addressbook → namematch 索引（employee_id = 通讯录账号）
-  ├── 预支 → advance.parse_advance()
-  ├── NSSF SDL → nssf.parse_sdl_list()
-  └── 破碎队 → parser.parse_crush_sheet()
-全部 → calculator.calculate_all() → verification.verify_salary() → APP_STATE 缓存 → API
+采集提交（井下/钻工/破碎/出勤 4 类）→ collection_submissions + attendance_overrides（DB）
+  → _run_pipeline() 从 DB 重建 main_data
+       ├── rebuild_main_data_from_collections()：采集记录重建 shift/driller/crush 产量 + 出勤
+       └── build_attendance_from_overrides()：出勤标记重建
+  → employees 从 DB 读取（load_employees_from_db，替代通讯录 Excel 索引）
+  → calculator.calculate_all() → verification.verify_salary() → APP_STATE 缓存 → API
 ```
-文件匹配：按 Sheet 名优先，回退到文件名关键词。
+月份范围由采集数据中的日期生成（不再扫描 `data/source/`，该目录已清空）。`scan_source_files()` 与 `parser.parse_all()`（Excel 解析）已在纯采集改造中移除；Excel 仅保留于历史归档（`data/archived_*`）。
+
+> `employee_id` 生成链路（`namematch.py`）在纯采集模式下从 **DB `employees` 表**构建 `_AB_INDEX`（不再依赖通讯录 Excel），其余三级匹配逻辑不变（见下）。
 
 ### employee_id 生成链路（`namematch.py`）
 
@@ -134,7 +136,7 @@ data/source/ (5 种 Excel) → scan_source_files() → _run_pipeline()
 | 目录 | 内容 | Git |
 |------|------|-----|
 | `data/` | `kilwa.db` 主数据库、Flask sessions/ | gitignored |
-| `data/source/` | 5 种源 Excel 文件 + 上传缓存 | gitignored |
+| `data/source/` | 已清空（纯采集模式不再使用；历史归档在 `data/archived_*`） | gitignored |
 | `data/backups/` | 数据库备份（服务器端） | gitignored |
 | `_work/` | 临时分析脚本、调试报告 | gitignored |
 | `templates/` | Jinja2 模板（仅 `index.html`） | 跟踪 |
@@ -315,6 +317,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
  └── core/exceptions.py      (例外覆盖加载)
 ```
 
+> 纯采集模式下：`core/parser.py`（`parse_all` 及其 Excel 子解析器）、`core/advance.py` 已无调用方（Excel 源已废弃），属遗留死代码；`core/nssf.py`、`core/addressbook.py` 仍被使用（NSSF 名单 / 通讯录仍在 DB 维护）。数据主路径为 `_run_pipeline()` ← `collection_submissions`/`attendance_overrides`/`employees`（DB），不再经过 parser 层。
+
 ### 关键 API 端点
 
 | 方法 | 路由 | 权限 | 说明 |
@@ -326,10 +330,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET | `/source-info` | editor+ | 当前加载的源文件列表 |
 | GET | `/available-months` | editor+ | 可用月份列表 |
 | POST | `/set-month` | editor+ | 切换到指定月份 |
-| POST | `/reload` | editor+ | 清空 APP_STATE，重新扫描源文件 + 计算 |
-| POST | `/recalculate` | editor+ | 触发重新计算（不重扫源文件） |
-| POST | `/upload-source` | admin+ | 上传 Excel 源文件 |
-| GET | `/download-source/<file_type>` | editor+ | 下载原始源文件 |
+| POST | `/reload` | editor+ | 清空 APP_STATE，从 DB 重建当前月份 + 计算 |
+| POST | `/recalculate` | editor+ | 触发重新计算（不重建月份） |
 | GET | `/salary` | editor+ | 薪资总表数据（含核对差异） |
 | GET | `/salary/verify` | editor+ | 双路径核对详情 |
 | GET | `/attendance` | editor+ | 出勤网格数据 |
@@ -374,7 +376,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **GET/POST/PUT/DELETE** | **`/api/employee_groups/*`** | **admin+** | **P10 新增**：班组 CRUD（LAMBA LAMBA / SAKA SAKA） |
 | **GET** | **`/api/scoring/team/<team_id>/month/<month>`** | **editor+** | **P10 新增**：按班组+月份取评分卡全员列表（含 custom_number） |
 | **POST** | **`/api/scoring/card/batch`** | **editor+** | **P10 新增**：批量提交评分卡（一张张卡） |
-| **删除** | **`/upload-source`、`/download-source/<file_type>`** | **P11** | **UI 隐藏**；保留为批量导入过渡 API |
+| **删除** | **`/upload-source`（P11 起 UI 隐藏，P13 纯采集改造 `7896cbb` 彻底移除端点与 `scan_source_files()`）** | — | 仅 `/source-info` 保留用于查看当前采集月份 |
 
 ### 前端文件
 
@@ -385,6 +387,37 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | `static/js/i18n.js` | 中英文翻译字典（800+ 键）+ 运行时切换引擎 |
 | `static/js/chart.umd.min.js` | Chart.js v4.4.7 |
 | `static/js/chartjs-plugin-datalabels.min.js` | 图表数据标签插件 |
+
+### 移动端前端（P16，2026-08-13）
+
+独立移动端 SPA，位于 `.design/enprizon-mobile/pages/`，4 个页面通过底部 Tab Bar 导航。设计系统为 Golden Time 暖白编辑风。
+
+| 文件 | 行数 | 大小 | 职责 |
+|------|------|------|------|
+| `pages/dashboard.html` | 1,554 | 57.8 KB | 数据台：Chart.js 4图表 + 6 KPI 动态绑定 + 骨架屏/错误/空三态 |
+| `pages/employees.html` | 2,213 | 76.6 KB | 员工：列表/档案/审批全链路 + 搜索防抖 + 编辑模态框 |
+| `pages/collection.html` | 2,027 | 72.8 KB | 数据采集：井下/钻工/破碎/出勤 4表单 + 提交验证 + 历史记录 |
+| `pages/attendance.html` | 2,187 | 71.4 KB | 出勤：分页虚拟列表(20人/页) + 状态切换 + 批量标记 + 请假/病假 |
+
+**总计**: ~7,981 行，~278 KB
+
+**技术特点**:
+- 375px 移动端设备框架，独立 `mobile.html` 模板（非响应式改造）
+- 5 标签底部导航：📊数据台 / 👥员工 / 📥采集 / 📅考勤 / 💰薪资
+- 每页右上角胶囊形 `中/EN` 语言切换，localStorage 持久化
+- 所有 API 调用通过 `fetch()` + `credentials: 'same-origin'` 携带 session cookie
+- 401 自动显示登录提示
+- 设计库 Golden Time 约束（暖白背景 + 深棕主色 + 暖金辅色）
+- 无构建系统，纯 HTML + 内联 CSS/JS，可直接部署到 `static/mobile/` 目录
+
+**API 端点依赖**:
+- `/api/production/dashboard` — 数据台产量仪表盘
+- `/employees` — 员工列表
+- `/api/oa/pending`、`/api/oa/history`、`/api/oa/approve` — OA 审批
+- `/attendance`、`/attendance/toggle` — 出勤数据
+- `/api/collection/submit`、`/api/collection/history` — 数据采集
+- `/api/driller-captains` — 钻工队长名单
+- `/api/leave/sick` — 病假登记
 
 ### 运维脚本
 
@@ -400,13 +433,13 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 - 临时分析脚本、报告放在 `_work/`（已 gitignore，可随时删除）
 
-## 重构状态（2026-08-13）
+## 重构状态（2026-08-14 更新）
 
-**分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
-**阶段**: **P0-P12 全部完成 + P13 纯采集驱动改造完成（本地已改未提交）**，v5/v6 本地验收通过
-**纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集（井下/钻工/破碎/出勤4类）驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
+**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照）
+**阶段**: **P0-P15 全部完成，P16（移动端）进行中**（git HEAD = `9f1a8bb`）
+**纯采集模式**: 已移除 Excel 数据源依赖（`scan_source_files`/`parser.parse_all` 已删）。薪资全部由 P9 采集（井下/钻工/破碎/出勤4类）驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **8月数据**: 已导入本地（employees 130人 / overrides 202条 / collection_submissions 40条 / attendance_overrides 538条 / leave_balances 108 / leave_requests 7），本地验证 gross 20,859,271 TZS
-**服务器**: 仍在运行 `main` 分支旧代码，待部署切换 refactor 分支
+**部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary）
 
 ### 重构新增主要功能
 
@@ -427,9 +460,9 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **P12** | **v5 需求对齐迭代**（OA 三申请独立子页+入职全字段 / 档案独立页+简历头像+余额可改 / 姓名可选中复制 / 井下三列标签+双备注+驾驶勾选 / 钻工队长名单化+添加队伍 / 出勤收集按部门 / 采集选中框对齐 / 计薪参数删司机津贴+队长名单 / 评分系统改名） |
 | **P13** | **v6 需求对齐迭代**（部门筛选修复 / 档案子页移出侧栏 / OA 自审分角色+审批详情 / 请假子页 / 侧栏折叠样式 / 入职头像 / 入职后跳转待审 / 通知铃铛红点 / 后台指定审批人 / 全页面中英双语） |
 | **纯采集改造** | **移除 Excel 数据源**（_run_pipeline 纯 DB 模式 / 删除 scan_source_files+upload-source+download-source / employees 从 DB 读取 / 月份从采集数据生成 / 采集提交自动触发计算 / data/source 清空） |
-| **P14（待实施）** | **v7 需求对齐迭代**（未登录弹登录 / 登录后首屏自动渲染 / 井下scoring与piecework互斥 / 计薪模式单一开关 / 档案页薪资类型编辑 / 档案页临时例外 / 评分录入页完全重做对齐参考卡 / 评分记录可查 + 档案页4条：删表单模式按钮/班组仅井下/工号自动生成/编辑按钮归位），详见 `docs/P14_USER_FEEDBACK_2026_08_13.md` |
+| **P14（已完成）** | **v7 需求对齐迭代**（未登录弹登录 / 登录后首屏自动渲染 / 井下scoring与piecework互斥 / 计薪模式单一开关 / 档案页薪资类型编辑 / 档案页临时例外 / 评分录入页完全重做对齐参考卡 / 评分记录可查 + 档案页4条：删表单模式按钮/班组仅井下/工号自动生成/编辑按钮归位），详见 `docs/P14_USER_FEEDBACK_2026_08_13.md` |
 | **P14.5** | **员工档案增强**：新增 `alias` 别名列（展示+可编辑，档案页头部姓名上方 + 基本信息首行双处显示）；工号标签统一为"工号"（custom_number）；**部门仅超级管理员可直改**，非超管改部门走 OA 调岗审批（后端 `api_employee_update` 守卫 403）；编辑表单字段顺序与档案展示页一致；中英文 i18n 已适配（`emp_alias`/`emp_custom_number`/`dept_superadmin_only`） |
-| **P15（实施中）** | **数据台重构**（纯产量导向多维度交互仪表盘：移除薪资卡片 / 6 张产量 KPI / 趋势图增强白夜班切换 / 白夜班双柱对比 / 钻工组堆叠柱状图下钻 / 矿石环形图联动 / 破碎横向表格），详见 `docs/P15_DASHBOARD_REFACTOR.md` |
+| **P15（已完成）** | **数据台重构**（纯产量导向多维度交互仪表盘：移除薪资卡片 / 6 张产量 KPI / 趋势图增强白夜班切换 / 白夜班双柱对比 / 钻工组堆叠柱状图下钻 / 矿石环形图联动 / 破碎横向表格），详见 `docs/P15_DASHBOARD_REFACTOR.md` |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
 
@@ -449,9 +482,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
-1. **本地验收**：`python3 app.py` 检查所有页面无 JS 错误（纯采集模式）
-2. **P13 剩余项**：按 REFACTOR_SPEC.md v6 落地尚未完成的反馈项
-3. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
-4. **git 清理**：提交误跟踪的 `data/kilwa.db-wal`/`data/kilwa.db-shm` 删除（.gitignore 已补防）
-5. **8月数据**：本地导入已完成，服务器部署后需重新导入（或随迁移）
+1. **P16 移动端**：出勤弹窗选择器 / 响应式图表 / 主题跟随（进行中，`9f1a8bb`）
+2. **本地验收**：`python3 app.py` 检查所有页面无 JS 错误（纯采集模式）
+3. **git 清理**：确认 `data/kilwa.db-wal`/`data/kilwa.db-shm` 未被误跟踪（.gitignore 已补防）
+4. **8月数据**：本地导入已完成，服务器部署后按需重新导入
 

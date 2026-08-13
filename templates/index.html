@@ -537,7 +537,7 @@
 
 <!-- ═══ P9 人员多选弹层 ═══ -->
 <div class="modal-overlay" id="empPickerModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
-  <div class="modal" style="max-width:420px;width:94vw;">
+  <div class="modal" style="max-width:500px;width:94vw;">
     <div class="modal-header">
       <h3 style="margin:0;" id="empPickerTitle" data-i18n="col_picker_title">选择人员</h3>
       <button onclick="document.getElementById('empPickerModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
@@ -5433,12 +5433,12 @@ function renderEmpCheckRows(list, checked, curDrivers, showDriver) {
     const drvDisabled = !isChecked;
     const isDrv = (curDrivers || []).includes(e.id);
     return `
-    <div class="picker-row" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-dim);">
+    <div class="picker-row" style="justify-content:flex-start;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" class="picker-check" value="${escHtml(e.id)}" ${isChecked ? 'checked' : ''} onchange="onEmpCheckToggle()">
-      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(e.name)}</span>
-      <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">#${escHtml(e.id)}</span>
-      ${showDriver ? `<label style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--text);cursor:pointer;flex-shrink:0;opacity:${drvDisabled ? '0.4' : '1'};">
-        <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${isDrv ? 'checked' : ''} ${drvDisabled ? 'disabled' : ''} onchange="onDrvCheckToggle()"> ${t('col_driving')}
+      <span style="font-size:13px;white-space:nowrap;">${escHtml(e.name)}</span>
+      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(e.id)}</span>
+      ${showDriver ? `<label style="display:flex;align-items:center;gap:2px;font-size:11px;color:var(--text);cursor:pointer;flex-shrink:0;opacity:${drvDisabled ? '0.4' : '1'};">
+        <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${isDrv ? 'checked' : ''} ${drvDisabled ? 'disabled' : ''} onchange="onDrvCheckToggle()">${t('col_driving')}
       </label>` : ''}
     </div>`;
   }).join('');
@@ -5700,10 +5700,10 @@ async function addDrSlot() {
   document.getElementById('empPickerCol').innerHTML = caps.map(c => {
     const e = empMap[String(c.employee_id)];
     return `
-    <div class="picker-row" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-dim);">
+    <div class="picker-row" style="justify-content:flex-start;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" class="picker-check" value="${escHtml(c.employee_id)}">
-      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(c.name)}</span>
-      <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">#${escHtml(c.employee_id)}</span>
+      <span style="font-size:13px;white-space:nowrap;">${escHtml(c.name)}</span>
+      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(c.employee_id)}</span>
     </div>`;
   }).join('');
   modal.style.display = 'flex';
@@ -5754,11 +5754,16 @@ async function openDrMemberPicker(i) {
 
 function renderDrMemberRows(list, checked) {
   return list.length ? list.map(e => `
-    <div class="picker-row dr-member-row" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-dim);">
-      <input type="checkbox" value="${escHtml(e.id)}" ${checked.includes(e.id) ? 'checked' : ''}>
-      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(e.name)}</span>
-      <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">#${escHtml(e.id)}</span>
+    <div class="picker-row dr-member-row" style="justify-content:flex-start;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border-dim);">
+      <input type="checkbox" value="${escHtml(e.id)}" ${checked.includes(e.id) ? 'checked' : ''} onchange="updateDrMemberCount()">
+      <span style="font-size:13px;white-space:nowrap;">${escHtml(e.name)}</span>
+      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(e.id)}</span>
     </div>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
+}
+
+function updateDrMemberCount() {
+  const n = document.querySelectorAll('#drMemberList input:checked').length;
+  document.getElementById('empPickerCount').textContent = t('col_selected_count').replace('{n}', n);
 }
 
 function filterDrMemberList() {
@@ -5850,7 +5855,7 @@ async function submitCrCollection() {
 
 /* ── P9-5 出勤收集表单（花名册点选，井下/钻工/破碎以外部门） ── */
 const COL_ATT_STATUS = [
-  ['P', 'att_status_p'], ['A', 'att_status_a'], ['L', 'att_status_l'], ['S', 'att_status_s'],
+  ['P', 'att_status_p'], ['A', 'att_status_a'], ['S', 'att_status_s'],
   ['Y', 'att_status_y'], ['T', 'att_status_t'], ['B', 'att_status_b'],
 ];
 
