@@ -954,101 +954,167 @@
     const marks=attRosterEmpIds().map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
     colSubmit('attendance', { submission_date:date, marks }, null); }
 
-  // ── 出勤模块 (Phase 4) ──
-  const ATT_STATUS = ['P','A','L','D','N','C'];
+  // ── 出勤模块 (Phase 4 / 2e) ──
+  const ATT_STATUS = ['P','A','L','D','N','C','R','B'];
+  const ATT_PAGE_SIZE = 20;
   function attStatusLabel(s){ return t('st_'+s.toLowerCase()); }
+  function isWeekend(dt){ const d=new Date(dt+'T00:00:00'); const w=d.getDay(); return w===0||w===6; }
+
   function loadAttendance(){
     const root=document.getElementById('attRoot');
-    root.innerHTML='<div class="loading" style="padding:32px;text-align:center;color:var(--muted-foreground);">'+t('loading')+'</div>';
+    root.innerHTML='<div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div>';
     api('/attendance').then(d=>{
-      STATE.attendance=d; STATE.attBatch=false; STATE.attBatchSel=new Set(); STATE._batchStatus='';
+      STATE.attendance=d; STATE.attBatch=false; STATE.attBatchSel=new Set(); STATE._batchStatus=''; STATE.attBatchStart=null; STATE.attBatchEnd=null; STATE._attPage=0;
       buildAttUI();
-    }).catch(()=>{ root.innerHTML='<div class="empty-state">'+t('load_fail')+'</div>'; });
+    }).catch(()=>{ root.innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('load_fail')+'</div><button class="state-box__action" onclick="loadAttendance()">'+t('retry')+'</button></div>'; });
   }
   function buildAttUI(){
     const d=STATE.attendance; if(!d) return;
     const ym = (d.dates&&d.dates[0]||'').slice(0,7);
     const ymLabel = ym? (ym.slice(0,4)+'年'+parseInt(ym.slice(5,7),10)+'月') : '';
+    const daysCount = (d.dates||[]).length;
     const depts=[...new Set((d.rows||[]).map(r=>r.department).filter(Boolean))].sort();
     const root=document.getElementById('attRoot');
     root.innerHTML =
-      '<div class="att-month">'+t('att_month')+ymLabel+'</div>'
+      '<div class="att-page-head"><div class="att-page-head__title">'+t('att_title',{month:ymLabel})+'</div><div class="att-page-head__sub">'+ymLabel+' · '+daysCount+' '+t('days')+'</div></div>'
       + '<div class="att-toolbar">'
-      + '<input class="att-search" id="attSearch" placeholder="🔍 '+t('search')+'" oninput="renderAttGrid()">'
+      + '<input class="att-search" id="attSearch" placeholder="'+t('search')+'" oninput="renderAttGrid()">'
       + '<select id="attDept" onchange="renderAttGrid()"><option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select>'
-      + '<button class="icon-btn" onclick="openAttJump()" title="'+t('jump_date')+'">📅</button>'
+      + '<button class="icon-btn" onclick="openAttJump()" title="'+t('jump_date')+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></button>'
       + '<button class="icon-btn" id="attBatchBtn" onclick="toggleAttBatch()">'+t('batch_mark')+'</button>'
       + '</div>'
-      + '<div id="attGrid" class="att-grid"></div>'
-      + '<div id="attBatchPanel" class="att-batch" style="display:none;">'
-      + '  <div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="attBatchDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
-      + '  <div class="seg-row" id="attBatchStatus"></div>'
-      + '  <button class="btn btn-primary btn-block" onclick="applyAttBatch()">'+t('apply_selected')+' (<span id="attBatchCount">0</span>)</button>'
+      // Legend 8 色
+      + '<div class="legend-strip">'
+      + '<span class="legend-item"><span class="legend-dot st-D"></span>'+t('st_d')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-N"></span>'+t('st_n')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-P"></span>'+t('st_p')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-A"></span>'+t('st_a')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-L"></span>'+t('st_l')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-C"></span>'+t('st_c')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-R"></span>'+t('st_r')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-B"></span>'+t('st_b')+'</span>'
       + '</div>'
-      + '<div class="quick-actions"><button class="btn" onclick="quickLeave()">+ '+t('leave_apply')+'</button><button class="btn" onclick="quickSick()">+ '+t('leave_sick')+'</button></div>';
+      + '<div id="attGrid" class="att-grid"></div>'
+      + '<div id="attBatchPanel" class="batch-panel" style="display:none;">'
+      + '  <div class="batch-panel__header"><div class="batch-panel__title">'+t('batch_title')+'</div><button class="icon-btn" onclick="toggleAttBatch()">✕</button></div>'
+      + '  <div class="batch-panel__date-row"><span>'+t('batch_range')+'</span><input type="date" id="attBatchStart" value="'+(d.dates[0]||'')+'"><span>'+t('batch_to')+'</span><input type="date" id="attBatchEnd" value="'+(d.dates[d.dates.length-1]||'')+'"></div>'
+      + '  <div class="batch-panel__status-row" id="attBatchStatus"></div>'
+      + '  <div class="batch-panel__list" id="attBatchList"></div>'
+      + '  <div class="batch-panel__progress" id="attBatchProgress"><div class="batch-panel__bar"><div class="batch-panel__fill" id="attBatchFill"></div></div><span class="batch-panel__progress-text" id="attBatchProgressText"></span></div>'
+      + '  <button class="btn btn-primary btn-block" onclick="applyAttBatch()">'+t('batch_apply',{n:0})+'</button>'
+      + '</div>'
+      + '<div class="section-label" style="padding:0 var(--space-md);">'+t('quick_actions')+'</div>'
+      + '<div class="quick-actions"><button class="quick-action-btn" onclick="quickLeave()"><span class="qa-icon">+</span><span>'+t('leave_apply')+'</span></button><button class="quick-action-btn" onclick="quickSick()"><span class="qa-icon">+</span><span>'+t('leave_sick')+'</span></button></div>';
     renderAttGrid();
   }
+  // 出勤卡：左固定 100px 信息栏 + 右 28px 圆形状态格横向滚动
   function renderAttGrid(){
     const d=STATE.attendance; if(!d) return;
     const q=(document.getElementById('attSearch').value||'').toLowerCase().trim();
     const dept=document.getElementById('attDept').value;
     const today=new Date().toISOString().slice(0,10);
-    const rows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)));
+    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q)));
+    STATE._attAllRows = allRows;
     const grid=document.getElementById('attGrid'); if(!grid) return;
-    if(!rows.length){ grid.innerHTML='<div class="empty-state">'+t('no_emp')+'</div>'; return; }
-    grid.innerHTML=rows.map(r=>{
+    if(!allRows.length){ grid.innerHTML='<div class="state-box"><div class="state-box__icon">📋</div><div class="state-box__title">'+t('no_att_data')+'</div></div>'; return; }
+    const page = STATE._attPage||0;
+    const slice = allRows.slice(0, (page+1)*ATT_PAGE_SIZE);
+    grid.innerHTML=slice.map(r=>{
       const sel = STATE.attBatch ? '<input type="checkbox" class="att-sel" data-eid="'+esc(r.id)+'" '+(STATE.attBatchSel.has(r.id)?'checked':'')+' onchange="onAttSel(\''+esc(r.id)+'\',this.checked)">' : '';
-      const cells=d.dates.map(dt=>{ const st=r.days[dt]||''; const isToday=dt===today; const jp=dt===STATE.attJump?' att-jump':''; return '<div class="att-cell'+jp+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'" onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')"><div class="att-cell__d'+(isToday?' att-today':'')+'">'+dt.slice(5)+'</div><div class="att-cell__s st-'+st+'">'+(st||'·')+'</div></div>'; }).join('');
-      return '<div class="att-card">'
-        + '<div class="att-card__head">'+sel+'<div class="avatar">'+esc(initials(r.name))+'</div><div class="att-card__meta"><div class="att-card__name">'+esc(r.name||'')+'</div><div class="att-card__num">#'+esc(r.custom_number||r.id)+'</div></div></div>'
-        + '<div class="att-row">'+cells+'</div>'
-        + '</div>';
+      const dateCells=d.dates.map(dt=>'<div class="date-cell'+(isWeekend(dt)?' weekend':'')+(dt===today?' att-today':'')+'">'+dt.slice(5).replace('-','/')+'</div>').join('');
+      const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'" onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')">'+(st||'·')+'</div>'; }).join('');
+      return '<div class="att-card"><div class="att-card__row">'
+        + '<div class="card-left">'+sel+'<div class="card-avatar">'+esc(initials(r.name))+'</div><div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
+        + '<div class="card-right"><div class="date-strip-scroll"><div class="date-strip"><div class="date-row">'+dateCells+'</div><div class="status-row">'+statusCells+'</div></div></div></div>'
+        + '</div></div>';
     }).join('');
-    if(STATE.attBatch) renderAttBatchStatus();
+    if(allRows.length > slice.length){
+      grid.innerHTML += '<button class="load-more-btn" onclick="STATE._attPage++; renderAttGrid()">'+t('load_more',{a:slice.length,b:allRows.length})+'</button>';
+    }
+    if(STATE.attBatch) renderAttBatchUI();
   }
   function initials(name){ if(!name) return '?'; const p=String(name).trim().split(/\s+/); return (p[0][0]+(p[1]?p[1][0]:'')).toUpperCase(); }
   function openAttEdit(eid, date){
-    const r=STATE.attendance.rows.find(x=>x.id===eid);
+    const r=(STATE.attendance.rows||[]).find(x=>x.id===eid);
     const cur=(r&&r.days[date])||'';
     const name=r? r.name : eid;
+    const empId = r? (r.custom_number||r.id) : '';
     let html='<div class="att-edit-name">'+esc(name)+'</div>'
-      + '<div class="att-edit-cur">'+t('edit_att')+': <b class="st-'+cur+'">'+(cur||'·')+'</b></div>'
-      + '<div class="att-edit-btns">'+ATT_STATUS.map(s=>'<button class="att-st-btn st-'+s+'" onclick="doAttToggle(\''+esc(eid)+'\',\''+date+'\',\''+s+'\')"><span class="att-st-dot st-'+s+'"></span>'+s+' · '+attStatusLabel(s)+'</button>').join('')+'</div>';
-    document.getElementById('sheet-title').textContent=t('edit_att')+' - '+date;
+      + '<div class="att-edit-cur">'+t('att_current_label')+' <b class="st-'+cur+'">'+(cur?cur+' · '+attStatusLabel(cur):'·')+'</b></div>'
+      + '<div class="att-edit-btns">'+ATT_STATUS.map(s=>'<button class="att-st-btn'+(cur===s?' active':'')+'" onclick="doAttToggle(\''+esc(eid)+'\',\''+date+'\',\''+s+'\')"><span class="att-st-dot st-'+s+'"></span><span>'+s+' · '+attStatusLabel(s)+'</span></button>').join('')+'</div>'
+      + '<button class="btn btn-block" style="margin-top:12px;" onclick="closeSheet()">'+t('cancel')+'</button>';
+    document.getElementById('sheet-title').textContent=t('edit_att')+' - '+(date||'').slice(5).replace('-','/')+(empId?' · #'+empId:'');
     document.getElementById('sheet-body').innerHTML=html;
     document.getElementById('sheet').classList.add('show');
   }
   function doAttToggle(eid, date, status){
     api('/attendance/toggle',{method:'POST',body:JSON.stringify({employee_id:eid,date,status})}).then(r=>{
-      if(r.ok){ const row=STATE.attendance.rows.find(x=>x.id===eid); if(row) row.days[date]=status; closeSheet(); renderAttGrid(); toast(t('saved')); }
+      if(r.ok){ const row=(STATE.attendance.rows||[]).find(x=>x.id===eid); if(row) row.days[date]=status; closeSheet(); renderAttGrid(); toast(t('saved')); }
       else if(r.need_admin){ toast(t('need_editor'),'error'); }
       else toast(r.error||t('fail'),'error');
     }).catch(()=>toast(t('fail'),'error'));
   }
-  function toggleAttBatch(){ STATE.attBatch=!STATE.attBatch; if(!STATE.attBatch){ STATE.attBatchSel.clear(); } document.getElementById('attBatchPanel').style.display=STATE.attBatch?'block':'none'; const b=document.getElementById('attBatchBtn'); if(b) b.textContent=STATE.attBatch?t('cancel_batch'):t('batch_mark'); renderAttGrid(); }
-  function onAttSel(eid, checked){ if(checked) STATE.attBatchSel.add(eid); else STATE.attBatchSel.delete(eid); const c=document.getElementById('attBatchCount'); if(c) c.textContent=STATE.attBatchSel.size; }
-  function renderAttBatchStatus(){ const box=document.getElementById('attBatchStatus'); if(!box) return; box.innerHTML=ATT_STATUS.map(s=>'<button class="seg-opt st-'+s+'" onclick="setBatchStatus(\''+s+'\')">'+s+'</button>').join(''); }
-  function setBatchStatus(s){ STATE._batchStatus=s; document.querySelectorAll('#attBatchStatus .seg-opt').forEach(b=>b.classList.toggle('active', b.textContent===s)); }
+  // 批量标记：员工勾选 + 日期范围 + 进度条
+  function toggleAttBatch(){
+    STATE.attBatch=!STATE.attBatch;
+    if(!STATE.attBatch){ STATE.attBatchSel.clear(); }
+    const panel=document.getElementById('attBatchPanel'); if(panel) panel.style.display=STATE.attBatch?'block':'none';
+    const b=document.getElementById('attBatchBtn'); if(b) b.textContent=STATE.attBatch?t('cancel_batch'):t('batch_mark');
+    renderAttGrid();
+  }
+  function onAttSel(eid, checked){
+    if(checked) STATE.attBatchSel.add(eid); else STATE.attBatchSel.delete(eid);
+    updateBatchApplyBtn();
+  }
+  function updateBatchApplyBtn(){
+    const btn=document.querySelector('#attBatchPanel .btn-primary');
+    if(btn) btn.innerHTML=t('batch_apply',{n:STATE.attBatchSel.size});
+  }
+  function renderAttBatchUI(){
+    // 状态按钮（8 状态）
+    const box=document.getElementById('attBatchStatus'); if(box) box.innerHTML=ATT_STATUS.map(s=>'<button class="batch-status-btn st-'+s+(STATE._batchStatus===s?' active':'')+'" onclick="setBatchStatus(\''+s+'\')">'+s+'</button>').join('');
+    // 员工勾选列表
+    const list=document.getElementById('attBatchList'); if(list) list.innerHTML=(STATE._attAllRows||[]).map(r=>'<div class="worker-item" onclick="if(event.target.tagName!==\'INPUT\')this.querySelector(\'input\').click()"><input type="checkbox" value="'+esc(r.id)+'" '+(STATE.attBatchSel.has(r.id)?'checked':'')+' onchange="onAttSel(\''+esc(r.id)+'\',this.checked)"> <span class="worker-item__name">'+esc(r.name||'')+'</span> <span class="worker-item__id">#'+esc(r.custom_number||r.id)+'</span></div>').join('');
+    updateBatchApplyBtn();
+  }
+  function setBatchStatus(s){ STATE._batchStatus=s; renderAttBatchUI(); }
   function applyAttBatch(){
-    const date=document.getElementById('attBatchDate').value; const st=STATE._batchStatus;
-    if(!date){ toast(t('fill_date'),'warning'); return; }
+    const start=document.getElementById('attBatchStart').value;
+    const end=document.getElementById('attBatchEnd').value;
+    const st=STATE._batchStatus;
+    if(!start||!end){ toast(t('fill_date'),'warning'); return; }
     if(!st){ toast(t('pick_status'),'warning'); return; }
     const ids=[...STATE.attBatchSel];
     if(!ids.length){ toast(t('pick_emp'),'warning'); return; }
-    Promise.all(ids.map(eid=>api('/attendance/toggle',{method:'POST',body:JSON.stringify({employee_id:eid,date,status:st})}))).then(res=>{
-      let ok=0; res.forEach((r,i)=>{ if(r.ok){ const row=STATE.attendance.rows.find(x=>x.id===ids[i]); if(row) row.days[date]=st; ok++; } });
-      toast(t('saved')+' ('+ok+'/'+ids.length+')'); renderAttGrid();
-    }).catch(()=>toast(t('fail'),'error'));
+    // 生成日期范围
+    const dates=[]; let cur=new Date(start+'T00:00:00'), last=new Date(end+'T00:00:00');
+    while(cur<=last){ dates.push(cur.toISOString().slice(0,10)); cur.setDate(cur.getDate()+1); }
+    const tasks=[];
+    ids.forEach(eid=>dates.forEach(dt=>tasks.push([eid,dt])));
+    // 进度条
+    const prog=document.getElementById('attBatchProgress'); if(prog) prog.style.display='block';
+    const fill=document.getElementById('attBatchFill'); const ptext=document.getElementById('attBatchProgressText');
+    let done=0, okCount=0;
+    const total=tasks.length;
+    (function next(){
+      if(!tasks.length){ if(ptext) ptext.textContent=t('batch_done',{n:okCount}); toast(t('batch_done',{n:okCount})); setTimeout(()=>{ STATE.attBatch=false; const panel=document.getElementById('attBatchPanel'); if(panel) panel.style.display='none'; const b=document.getElementById('attBatchBtn'); if(b) b.textContent=t('batch_mark'); loadAttendance(); }, 800); return; }
+      const [eid,dt]=tasks.shift();
+      api('/attendance/toggle',{method:'POST',body:JSON.stringify({employee_id:eid,date:dt,status:st})}).then(r=>{ if(r.ok) okCount++; }).catch(()=>{})
+      .finally(()=>{
+        done++; if(fill) fill.style.width=Math.round(done/total*100)+'%';
+        if(ptext) ptext.textContent=t('batch_progress',{a:done,b:total});
+        next();
+      });
+    })();
   }
   function openAttJump(){ const today=new Date().toISOString().slice(0,10); const body=document.getElementById('sheet-body'); body.innerHTML='<div class="field"><label class="field__label">'+t('jump_date')+'</label><input type="date" id="attJumpDate" value="'+(STATE.attendance.dates.includes(today)?today:STATE.attendance.dates[0]||today)+'"></div><button class="btn btn-primary btn-block" onclick="doAttJump()">'+t('jump_date')+'</button>'; openSheet(t('jump_date'), body); }
-  function doAttJump(){ const dt=document.getElementById('attJumpDate').value; closeSheet(); if(!dt) return; STATE.attJump=dt; renderAttGrid(); const cell=document.querySelector('.att-cell[data-d="'+dt+'"]'); if(cell) cell.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'}); }
+  function doAttJump(){ const dt=document.getElementById('attJumpDate').value; closeSheet(); if(!dt) return; STATE.attJump=dt; renderAttGrid(); const cell=document.querySelector('.status-cell[data-d="'+dt+'"]'); if(cell) cell.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'}); }
 
   // 请假快捷入口
   function quickLeave(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openLeave(document.getElementById(\'ql-emp\').value)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
   function quickSick(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
 
-  // 采集 Tab 进入时刷新首页
   // ── 启动 ──
   applyTheme();
   applyLang();
