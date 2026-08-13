@@ -187,7 +187,11 @@
   border-radius: 2px;
 }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}
 
 body {
   font-family: var(--font-main);
@@ -196,11 +200,25 @@ body {
   font-size: 14px;
   line-height: 1.65;
   min-height: 100vh;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: light dark;
 }
 
 /* ── 全局按钮基准 ── */
 button { cursor: pointer; }
 button:active { transform: scale(0.97); }
+/* iOS/Android 统一原生外观 */
+button, input, select, textarea {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+/* 消除 300ms 点击延迟 */
+a, button, [role="button"], input[type="submit"] {
+  touch-action: manipulation;
+}
 input, select, textarea {
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -657,6 +675,8 @@ h3 { font-size: 1rem; font-weight: 500; line-height: 1.2; letter-spacing: 0.01em
   background: var(--card);
   box-shadow: var(--shadow);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  /* 低端设备: 渲染隔离 */
+  contain: layout style;
 }
 
 .stat-glass:hover {
@@ -715,6 +735,8 @@ h3 { font-size: 1rem; font-weight: 500; line-height: 1.2; letter-spacing: 0.01em
   margin-bottom: calc(var(--spacing) * 4);
   box-shadow: var(--shadow);
   transition: border-color var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal);
+  /* 低端设备: 渲染隔离 */
+  contain: layout style;
 }
 
 .card:hover {
@@ -834,6 +856,8 @@ h3 { font-size: 1rem; font-weight: 500; line-height: 1.2; letter-spacing: 0.01em
   border-radius: var(--radius);
   border: 1px solid var(--border);
   transition: border-color var(--transition-fast);
+  /* iOS 平滑惯性滚动 */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 首列冻结（产量核验专用） */
@@ -1096,10 +1120,10 @@ table.data-table td.bold {
    统计条
    ════════════════════════════════════════════════ */
 .stats-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: calc(var(--spacing) * 3);
   margin-bottom: calc(var(--spacing) * 4);
-  flex-wrap: wrap;
 }
 
 /* ════════════════════════════════════════════════
@@ -1526,6 +1550,7 @@ body {
   display: flex;
   min-height: 100vh;
   overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 /* ── 侧边栏 ── */
@@ -1541,6 +1566,10 @@ body {
   top: 0;
   z-index: 200;
   transition: transform 0.3s ease;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* GPU 加速滑动动画 */
+  will-change: transform;
 }
 .sidebar-nav {
   flex: 1;
@@ -1701,6 +1730,8 @@ body {
   align-items: center;
   gap: calc(var(--spacing) * 2);
   padding: calc(var(--spacing) * 2) calc(var(--spacing) * 5);
+  padding-left: max(calc(var(--spacing) * 5), env(safe-area-inset-left, 0px));
+  padding-right: max(calc(var(--spacing) * 5), env(safe-area-inset-right, 0px));
   background: var(--background);
   border-bottom: 1px solid var(--border);
   position: sticky;
@@ -1745,6 +1776,8 @@ body {
 /* ── 面包屑 ── */
 .breadcrumb {
   padding: 6px 20px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
   font-size: 11px;
   color: var(--text-dim);
   background: var(--background);
@@ -2134,6 +2167,29 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .scoring-card-grid {
     grid-template-columns: 1fr;
   }
+  /* 内联双栏表单自动变单栏 */
+  [style*="grid-template-columns:1fr 1fr"],
+  [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+  /* 分段按钮移动端换行 */
+  .dash-segmented {
+    flex-wrap: wrap;
+  }
+  .dash-seg-btn {
+    flex: 1 1 auto;
+    min-width: 44px;
+  }
+  /* 周期条移动端: 次要按钮隐藏 */
+  #exportBtn, .theme-toggle-btn, .topbar-lang {
+    display: none;
+  }
+  .global-search {
+    flex: 1 1 100%;
+    order: 99;
+  }
+  /* 薪资统计 3 列过渡 */
+  .stats-bar { grid-template-columns: repeat(3, 1fr); }
 }
 
 /* ── 手机: 小屏紧凑 ── */
@@ -2183,6 +2239,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   }
   .mobile-bottom-nav a.active { color: var(--primary); }
   .mobile-bottom-nav a .nav-icon { font-size: 18px; }
+  /* 薪资统计卡片移动端 2 列 */
+  .stats-bar { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .stats-bar .stat-glass .value { font-size: 18px; }
+  .stats-bar .stat-glass .label { font-size: 10px; }
 }
 
 /* ── 手机: 出勤网格专用 ── */
@@ -2192,6 +2252,15 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   }
   .attendance-grid td { padding: 2px 0; }
   .attendance-grid td:first-child { position: sticky; left: 0; z-index: 1; background: var(--bg-card); min-width: 56px; }
+  /* 出勤网格表头垂直滚动时固定 */
+  .attendance-grid thead th { position: sticky; top: 0; z-index: 2; background: var(--muted); }
+  /* 出勤数据表表头水平滚动时首列固定 */
+  #attTable .table-wrap { overflow-x: auto; }
+  #attTable thead th:first-child { position: sticky; left: 0; z-index: 3; background: var(--muted); }
+  /* 采集表单下拉全宽 */
+  .collection-form select { width: 100%; }
+  /* 权限矩阵表格横向滚动 */
+  #permUsersTable { min-width: 600px; }
 }
 
 /* ── 桌面: 隐藏移动底部导航 ── */
@@ -2259,6 +2328,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   top: calc(100% + 8px);
   right: 0;
   width: 340px;
+  max-width: 90vw;
   max-height: 420px;
   background: var(--card);
   border: 1px solid var(--border);
@@ -2317,7 +2387,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   gap: calc(var(--spacing) * 2);
 }
 
-/* ── reduced-motion 可访问性 ── */
+/* ── reduced-motion 可访问性 + 低端设备节流 ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -2327,6 +2397,29 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   .notif-bell.has-notif .notif-icon { animation: none !important; }
   .notif-badge { animation: none !important; }
   .card:hover { transform: none !important; }
+  .stat-glass:hover { transform: none !important; }
+  /* 低端设备: 关闭 GPU 合成层 */
+  .sidebar { will-change: auto; }
+  .card { contain: layout style; }
+  /* 低端设备: 简化阴影 */
+  .card, .stat-glass, .modal-panel {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+  }
+  /* 低端设备: 图表尺寸缩小限制 */
+  .chart-box canvas { max-height: 200px; }
+}
+
+/* ── 低端设备额外优化: 减少重绘复杂度 ── */
+@media (max-width: 640px) {
+  /* 大面积表格渲染隔离 (不破坏 sticky) */
+  .table-wrap {
+    contain: layout style;
+  }
+  /* 关闭非必要模糊效果 */
+  .modal-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════

@@ -19,6 +19,7 @@ static/avatars/*
 *.bak.*
 data/source/*.xlsx
 !data/source/.gitkeep
+data/kilwa_data.b64.txt
 .memory
 
 # Codebuddy/Workbuddy project dirs
