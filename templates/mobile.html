@@ -65,33 +65,93 @@
     <main class="main-content">
       <!-- 数据台 -->
       <section class="tab-page active" id="tab-dashboard">
-        <div class="loading" id="dash-loading" data-i18n="loading">加载中...</div>
+        <!-- 骨架屏 -->
+        <div id="dash-skeleton" style="display:none;">
+          <div class="kpi-grid">
+            <div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div>
+            <div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div>
+            <div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div>
+          </div>
+          <div class="skeleton-card chart"></div>
+          <div class="skeleton-card chart"></div>
+        </div>
+        <!-- 错误/空态 -->
+        <div id="dash-error" class="state-box" style="display:none;">
+          <div class="state-box__icon">⚠️</div>
+          <div class="state-box__title" data-i18n="load_fail">加载失败</div>
+          <div class="state-box__desc" id="dash-error-desc"></div>
+          <button class="state-box__action" onclick="loadDashboard()" data-i18n="retry">重试</button>
+        </div>
+        <div id="dash-empty" class="state-box" style="display:none;">
+          <div class="state-box__icon">∅</div>
+          <div class="state-box__title" data-i18n="no_data">暂无产量数据</div>
+        </div>
         <div id="dash-content" style="display:none;">
-          <div class="segmented" id="dash-shift-seg" style="margin-bottom:12px;">
-            <div class="segmented__option active" data-v="all" onclick="setShiftFilter('all')" data-i18n="all">全部</div>
-            <div class="segmented__option" data-v="day" onclick="setShiftFilter('day')" data-i18n="day_shift">白班</div>
-            <div class="segmented__option" data-v="night" onclick="setShiftFilter('night')" data-i18n="night_shift">夜班</div>
+          <!-- 筛选控制栏（可折叠） -->
+          <div class="control-bar" id="dash-control">
+            <button class="control-bar__trigger" onclick="toggleDashFilter()">
+              <span data-i18n="dashboard_title">数据台</span>
+              <span class="ctrl-arrow" data-i18n="filter">筛选 ▾</span>
+            </button>
+            <div class="control-bar__body">
+              <div class="filter-group">
+                <div class="filter-group__label" data-i18n="shift">班次</div>
+                <div class="segmented" id="dash-shift-seg">
+                  <div class="segmented__option active" data-v="all" onclick="setShiftFilter('all')" data-i18n="all">全部</div>
+                  <div class="segmented__option" data-v="day" onclick="setShiftFilter('day')" data-i18n="day_shift">白班</div>
+                  <div class="segmented__option" data-v="night" onclick="setShiftFilter('night')" data-i18n="night_shift">夜班</div>
+                </div>
+              </div>
+              <div class="filter-group">
+                <div class="filter-group__label" data-i18n="ore_type">矿石类型</div>
+                <div class="segmented" id="dash-ore-seg">
+                  <div class="segmented__option active" data-v="all" onclick="setOreFilter('all')" data-i18n="all">全部</div>
+                  <div class="segmented__option ore-tag" data-v="nh" onclick="setOreFilter('nh')" data-i18n="nh">NICKEL(H)</div>
+                  <div class="segmented__option ore-tag" data-v="nl" onclick="setOreFilter('nl')" data-i18n="nl">NICKEL(L)</div>
+                  <div class="segmented__option ore-tag" data-v="mw" onclick="setOreFilter('mw')" data-i18n="mw">MAWE</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="kpi-grid" id="kpi-grid"></div>
           <div class="chart-box">
             <div class="chart-box__title" data-i18n="trend">产量趋势</div>
-            <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-trend"></canvas></div>
+            <div class="chart-canvas-wrap chart-loading" style="height:160px;"><canvas id="chart-trend"></canvas></div>
           </div>
           <div class="chart-box">
-            <div class="chart-box__title" data-i18n="day_night">白班 vs 夜班</div>
-            <div class="chart-canvas-wrap" style="height:200px;"><canvas id="chart-daynight"></canvas></div>
+            <div class="chart-header">
+              <div class="chart-box__title" data-i18n="day_night">白班 vs 夜班</div>
+              <div class="cmp-tab" id="dn-cmp-tab">
+                <button class="cmp-tab__item active" data-v="all" onclick="setDnTab('all')" data-i18n="total">合计</button>
+                <button class="cmp-tab__item" data-v="nh" onclick="setDnTab('nh')" data-i18n="nh">NICKEL(H)</button>
+                <button class="cmp-tab__item" data-v="nl" onclick="setDnTab('nl')" data-i18n="nl">NICKEL(L)</button>
+                <button class="cmp-tab__item" data-v="mw" onclick="setDnTab('mw')" data-i18n="mw">MAWE</button>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-daynight"></canvas></div>
           </div>
           <div class="chart-box">
             <div class="chart-box__title" data-i18n="driller_output">钻工组产量</div>
-            <div class="chart-canvas-wrap" style="height:200px;"><canvas id="chart-driller"></canvas></div>
+            <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-driller"></canvas></div>
+            <div class="chart-note" data-i18n="chart_drill_note">点击柱子查看逐日明细</div>
           </div>
           <div class="chart-box">
             <div class="chart-box__title" data-i18n="ore_type">矿石类型占比</div>
-            <div class="chart-canvas-wrap" style="height:200px; display:flex; justify-content:center;"><canvas id="chart-ore" style="max-width:200px;"></canvas></div>
+            <div class="donut-wrap">
+              <div class="donut-canvas-wrap">
+                <canvas id="chart-ore"></canvas>
+                <div class="donut-center"><span class="donut-center__value" id="donut-total">0</span><span class="donut-center__label" data-i18n="total">合计</span></div>
+              </div>
+              <div class="donut-legend" id="ore-legend"></div>
+            </div>
           </div>
           <div class="card">
-            <div class="card-title" data-i18n="crush_output">破碎产量</div>
-            <div id="crush-list"></div>
+            <div class="card-title" data-i18n="crush_table">破碎产量</div>
+            <div class="crush-table">
+              <div class="crush-table__row head"><span data-i18n="date">日期</span><span data-i18n="bags">袋数</span><span data-i18n="emp">人数</span></div>
+              <div id="crush-list"></div>
+              <div class="crush-total-row"><span data-i18n="total">合计</span><span class="num" id="crush-total-bags">0</span><span id="crush-total-emp">0</span></div>
+            </div>
           </div>
         </div>
       </section>
@@ -277,27 +337,48 @@
   }
 
   // ── 数据台 ──
+  STATE.dashOreFilter = 'all';   // all|nh|nl|mw
+  STATE.dnTab = 'all';           // all|nh|nl|mw
+  STATE.dashLoaded = false;
+
   function loadDashboard(){
-    document.getElementById('dash-loading').style.display='block';
-    document.getElementById('dash-content').style.display='none';
+    const sk=document.getElementById('dash-skeleton'), err=document.getElementById('dash-error'), empty=document.getElementById('dash-empty'), content=document.getElementById('dash-content');
+    sk.style.display='block'; err.style.display='none'; empty.style.display='none'; content.style.display='none';
     api('/api/production/dashboard').then(d=>{
       STATE.dashboard = d; STATE.currentMonth = d.month || '';
       document.getElementById('top-month').textContent = STATE.currentMonth;
-      document.getElementById('dash-loading').style.display='none';
-      document.getElementById('dash-content').style.display='block';
+      sk.style.display='none';
+      const hasData = (d.shift_production||[]).length || (d.driller_production||[]).length || (d.crush_production||[]).length;
+      if(!hasData){ empty.style.display='block'; return; }
+      content.style.display='block';
       renderDashboard();
-    }).catch(()=>{ document.getElementById('dash-loading').textContent='数据加载失败'; });
-  }
-
-  function filteredShift(){
-    const d = STATE.dashboard; if(!d) return [];
-    return d.shift_production.map(s=>{
-      if(STATE.shiftFilter==='day') return { date:s.date, nh:s.day_nh, nl:s.day_nl, mw:s.day_mw, total:s.day_nh+s.day_nl+s.day_mw };
-      if(STATE.shiftFilter==='night') return { date:s.date, nh:s.night_nh, nl:s.night_nl, mw:s.night_mw, total:s.night_nh+s.night_nl+s.night_mw };
-      return { date:s.date, nh:s.total_nh, nl:s.total_nl, mw:s.total_mw, total:s.total_nh+s.total_nl+s.total_mw };
+    }).catch(()=>{
+      sk.style.display='none'; err.style.display='block';
+      document.getElementById('dash-error-desc').textContent = STATE.currentMonth||'';
     });
   }
+
+  function toggleDashFilter(){ document.getElementById('dash-control').classList.toggle('open'); }
+
   function setShiftFilter(v){ STATE.shiftFilter=v; document.querySelectorAll('#dash-shift-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
+  function setOreFilter(v){ STATE.dashOreFilter=v; document.querySelectorAll('#dash-ore-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
+  function setDnTab(v){ STATE.dnTab=v; document.querySelectorAll('#dn-cmp-tab .cmp-tab__item').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); drawDayNight(); }
+
+  // 按班次 + 矿石类型双重过滤，返回逐日 {date, nh, nl, mw, total}
+  function filteredShift(){
+    const d = STATE.dashboard; if(!d) return [];
+    const ore = STATE.dashOreFilter; // all 时取合计
+    return (d.shift_production||[]).map(s=>{
+      let nh, nl, mw;
+      if(STATE.shiftFilter==='day'){ nh=s.day_nh||0; nl=s.day_nl||0; mw=s.day_mw||0; }
+      else if(STATE.shiftFilter==='night'){ nh=s.night_nh||0; nl=s.night_nl||0; mw=s.night_mw||0; }
+      else { nh=s.total_nh||0; nl=s.total_nl||0; mw=s.total_mw||0; }
+      if(ore==='nh'){ nh=nh; nl=0; mw=0; }
+      else if(ore==='nl'){ nh=0; nl=nl; mw=0; }
+      else if(ore==='mw'){ nh=0; nl=0; mw=mw; }
+      return { date:s.date, nh, nl, mw, total:nh+nl+mw };
+    });
+  }
 
   function renderDashboard(){
     if(!STATE.dashboard) return;
@@ -306,19 +387,26 @@
     const totals = { nh:sum('nh'), nl:sum('nl'), mw:sum('mw') };
     const dayTot = data.map(s=>s.total).filter(x=>x>0);
     const avg = dayTot.length? dayTot.reduce((a,b)=>a+b,0)/dayTot.length : 0;
-    const max = dayTot.length? Math.max(...dayTot) : 0;
-    const daySum = STATE.dashboard.shift_production.reduce((a,s)=>a+s.day_nh+s.day_nl+s.day_mw,0);
-    const nightSum = STATE.dashboard.shift_production.reduce((a,s)=>a+s.night_nh+s.night_nl+s.night_mw,0);
+    const maxVal = dayTot.length? Math.max(...dayTot) : 0;
+    // 日最高对应日期
+    const maxDate = maxVal? (data.find(s=>s.total===maxVal)||{}).date||'' : '';
+    // 白夜班比（不受矿石过滤影响，用原始 shift 数据）
+    const daySum = (STATE.dashboard.shift_production||[]).reduce((a,s)=>a+s.day_nh+s.day_nl+s.day_mw,0);
+    const nightSum = (STATE.dashboard.shift_production||[]).reduce((a,s)=>a+s.night_nh+s.night_nl+s.night_mw,0);
     const ratio = nightSum? (daySum/nightSum).toFixed(2)+':1' : '—';
 
+    // 6 KPI：本月NH/NL/MW + 日均 + 日最高(带kpi-sub) + 白夜班比
     const kpis = [
-      { l:t('nh'), v:fmt(totals.nh) }, { l:t('nl'), v:fmt(totals.nl) },
-      { l:t('mw'), v:fmt(totals.mw) }, { l:t('daily_avg'), v:fmt(Math.round(avg)) },
-      { l:t('day_max'), v:fmt(max) }, { l:t('day')+'/'+t('night'), v:ratio },
+      { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
+      { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
+      { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
+      { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
+      { l:t('kpi_day_max'), v:fmt(maxVal), sub:maxDate? maxDate.slice(5).replace('-','/') : '', ind:'ind-i2' },
+      { l:t('kpi_ratio'), v:ratio, ind:'ind-i4' },
     ];
-    document.getElementById('kpi-grid').innerHTML = kpis.map(k=>'<div class="kpi"><div class="kpi__label">'+k.l+'</div><div class="kpi__value">'+k.v+'</div></div>').join('');
+    document.getElementById('kpi-grid').innerHTML = kpis.map(k=>'<div class="kpi '+k.ind+'"><div class="kpi__label">'+k.l+'</div><div class="kpi__value">'+k.v+'</div>'+(k.sub?'<div class="kpi-sub">'+k.sub+'</div>':'')+'</div>').join('');
 
-    drawTrend(data);
+    drawTrend();
     drawDayNight();
     drawDriller();
     drawOre(totals);
@@ -327,45 +415,76 @@
 
   function newChart(id, cfg){
     if(STATE.charts[id]) STATE.charts[id].destroy();
-    STATE.charts[id] = new Chart(document.getElementById(id), cfg);
+    const el=document.getElementById(id);
+    if(!el) return;
+    // 移除 chart-loading 遮罩
+    const wrap=el.closest('.chart-loading'); if(wrap) wrap.classList.remove('chart-loading');
+    STATE.charts[id] = new Chart(el, cfg);
   }
-  function baseOpts(){ return { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, datalabels:{ display:false } }, scales:{ x:{ ticks:{ font:{size:9}, maxRotation:0 }, grid:{ display:false } }, y:{ ticks:{ font:{size:9} }, grid:{ color:'var(--border)' } } } }; }
+  function baseOpts(){ return { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, datalabels:{ display:false } }, scales:{ x:{ ticks:{ font:{size:9}, maxRotation:0 }, grid:{ display:false } }, y:{ ticks:{ font:{size:9} }, grid:{ color:'hsl(44 26.32% 88.82%)' } } } }; }
 
-  function drawTrend(data){
-    const labels = data.map(s=>s.date.slice(5));
-    newChart('chart-trend', { type:'line', data:{ labels, datasets:[
-      { label:t('nh'), data:data.map(s=>s.nh), borderColor:'hsl(55 24% 49%)', backgroundColor:'hsl(55 24% 49% / 0.1)', fill:true, tension:0.3, pointRadius:0 },
-      { label:t('nl'), data:data.map(s=>s.nl), borderColor:'hsl(0 15% 32%)', fill:false, tension:0.3, pointRadius:0 },
-      { label:t('mw'), data:data.map(s=>s.mw), borderColor:'hsl(70 10% 50%)', fill:false, tension:0.3, pointRadius:0 },
-    ]}, options: baseOpts() });
-  }
-  function drawDayNight(){
-    const sp = STATE.dashboard.shift_production;
+  // 产量趋势：白班/夜班/合计 三线（设计稿 dashboard.html:450-460）
+  // 趋势图直接读原始 shift 数据（三线本身即班次维度），矿石过滤生效
+  function drawTrend(){
+    const sp = STATE.dashboard.shift_production || [];
+    if(!sp.length) return;
+    const ore = STATE.dashOreFilter;
     const labels = sp.map(s=>s.date.slice(5));
-    newChart('chart-daynight', { type:'bar', data:{ labels, datasets:[
-      { label:t('day'), data:sp.map(s=>s.day_nh+s.day_nl+s.day_mw), backgroundColor:'hsl(210 70% 50%)' },
-      { label:t('night'), data:sp.map(s=>s.night_nh+s.night_nl+s.night_mw), backgroundColor:'hsl(190 70% 45%)' },
+    const pick = (s, f)=> ore==='nh'? (s[f+'_nh']||0) : ore==='nl'? (s[f+'_nl']||0) : ore==='mw'? (s[f+'_mw']||0) : (s[f+'_nh']||0)+(s[f+'_nl']||0)+(s[f+'_mw']||0);
+    newChart('chart-trend', { type:'line', data:{ labels, datasets:[
+      { label:t('day'), data:sp.map(s=>pick(s,'day')), borderColor:'hsl(200 60% 45%)', backgroundColor:'hsl(200 60% 45% / 0.08)', fill:true, tension:0.3, pointRadius:0 },
+      { label:t('night'), data:sp.map(s=>pick(s,'night')), borderColor:'hsl(180 50% 40%)', backgroundColor:'hsl(180 50% 40% / 0.08)', fill:false, tension:0.3, pointRadius:0 },
+      { label:t('total'), data:sp.map(s=>pick(s,'total')), borderColor:'hsl(28.99 91.75% 61.96%)', backgroundColor:'transparent', borderWidth:2, tension:0.3, pointRadius:0 },
     ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
   }
+  // 白班 vs 夜班：按 dnTab 切换 NH/NL/MW/合计 双柱
+  function drawDayNight(){
+    const sp = STATE.dashboard.shift_production || [];
+    const labels = sp.map(s=>s.date.slice(5));
+    const ore = STATE.dnTab;
+    const field = ore==='nh'?'nh':(ore==='nl'?'nl':(ore==='mw'?'mw':null));
+    const dayData = sp.map(s=> field? (s['day_'+field]||0) : (s.day_nh+s.day_nl+s.day_mw));
+    const nightData = sp.map(s=> field? (s['night_'+field]||0) : (s.night_nh+s.night_nl+s.night_mw));
+    newChart('chart-daynight', { type:'bar', data:{ labels, datasets:[
+      { label:t('day_shift'), data:dayData, backgroundColor:'hsl(200 60% 45%)', borderRadius:3 },
+      { label:t('night_shift'), data:nightData, backgroundColor:'hsl(180 50% 40%)', borderRadius:3 },
+    ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
+  }
+  // 钻工组产量：堆叠柱按 NH/NL/MW（支持点击下钻占位）
   function drawDriller(){
     const dp = STATE.dashboard.driller_production || [];
+    if(!dp.length){ document.getElementById('chart-driller').style.display='none'; return; }
+    document.getElementById('chart-driller').style.display='block';
     const labels = dp.map(s=>s.date.slice(5));
     newChart('chart-driller', { type:'bar', data:{ labels, datasets:[
-      { label:t('nh'), data:dp.map(s=>s.nh), backgroundColor:'hsl(55 24% 49%)' },
-      { label:t('nl'), data:dp.map(s=>s.nl), backgroundColor:'hsl(0 15% 32%)' },
-      { label:t('mw'), data:dp.map(s=>s.mw), backgroundColor:'hsl(70 10% 50%)' },
+      { label:t('nh'), data:dp.map(s=>s.nh||0), backgroundColor:'hsl(55 24% 49%)', borderRadius:2 },
+      { label:t('nl'), data:dp.map(s=>s.nl||0), backgroundColor:'hsl(0 15% 32%)', borderRadius:2 },
+      { label:t('mw'), data:dp.map(s=>s.mw||0), backgroundColor:'hsl(70 10% 50%)', borderRadius:2 },
     ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } }, scales:{ x:{ stacked:true, ticks:{font:{size:9}, maxRotation:0} }, y:{ stacked:true, ticks:{font:{size:9}} } } }) });
   }
+  // 矿石类型占比：环形图 + 中心总车次 + 右侧百分比 legend
   function drawOre(totals){
-    newChart('chart-ore', { type:'doughnut', data:{ labels:[t('nh'),t('nl'),t('mw')], datasets:[{ data:[totals.nh,totals.nl,totals.mw], backgroundColor:['hsl(55 24% 49%)','hsl(0 15% 32%)','hsl(70 10% 50%)'], borderWidth:2, borderColor:'var(--card)' }] },
-      options:{ responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } }, datalabels:{ display:false } } } });
+    const sum = totals.nh+totals.nl+totals.mw;
+    document.getElementById('donut-total').textContent = fmt(sum);
+    const colors = ['hsl(55 24% 49%)','hsl(0 15% 32%)','hsl(70 10% 50%)'];
+    const items = [[t('nh'),totals.nh,'st-nh'],[t('nl'),totals.nl,'st-nl'],[t('mw'),totals.mw,'st-mw']];
+    document.getElementById('ore-legend').innerHTML = items.map(([lab,v,dummy],i)=>{
+      const pct = sum? Math.round(v/sum*100) : 0;
+      return '<div class="donut-legend__item"><span class="donut-legend__dot" style="background:'+colors[i]+'"></span>'+lab+'<span class="donut-legend__pct">'+pct+'%</span></div>';
+    }).join('');
+    newChart('chart-ore', { type:'doughnut', data:{ labels:[t('nh'),t('nl'),t('mw')], datasets:[{ data:[totals.nh,totals.nl,totals.mw], backgroundColor:colors, borderWidth:2, borderColor:'var(--card)' }] },
+      options:{ responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{ legend:{ display:false }, datalabels:{ display:false } } } });
   }
+  // 破碎产量三列表
   function renderCrush(){
     const cp = STATE.dashboard.crush_production || [];
-    if(!cp.length){ document.getElementById('crush-list').innerHTML='<div class="empty-state">—</div>'; return; }
-    let total=0;
-    const rows = cp.map(c=>{ total+=c.bags; return '<div class="crush-row"><span class="crush-row__date">'+c.date.slice(5)+'</span><span>'+c.personnel_count+' '+t('emp')+'</span><span class="crush-row__bags">'+fmt(c.bags)+' '+t('bags')+'</span></div>'; }).join('');
-    document.getElementById('crush-list').innerHTML = rows + '<div class="crush-total"><span>'+t('total')+'</span><span>'+fmt(total)+' '+t('bags')+'</span></div>';
+    const list = document.getElementById('crush-list');
+    if(!cp.length){ list.innerHTML=''; document.getElementById('crush-total-bags').textContent='0'; document.getElementById('crush-total-emp').textContent='0'; return; }
+    let tb=0, te=0;
+    list.innerHTML = cp.map(c=>{ tb+=c.bags; te+=c.personnel_count||0;
+      return '<div class="crush-table__row"><span>'+c.date.slice(5).replace('-','/')+'</span><span class="num">'+fmt(c.bags)+'</span><span>'+((c.personnel_count||0))+'</span></div>'; }).join('');
+    document.getElementById('crush-total-bags').textContent = fmt(tb);
+    document.getElementById('crush-total-emp').textContent = te;
   }
 
   // ── 员工模块 (Phase 2) ──
