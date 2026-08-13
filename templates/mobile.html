@@ -782,7 +782,12 @@
   // ── 采集首页：4 entry 大卡 + 最近提交历史 ──
   function loadCollectionHome(){
     const home = document.getElementById('col-home');
-    const types = [['underground',t('col_ug'),'⛏'],['driller',t('col_dr'),'🔩'],['crush',t('col_cr'),'🪨'],['attendance',t('col_att'),'📋']];
+    // SVG 图标（对齐 §3.1 决策：emoji 仅内容场景，采集图标统一 inline SVG）
+    const SVG_UG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M14 4l6 6-9 9-3-3 9-9-3-3zM5 17l-2 2 3 3 2-2"/></svg>';
+    const SVG_DR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M14 6l4 4-8 8H6v-4l8-8z"/><path d="M3 21l3-3"/></svg>';
+    const SVG_CR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M3 17l4-6 4 4 3-5 7 9H3z"/><circle cx="9" cy="9" r="1.5"/></svg>';
+    const SVG_AT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="5" y="4" width="14" height="17" rx="1"/><path d="M9 4V2h6v2"/><path d="M8 9h8M8 13h6M8 17h4"/></svg>';
+    const types = [['underground',t('col_ug'),SVG_UG],['driller',t('col_dr'),SVG_DR],['crush',t('col_cr'),SVG_CR],['attendance',t('col_att'),SVG_AT]];
     home.innerHTML =
       '<div class="entry-grid">'+types.map(([ty,label,icon])=>'<button class="entry-card" onclick="openColForm(\''+ty+'\')">'
         + '<div class="entry-card__icon">'+icon+'</div>'
@@ -793,19 +798,24 @@
       + '<div class="section-title">'+t('col_history')+'</div>'
       + '<div class="history-list" id="col-recent"><div class="history-row"><span class="history-row__date">'+t('loading')+'</span></div></div>';
     ['underground','driller','crush','attendance'].forEach(ty=>{
-      api('/api/collection/history?form_type='+ty).then(d=>{
-        const s=(d.submissions||[]); const el=document.getElementById('col-cnt-'+ty); if(!el) return;
+      apiStatus('/api/collection/history?form_type='+ty).then(({status,json})=>{
+        const el=document.getElementById('col-cnt-'+ty); if(!el) return;
+        if(status===403){ el.innerHTML = t('need_editor'); return; }
+        if(status!==200){ el.innerHTML = t('load_fail'); return; }
+        const s=(json.submissions||[]);
         const monthCount = s.filter(x=>(x.submission_date||'').startsWith(STATE.currentMonth)).length;
         const last = s[0];
         let html = t('col_month_count',{n:monthCount});
         if(last) html += '<br>'+t('col_last_submit',{d:last.submission_date||''});
         else html += '<br>'+t('no_submit');
         el.innerHTML = html;
-      }).catch(()=>{});
+      }).catch(()=>{ const el=document.getElementById('col-cnt-'+ty); if(el) el.innerHTML=t('need_editor'); });
     });
-    api('/api/collection/history').then(d=>{
-      const subs=(d.submissions||[]).slice(0,8);
+    apiStatus('/api/collection/history').then(({status,json})=>{
+      const subs=(json.submissions||[]).slice(0,8);
       const el=document.getElementById('col-recent'); if(!el) return;
+      if(status===403){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('need_editor')+'</span></div>'; return; }
+      if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
       const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
       el.innerHTML = subs.length? subs.map(s=>{
         // 解析班次标注
@@ -824,11 +834,11 @@
         }catch(e){}
         return '<div class="history-row"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
-    }).catch(()=>{});
+    }).catch(()=>{ const el=document.getElementById('col-recent'); if(el) el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
-  function openColForm(ty){ STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
+  function openColForm(ty){ STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
     if(ty==='underground') renderUgForm(); else if(ty==='driller') renderDrForm(); else if(ty==='crush') renderCrForm(); else renderAttForm(); }
-  function backColHome(){ _pageStack=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; loadCollectionHome(); }
+  function backColHome(){ _pageStack=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
 
   // form-message 内联校验 + 提交 loading 态
   function showFormMsg(ty, msg, ok){
@@ -984,7 +994,7 @@
     const depts=[...new Set((d.rows||[]).map(r=>r.department).filter(Boolean))].sort();
     const root=document.getElementById('attRoot');
     root.innerHTML =
-      '<div class="att-page-head"><div class="att-page-head__title">'+t('att_title',{month:ymLabel})+'</div><div class="att-page-head__sub">'+ymLabel+' · '+daysCount+' '+t('days')+'</div></div>'
+      '<div class="att-page-head"><div class="att-page-head__sub">'+ymLabel+' · '+daysCount+' '+t('days')+'</div></div>'
       + '<div class="att-toolbar">'
       + '<input class="att-search" id="attSearch" placeholder="'+t('search')+'" oninput="renderAttGrid()">'
       + '<select id="attDept" onchange="renderAttGrid()"><option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select>'
