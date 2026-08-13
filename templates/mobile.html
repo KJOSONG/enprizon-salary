@@ -314,6 +314,7 @@
     window.scrollTo(0,0);
     if(name==='dashboard' && !STATE.dashboard) loadDashboard();
     if(name==='employees'){ if(!STATE.employees.length) loadEmployees(); loadOAPendingCount(); }
+    if(name==='collection'){ if(!STATE.employees.length) loadEmployees(); loadCollectionHome(); }
     if(name==='attendance') loadAttendance();
   }
   function loadOAPendingCount(){
@@ -756,116 +757,202 @@
   // ── 数据采集 (Phase 3) ──
   STATE.colType = '';
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
-  function empChecklistHTML(hid, selected){
+  // 人员多选行（worker-item：checkbox + 姓名 + 工号）
+  function empChecklistHTML(hid, selected, prefix){
     const sel = new Set(selected||[]);
-    return '<div id="'+hid+'List" style="max-height:36vh;overflow:auto;border:1px solid var(--border);border-radius:12px;padding:4px;margin-top:6px;">'
-      + STATE.employees.map(e=>'<label style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);font-size:14px;"><input type="checkbox" value="'+esc(e.id)+'" '+(sel.has(e.id)?'checked':'')+' onchange="syncChecklist(\''+hid+'\')"> <span>'+esc(e.name||'')+' <span style="color:var(--muted-foreground);font-size:11px;">#'+esc(e.custom_number||e.id)+'</span></span></label>').join('')
+    const p = prefix||'';
+    return '<div id="'+hid+'List" style="max-height:36vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px;margin-top:6px;">'
+      + (STATE.employees.length? STATE.employees.map(e=>'<div class="worker-item" onclick="if(event.target.tagName!==\'INPUT\')this.querySelector(\'input\').click()"><input type="checkbox" value="'+esc(e.id)+'" '+(sel.has(e.id)?'checked':'')+' onchange="syncChecklist(\''+hid+'\',\''+p+'\')"> <span class="worker-item__name">'+esc(e.name||'')+'</span> <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></div>').join('') : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('loading')+'</div>')
       + '</div>';
   }
-  function syncChecklist(hid){ document.getElementById(hid).value=[...document.querySelectorAll('#'+hid+'List input:checked')].map(c=>c.value).join(','); }
+  function syncChecklist(hid, prefix){
+    const ids=[...document.querySelectorAll('#'+hid+'List input:checked')].map(c=>c.value);
+    document.getElementById(hid).value=ids.join(',');
+    if(prefix && document.getElementById(prefix+'-count')) document.getElementById(prefix+'-count').textContent = ids.length;
+  }
 
+  // ── 采集首页：4 entry 大卡 + 最近提交历史 ──
   function loadCollectionHome(){
     const home = document.getElementById('col-home');
     const types = [['underground',t('col_ug'),'⛏'],['driller',t('col_dr'),'🔩'],['crush',t('col_cr'),'🪨'],['attendance',t('col_att'),'📋']];
-    home.innerHTML = types.map(([ty,label,icon])=>'<div class="card-item" onclick="openColForm(\''+ty+'\')"><div class="card-item__avatar">'+icon+'</div><div class="card-item__body"><div class="card-item__title">'+label+'</div><div class="card-item__meta" id="col-cnt-'+ty+'">—</div></div><div class="card-item__trailing">›</div></div>').join('')
-      + '<div class="card-title" style="margin-top:12px;">'+t('recent_submits')+'</div><div id="col-recent"></div>';
+    home.innerHTML =
+      '<div class="entry-grid">'+types.map(([ty,label,icon])=>'<button class="entry-card" onclick="openColForm(\''+ty+'\')">'
+        + '<div class="entry-card__icon">'+icon+'</div>'
+        + '<div class="entry-card__title">'+label+'</div>'
+        + '<div class="entry-card__meta" id="col-cnt-'+ty+'">'+t('loading')+'</div>'
+        + '<div class="entry-card__footer"><span data-i18n="col_enter">进入采集</span><span class="entry-card__chevron">›</span></div>'
+        + '</button>').join('')+'</div>'
+      + '<div class="section-title">'+t('col_history')+'</div>'
+      + '<div class="history-list" id="col-recent"><div class="history-row"><span class="history-row__date">'+t('loading')+'</span></div></div>';
     ['underground','driller','crush','attendance'].forEach(ty=>{
-      api('/api/collection/history?form_type='+ty).then(d=>{ const s=(d.submissions||[]); const el=document.getElementById('col-cnt-'+ty); if(el) el.textContent = s.length? (s.length+' '+t('submits')+' · '+(s[0].submission_date||'')) : t('no_submit'); });
+      api('/api/collection/history?form_type='+ty).then(d=>{
+        const s=(d.submissions||[]); const el=document.getElementById('col-cnt-'+ty); if(!el) return;
+        const monthCount = s.filter(x=>(x.submission_date||'').startsWith(STATE.currentMonth)).length;
+        const last = s[0];
+        let html = t('col_month_count',{n:monthCount});
+        if(last) html += '<br>'+t('col_last_submit',{d:last.submission_date||''});
+        else html += '<br>'+t('no_submit');
+        el.innerHTML = html;
+      }).catch(()=>{});
     });
     api('/api/collection/history').then(d=>{
-      const subs=(d.submissions||[]).slice(0,6);
-      const el=document.getElementById('col-recent');
-      if(!el) return;
-      el.innerHTML = subs.length? subs.map(s=>'<div class="crush-row"><span class="crush-row__date">'+esc(s.submission_date||'')+'</span><span>'+t(s.form_type)||s.form_type+'</span></div>').join('') : '<div class="empty-state__desc" style="text-align:center;">'+t('no_history')+'</div>';
+      const subs=(d.submissions||[]).slice(0,8);
+      const el=document.getElementById('col-recent'); if(!el) return;
+      const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
+      el.innerHTML = subs.length? subs.map(s=>{
+        // 解析班次标注
+        let shiftChip='', sub='';
+        try{
+          const p = JSON.parse(s.payload||'{}');
+          if(s.form_type==='underground'){
+            const dayEmps=(p.day&&p.day.emps)||[], nightEmps=(p.night&&p.night.emps)||[];
+            if(dayEmps.length && nightEmps.length){ shiftChip='<span class="shift-chip day">D</span><span class="shift-chip night">N</span>'; }
+            else if(dayEmps.length) shiftChip='<span class="shift-chip day">D</span>';
+            else if(nightEmps.length) shiftChip='<span class="shift-chip night">N</span>';
+            sub = (dayEmps.length+nightEmps.length)+' '+t('emp');
+          } else if(s.form_type==='driller'){ const teams=p.teams||[]; sub = teams.length+' '+t('add_team'); }
+          else if(s.form_type==='crush'){ sub = (p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
+          else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
+        }catch(e){}
+        return '<div class="history-row"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+'</span></div>';
+      }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
     }).catch(()=>{});
   }
-  function openColForm(ty){ STATE.colType=ty; pushPage(); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
+  function openColForm(ty){ STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
     if(ty==='underground') renderUgForm(); else if(ty==='driller') renderDrForm(); else if(ty==='crush') renderCrForm(); else renderAttForm(); }
-  function backColHome(){ document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; popPage(); loadCollectionHome(); }
+  function backColHome(){ _pageStack=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; loadCollectionHome(); }
 
-  function colSubmit(ty, payload){ const date=document.getElementById('colDate').value; if(!date){ toast(t('fill_date'),'warning'); return; }
-    api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) }).then(r=>{ if(r.ok){ toast(t('submitted')); backColHome(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
+  // form-message 内联校验 + 提交 loading 态
+  function showFormMsg(ty, msg, ok){
+    const el=document.getElementById('colFormMsg');
+    if(!el) return;
+    el.textContent = msg||'';
+    el.className = 'form-message visible '+(ok?'success':'error');
+  }
+  function clearFormMsg(){ const el=document.getElementById('colFormMsg'); if(el){ el.textContent=''; el.className='form-message'; } }
+  function colSubmit(ty, payload, validate){
+    const date=document.getElementById('colDate').value;
+    if(!date){ showFormMsg(ty, t('val_date'), false); return; }
+    if(validate && !validate(payload)) return;
+    const btn = document.getElementById('colSubmitBtn');
+    if(btn){ btn.disabled=true; btn.textContent=t('submitting'); }
+    api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) }).then(r=>{
+      if(r.ok){ showFormMsg(ty, t('success'), true); setTimeout(()=>{ backColHome(); }, 500); }
+      else { showFormMsg(ty, r.error||t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
+    }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
+  }
 
-  // 井下出渣
+  // 井下出渣：白/夜分段卡片展示双段数据（payload 结构不变）
   function renderUgForm(){
     const d=new Date().toISOString().slice(0,10);
-    const shift=(p)=> '<div class="field"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="0" min="0"></div>'
-      + '<div class="field"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="0" min="0"></div>'
-      + '<div class="field"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="0" min="0"></div>'
-      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div id="'+p+'EmpsBox"></div></div>'
-      + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div id="'+p+'DriversBox"></div></div>';
-    document.getElementById('col-form').innerHTML = '<h3 class="section-title">'+t('col_ug')+'</h3>'
+    const seg=(p, title, dotClass)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
+      + '<div style="display:flex;gap:6px;">'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '</div>'
+      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:0})+'</div><div id="'+p+'EmpsBox"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:0})+'</div><div id="'+p+'DriversBox"></div></div>'
+      + '</div>';
+    document.getElementById('col-form').innerHTML =
+      '<div class="form-head"><span class="form-head__title">'+t('col_ug')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
-      + '<div class="card-title">'+t('day_shift')+'</div>'+shift('ugDay')
-      + '<div class="card-title">'+t('night_shift')+'</div>'+shift('ugNight')
-      + '<button class="btn btn-primary btn-block" onclick="submitUg()">'+t('submit')+'</button>';
-    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',[]);
-    document.getElementById('ugDayDriversBox').innerHTML=empChecklistHTML('ugDayDrivers',[]);
-    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',[]);
-    document.getElementById('ugNightDriversBox').innerHTML=empChecklistHTML('ugNightDrivers',[]);
+      + '<div class="form-message" id="colFormMsg"></div>'
+      + seg('ugDay', t('day_shift'), 'day')
+      + seg('ugNight', t('night_shift'), 'night')
+      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark"></div>'
+      + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2"></div>'
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+t('submit')+'</button>';
+    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',[],'ugDay');
+    document.getElementById('ugDayDriversBox').innerHTML=empChecklistHTML('ugDayDrivers',[],'ugDayDrv');
+    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',[],'ugNight');
+    document.getElementById('ugNightDriversBox').innerHTML=empChecklistHTML('ugNightDrivers',[],'ugNightDrv');
   }
-  function submitUg(){ colSubmit('underground', { submission_date:document.getElementById('colDate').value,
-    day:{ nh:+document.getElementById('ugDayNh').value||0, nl:+document.getElementById('ugDayNl').value||0, mw:+document.getElementById('ugDayMw').value||0, emps:ck('ugDayEmps'), drivers:ck('ugDayDrivers') },
-    night:{ nh:+document.getElementById('ugNightNh').value||0, nl:+document.getElementById('ugNightNl').value||0, mw:+document.getElementById('ugNightMw').value||0, emps:ck('ugNightEmps'), drivers:ck('ugNightDrivers') } }); }
+  function submitUg(){
+    const payload={ submission_date:document.getElementById('colDate').value,
+      day:{ nh:+document.getElementById('ugDayNh').value||0, nl:+document.getElementById('ugDayNl').value||0, mw:+document.getElementById('ugDayMw').value||0, emps:ck('ugDayEmps'), drivers:ck('ugDayDrivers') },
+      night:{ nh:+document.getElementById('ugNightNh').value||0, nl:+document.getElementById('ugNightNl').value||0, mw:+document.getElementById('ugNightMw').value||0, emps:ck('ugNightEmps'), drivers:ck('ugNightDrivers') } };
+    colSubmit('underground', payload, (p)=>{
+      if(p.day.emps.length===0 && p.night.emps.length===0){ showFormMsg('underground', t('val_workers'), false); return false; }
+      return true;
+    });
+  }
 
-  // 钻工组
+  // 钻工组：多队伍 teams[]
   STATE._drSlots=[];
   async function renderDrForm(){
     const d=new Date().toISOString().slice(0,10);
     STATE._drSlots=[{captain:'',nh:0,nl:0,mw:0,members:[]}];
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
     STATE._drCaps=caps;
-    document.getElementById('col-form').innerHTML='<h3 class="section-title">'+t('col_dr')+'</h3>'
+    document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_dr')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="form-message" id="colFormMsg"></div>'
       + '<div id="drSlots"></div>'
       + '<button class="btn btn-block" onclick="addDrSlotM()" style="margin:8px 0;">+ '+t('add_team')+'</button>'
-      + '<button class="btn btn-primary btn-block" onclick="submitDr()">'+t('submit')+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitDr()">'+t('submit')+'</button>';
     renderDrSlotsM();
   }
-  function capOpts(sel){ return (STATE._drCaps||[]).map(c=>'<option value="'+esc(c.employee_id)+'" '+(String(sel)===String(c.employee_id)?'selected':'')+'>'+esc(c.name)+'</option>').join(''); }
+  function capOpts(sel){ return '<option value="">'+t('pick_captain')+'</option>'+(STATE._drCaps||[]).map(c=>'<option value="'+esc(c.employee_id)+'" '+(String(sel)===String(c.employee_id)?'selected':'')+'>'+esc(c.name)+'</option>').join(''); }
   function renderDrSlotsM(){ const c=document.getElementById('drSlots'); if(!c) return;
-    c.innerHTML=STATE._drSlots.map((s,i)=>'<div class="card" style="padding:10px;"><div class="field"><label class="field__label">'+t('captain')+'</label><select id="drCap'+i+'" onchange="STATE._drSlots['+i+'].captain=this.value"><option value="">'+t('pick_captain')+'</option>'+capOpts(s.captain)+'</select></div>'
-      + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0"></div></div>'
-      + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div id="drMemBox'+i+'"></div></div>'
+    c.innerHTML=STATE._drSlots.map((s,i)=>'<div class="seg-card"><div class="seg-card__title">'+t('col_dr')+' '+(i+1)+'</div>'
+      + '<div class="field"><label class="field__label">'+t('captain')+'</label><select id="drCap'+i+'" onchange="STATE._drSlots['+i+'].captain=this.value">'+capOpts(s.captain)+'</select></div>'
+      + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0" inputmode="numeric" pattern="[0-9]*"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0" inputmode="numeric" pattern="[0-9]*"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0" inputmode="numeric" pattern="[0-9]*"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div class="col-count-hint" id="drMem'+i+'-count">'+t('col_selected_count',{n:(s.members||[]).length})+'</div><div id="drMemBox'+i+'"></div></div>'
       + (STATE._drSlots.length>1?'<button class="btn btn-block" onclick="removeDrSlotM('+i+')" style="margin-top:6px;">'+t('remove')+'</button>':'')+'</div>').join('');
-    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[]); });
+    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[], 'drMem'+i); });
   }
   function syncDrSlotsFromDom(){ STATE._drSlots.forEach((s,i)=>{ const c=document.getElementById('drCap'+i); if(c) s.captain=c.value; const nh=document.getElementById('drNh'+i); if(nh) s.nh=+nh.value||0; const nl=document.getElementById('drNl'+i); if(nl) s.nl=+nl.value||0; const mw=document.getElementById('drMw'+i); if(mw) s.mw=+mw.value||0; s.members=ck('drMem'+i); }); }
   function addDrSlotM(){ syncDrSlotsFromDom(); STATE._drSlots.push({captain:'',nh:0,nl:0,mw:0,members:[]}); renderDrSlotsM(); }
   function removeDrSlotM(i){ syncDrSlotsFromDom(); STATE._drSlots.splice(i,1); renderDrSlotsM(); }
-  function submitDr(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;} const teams=[];
+  function submitDr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('driller', t('val_date'), false); return; } const teams=[];
     for(let i=0;i<STATE._drSlots.length;i++){ const cap=document.getElementById('drCap'+i).value; if(!cap) continue; teams.push({ captain:cap, nh:+document.getElementById('drNh'+i).value||0, nl:+document.getElementById('drNl'+i).value||0, mw:+document.getElementById('drMw'+i).value||0, members:ck('drMem'+i) }); }
-    if(!teams.length){ toast(t('pick_captain'),'warning'); return; }
-    colSubmit('driller', { submission_date:date, teams }); }
+    if(!teams.length){ showFormMsg('driller', t('pick_captain'), false); return; }
+    colSubmit('driller', { submission_date:date, teams }, null); }
 
   // 破碎计件
   function renderCrForm(){ const d=new Date().toISOString().slice(0,10);
-    document.getElementById('col-form').innerHTML='<h3 class="section-title">'+t('col_cr')+'</h3>'
+    document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_cr')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
-      + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="0" min="0"></div>'
-      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="crEmps"><div id="crEmpsBox"></div></div>'
-      + '<button class="btn btn-primary btn-block" onclick="submitCr()">'+t('submit')+'</button>';
-    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',[]);
+      + '<div class="form-message" id="colFormMsg"></div>'
+      + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:0})+'</div><div id="crEmpsBox"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark"></div>'
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+t('submit')+'</button>';
+    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',[],'crEmps');
   }
-  function submitCr(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;}
-    colSubmit('crush', { submission_date:date, bags:+document.getElementById('crBags').value||0, emps:ck('crEmps') }); }
+  function submitCr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('crush', t('val_date'), false); return; }
+    const bags=+document.getElementById('crBags').value||0;
+    if(bags<=0){ showFormMsg('crush', t('val_bags'), false); return; }
+    if(!ck('crEmps').length){ showFormMsg('crush', t('val_workers'), false); return; }
+    colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
   // 出勤收集
   async function renderAttForm(){ const d=new Date().toISOString().slice(0,10); const pool=STATE.employees;
     const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
-    document.getElementById('col-form').innerHTML='<h3 class="section-title">'+t('col_att')+'</h3>'
+    document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+'<option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
-      + '<button class="btn btn-primary btn-block" onclick="submitAtt()">'+t('submit')+'</button>';
+      + '<div class="col-count-hint" id="attRosterCount"></div>'
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+t('submit')+'</button>';
     renderAttRoster();
   }
-  function renderAttRoster(){ const sel=document.getElementById('attDept').value; const list=STATE.employees.filter(e=>!sel||e.department===sel);
+  function attRosterEmpIds(){
+    const sel=document.getElementById('attDept').value;
+    return STATE.employees.filter(e=>!sel||e.department===sel);
+  }
+  function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
-    box.innerHTML=list.map(e=>'<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border);"><select id="attSt'+esc(e.id)+'" style="padding:4px 6px;border:1px solid var(--border);border-radius:8px;font-size:13px;"><option value="P">P</option><option value="A">A</option><option value="L">L</option><option value="D">D</option><option value="N">N</option><option value="C">C</option></select><span style="flex:1;">'+esc(e.name||'')+' <span style="color:var(--muted-foreground);font-size:11px;">#'+esc(e.custom_number||e.id)+'</span></span></div>').join(''); }
-  function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){toast(t('fill_date'),'warning');return;}
-    const marks=STATE.employees.filter(e=>!document.getElementById('attDept').value||e.department===document.getElementById('attDept').value).map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
-    colSubmit('attendance', { submission_date:date, marks }); }
+    box.innerHTML=list.map(e=>'<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="P">P</option><option value="A">A</option><option value="L">L</option><option value="D">D</option><option value="N">N</option><option value="C">C</option><option value="R">R</option><option value="B">B</option></select></div>').join('');
+    const c=document.getElementById('attRosterCount'); if(c) c.textContent=t('col_total_count',{n:list.length});
+  }
+  function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
+  function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
+    const marks=attRosterEmpIds().map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
+    colSubmit('attendance', { submission_date:date, marks }, null); }
 
   // ── 出勤模块 (Phase 4) ──
   const ATT_STATUS = ['P','A','L','D','N','C'];
