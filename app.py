@@ -1166,8 +1166,15 @@ def api_employee_events(employee_id):
 @editor_required
 def api_employee_update(employee_id):
     """编辑员工基本信息"""
-    from core.database import update_employee_fields, log_audit
+    from core.database import update_employee_fields, log_audit, get_conn
     data = request.get_json()
+    # 部门仅超级管理员可直改；非超管改不同部门值 → 拒绝（须走 OA 调岗审批）
+    if 'department' in data and session.get('role') != 'super_admin':
+        conn = get_conn(app.config['DATA_FOLDER'])
+        row = conn.execute("SELECT department FROM employees WHERE id=?", (employee_id,)).fetchone()
+        conn.close()
+        if row and (row['department'] or '') != (data.get('department') or ''):
+            return jsonify({'ok': False, 'error': '部门仅超级管理员可修改，或通过OA调岗审批'}), 403
     ok = update_employee_fields(app.config['DATA_FOLDER'], employee_id, data)
     if ok:
         log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,

@@ -107,6 +107,8 @@ def init_db(data_folder):
         # P10: 评分班组
         ('custom_number', 'TEXT DEFAULT \'\''),
         ('team_id', 'INTEGER DEFAULT 0'),
+        # 档案别名
+        ('alias', 'TEXT DEFAULT \'\''),
     ]
     for col, defn in _emp_new_cols:
         try:
@@ -1466,7 +1468,7 @@ def update_employee_fields(data_folder, employee_id, fields):
                'nssf_number', 'bank_name', 'bank_account', 'bank_owner',
                'phone', 'note', 'status', 'dismissed_at', 'custom_fields',
                'gender', 'date_of_birth', 'avatar_path', 'department',
-               'team_id', 'custom_number'}
+               'team_id', 'custom_number', 'alias'}
     # P14.10: 班组仅井下生产工人——非井下岗位（按数据库当前 default_type）一律 team_id 置 0
     if fields.get('team_id'):
         conn = get_conn(data_folder)
