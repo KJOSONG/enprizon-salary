@@ -388,27 +388,25 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | `static/js/chart.umd.min.js` | Chart.js v4.4.7 |
 | `static/js/chartjs-plugin-datalabels.min.js` | 图表数据标签插件 |
 
-### 移动端前端（P16，2026-08-13）
+### 移动端前端（P16，2026-08-13 起，进行中）
 
-独立移动端 SPA，位于 `.design/enprizon-mobile/pages/`，4 个页面通过底部 Tab Bar 导航。设计系统为 Golden Time 暖白编辑风。
+独立移动端 SPA（**非响应式改造**），与桌面端 `index.html` 平行，共享后端 API 与 `i18n.js`。权威方案见 `docs/P16_MOBILE_FRONTEND_SPEC.md`。实际实现文件（位于 `feature/mobile-p16` 分支，未部署）：
 
-| 文件 | 行数 | 大小 | 职责 |
-|------|------|------|------|
-| `pages/dashboard.html` | 1,554 | 57.8 KB | 数据台：Chart.js 4图表 + 6 KPI 动态绑定 + 骨架屏/错误/空三态 |
-| `pages/employees.html` | 2,213 | 76.6 KB | 员工：列表/档案/审批全链路 + 搜索防抖 + 编辑模态框 |
-| `pages/collection.html` | 2,027 | 72.8 KB | 数据采集：井下/钻工/破碎/出勤 4表单 + 提交验证 + 历史记录 |
-| `pages/attendance.html` | 2,187 | 71.4 KB | 出勤：分页虚拟列表(20人/页) + 状态切换 + 批量标记 + 请假/病假 |
+| 文件 | 职责 | 状态 |
+|------|------|------|
+| `templates/mobile.html` | 移动端 SPA 骨架 + 内联 JS（登录 / 4 Tab / 数据台） | Phase 1 已完成 |
+| `static/css/mobile.css` | Golden Time token + 移动端布局/组件样式 | Phase 1 已完成 |
+| `app.py` 路由 `/m` + `before_request` UA 检测 | 移动端 UA 访问 `/` → 302 跳 `/m`；桌面端访问 `/m` 不反向跳 | Phase 1 已完成 |
 
-**总计**: ~7,981 行，~278 KB
+**技术特点**：
+- 4 标签底部 Tab Bar：📊数据台 / 👥员工 / 📋采集 / ⏱出勤（spec 为 4 项，不含薪资）
+- 顶栏含月份切换、搜索、🌐语言(中/EN)、🌙主题切换，均 localStorage 持久化
+- 所有 API 调用经 `fetch()` + `credentials:'same-origin'` 携带 session cookie；未登录显示登录页
+- 数据台 Phase 1：6 KPI + 产量趋势/白夜班/钻工堆叠/矿石环形 4 图 + 破碎卡片列表（Chart.js）
+- 无构建系统，纯 HTML + 内联 CSS/JS；设计 token 继承桌面端 `style.css`
+- 后端零改动（仅新增 `/m` 路由 + UA 重定向）
 
-**技术特点**:
-- 375px 移动端设备框架，独立 `mobile.html` 模板（非响应式改造）
-- 5 标签底部导航：📊数据台 / 👥员工 / 📥采集 / 📅考勤 / 💰薪资
-- 每页右上角胶囊形 `中/EN` 语言切换，localStorage 持久化
-- 所有 API 调用通过 `fetch()` + `credentials: 'same-origin'` 携带 session cookie
-- 401 自动显示登录提示
-- 设计库 Golden Time 约束（暖白背景 + 深棕主色 + 暖金辅色）
-- 无构建系统，纯 HTML + 内联 CSS/JS，可直接部署到 `static/mobile/` 目录
+> ⚠️ **`.design/enprizon-mobile/` 与 `.design/enprizon-portal-mobile/` 是设计工具导出原型（HTML/图标/json），不是可运行代码**，已被 `.gitignore` 排除、不纳入版本跟踪。请勿将其误认为已上线的移动端；真正的实现是上表的 `mobile.html` + `mobile.css`，目前仅在 `feature/mobile-p16` 分支、Phase 1（数据台）完成，员工/采集/出勤三模块待 Phase 2-4 实施。
 
 **API 端点依赖**:
 - `/api/production/dashboard` — 数据台产量仪表盘
@@ -435,8 +433,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ## 重构状态（2026-08-14 更新）
 
-**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照）
-**阶段**: **P0-P15 全部完成，P16（移动端）进行中**（git HEAD = `9f1a8bb`）
+**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照）。**P16 移动端开发在 `feature/mobile-p16` 分支进行**（本地 main 与 origin/main 已对齐至 `855cf58`，服务器同版本）
+**阶段**: **P0-P15 全部完成，P16（移动端）Phase 1（数据台）已完成，Phase 2-4 待实施**
 **纯采集模式**: 已移除 Excel 数据源依赖（`scan_source_files`/`parser.parse_all` 已删）。薪资全部由 P9 采集（井下/钻工/破碎/出勤4类）驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **8月数据**: 已导入本地（employees 130人 / overrides 202条 / collection_submissions 40条 / attendance_overrides 538条 / leave_balances 108 / leave_requests 7），本地验证 gross 20,859,271 TZS
 **部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary）
@@ -482,7 +480,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
-1. **P16 移动端**：出勤弹窗选择器 / 响应式图表 / 主题跟随（进行中，`9f1a8bb`）
+1. **P16 移动端**：Phase 1（数据台）已完成并提交 `feature/mobile-p16`；待 Phase 2 员工 / Phase 3 采集 / Phase 4 出勤 / Phase 5 收尾部署（详见任务列表）
 2. **本地验收**：`python3 app.py` 检查所有页面无 JS 错误（纯采集模式）
 3. **git 清理**：确认 `data/kilwa.db-wal`/`data/kilwa.db-shm` 未被误跟踪（.gitignore 已补防）
 4. **8月数据**：本地导入已完成，服务器部署后按需重新导入
