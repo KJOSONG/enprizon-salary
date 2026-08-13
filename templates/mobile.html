@@ -6,6 +6,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="hsl(40 16% 98%)">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>ENPRIZON LINDI</title>
   <link rel="stylesheet" href="/static/css/mobile.css?v={{ version }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -199,7 +201,7 @@
   function toast(msg, type){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(type?(' '+type):''); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2500); }
 
   // ── 主题/语言 ──
-  function applyTheme(){ document.documentElement.classList.toggle('dark', STATE.theme==='dark'); document.getElementById('theme-btn').textContent = STATE.theme==='dark'?'☀️':'🌙'; }
+  function applyTheme(){ document.documentElement.classList.toggle('dark', STATE.theme==='dark'); document.getElementById('theme-btn').textContent = STATE.theme==='dark'?'☀️':'🌙'; const tc=document.querySelector('meta[name="theme-color"]'); if(tc) tc.setAttribute('content', STATE.theme==='dark'?'hsl(30 15% 6%)':'hsl(40 16% 98%)'); }
   function toggleTheme(){ STATE.theme = STATE.theme==='dark'?'light':'dark'; localStorage.setItem('m_theme', STATE.theme); applyTheme(); }
   function applyLang(){ document.querySelectorAll('[data-i18n]').forEach(e=>{ const k=e.getAttribute('data-i18n'); if(I18N[STATE.lang][k]) e.textContent=I18N[STATE.lang][k]; }); document.documentElement.lang = STATE.lang; }
   function toggleLang(){ STATE.lang = STATE.lang==='zh'?'en':'zh'; localStorage.setItem('m_lang', STATE.lang); applyLang(); if(STATE.activeTab==='dashboard') renderDashboard(); }

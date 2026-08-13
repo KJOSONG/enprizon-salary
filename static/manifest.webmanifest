@@ -1,0 +1,19 @@
+{
+  "name": "ENPRIZON 薪资系统（移动端）",
+  "short_name": "ENPRIZON",
+  "description": "坦桑尼亚 Lindi 金矿薪资、产量采集与出勤移动端",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f1e8",
+  "theme_color": "#f5f1e8",
+  "icons": [
+    {
+      "src": "/static/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
