@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="hsl(40 16% 98%)">
+  <title>ENPRIZON LINDI</title>
+  <link rel="stylesheet" href="/static/css/mobile.css?v={{ version }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- 登录页（未认证时显示） -->
+  <div id="login-screen" class="login-wrap" style="display:none;">
+    <div class="login-logo">
+      <h1>ENPRIZON LINDI</h1>
+      <p>薪资与产量管理系统 · 移动端</p>
+    </div>
+    <form id="login-form" onsubmit="return doLogin(event)">
+      <div class="field">
+        <label class="field__label" data-i18n="username">用户名</label>
+        <input type="text" id="login-user" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label class="field__label" data-i18n="password">密码</label>
+        <input type="password" id="login-pass" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" data-i18n="login">登录</button>
+    </form>
+  </div>
+
+  <!-- 主应用 -->
+  <div id="app" style="display:none;">
+    <!-- 顶栏 -->
+    <header class="top-bar">
+      <button class="top-bar__back" id="topback" onclick="popPage()">‹</button>
+      <div style="flex:1; min-width:0;">
+        <div class="top-bar__title" id="top-title" data-i18n="tab_dashboard">数据台</div>
+        <div class="top-bar__month" id="top-month" onclick="openMonthSheet()">—</div>
+      </div>
+      <div class="top-bar__actions">
+        <button class="icon-btn" id="search-btn" onclick="toggleSearch()" title="搜索">🔍</button>
+        <button class="icon-btn" id="lang-btn" onclick="toggleLang()" title="语言">🌐</button>
+        <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="主题">🌙</button>
+      </div>
+    </header>
+
+    <!-- 搜索栏（默认隐藏） -->
+    <div id="search-bar" style="display:none; padding:8px 16px; background:var(--card); border-bottom:1px solid var(--border);">
+      <input type="search" id="search-input" placeholder="搜索..." oninput="onSearch(this.value)" style="width:100%; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:12px; background:var(--background);">
+    </div>
+
+    <main class="main-content">
+      <!-- 数据台 -->
+      <section class="tab-page active" id="tab-dashboard">
+        <div class="loading" id="dash-loading" data-i18n="loading">加载中...</div>
+        <div id="dash-content" style="display:none;">
+          <div class="segmented" id="dash-shift-seg" style="margin-bottom:12px;">
+            <div class="segmented__option active" data-v="all" onclick="setShiftFilter('all')" data-i18n="all">全部</div>
+            <div class="segmented__option" data-v="day" onclick="setShiftFilter('day')" data-i18n="day_shift">白班</div>
+            <div class="segmented__option" data-v="night" onclick="setShiftFilter('night')" data-i18n="night_shift">夜班</div>
+          </div>
+          <div class="kpi-grid" id="kpi-grid"></div>
+          <div class="chart-box">
+            <div class="chart-box__title" data-i18n="trend">产量趋势</div>
+            <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-trend"></canvas></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-box__title" data-i18n="day_night">白班 vs 夜班</div>
+            <div class="chart-canvas-wrap" style="height:200px;"><canvas id="chart-daynight"></canvas></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-box__title" data-i18n="driller_output">钻工组产量</div>
+            <div class="chart-canvas-wrap" style="height:200px;"><canvas id="chart-driller"></canvas></div>
+          </div>
+          <div class="chart-box">
+            <div class="chart-box__title" data-i18n="ore_type">矿石类型占比</div>
+            <div class="chart-canvas-wrap" style="height:200px; display:flex; justify-content:center;"><canvas id="chart-ore" style="max-width:200px;"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title" data-i18n="crush_output">破碎产量</div>
+            <div id="crush-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 员工 -->
+      <section class="tab-page" id="tab-employees">
+        <div class="empty-state"><div class="empty-state__icon">👷</div><div class="empty-state__title" data-i18n="building">建设中</div><div class="empty-state__desc" data-i18n="building_desc_emp">员工模块即将上线</div></div>
+      </section>
+
+      <!-- 采集 -->
+      <section class="tab-page" id="tab-collection">
+        <div class="empty-state"><div class="empty-state__icon">📋</div><div class="empty-state__title" data-i18n="building">建设中</div><div class="empty-state__desc" data-i18n="building_desc_coll">数据采集模块即将上线</div></div>
+      </section>
+
+      <!-- 出勤 -->
+      <section class="tab-page" id="tab-attendance">
+        <div class="empty-state"><div class="empty-state__icon">⏱</div><div class="empty-state__title" data-i18n="building">建设中</div><div class="empty-state__desc" data-i18n="building_desc_att">出勤模块即将上线</div></div>
+      </section>
+    </main>
+
+    <!-- 底部 Tab Bar -->
+    <nav class="tab-bar">
+      <div class="tab-bar__item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        <span data-i18n="tab_dashboard">数据台</span>
+      </div>
+      <div class="tab-bar__item" data-tab="employees" onclick="switchTab('employees')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+        <span data-i18n="tab_employees">员工</span>
+      </div>
+      <div class="tab-bar__item" data-tab="collection" onclick="switchTab('collection')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>
+        <span data-i18n="tab_collection">采集</span>
+      </div>
+      <div class="tab-bar__item" data-tab="attendance" onclick="switchTab('attendance')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span data-i18n="tab_attendance">出勤</span>
+      </div>
+    </nav>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 底部 Sheet -->
+    <div class="sheet-overlay" id="sheet" onclick="if(event.target===this)closeSheet()">
+      <div class="sheet-content" id="sheet-content">
+        <div class="sheet-handle"></div>
+        <div class="sheet-header"><span id="sheet-title"></span><button class="icon-btn" onclick="closeSheet()">✕</button></div>
+        <div id="sheet-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/i18n.js?v={{ version }}"></script>
+  <script src="/static/js/chart.umd.min.js"></script>
+  <script src="/static/js/chartjs-plugin-datalabels.min.js"></script>
+  <script>
+  // ═══════════════════════════════════════════════
+  //  P16 移动端 SPA — Phase 1: 骨架 + 数据台
+  // ═══════════════════════════════════════════════
+  const STATE = {
+    auth: null,
+    currentMonth: '',
+    dashboard: null,
+    theme: localStorage.getItem('m_theme') || 'light',
+    lang: localStorage.getItem('m_lang') || 'zh',
+    shiftFilter: 'all',
+    charts: {},
+  };
+
+  const I18N = {
+    zh: { username:'用户名', password:'密码', login:'登录', tab_dashboard:'数据台', tab_employees:'员工', tab_collection:'采集', tab_attendance:'出勤',
+          loading:'加载中...', all:'全部', day_shift:'白班', night_shift:'夜班', trend:'产量趋势', day_night:'白班 vs 夜班',
+          driller_output:'钻工组产量', ore_type:'矿石类型占比', crush_output:'破碎产量', building:'建设中',
+          building_desc_emp:'员工模块即将上线', building_desc_coll:'数据采集模块即将上线', building_desc_att:'出勤模块即将上线',
+          month:'月份', total:'合计', day:'白班', night:'夜班', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'袋', emp:'人', daily_avg:'日均', day_max:'日最高' },
+    en: { username:'Username', password:'Password', login:'Login', tab_dashboard:'Dashboard', tab_employees:'Employees', tab_collection:'Collect', tab_attendance:'Attend',
+          loading:'Loading...', all:'All', day_shift:'Day', night_shift:'Night', trend:'Trend', day_night:'Day vs Night',
+          driller_output:'Driller', ore_type:'Ore Type', crush_output:'Crush', building:'Building',
+          building_desc_emp:'Employees module coming', building_desc_coll:'Collection module coming', building_desc_att:'Attendance module coming',
+          month:'Month', total:'Total', day:'Day', night:'Night', nh:'NICKEL(H)', nl:'NICKEL(L)', mw:'MAWE', bags:'bags', emp:'ppl', daily_avg:'Daily Avg', day_max:'Day Max' },
+  };
+  function t(key){ return (I18N[STATE.lang] && I18N[STATE.lang][key]) || I18N.zh[key] || key; }
+
+  // ── 工具 ──
+  function api(path, opts){ return fetch(path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts)).then(r=>r.json()); }
+  function fmt(n){ n = Number(n)||0; return n.toLocaleString('en-US'); }
+  function toast(msg, type){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(type?(' '+type):''); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2500); }
+
+  // ── 主题/语言 ──
+  function applyTheme(){ document.documentElement.classList.toggle('dark', STATE.theme==='dark'); document.getElementById('theme-btn').textContent = STATE.theme==='dark'?'☀️':'🌙'; }
+  function toggleTheme(){ STATE.theme = STATE.theme==='dark'?'light':'dark'; localStorage.setItem('m_theme', STATE.theme); applyTheme(); }
+  function applyLang(){ document.querySelectorAll('[data-i18n]').forEach(e=>{ const k=e.getAttribute('data-i18n'); if(I18N[STATE.lang][k]) e.textContent=I18N[STATE.lang][k]; }); document.documentElement.lang = STATE.lang; }
+  function toggleLang(){ STATE.lang = STATE.lang==='zh'?'en':'zh'; localStorage.setItem('m_lang', STATE.lang); applyLang(); if(STATE.activeTab==='dashboard') renderDashboard(); }
+
+  // ── Tab 路由 ──
+  const TAB_TITLES = { dashboard:'tab_dashboard', employees:'tab_employees', collection:'tab_collection', attendance:'tab_attendance' };
+  let activeTab = 'dashboard';
+  function switchTab(name){
+    activeTab = name;
+    document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+    document.getElementById('tab-'+name).classList.add('active');
+    document.querySelectorAll('.tab-bar__item').forEach(i=>i.classList.toggle('active', i.dataset.tab===name));
+    document.getElementById('top-title').textContent = t(TAB_TITLES[name]);
+    document.getElementById('topback').classList.remove('visible');
+    window.scrollTo(0,0);
+    if(name==='dashboard' && !STATE.dashboard) loadDashboard();
+  }
+  function pushPage(){ document.getElementById('topback').classList.add('visible'); }
+  function popPage(){ document.getElementById('topback').classList.remove('visible'); }
+
+  // ── 搜索 ──
+  function toggleSearch(){ const b=document.getElementById('search-bar'); b.style.display = b.style.display==='none'?'block':'none'; if(b.style.display==='block') document.getElementById('search-input').focus(); }
+
+  // ── 月份 Sheet ──
+  function openMonthSheet(){
+    const body = document.getElementById('sheet-body');
+    body.innerHTML = '<div class="loading">'+t('loading')+'</div>';
+    openSheet(t('month'), body);
+    api('/available-months').then(months=>{
+      if(!months || !months.length){ body.innerHTML='<div class="empty-state">'+t('month')+'</div>'; return; }
+      body.innerHTML = months.map(m=>'<div class="card-item" onclick="selectMonth(\''+m+'\')"><div class="card-item__body"><div class="card-item__title">'+m+'</div></div><div class="card-item__trailing">›</div></div>').join('');
+    }).catch(()=>{ body.innerHTML='<div class="empty-state">'+t('month')+'</div>'; });
+  }
+  function selectMonth(m){
+    closeSheet();
+    api('/set-month', { method:'POST', body: JSON.stringify({ month:m }) }).then(r=>{
+      if(r.ok){ STATE.dashboard=null; loadDashboard(); toast(m); } else { toast('无权限切换月份', 'warning'); }
+    }).catch(()=>toast('切换失败','error'));
+  }
+
+  // ── Sheet ──
+  function openSheet(title, bodyEl){ document.getElementById('sheet-title').textContent=title; document.getElementById('sheet').classList.add('show'); }
+  function closeSheet(){ document.getElementById('sheet').classList.remove('show'); }
+
+  // ── 认证 ──
+  function checkAuth(){
+    return api('/api/auth/status').then(a=>{
+      STATE.auth = a;
+      if(a.logged_in){ showApp(); return true; }
+      showLogin(); return false;
+    });
+  }
+  function showLogin(){ document.getElementById('login-screen').style.display='flex'; document.getElementById('app').style.display='none'; }
+  function showApp(){ document.getElementById('login-screen').style.display='none'; document.getElementById('app').style.display='flex'; applyTheme(); applyLang(); loadDashboard(); }
+  function doLogin(e){
+    e.preventDefault();
+    const u=document.getElementById('login-user').value.trim(), p=document.getElementById('login-pass').value;
+    api('/api/login', { method:'POST', body: JSON.stringify({ username:u, password:p }) }).then(r=>{
+      if(r.ok){ showApp(); } else { toast(r.error==='invalid_credentials'?'用户名或密码错误':'登录失败','error'); }
+    }).catch(()=>toast('登录失败','error'));
+    return false;
+  }
+
+  // ── 数据台 ──
+  function loadDashboard(){
+    document.getElementById('dash-loading').style.display='block';
+    document.getElementById('dash-content').style.display='none';
+    api('/api/production/dashboard').then(d=>{
+      STATE.dashboard = d; STATE.currentMonth = d.month || '';
+      document.getElementById('top-month').textContent = STATE.currentMonth;
+      document.getElementById('dash-loading').style.display='none';
+      document.getElementById('dash-content').style.display='block';
+      renderDashboard();
+    }).catch(()=>{ document.getElementById('dash-loading').textContent='数据加载失败'; });
+  }
+
+  function filteredShift(){
+    const d = STATE.dashboard; if(!d) return [];
+    return d.shift_production.map(s=>{
+      if(STATE.shiftFilter==='day') return { date:s.date, nh:s.day_nh, nl:s.day_nl, mw:s.day_mw, total:s.day_nh+s.day_nl+s.day_mw };
+      if(STATE.shiftFilter==='night') return { date:s.date, nh:s.night_nh, nl:s.night_nl, mw:s.night_mw, total:s.night_nh+s.night_nl+s.night_mw };
+      return { date:s.date, nh:s.total_nh, nl:s.total_nl, mw:s.total_mw, total:s.total_nh+s.total_nl+s.total_mw };
+    });
+  }
+  function setShiftFilter(v){ STATE.shiftFilter=v; document.querySelectorAll('#dash-shift-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
+
+  function renderDashboard(){
+    if(!STATE.dashboard) return;
+    const data = filteredShift();
+    const sum = (k)=>data.reduce((a,s)=>a+(s[k]||0),0);
+    const totals = { nh:sum('nh'), nl:sum('nl'), mw:sum('mw') };
+    const dayTot = data.map(s=>s.total).filter(x=>x>0);
+    const avg = dayTot.length? dayTot.reduce((a,b)=>a+b,0)/dayTot.length : 0;
+    const max = dayTot.length? Math.max(...dayTot) : 0;
+    const daySum = STATE.dashboard.shift_production.reduce((a,s)=>a+s.day_nh+s.day_nl+s.day_mw,0);
+    const nightSum = STATE.dashboard.shift_production.reduce((a,s)=>a+s.night_nh+s.night_nl+s.night_mw,0);
+    const ratio = nightSum? (daySum/nightSum).toFixed(2)+':1' : '—';
+
+    const kpis = [
+      { l:t('nh'), v:fmt(totals.nh) }, { l:t('nl'), v:fmt(totals.nl) },
+      { l:t('mw'), v:fmt(totals.mw) }, { l:t('daily_avg'), v:fmt(Math.round(avg)) },
+      { l:t('day_max'), v:fmt(max) }, { l:t('day')+'/'+t('night'), v:ratio },
+    ];
+    document.getElementById('kpi-grid').innerHTML = kpis.map(k=>'<div class="kpi"><div class="kpi__label">'+k.l+'</div><div class="kpi__value">'+k.v+'</div></div>').join('');
+
+    drawTrend(data);
+    drawDayNight();
+    drawDriller();
+    drawOre(totals);
+    renderCrush();
+  }
+
+  function newChart(id, cfg){
+    if(STATE.charts[id]) STATE.charts[id].destroy();
+    STATE.charts[id] = new Chart(document.getElementById(id), cfg);
+  }
+  function baseOpts(){ return { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false }, datalabels:{ display:false } }, scales:{ x:{ ticks:{ font:{size:9}, maxRotation:0 }, grid:{ display:false } }, y:{ ticks:{ font:{size:9} }, grid:{ color:'var(--border)' } } } }; }
+
+  function drawTrend(data){
+    const labels = data.map(s=>s.date.slice(5));
+    newChart('chart-trend', { type:'line', data:{ labels, datasets:[
+      { label:t('nh'), data:data.map(s=>s.nh), borderColor:'hsl(55 24% 49%)', backgroundColor:'hsl(55 24% 49% / 0.1)', fill:true, tension:0.3, pointRadius:0 },
+      { label:t('nl'), data:data.map(s=>s.nl), borderColor:'hsl(0 15% 32%)', fill:false, tension:0.3, pointRadius:0 },
+      { label:t('mw'), data:data.map(s=>s.mw), borderColor:'hsl(70 10% 50%)', fill:false, tension:0.3, pointRadius:0 },
+    ]}, options: baseOpts() });
+  }
+  function drawDayNight(){
+    const sp = STATE.dashboard.shift_production;
+    const labels = sp.map(s=>s.date.slice(5));
+    newChart('chart-daynight', { type:'bar', data:{ labels, datasets:[
+      { label:t('day'), data:sp.map(s=>s.day_nh+s.day_nl+s.day_mw), backgroundColor:'hsl(210 70% 50%)' },
+      { label:t('night'), data:sp.map(s=>s.night_nh+s.night_nl+s.night_mw), backgroundColor:'hsl(190 70% 45%)' },
+    ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
+  }
+  function drawDriller(){
+    const dp = STATE.dashboard.driller_production || [];
+    const labels = dp.map(s=>s.date.slice(5));
+    newChart('chart-driller', { type:'bar', data:{ labels, datasets:[
+      { label:t('nh'), data:dp.map(s=>s.nh), backgroundColor:'hsl(55 24% 49%)' },
+      { label:t('nl'), data:dp.map(s=>s.nl), backgroundColor:'hsl(0 15% 32%)' },
+      { label:t('mw'), data:dp.map(s=>s.mw), backgroundColor:'hsl(70 10% 50%)' },
+    ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } }, scales:{ x:{ stacked:true, ticks:{font:{size:9}, maxRotation:0} }, y:{ stacked:true, ticks:{font:{size:9}} } } }) });
+  }
+  function drawOre(totals){
+    newChart('chart-ore', { type:'doughnut', data:{ labels:[t('nh'),t('nl'),t('mw')], datasets:[{ data:[totals.nh,totals.nl,totals.mw], backgroundColor:['hsl(55 24% 49%)','hsl(0 15% 32%)','hsl(70 10% 50%)'], borderWidth:2, borderColor:'var(--card)' }] },
+      options:{ responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } }, datalabels:{ display:false } } } });
+  }
+  function renderCrush(){
+    const cp = STATE.dashboard.crush_production || [];
+    if(!cp.length){ document.getElementById('crush-list').innerHTML='<div class="empty-state">—</div>'; return; }
+    let total=0;
+    const rows = cp.map(c=>{ total+=c.bags; return '<div class="crush-row"><span class="crush-row__date">'+c.date.slice(5)+'</span><span>'+c.personnel_count+' '+t('emp')+'</span><span class="crush-row__bags">'+fmt(c.bags)+' '+t('bags')+'</span></div>'; }).join('');
+    document.getElementById('crush-list').innerHTML = rows + '<div class="crush-total"><span>'+t('total')+'</span><span>'+fmt(total)+' '+t('bags')+'</span></div>';
+  }
+
+  // ── 启动 ──
+  applyTheme();
+  checkAuth();
+  </script>
+</body>
+</html>

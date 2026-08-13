@@ -2,7 +2,7 @@
 ENPRIZON LINDI PROJECT — Flask 主入口
 """
 import json, os, sys, socket, io, time, secrets, re
-from flask import Flask, jsonify, request, send_from_directory, render_template, send_file, session
+from flask import Flask, jsonify, request, send_from_directory, render_template, send_file, session, redirect
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from functools import wraps
@@ -809,6 +809,21 @@ def index():
 @app.route('/static/<path:path>')
 def static_files(path):
     return send_from_directory('static', path)
+
+# ── 移动端专属路由（P16）──
+@app.route('/m')
+def mobile_index():
+    return render_template('mobile.html', version=APP_VERSION)
+
+
+_MOBILE_UA_TOKENS = ('iphone', 'ipad', 'ipod', 'android', 'mobile', 'windows phone', 'blackberry')
+
+
+@app.before_request
+def mobile_redirect():
+    """移动端 UA 访问 / 时重定向到 /m；桌面端访问 /m 不反向跳转（便于调试）"""
+    if request.path == '/' and any(t in request.headers.get('User-Agent', '').lower() for t in _MOBILE_UA_TOKENS):
+        return redirect('/m')
 
 # ═══════════════════════════════════════════════════════════
 #  API: 数据源信息
