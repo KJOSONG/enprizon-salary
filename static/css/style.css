@@ -1915,6 +1915,15 @@ body {
 .picker-row:last-child { border-bottom: none; }
 .picker-row:hover { background: var(--accent); }
 .picker-row input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; margin: 0; width: 16px; height: 16px; }
+/* 出勤收集行：无 checkbox，覆盖 picker-row 的 grid 为 flex（否则名字被挤进 24px 列） */
+.picker-row.att-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  grid-template-columns: none;
+}
+.picker-row.att-row > span { flex: 1; min-width: 0; }
+.picker-row.att-row select { flex-shrink: 0; }
 .emp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip {
   display: inline-flex; align-items: center; gap: 4px;

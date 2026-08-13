@@ -537,12 +537,16 @@
 
 <!-- ═══ P9 人员多选弹层 ═══ -->
 <div class="modal-overlay" id="empPickerModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
-  <div class="modal" style="max-width:420px;width:92vw;">
+  <div class="modal" style="max-width:420px;width:94vw;">
     <div class="modal-header">
-      <h3 style="margin:0;" data-i18n="col_picker_title">选择人员</h3>
+      <h3 style="margin:0;" id="empPickerTitle" data-i18n="col_picker_title">选择人员</h3>
       <button onclick="document.getElementById('empPickerModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
     </div>
-    <div style="max-height:55vh;overflow-y:auto;margin-top:8px;" id="empPickerList"></div>
+    <div style="margin-top:8px;">
+      <input type="text" id="empPickerSearch" placeholder="" oninput="filterEmpPickerList()" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+    </div>
+    <div id="empPickerCount" style="font-size:11px;color:var(--text-muted);margin:6px 0 2px;"></div>
+    <div id="empPickerCol" style="max-height:50vh;overflow-y:auto;margin-top:6px;border:1px solid var(--border);border-radius:var(--radius);"></div>
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="btn-primary" onclick="confirmPicker()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
       <button class="btn-cancel" onclick="document.getElementById('empPickerModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
@@ -5354,19 +5358,51 @@ async function enterColEdit(formType, sid, containerId) {
 }
 
 /* 各表单渲染（P9-2~P9-5 实现） */
-let _pickerKw = '', _pickerTarget = null;
 function colInStyle(flex) {
   return 'padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;' + (flex ? 'flex:1;' : '');
 }
 
-// P12: 已选人员显示为 chips（emp-chips 容器内多个 chip）
-function renderEmpChips(names) {
-  if (!names || !names.length) return '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>';
+// P12: 已选人员显示为 chips；items=[{id,name}]；onRemove 为 (id) => onclick 内联代码字符串 的函数
+function renderEmpChips(items, isDriver, onRemove) {
+  if (!items || !items.length) return '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>';
   return '<span class="emp-chips" style="display:inline-flex;">' +
-    names.map(n => `<span class="chip">${escHtml(n)}</span>`).join('') + '</span>';
+    items.map(it => `<span class="chip" style="position:relative;${isDriver ? 'background:var(--accent-glow);border-color:var(--accent);' : ''}">${isDriver ? '🚗 ' : ''}${escHtml(it.name)}${onRemove ? `<button class="chip-remove" onclick="${onRemove(it.id)}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:0 0 0 4px;line-height:1;">✕</button>` : ''}</span>`).join('') + '</span>';
+}
+
+/* 构造 [{id,name}] 列表 */
+function empChipsFromIds(ids) {
+  const pool = _colEmpPool || STATE._empAll || [];
+  return (ids || []).filter(Boolean).map(id => { const e = pool.find(x => String(x.id) === String(id)); return { id: id, name: e ? e.name : id }; });
+}
+
+/* 删除出勤 chip：更新 hidden 字段并重渲染 */
+function removeEmpChip(hiddenId, displayId, id) {
+  const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
+  const next = cur.filter(x => x !== id);
+  document.getElementById(hiddenId).value = next.join(',');
+  const el = document.getElementById(displayId);
+  if (el) {
+    el.innerHTML = renderEmpChips(empChipsFromIds(next), false, x => "removeEmpChip('" + hiddenId + "','" + displayId + "','" + x + "')");
+    el.style.color = next.length ? 'var(--text)' : 'var(--text-muted)';
+  }
+}
+
+/* 删除驾驶 chip：更新 hidden 字段 + 重渲染 + 控制行显隐 */
+function removeDrvChip(hiddenId, displayId, rowId, id) {
+  const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
+  const next = cur.filter(x => x !== id);
+  document.getElementById(hiddenId).value = next.join(',');
+  const el = document.getElementById(displayId);
+  if (el) el.innerHTML = next.length ? renderEmpChips(empChipsFromIds(next), true, x => "removeDrvChip('" + hiddenId + "','" + displayId + "','" + rowId + "','" + x + "')") : '';
+  const row = document.getElementById(rowId);
+  if (row) row.style.display = next.length ? 'flex' : 'none';
 }
 
 /* 通用出勤/成员选择弹层 */
+
+let _pickerKw = '';
+let _pickerTarget = null;
+let _pickerSearch = '';
 
 async function openEmpPicker(kw, hiddenId, displayId, opts) {
   opts = opts || {};
@@ -5376,39 +5412,103 @@ async function openEmpPicker(kw, hiddenId, displayId, opts) {
   const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
   const curDrivers = opts.driverHiddenId ? (document.getElementById(opts.driverHiddenId).value || '').split(',').filter(Boolean) : [];
   _pickerKw = kw;
-  _pickerTarget = { hiddenId: hiddenId, displayId: displayId, showDriver: !!opts.showDriver, driverHiddenId: opts.driverHiddenId || '' };
+  _pickerTarget = { hiddenId: hiddenId, displayId: displayId, showDriver: !!opts.showDriver, driverHiddenId: opts.driverHiddenId || '', drvDisplayId: opts.drvDisplayId || '', drvRowId: opts.drvRowId || '' };
+  _pickerSearch = '';
   const modal = document.getElementById('empPickerModal');
-  document.getElementById('empPickerList').innerHTML = list.length ? list.map(e => {
-    return `
-    <label class="picker-row">
-      <input type="checkbox" class="picker-check" value="${escHtml(e.id)}" ${cur.includes(e.id) ? 'checked' : ''}>
-      <span>${escHtml(e.name)}</span>
-      <span style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-        <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
-        ${opts.showDriver ? `<label class="driver-tag" title="${t('col_driving')}" style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--text);cursor:pointer;">
-          <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${curDrivers.includes(e.id) ? 'checked' : ''}> ${t('col_driving')}
-        </label>` : ''}
-      </span>
-    </label>`;
-  }).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
+  document.getElementById('empPickerSearch').value = '';
+  document.getElementById('empPickerTitle').textContent = opts.showDriver ? t('col_pick_att_drivers') : t('col_picker_title');
+  document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur, curDrivers, !!opts.showDriver);
+  updateEmpPickerCountFromDom(!!opts.showDriver);
   modal.style.display = 'flex';
 }
 
+/* 渲染单栏人员勾选行：左出勤checkbox，右驾驶checkbox（showDriver 时） */
+function renderEmpCheckRows(list, checked, curDrivers, showDriver) {
+  const q = _pickerSearch.toLowerCase();
+  const filtered = q ? list.filter(e => (e.name || '').toLowerCase().includes(q) || String(e.id).includes(q)) : list;
+  if (!filtered.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
+  return filtered.map(e => {
+    const isChecked = checked.includes(e.id);
+    // 驾驶限联动：仅已勾选出勤者可勾驾驶
+    const drvDisabled = !isChecked;
+    const isDrv = (curDrivers || []).includes(e.id);
+    return `
+    <div class="picker-row" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-dim);">
+      <input type="checkbox" class="picker-check" value="${escHtml(e.id)}" ${isChecked ? 'checked' : ''} onchange="onEmpCheckToggle()">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(e.name)}</span>
+      <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">#${escHtml(e.id)}</span>
+      ${showDriver ? `<label style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--text);cursor:pointer;flex-shrink:0;opacity:${drvDisabled ? '0.4' : '1'};">
+        <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${isDrv ? 'checked' : ''} ${drvDisabled ? 'disabled' : ''} onchange="onDrvCheckToggle()"> ${t('col_driving')}
+      </label>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* 搜索过滤：单栏重绘 */
+function filterEmpPickerList() {
+  _pickerSearch = document.getElementById('empPickerSearch').value.trim();
+  const t = _pickerTarget;
+  if (!t) return;
+  const pool = _colEmpPool || STATE._empAll || [];
+  const list = filterEmpByDept(pool, _pickerKw);
+  const cur = (document.getElementById(t.hiddenId).value || '').split(',').filter(Boolean);
+  const curDrivers = t.driverHiddenId ? (document.getElementById(t.driverHiddenId).value || '').split(',').filter(Boolean) : [];
+  document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur, curDrivers, !!t.showDriver);
+  updateEmpPickerCountFromDom(!!t.showDriver);
+}
+
+/* 出勤 checkbox 变更：仅更新驾驶禁用态 + 计数（不重绘列表，保持勾选状态可见） */
+function onEmpCheckToggle() {
+  const t = _pickerTarget;
+  if (!t) return;
+  // 遍历每行：出勤未勾选则该行驾驶 checkbox 禁用并取消勾选
+  document.querySelectorAll('#empPickerCol .picker-row').forEach(row => {
+    const pick = row.querySelector('.picker-check');
+    const drv = row.querySelector('.driver-check');
+    if (!pick) return;
+    if (drv) {
+      const disabled = !pick.checked;
+      drv.disabled = disabled;
+      if (disabled) drv.checked = false;
+    }
+  });
+  updateEmpPickerCountFromDom(!!t.showDriver);
+}
+
+function onDrvCheckToggle() {
+  updateEmpPickerCountFromDom(true);
+}
+
+function updateEmpPickerCountFromDom(showDriver) {
+  const checked = [...document.querySelectorAll('#empPickerCol .picker-check:checked')].map(c => c.value);
+  const drv = [...document.querySelectorAll('#empPickerCol .driver-check:checked')].map(c => c.value);
+  document.getElementById('empPickerCount').textContent = showDriver
+    ? t('col_att_count').replace('{a}', checked.length) + ' | ' + t('col_drivers_count').replace('{d}', drv.length)
+    : t('col_selected_count').replace('{n}', checked.length);
+}
+
 function confirmEmpPicker() {
-  const checks = [...document.querySelectorAll('#empPickerList .picker-check:checked')].map(c => c.value);
+  const checks = [...document.querySelectorAll('#empPickerCol .picker-check:checked')].map(c => c.value);
   const t = _pickerTarget;
   if (t) {
     document.getElementById(t.hiddenId).value = checks.join(',');
     if (t.showDriver && t.driverHiddenId) {
-      const drv = [...document.querySelectorAll('#empPickerList .driver-check:checked')].map(c => c.value);
+      const drv = [...document.querySelectorAll('#empPickerCol .driver-check:checked')].map(c => c.value);
       document.getElementById(t.driverHiddenId).value = drv.join(',');
     }
     const pool = _colEmpPool || STATE._empAll || [];
-    const names = checks.map(id => { const e = pool.find(x => String(x.id) === String(id)); return e ? e.name : id; });
     const displayEl = document.getElementById(t.displayId);
     if (displayEl) {
-      displayEl.innerHTML = renderEmpChips(names);
-      displayEl.style.color = names.length ? 'var(--text)' : 'var(--text-muted)';
+      displayEl.innerHTML = renderEmpChips(empChipsFromIds(checks), false, id => "removeEmpChip('" + t.hiddenId + "','" + t.displayId + "','" + id + "')");
+      displayEl.style.color = checks.length ? 'var(--text)' : 'var(--text-muted)';
+    }
+    // 驾驶员 chips 独立显示（若存在驾驶显示容器）
+    if (t.showDriver && t.driverHiddenId) {
+      const drvIds = (document.getElementById(t.driverHiddenId).value || '').split(',').filter(Boolean);
+      const drvRow = document.getElementById(t.drvRowId || (t.displayId + 'DrvRow'));
+      const drvDisplay = document.getElementById(t.drvDisplayId || (t.displayId + 'Drivers'));
+      if (drvRow) drvRow.style.display = drvIds.length ? 'flex' : 'none';
+      if (drvDisplay) drvDisplay.innerHTML = drvIds.length ? renderEmpChips(empChipsFromIds(drvIds), true, id => "removeDrvChip('" + t.driverHiddenId + "','" + (t.drvDisplayId || (t.displayId + 'Drivers')) + "','" + (t.drvRowId || (t.displayId + 'DrvRow')) + "','" + id + "')") : '';
     }
   }
   document.getElementById('empPickerModal').style.display = 'none';
@@ -5452,10 +5552,17 @@ function renderUgCollectionForm(payload) {
   const remarkRow = (prefix, label) => `
     <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"></div>`;
   const attRow = (prefix, label, kw, dataKey) => `
-    <div class="form-row" style="margin-top:6px;align-items:center;">
-      <label style="font-size:12px;min-width:70px;">${label} ${t('col_attendance')}</label>
-      <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps',{showDriver:true,driverHiddenId:'${prefix}DriversVal'})" style="font-size:11px;padding:4px 10px;">${t('col_pick_person')}</button>
-      <div id="${prefix}Emps" class="emp-chips" style="flex:1;line-height:1.5;justify-content:flex-start;">${(payload[dataKey] && payload[dataKey].emps && payload[dataKey].emps.length) ? '' : '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>'}</div>
+    <div class="form-row" style="margin-top:6px;align-items:flex-start;">
+      <label style="font-size:12px;min-width:70px;padding-top:4px;">${label} ${t('col_attendance')}</label>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps',{showDriver:true,driverHiddenId:'${prefix}DriversVal',drvDisplayId:'${prefix}Drivers',drvRowId:'${prefix}DrvRow'})" style="font-size:11px;padding:4px 10px;">${t('col_pick_person')}</button>
+          <div id="${prefix}Emps" class="emp-chips" style="line-height:1.5;justify-content:flex-start;">${(payload[dataKey] && payload[dataKey].emps && payload[dataKey].emps.length) ? '' : '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>'}</div>
+        </div>
+        <div id="${prefix}DrvRow" style="margin-top:4px;font-size:11px;color:var(--text-muted);display:${payload[dataKey] && payload[dataKey].drivers && payload[dataKey].drivers.length ? '' : 'none'};">
+          🚗 ${t('col_drivers')}: <span id="${prefix}Drivers" class="emp-chips" style="line-height:1.5;"></span>
+        </div>
+      </div>
       <input type="hidden" id="${prefix}EmpsVal" value="${empsStr((payload[dataKey]||{}).emps)}">
       <input type="hidden" id="${prefix}DriversVal" value="${empsStr((payload[dataKey]||{}).drivers)}">
     </div>`;
@@ -5481,11 +5588,14 @@ function renderUgCollectionForm(payload) {
   // 回填已选人员显示（chips）
   ['ugDay', 'ugNight'].forEach(p => {
     const val = document.getElementById(p + 'EmpsVal').value;
-    const names = [];
-    const pool = _colEmpPool || STATE._empAll || [];
-    val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
     const el = document.getElementById(p + 'Emps');
-    el.innerHTML = renderEmpChips(names);
+    el.innerHTML = renderEmpChips(empChipsFromIds(val.split(',')), false, id => "removeEmpChip('" + p + "EmpsVal','" + p + "Emps','" + id + "')");
+    // 驾驶员 chips（若存在驾驶显示容器）
+    const drvVal = document.getElementById(p + 'DriversVal').value;
+    const drvEl = document.getElementById(p + 'Drivers');
+    const drvRow = document.getElementById(p + 'DrvRow');
+    if (drvEl) drvEl.innerHTML = drvVal ? renderEmpChips(empChipsFromIds(drvVal.split(',')), true, id => "removeDrvChip('" + p + "DriversVal','" + p + "Drivers','" + p + "DrvRow','" + id + "')") : '';
+    if (drvRow) drvRow.style.display = drvVal ? 'flex' : 'none';
   });
 }
 
@@ -5568,10 +5678,8 @@ async function renderDrSlots() {
   // 回填成员显示（chips）
   _drSlots.forEach((s, i) => {
     const val = document.getElementById('drMemVal' + i).value;
-    const names = [];
-    val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
     const el = document.getElementById('drMem' + i);
-    el.innerHTML = renderEmpChips(names);
+    el.innerHTML = renderEmpChips(empChipsFromIds(val.split(',')), false, id => "removeDrMemChip(" + i + ",'" + id + "')");
   });
 }
 
@@ -5586,20 +5694,23 @@ async function addDrSlot() {
   const empMap = {};
   pool.forEach(e => { empMap[String(e.id)] = e; });
   const modal = document.getElementById('empPickerModal');
-  document.getElementById('empPickerList').innerHTML = caps.map(c => {
+  document.getElementById('empPickerTitle').textContent = t('col_pick_captain');
+  document.getElementById('empPickerSearch').value = '';
+  document.getElementById('empPickerCount').textContent = '';
+  document.getElementById('empPickerCol').innerHTML = caps.map(c => {
     const e = empMap[String(c.employee_id)];
     return `
-    <label class="picker-row">
+    <div class="picker-row" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" class="picker-check" value="${escHtml(c.employee_id)}">
-      <span>${escHtml(c.name)}</span>
-      <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(c.employee_id)}</span>
-    </label>`;
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(c.name)}</span>
+      <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">#${escHtml(c.employee_id)}</span>
+    </div>`;
   }).join('');
   modal.style.display = 'flex';
 }
 
 function confirmDrCaptainPicker() {
-  const checks = [...document.querySelectorAll('#empPickerList .picker-check:checked')].map(c => c.value);
+  const checks = [...document.querySelectorAll('#empPickerCol .picker-check:checked')].map(c => c.value);
   if (checks.length) {
     _drSlots.push({ captain: checks[0], nh: 0, nl: 0, mw: 0, members: [] });
     renderDrSlots();
@@ -5632,7 +5743,10 @@ async function openDrMemberPicker(i) {
   const merged = [...new Set([...defaults, ...cur])];
   _drPickerIndex = i;
   const modal = document.getElementById('empPickerModal');
-  document.getElementById('empPickerList').innerHTML = `
+  document.getElementById('empPickerTitle').textContent = t('col_pick_member');
+  document.getElementById('empPickerSearch').value = '';
+  document.getElementById('empPickerCount').textContent = t('col_selected_count').replace('{n}', merged.length);
+  document.getElementById('empPickerCol').innerHTML = `
     <div style="padding:6px 8px;"><input type="text" id="drMemberSearch" placeholder="${t('ph_search')}" oninput="filterDrMemberList()" style="${colInStyle(true)}"></div>
     <div id="drMemberList">${renderDrMemberRows(driller, merged)}</div>`;
   modal.style.display = 'flex';
@@ -5640,11 +5754,11 @@ async function openDrMemberPicker(i) {
 
 function renderDrMemberRows(list, checked) {
   return list.length ? list.map(e => `
-    <label class="picker-row dr-member-row">
+    <div class="picker-row dr-member-row" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" value="${escHtml(e.id)}" ${checked.includes(e.id) ? 'checked' : ''}>
-      <span>${escHtml(e.name)}</span>
-      <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span>
-    </label>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(e.name)}</span>
+      <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">#${escHtml(e.id)}</span>
+    </div>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
 }
 
 function filterDrMemberList() {
@@ -5661,14 +5775,22 @@ function confirmDrMemberPicker() {
   const i = _drPickerIndex;
   if (i !== null) {
     document.getElementById('drMemVal' + i).value = checks.join(',');
-    const pool = _colEmpPool || STATE._empAll || [];
-    const names = checks.map(id => { const e = pool.find(x => String(x.id) === String(id)); return e ? e.name : id; });
     const el = document.getElementById('drMem' + i);
-    el.innerHTML = renderEmpChips(names);
+    el.innerHTML = renderEmpChips(empChipsFromIds(checks), false, id => "removeDrMemChip(" + i + ",'" + id + "')");
     _drSlots[i].members = checks;
   }
   _drPickerIndex = null;
   document.getElementById('empPickerModal').style.display = 'none';
+}
+
+/* 删除钻工成员 chip */
+function removeDrMemChip(slotIdx, id) {
+  const cur = (document.getElementById('drMemVal' + slotIdx).value || '').split(',').filter(Boolean);
+  const next = cur.filter(x => x !== id);
+  document.getElementById('drMemVal' + slotIdx).value = next.join(',');
+  const el = document.getElementById('drMem' + slotIdx);
+  if (el) el.innerHTML = renderEmpChips(empChipsFromIds(next), false, x => "removeDrMemChip(" + slotIdx + ",'" + x + "')");
+  _drSlots[slotIdx].members = next;
 }
 
 async function submitDrCollection() {
@@ -5712,11 +5834,8 @@ function renderCrCollectionForm(payload) {
     </div>`;
   // 回填已选人员显示（chips）
   const val = document.getElementById('crEmpsVal').value;
-  const names = [];
-  const pool = _colEmpPool || STATE._empAll || [];
-  val.split(',').filter(Boolean).forEach(id => { const e = pool.find(x => String(x.id) === String(id)); names.push(e ? e.name : id); });
   const el = document.getElementById('crEmps');
-  el.innerHTML = renderEmpChips(names);
+  el.innerHTML = renderEmpChips(empChipsFromIds(val.split(',')), false, id => "removeEmpChip('crEmpsVal','crEmps','" + id + "')");
 }
 
 async function submitCrCollection() {
@@ -5751,8 +5870,8 @@ async function renderAttCollectionForm(payload) {
     const st = m.status || 'P';
     return `
       <div class="picker-row att-row" data-dept="${escHtml(e.department || '')}">
-        <span style="flex:1;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span></span>
-        <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">${attStatusOpts(st)}</select>
+        <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
+        <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span></span>
       </div>`;
   }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
   document.getElementById('colAttForm').innerHTML = `
