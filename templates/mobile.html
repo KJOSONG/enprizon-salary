@@ -277,7 +277,15 @@
   }
 
   // ── 工具 ──
-  function api(path, opts){ return fetch(path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts)).then(r=>r.json()); }
+  // P0 修复: 子路径部署兼容(/salary/m → API_BASE=/salary),对齐桌面端 index.html
+  const API_BASE = (function() {
+    const p = window.location.pathname;
+    const i = p.indexOf('/', 1);
+    return i > 0 ? p.substring(0, i) : '';
+  })();
+  function api(path, opts){ return fetch(API_BASE + path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts)).then(r=>r.json()); }
+  // 带 HTTP 状态返回（用于区分 403 等场景），不破坏 api() 调用方
+  function apiStatus(path, opts){ return fetch(API_BASE + path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts)).then(r=>r.json().then(j=>({status:r.status, json:j}))); }
   function fmt(n){ n = Number(n)||0; return n.toLocaleString('en-US'); }
   function toast(msg, type){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(type?(' '+type):''); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2500); }
 
