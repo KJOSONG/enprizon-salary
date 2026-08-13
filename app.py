@@ -432,74 +432,7 @@ def _audit(action, employee_id='', detail='{}'):
     log_audit(app.config['DATA_FOLDER'], action, employee_id, detail)
 
 # ═══════════════════════════════════════════════════════════
-#  文件名无关的文件扫描（按内容特征识别）
-# ═══════════════════════════════════════════════════════════
-
-def scan_source_files():
-    """扫描 data/source/ 下所有 .xlsx，按内容特征识别"""
-    if not os.path.exists(SOURCE_DIR):
-        return {}
-
-    import openpyxl
-    files = {'main': None, 'advance': None, 'addressbook': None, 'nssf': None, 'crush': None}
-    found = []
-
-    for fname in os.listdir(SOURCE_DIR):
-        if not fname.endswith('.xlsx'):
-            continue
-        fpath = os.path.join(SOURCE_DIR, fname)
-        try:
-            wb = openpyxl.load_workbook(fpath, data_only=True, read_only=True)
-            sheets = wb.sheetnames
-            wb.close()
-        except Exception:
-            continue
-
-        found.append((fname, fpath, sheets))
-
-    # 按特征匹配
-    for fname, fpath, sheets in found:
-        if not files['main'] and ('Piece Rate salary attendance EV' in sheets or 'Daily salary attendance EVERY D' in sheets):
-            files['main'] = fpath
-        elif not files['advance'] and any('预支' in s for s in sheets):
-            files['advance'] = fpath
-        elif not files['addressbook'] and any('成员列表' in s or '通讯录' in s for s in sheets):
-            files['addressbook'] = fpath
-        elif not files['nssf'] and 'Tanzania Mainland' in sheets and 'SDL' in fname.upper():
-            files['nssf'] = fpath
-        elif not files['crush'] and 'CRUSH TEAM Production Data' in sheets:
-            files['crush'] = fpath
-
-    # 回退：按文件名关键词
-    if not files['main']:
-        for fname, fpath, sheets in found:
-            low = fname.lower()
-            if 'attendance' in low or 'piece' in low or 'rate' in low or 'main' in low:
-                files['main'] = fpath
-                break
-    if not files['advance']:
-        for fname, fpath, sheets in found:
-            if '预支' in fname or 'advance' in fname.lower():
-                files['advance'] = fpath
-                break
-    if not files['addressbook']:
-        for fname, fpath, sheets in found:
-            if '通讯录' in fname or 'address' in fname.lower() or 'contact' in fname.lower():
-                files['addressbook'] = fpath
-                break
-    if not files['nssf']:
-        for fname, fpath, sheets in found:
-            if 'sdl' in fname.lower() or 'nssf' in fname.lower():
-                files['nssf'] = fpath
-                break
-    if not files['crush']:
-        for fname, fpath, sheets in found:
-            if 'crush' in fname.lower():
-                files['crush'] = fpath
-                break
-
-    return files
-
+#  P9: Web 采集数据回填（纯采集模式唯一数据源，见 collection_submit）
 # ═══════════════════════════════════════════════════════════
 #  核心解析+计算引擎（被 auto_load 和 /reload 复用）
 # ═══════════════════════════════════════════════════════════
@@ -577,162 +510,137 @@ def _derive_overrides_from_events(data_folder, month):
 
     return derived
 
-def _run_pipeline(files, month_filter=None):
+def load_employees_from_db(data_folder):
+    """纯采集模式：从 employees 表读取员工列表（含薪资覆盖、NSSF、离职过滤、硬排除）"""
+    from core.database import get_conn, load_dismissed
+    from core.namematch import make_employee_id
+
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT id, name, department, default_type, day_rate, monthly_salary,
+               nssf_enrolled, phone
+        FROM employees ORDER BY CAST(id AS INTEGER)
+    """).fetchall()
+    conn.close()
+
+    employees = []
+    for r in rows:
+        eid = r['id']
+        if not eid or eid in HARD_EXCLUDE_IDS:
+            continue
+        employees.append({
+            'id': eid,
+            'name': r['name'] or eid,
+            'department': r['department'] or '',
+            'default_type': r['default_type'] or 'day_rate',
+            'source': 'db',
+            'override_type': None,
+            'overrides': [],
+            'day_rate': r['day_rate'] or 0,
+            'monthly_salary': r['monthly_salary'] or 0,
+            'advance_total': 0,
+            'phone': r['phone'] or '',
+            'nssf_enrolled': bool(r['nssf_enrolled']),
+        })
+
+    # 离职过滤
+    dismissed = load_dismissed(data_folder)
+    employees = [e for e in employees if e['id'] not in dismissed]
+    return employees
+
+
+def _build_db_ab_index(data_folder):
+    """纯采集模式：从 employees 表构建 namematch 索引（_AB_INDEX），替代通讯录 Excel
+    使 make_employee_id('EMA BUKWIMBA') 反查到新ID（如 '34'）。
+    注意：若 _AB_INDEX 已有通讯录加载的数据（如启动时通讯录种子），本函数用 DB 覆盖/补充，
+    DB 优先保证新ID体系一致。
     """
-    执行完整的数据加载→解析→计算管线
-    files: {main, advance, addressbook} 文件路径
+    from core.namematch import _AB_INDEX, _EXTRA_AB_ENTRIES, strip_alias
+    from core.database import get_conn
+    import re as _re
+    _conn = get_conn(data_folder)
+    _rows = _conn.execute("SELECT id, name FROM employees").fetchall()
+    _conn.close()
+    # 保留已有索引（通讯录加载的变体），DB 精确姓名覆盖
+    for _eid, _name in _rows:
+        if not _name:
+            continue
+        _sa = strip_alias(str(_name))
+        _key = _re.sub(r'\s+', '', _sa).upper()
+        if _key:
+            _AB_INDEX[_key] = (str(_eid), _sa)
+        # 去最后一个词的短名
+        _words = _sa.split()
+        if len(_words) > 1:
+            _short = _re.sub(r'\s+', '', ' '.join(_words[:-1])).upper()
+            _AB_INDEX.setdefault(_short, (str(_eid), _sa))
+    # 补充通讯录外人员（离职等）
+    for _k, _v in _EXTRA_AB_ENTRIES.items():
+        _AB_INDEX.setdefault(_k, _v)
+
+
+def build_attendance_from_overrides(main_data, data_folder):
+    """纯采集模式：从 attendance_overrides 构建 main_data['attendance']
+    将 P（出勤）写入 normal 列表，供出勤网格与日薪/月薪计算使用
+    """
+    from core.database import get_conn
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT employee_id, date FROM attendance_overrides WHERE status='P' ORDER BY date"
+    ).fetchall()
+    conn.close()
+    by_date = {}
+    for r in rows:
+        by_date.setdefault(r['date'], []).append(r['employee_id'])
+    attendance = []
+    for dt in sorted(by_date):
+        attendance.append({'date': dt, 'normal': by_date[dt], 'leave': [], 'absent': []})
+    main_data['attendance'] = attendance
+
+
+def _run_pipeline(month_filter=None):
+    """
+    纯采集模式：从数据库（collection_submissions + attendance_overrides + employees）重建并计算
     month_filter: "2026-05" 或 None（全部）
     返回: (ok, msg)
     """
-    from core.parser import parse_all, parse_crush_sheet
-    from core.namematch import build_master_list, make_employee_id, canonical
-    from core.advance import parse_advance
-    from core.addressbook import parse_address_book
     from core.calculator import calculate_all
 
-    if not files.get('main'):
-        return False, '未找到主文件（缺少产量/考勤数据表）'
-    # ── 通讯录（必须在 build_master_list 之前加载，使 make_employee_id 使用通讯录账号）──
-    address_book = {}
-    if files.get('addressbook'):
-        address_book = parse_address_book(files['addressbook'])
-    APP_STATE['address_book'] = address_book
+    # ── main_data 从采集记录重建 ──
+    main_data = {
+        'shift_production': [], 'driller_production': [],
+        'crush_production': [], 'attendance': [], 'dates': [],
+        'piece_rate_people': {'driller': set(), 'underground': set()},
+        'daily_salary_people': set(),
+    }
+    rebuild_main_data_from_collections(main_data)
+    build_attendance_from_overrides(main_data, app.config['DATA_FOLDER'])
+    # dates：产量采集日期 + 出勤日期
+    _dates = set(main_data.get('dates', []))
+    for _k in ('shift_production', 'driller_production', 'crush_production', 'attendance'):
+        for _d in main_data.get(_k, []):
+            if _d.get('date'):
+                _dates.add(_d['date'])
+    main_data['dates'] = sorted(_dates)
 
+    # ── employees 从 DB 读取 ──
+    employees = load_employees_from_db(app.config['DATA_FOLDER'])
+    if not employees:
+        return False, '员工表为空，请先导入通讯录或员工数据'
 
-    main_data = parse_all(files['main'])
+    # ── 构建 namematch 索引（纯采集模式：从 DB employees 表，不依赖通讯录 Excel）──
+    # 使 make_employee_id('EMA BUKWIMBA') 能反查新ID（采集回填的 main_data 用姓名，
+    # 计算引擎需再转回 eid；之前依赖通讯录 Excel 加载 _AB_INDEX，纯采集模式下改为 DB）
+    _build_db_ab_index(app.config['DATA_FOLDER'])
 
-    # ── 破碎计件数据（非必需）──
-    crush_production = []
-    if files.get('crush'):
-        crush_production = parse_crush_sheet(files['crush'])
-    main_data['crush_production'] = crush_production
-    employees = build_master_list(main_data)
+    APP_STATE['address_book'] = {}
 
-    # 收集考勤中实际出现的人
-    attendance_ids = set()
-    for sp in main_data.get('shift_production', []):
-        for e in sp.get('day_emps', []):
-            eid = make_employee_id(e)
-            if eid: attendance_ids.add(eid)
-        for e in sp.get('night_emps', []):
-            eid = make_employee_id(e)
-            if eid: attendance_ids.add(eid)
-    for sp in main_data.get('attendance', []):
-        for e in sp.get('normal', []):
-            eid = make_employee_id(e)
-            if eid: attendance_ids.add(eid)
-
-    for cp in crush_production:
-        for e in cp.get('personnel', []):
-            eid = make_employee_id(e)
-            if eid: attendance_ids.add(eid)
-
-
-    # 通讯录加载后重建硬排除名单（基于账号）
-    global HARD_EXCLUDE_IDS
-    HARD_EXCLUDE_IDS = set()
-    for raw_name in ['Eric Wang QM', 'JIMMY', 'Set sail', '宋家成（Daria）', '宋科举KEJU', '宋科举']:
-        from core.namematch import make_employee_id
-        eid = make_employee_id(raw_name)
-        if eid:
-            HARD_EXCLUDE_IDS.add(eid)
-
-    for emp in employees:
-        eid = emp['id']
-        if eid in address_book:
-            info = address_book[eid]
-            raw_dept = info.get('department', '')
-            emp['department'] = strip_dept(raw_dept)
-            emp['phone'] = info.get('phone', '')
-
-            if info.get('guessed_type') and emp['default_type'] in ('both', 'day_rate', 'piece_underground', 'piece_driller'):
-                gtype = info['guessed_type']
-                if gtype in ('piece_driller', 'piece_underground') and emp['default_type'] == 'both':
-                    emp['default_type'] = gtype
-                    emp['source'] = 'piece_rate_sheet'
-        else:
-            emp['department'] = ''
-            # 考勤有但通讯录没有 → 标记
-            if eid in attendance_ids:
-                emp['_note'] = '已离职/通讯录待确认'
-            emp['phone'] = ''
-
-    # ── 预支 ──
-    advance_data = None
-    if files.get('advance'):
-        advance_data = parse_advance(files['advance'], month=month_filter)
-
-    if advance_data:
-        for emp in employees:
-            aid = emp['id']
-            emp['advance_total'] = advance_data.get(aid, {}).get('total', 0)
-
-    existing_ids = set(e['id'] for e in employees)
-    if advance_data:
-        for eid, adv in advance_data.items():
-            if eid not in existing_ids:
-                name = canonical(adv.get('name', '')) or adv.get('name', eid)
-                employees.append({
-                    'id': eid, 'name': name, 'default_type': 'advance_only',
-                    'source': 'advance_sheet', 'override_type': None, 'overrides': [],
-                    'day_rate': 0, 'monthly_salary': 0, 'advance_total': adv['total'],
-                    'department': strip_dept(address_book.get(eid, {}).get('department', '')),
-                    'phone': address_book.get(eid, {}).get('phone', ''),
-                })
-                existing_ids.add(eid)
-
-    # ── 顶层部门人员（仅通讯录中存在但不在主数据/预支中的人，不设默认全勤）──
-    for eid, info in address_book.items():
-        if eid not in existing_ids and info.get("department") == "ENPRIZON LINDI PROJECT":
-            employees.append({
-                "id": eid, "name": info["name"], "default_type": "day_rate",
-                "source": "top_department", "override_type": None, "overrides": [],
-                "day_rate": 0, "monthly_salary": 0,
-                "advance_total": advance_data.get(eid, {}).get("total", 0) if advance_data else 0,
-                "department": "ENPRIZON LINDI PROJECT", "phone": info.get("phone", ""),
-            })
-            existing_ids.add(eid)
-
-    # ── 通讯录中所有未匹配的子部门人员（无出勤数据，但索引到员工列表）──
-    for eid, info in address_book.items():
-        if eid not in existing_ids and info.get("department") and info["department"] != "ENPRIZON LINDI PROJECT":
-            employees.append({
-                "id": eid, "name": info["name"], "default_type": "day_rate",
-                "source": "address_book", "override_type": None, "overrides": [],
-                "day_rate": 0, "monthly_salary": 0,
-                "advance_total": advance_data.get(eid, {}).get("total", 0) if advance_data else 0,
-                "department": strip_dept(info.get("department", "")),
-                "phone": info.get("phone", ""),
-            })
-            existing_ids.add(eid)
-
-    # ── 硬排除过滤 ──
-    employees = [e for e in employees if e['id'] not in HARD_EXCLUDE_IDS]
-
-    # ── 离职员工过滤 ──
-    from core.database import load_dismissed
-    dismissed = load_dismissed(app.config['DATA_FOLDER'])
-    employees = [e for e in employees if e['id'] not in dismissed]
-
-    # ── NSSF（社保） ──
-    nssf_members = {}
-    if files.get('nssf'):
-        from core.nssf import parse_sdl_list
-        nssf_members = parse_sdl_list(files['nssf'])
-    APP_STATE['nssf_sdl_members'] = nssf_members
-
-    # 加载持久化的 NSSF 参保状态
+    # ── NSSF（社保）参保状态 ──
     from core.nssf import load_nssf_enrollment
     nssf_enrollment = load_nssf_enrollment(app.config['DATA_FOLDER'])
-
-    # 初始参保：SDL 名单中的人自动参保
     for emp in employees:
-        eid = emp['id']
-        if eid in nssf_members and eid not in nssf_enrollment:
-            from core.nssf import save_nssf_enrollment
-            save_nssf_enrollment(app.config['DATA_FOLDER'], eid, True)
-            nssf_enrollment[eid] = {'enrolled': True}
-        emp['nssf_enrolled'] = nssf_enrollment.get(eid, {}).get('enrolled', False)
+        emp['nssf_enrolled'] = nssf_enrollment.get(emp['id'], {}).get('enrolled', False)
+    APP_STATE['nssf_sdl_members'] = {}
 
     # ── 加载持久化的日薪/月薪基数 + override_type ──
     from core.database import load_overrides as _load_ov
@@ -762,7 +670,11 @@ def _run_pipeline(files, month_filter=None):
                     emp['monthly_salary'] = o['monthly_salary']
         # 清零：仅基于永久覆盖类型，临时例外不触发清零
         ot = emp.get('override_type')
-        if ot == 'day_rate':
+        # P14.4: 井下工人（default_type=piece_underground）在 scoring 模式下按月薪轨道，
+        # 即使 override_type 被 day_rate 覆盖也保留 monthly_salary，不做清零
+        if emp.get('default_type') == 'piece_underground':
+            pass
+        elif ot == 'day_rate':
             emp['monthly_salary'] = 0
         elif ot == 'monthly':
             emp['day_rate'] = 0
@@ -770,8 +682,10 @@ def _run_pipeline(files, month_filter=None):
             emp['day_rate'] = 0
             emp['monthly_salary'] = 0
 
-    # ── P9: Web 采集数据回填（覆盖 Excel 同日期，再按月份过滤） ──
-    rebuild_main_data_from_collections(main_data)
+    # ── 预支（纯采集模式暂不支持预支采集，预留空） ──
+    advance_data = None
+
+    # ── P9: Web 采集数据回填（main_data 已含采集数据，无需重复合并） ──
 
     # ── 月份筛选（过滤所有数据源，不仅仅是 dates） ──
     if month_filter:
@@ -804,13 +718,7 @@ def _run_pipeline(files, month_filter=None):
     APP_STATE['advance_data'] = advance_data
     APP_STATE['salary_result'] = result
     APP_STATE['month'] = month_filter
-    APP_STATE['source_info'] = {
-        'main': os.path.basename(files['main']) if files.get('main') else None,
-        'advance': os.path.basename(files['advance']) if files.get('advance') else None,
-        'addressbook': os.path.basename(files['addressbook']) if files.get('addressbook') else None,
-        'nssf': os.path.basename(files['nssf']) if files.get('nssf') else None,
-        'crush': os.path.basename(files['crush']) if files.get('crush') else None,
-    }
+    APP_STATE['source_info'] = {}
 
     # 保存当月结果到数据库（仅在有月份筛选时，确保数据准确）
     if result and month_filter and main_data.get('dates'):
@@ -838,28 +746,33 @@ def static_files(path):
 @app.route('/source-info', methods=['GET'])
 @login_required
 def get_source_info():
-    """返回当前加载的源文件信息"""
-    return jsonify(APP_STATE.get('source_info', {}))
+    """纯采集模式：无源文件信息，返回空"""
+    return jsonify({})
 
 @app.route('/available-months', methods=['GET'])
 @login_required
 def get_available_months():
-    """返回可选的月份列表（源数据 + 数据库 + 当前及未来月份）"""
+    """返回可选的月份列表（纯采集模式：从 collection_submissions + 数据库补充）"""
     from datetime import datetime
+    from core.database import get_conn
     months = set()
-    # 从已加载的源数据提取
+    # 从已加载的 main_data（采集回填后的数据）提取
     md = APP_STATE.get('main_data', {})
     for d in md.get('dates', []):
         months.add(d[:7])
+    # 从 collection_submissions 提取（采集数据的权威月份来源）
+    try:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        for r in conn.execute(
+            "SELECT DISTINCT substr(submission_date,1,7) FROM collection_submissions "
+            "WHERE submission_date LIKE '____-__-__'").fetchall():
+            if r[0]: months.add(r[0])
+        conn.close()
+    except Exception:
+        pass
     # 从数据库补充历史月份
-    from core.database import list_monthly_months, get_conn
+    from core.database import list_monthly_months
     months.update(list_monthly_months(app.config['DATA_FOLDER']))
-    # 包含当前月及未来2个月（支持提前记录出勤）
-    now = datetime.now()
-    for i in range(3):
-        y = now.year + (now.month + i - 1) // 12
-        m = (now.month + i - 1) % 12 + 1
-        months.add(f'{y}-{m:02d}')
     # 从出勤覆盖表和奖金罚款表补充月份
     try:
         conn = get_conn(app.config['DATA_FOLDER'])
@@ -869,6 +782,12 @@ def get_available_months():
             if r[0]: months.add(r[0])
         conn.close()
     except: pass
+    # 包含当前月及未来2个月（支持提前记录出勤）
+    now = datetime.now()
+    for i in range(3):
+        y = now.year + (now.month + i - 1) // 12
+        m = (now.month + i - 1) % 12 + 1
+        months.add(f'{y}-{m:02d}')
     return jsonify(sorted(months, reverse=True))
 
 # ═══════════════════════════════════════════════════════════
@@ -878,9 +797,8 @@ def get_available_months():
 @app.route('/reload', methods=['POST'])
 @admin_required
 def reload_source():
-    """从 data/source/ 重新加载所有数据"""
-    files = scan_source_files()
-    ok, msg = _run_pipeline(files, month_filter=APP_STATE.get('month'))
+    """纯采集模式：从数据库重新加载所有数据"""
+    ok, msg = _run_pipeline(month_filter=APP_STATE.get('month'))
     if not ok:
         return jsonify({'ok': False, 'error': msg})
     _audit('reload_source', '', json.dumps({'employees': len(APP_STATE['employees'])}))
@@ -901,163 +819,17 @@ def reload_source():
     })
 
 # ═══════════════════════════════════════════════════════════
-#  API: 上传源文件
-# ═══════════════════════════════════════════════════════════
-
-ALLOWED_FILE_TYPES = {'main', 'advance', 'addressbook', 'nssf', 'crush'}
-
-# ═══════════════════════════════════════════════════════════
-#  API: 下载源文件模板
-# ═══════════════════════════════════════════════════════════
-
-@app.route('/download-source/<file_type>', methods=['GET'])
-@login_required
-def download_source(file_type):
-    """下载当前源文件作为模板参考"""
-    if file_type not in ALLOWED_FILE_TYPES:
-        return jsonify({'ok': False, 'error': f'无效的文件类型: {file_type}'}), 400
-
-    files = scan_source_files()
-    filepath = files.get(file_type)
-    if not filepath or not os.path.exists(filepath):
-        return jsonify({'ok': False, 'error': f'当前无{file_type}类型的源文件, 请先上传'}), 404
-
-    filename = os.path.basename(filepath)
-    return send_file(filepath, as_attachment=True, download_name=filename,
-                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-def _validate_source_file(file_type, filepath):
-    """校验上传文件是否能被对应解析器正确解析并返回有效数据"""
-    try:
-        if file_type == 'main':
-            from core.parser import parse_all
-            data = parse_all(filepath)
-            if not data.get('dates'):
-                return False, '主文件中未找到任何日期数据，请确认 Sheet1/Sheet2 包含有效日期'
-            if not data.get('employees') and not data.get('shift_production'):
-                return False, '主文件中未找到员工或产量数据，请检查表格格式'
-            return True, ''
-
-        elif file_type == 'advance':
-            from core.advance import parse_advance
-            data = parse_advance(filepath)
-            if not data:
-                return False, '预支文件中未提取到任何预支记录，请确认 B 列为姓名、C 列为笔数、D 列为总额'
-            return True, ''
-
-        elif file_type == 'addressbook':
-            from core.addressbook import parse_address_book
-            data = parse_address_book(filepath)
-            if not data:
-                return False, '通讯录文件中未提取到任何员工信息，请确认 Sheet 名为「成员列表」且含有效数据'
-            return True, ''
-
-        elif file_type == 'nssf':
-            from core.nssf import parse_sdl_list
-            data = parse_sdl_list(filepath)
-            if not data:
-                return False, 'NSSF 文件中未提取到任何参保记录，请确认 Sheet 名为「Tanzania Mainland」'
-            return True, ''
-
-        elif file_type == 'crush':
-            from core.parser import parse_crush_sheet
-            data = parse_crush_sheet(filepath)
-            if not data:
-                return False, '破碎计件文件中未找到有效数据，请确认 Sheet 名为「CRUSH TEAM Production Data」'
-            return True, ''
-
-    except Exception as e:
-        return False, f'文件解析失败: {str(e)}'
-
-@app.route('/upload-source', methods=['POST'])
-@admin_required
-def upload_source():
-    """管理员上传 Excel 源文件，自动覆盖旧文件并重载数据"""
-    file_type = request.form.get('file_type', '')
-    if file_type not in ALLOWED_FILE_TYPES:
-        return jsonify({'ok': False, 'error': f'无效的文件类型: {file_type}'}), 400
-
-    file = request.files.get('file')
-    if not file or not file.filename:
-        return jsonify({'ok': False, 'error': '未选择文件'}), 400
-
-    if not file.filename.lower().endswith('.xlsx'):
-        return jsonify({'ok': False, 'error': '仅支持 .xlsx 格式文件'}), 400
-
-    # 确保目录存在
-    os.makedirs(SOURCE_DIR, exist_ok=True)
-
-    # 扫描当前文件，删除同类型的旧文件
-    import openpyxl
-    for fname in os.listdir(SOURCE_DIR):
-        if not fname.endswith('.xlsx'):
-            continue
-        fpath = os.path.join(SOURCE_DIR, fname)
-        try:
-            wb = openpyxl.load_workbook(fpath, data_only=True, read_only=True)
-            sheets = wb.sheetnames
-            wb.close()
-        except Exception:
-            continue
-
-        # 按类型匹配删除
-        is_main = 'Piece Rate salary attendance EV' in sheets or 'Daily salary attendance EVERY D' in sheets
-        is_advance = any('预支' in s for s in sheets)
-        is_addressbook = any('成员列表' in s or '通讯录' in s for s in sheets)
-        is_nssf = 'Tanzania Mainland' in sheets and 'SDL' in fname.upper()
-
-        if (file_type == 'main' and is_main) or \
-           (file_type == 'advance' and is_advance) or \
-           (file_type == 'addressbook' and is_addressbook) or \
-           (file_type == 'nssf' and is_nssf):
-            os.remove(fpath)
-
-    # 保存新文件
-    safe_name = secure_filename(file.filename)
-    save_path = os.path.join(SOURCE_DIR, safe_name)
-    file.save(save_path)
-
-    # ── 校验：解析试运行 ──
-    ok, validate_msg = _validate_source_file(file_type, save_path)
-    if not ok:
-        os.remove(save_path)  # 校验失败，删除文件
-        return jsonify({'ok': False, 'error': validate_msg}), 400
-
-    # 重新加载数据管线
-    files = scan_source_files()
-    ok, msg = _run_pipeline(files, month_filter=APP_STATE.get('month'))
-    if not ok:
-        # 管线失败也删除已上传文件，避免污染
-        os.remove(save_path)
-        return jsonify({'ok': False, 'error': msg}), 500
-
-    _audit('upload_source', file_type, safe_name)
-
-    return jsonify({
-        'ok': True,
-        'message': msg,
-        'filename': safe_name,
-        'source_info': APP_STATE.get('source_info', {}),
-        'summary': {
-            'total_employees': len(APP_STATE['employees']),
-        },
-        'employees': APP_STATE['employees'],
-        'salary': APP_STATE['salary_result'],
-    })
-
-# ═══════════════════════════════════════════════════════════
 #  API: 月份切换
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/set-month', methods=['POST'])
 @editor_required
 def set_month():
-    """切换月份筛选，始终以当前覆盖重算。无源数据的月份自动进入 Headless 预览模式"""
+    """切换月份筛选，始终以当前覆盖重算。纯采集模式下从采集数据构建"""
     data = request.get_json()
     month = data.get('month', '')
 
-    files = scan_source_files()
-    ok, msg = _run_pipeline(files, month_filter=month if month != 'all' else None)
+    ok, msg = _run_pipeline(month_filter=month if month != 'all' else None)
     if not ok:
         return jsonify({'ok': False, 'error': msg})
 
@@ -1124,9 +896,11 @@ def get_employees():
                 emp['day_rate'] = o['day_rate']
             if st == 'monthly' and o.get('monthly_salary', 0) > 0:
                 emp['monthly_salary'] = o['monthly_salary']
-        # 清零不匹配最终类型的基数
+        # 清零不匹配最终类型的基数（P14.4: 井下工人保留 monthly_salary，供 scoring 模式使用）
         ot = emp.get('override_type')
-        if ot == 'day_rate':
+        if emp.get('default_type') == 'piece_underground':
+            pass
+        elif ot == 'day_rate':
             emp['monthly_salary'] = 0
         elif ot == 'monthly':
             emp['day_rate'] = 0
@@ -1215,6 +989,20 @@ def remove_override_by_id():
     _audit('remove_override_by_id', str(oid))
     return jsonify({'ok': True})
 
+@app.route('/api/employees/<employee_id>/temp-overrides', methods=['GET'])
+@login_required
+def api_employee_temp_overrides(employee_id):
+    """P14.6: 返回该员工的所有临时例外（有日期区间的覆盖记录）"""
+    from core.database import get_conn
+    conn = get_conn(app.config['DATA_FOLDER'])
+    rows = conn.execute(
+        "SELECT id, salary_type, day_rate, monthly_salary, start_date, end_date, note "
+        "FROM overrides WHERE employee_id=? AND (start_date!='' OR end_date!='') "
+        "AND (type IS NULL OR type != 'exclusion') ORDER BY start_date",
+        (employee_id,)).fetchall()
+    conn.close()
+    return jsonify({'overrides': [dict(r) for r in rows]})
+
 @app.route('/employees/bonus-penalty', methods=['POST'])
 @editor_required
 def save_bonus_penalty():
@@ -1276,8 +1064,7 @@ def restore_employee_api():
     _restore(app.config['DATA_FOLDER'], eid)
     _audit('restore_employee', eid)
     # 重新加载以获取完整员工数据
-    files = scan_source_files()
-    ok, msg = _run_pipeline(files, month_filter=APP_STATE.get('month') if APP_STATE.get('month') != 'all' else None)
+    ok, msg = _run_pipeline(month_filter=APP_STATE.get('month') if APP_STATE.get('month') != 'all' else None)
     return jsonify({'ok': True, 'message': msg})
 
 
@@ -2194,10 +1981,31 @@ def api_driver_roster():
 @app.route('/api/scoring/card', methods=['POST'])
 @editor_required
 def scoring_submit_card():
-    from core.database import submit_scoring_card, log_audit
+    from core.database import (submit_scoring_card, save_scoring_card_entries,
+                               delete_scoring_card_entries, log_audit)
     data = request.get_json()
     if not data:
         return jsonify({'ok': False, 'error': '缺少数据'}), 400
+    # P14.8: 新格式 rows（一张卡 9 行明细）→ 先删再插，覆盖重录
+    if 'rows' in data:
+        week = data.get('week')
+        team_id = data.get('team_id')
+        card_no = data.get('card_no')
+        source = data.get('source', '工友')
+        rows = data.get('rows') or []
+        if week is None or team_id is None or not card_no:
+            return jsonify({'ok': False, 'error': '缺少 week/team_id/card_no'}), 400
+        if not rows:
+            return jsonify({'ok': False, 'error': '缺少评分行'}), 400
+        delete_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source)
+        save_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source, rows)
+        log_audit(app.config['DATA_FOLDER'], 'scoring_card_entries', session.get('username',''),
+                  json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no,
+                              'source': source, 'count': len(rows)}))
+        return jsonify({'ok': True, 'count': len(rows)})
+    # 旧格式 entries（P3 逐行）兼容保留
+    if 'entries' not in data:
+        return jsonify({'ok': False, 'error': '缺少评分数据'}), 400
     week = data['week']
     team = data['team']
     card_no = data['card_no']
@@ -2207,6 +2015,53 @@ def scoring_submit_card():
     log_audit(app.config['DATA_FOLDER'], 'scoring_card', session.get('username',''),
               json.dumps({'card_id': card_id, 'week': week, 'team': team, 'source': source}))
     return jsonify({'ok': True, 'card_id': card_id})
+
+# ── P14.8: 评分原始记录查询/删除（周次/班组/卡号/被评人） ──
+
+@app.route('/api/scoring/entries', methods=['GET'])
+@editor_required
+def scoring_entries_list():
+    """P14.8: 评分原始记录列表（team/week/card/source 组合过滤）"""
+    from core.database import get_scoring_card_entries
+    team = request.args.get('team', type=int)
+    week = request.args.get('week', type=int)
+    card = request.args.get('card', '') or None
+    source = request.args.get('source', '') or None
+    rows = get_scoring_card_entries(app.config['DATA_FOLDER'],
+                                    team_id=team, week=week, card_no=card, source=source)
+    return jsonify({'ok': True, 'entries': rows, 'count': len(rows)})
+
+@app.route('/api/scoring/card', methods=['GET'])
+@editor_required
+def scoring_card_get():
+    """P14.8: 查询单卡全部行（9 行明细）"""
+    from core.database import get_scoring_card_entries
+    team = request.args.get('team', type=int)
+    week = request.args.get('week', type=int)
+    card = request.args.get('card', '')
+    source = request.args.get('source', '工友')
+    if team is None or week is None or not card:
+        return jsonify({'ok': False, 'error': '缺少 team/week/card'}), 400
+    rows = get_scoring_card_entries(app.config['DATA_FOLDER'],
+                                    team_id=team, week=week, card_no=card, source=source)
+    return jsonify({'ok': True, 'rows': rows, 'count': len(rows)})
+
+@app.route('/api/scoring/card', methods=['DELETE'])
+@editor_required
+def scoring_card_delete():
+    """P14.8: 删除单卡（重录/废弃）"""
+    from core.database import delete_scoring_card_entries, log_audit
+    data = request.get_json(silent=True) or {}
+    week = data.get('week') if data.get('week') is not None else request.args.get('week', type=int)
+    team_id = data.get('team_id') if data.get('team_id') is not None else request.args.get('team', type=int)
+    card_no = data.get('card_no') or request.args.get('card', '')
+    source = data.get('source', request.args.get('source', '工友'))
+    if week is None or team_id is None or not card_no:
+        return jsonify({'ok': False, 'error': '缺少 week/team_id/card_no'}), 400
+    delete_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source)
+    log_audit(app.config['DATA_FOLDER'], 'scoring_card_delete', '',
+              json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no, 'source': source}))
+    return jsonify({'ok': True})
 
 # ── P10: 评分录入（班组+月份，一张卡一人） ──
 
@@ -2305,26 +2160,42 @@ def scoring_week_cards(team, week):
 @app.route('/api/scoring/summary/<int:team>', methods=['GET'])
 @login_required
 def scoring_summary(team):
-    from core.database import get_all_scoring_entries, get_scoring_config
-    entries = get_all_scoring_entries(app.config['DATA_FOLDER'], team)
+    from core.database import get_scoring_card_entries, get_scoring_config
+    # P14.8: 汇总改为从 scoring_card_entries（新明细表）读取，兼容旧 scoring_entries 若存在
+    entries = get_scoring_card_entries(app.config['DATA_FOLDER'], team_id=team)
+    if not entries:
+        # 回退旧表（历史数据）
+        try:
+            from core.database import get_all_scoring_entries
+            entries = get_all_scoring_entries(app.config['DATA_FOLDER'], team)
+            entries = [{
+                'subject_employee_id': e.get('target_employee_id', e.get('employee_id', '')),
+                'subject_name': e.get('target_wid', e.get('wid', '')),
+                'week': e.get('week'), 'card_no': e.get('card_no', str(e.get('card_id', ''))),
+                'source': e.get('source', '工友'),
+                'initiative': e.get('initiative'), 'diligence': e.get('diligence'),
+                'discipline': e.get('discipline'), 'cooperation': e.get('cooperation'),
+                'safety': e.get('safety'), 'driving': e.get('driving'),
+            } for e in entries]
+        except Exception:
+            entries = []
     config = get_scoring_config(app.config['DATA_FOLDER'])
-    import collections, statistics, math
+    import collections
     by_target = collections.defaultdict(lambda: {'peer_scores': [], 'mgmt_scores': []})
-    peer_entries = [e for e in entries if e['source'] == '工友']
-    mgmt_entries = [e for e in entries if e['source'] == '管理']
-    target_employees = {}
+    target_names = {}
     for e in entries:
-        eid = e['target_employee_id']
+        eid = e['subject_employee_id']
         dims = [e['initiative'], e['diligence'], e['discipline'], e['cooperation'], e['safety']]
         if e['driving'] is not None:
             dims.append(e['driving'])
-        avg = sum(dims) / len([d for d in dims if d > 0]) if any(d > 0 for d in dims) else 0
+        filled = [d for d in dims if d]
+        avg = sum(filled) / len(filled) if filled else 0
         if e['source'] == '工友':
             by_target[eid]['peer_scores'].append(avg)
         else:
             by_target[eid]['mgmt_scores'].append(avg)
-        if eid not in target_employees:
-            target_employees[eid] = e['target_wid']
+        if eid not in target_names:
+            target_names[eid] = e['subject_name'] or eid
     result = []
     mgmt_vote_weight = config.get('mgmt_vote_weight', 1.5)
     for eid, scores in by_target.items():
@@ -2342,7 +2213,7 @@ def scoring_summary(team):
         elif final_behavior >= 60: coef = 0.8
         else: coef = 0.5
         deviation = abs(peer_behavior - mgmt_behavior) if mgmt_behavior > 0 else 0
-        result.append({'employee_id': eid, 'wid': target_employees.get(eid,''),
+        result.append({'employee_id': eid, 'wid': target_names.get(eid, eid),
                        'peer_avg': round(peer_avg, 2), 'peer_behavior': round(peer_behavior, 2),
                        'mgmt_behavior': round(mgmt_behavior, 2), 'final_behavior': round(final_behavior, 2),
                        'coefficient': coef, 'deviation': round(deviation, 2),
@@ -3887,7 +3758,7 @@ def _backup_to_archive():
         print('  ✓ 已自动备份 kilwa.db → archived_kilwa.db')
 
 def seed_new_tables_from_excel():
-    """仅首次运行：从 data/source/ Excel 种子 employees + employee_events"""
+    """仅首次运行：当 employees 表为空时，从通讯录 Excel 种子 employees"""
     from core.database import get_conn
     conn = get_conn(app.config['DATA_FOLDER'])
     # 检查 employees 是否已有数据（防止重复种子）
@@ -3896,111 +3767,65 @@ def seed_new_tables_from_excel():
         conn.close()
         return False  # 已有数据，跳过
 
-    print('  ► 从 Excel 种子 employees 表...')
-    from core.parser import parse_all, parse_address_book
-    from core.namematch import make_employee_id, build_master_list
-    from core.database import create_event
-
-    files = scan_source_files()
-    if not files.get('main'):
+    print('  ► 从通讯录种子 employees 表...')
+    # 纯采集模式：找 data/source 下可用的通讯录文件（仅首次导入用）
+    import glob
+    ab_path = None
+    for _p in sorted(glob.glob(os.path.join(SOURCE_DIR, '*.xlsx'))):
+        try:
+            import openpyxl
+            _wb = openpyxl.load_workbook(_p, data_only=True, read_only=True)
+            _sheets = _wb.sheetnames
+            _wb.close()
+            if any('成员列表' in s or '通讯录' in s for s in _sheets):
+                ab_path = _p
+                break
+        except Exception:
+            continue
+    if not ab_path:
         conn.close()
         return False
 
-    # 解析主文件 + 通讯录
-    main_data = parse_all(files['main'])
-    ab_data = {}
-    if files.get('addressbook'):
-        ab_data = parse_address_book(files['addressbook'])
+    from core.addressbook import parse_address_book
+    from core.database import create_event
+    ab_data = parse_address_book(ab_path)
+    if not ab_data:
+        conn.close()
+        return False
 
-    # 构建 dept 映射（从通讯录）
-    dept_map = {}
-    if ab_data and 'members' in ab_data:
-        for m in ab_data['members']:
-            eid = make_employee_id(m.get('name', ''))
-            if eid:
-                dept_map[eid] = strip_dept(m.get('department', ''))
-
-    # 收集所有员工
     seen = set()
-    employees = build_master_list(main_data)
-    from core.namematch import _AB_INDEX as ab_index
-
-    for emp in employees:
-        eid = emp.get('employee_id') or emp.get('name', '')
-        if not eid or eid in seen:
-            continue
-        if eid in HARD_EXCLUDE_IDS:
+    for eid, info in ab_data.items():
+        if not eid or eid in seen or eid in HARD_EXCLUDE_IDS:
             continue
         seen.add(eid)
-        name = emp.get('name') or emp.get('employee_id', '')
-        dept = dept_map.get(eid, emp.get('department', ''))
-        dtype = emp.get('default_type', 'day_rate')
-
-        # 写入 employees
+        dept = strip_dept(info.get('department', ''))
+        dtype = info.get('guessed_type') or 'day_rate'
         try:
             conn.execute("""
                 INSERT OR IGNORE INTO employees (id, name, department, default_type, day_rate, monthly_salary)
                 VALUES (?,?,?,?,?,?)
-            """, (eid, name, dept, dtype, emp.get('day_rate', 0), emp.get('monthly_salary', 0)))
-            # 写入 hire 事件
+            """, (eid, info['name'], dept, dtype, 0, 0))
             create_event(app.config['DATA_FOLDER'], {
                 'employee_id': eid, 'event_type': 'hire',
-                'effective_date': emp.get('hire_date', '2026-01-01'),
-                'snapshot': json.dumps({'name': name, 'department': dept, 'type': dtype}),
+                'effective_date': '2026-01-01',
+                'snapshot': json.dumps({'name': info['name'], 'department': dept, 'type': dtype}),
                 'payload': '{}', 'operator_id': 'system', 'status': 'approved',
             })
-        except Exception as e:
+        except Exception:
             pass
 
-    print(f'  ✓ 已种子 {len(seen)} 名员工 + hire 事件')
+    print(f'  ✓ 已从通讯录种子 {len(seen)} 名员工 + hire 事件')
     conn.commit()
     conn.close()
     return True
 
 def auto_load_source():
-    files = scan_source_files()
-    if not files.get('main'):
-        return False
-
-    APP_STATE['main_file'] = files['main']
-    APP_STATE['advance_file'] = files.get('advance')
-    APP_STATE['addressbook_file'] = files.get('addressbook')
-
-    # 快速扫描源文件中的可用月份（仅读 Date 列，避免提交时间戳干扰）
+    """纯采集模式：从数据库重建并加载当前月份数据"""
     from datetime import datetime
     current_month = datetime.now().strftime('%Y-%m')
     chosen_month = current_month
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(files['main'], data_only=True)
-        months_found = set()
-        for sname in wb.sheetnames:
-            ws = wb[sname]
-            # 找到 Date 列（表头含 'DATE' 或 '日期' 的列）
-            date_col = None
-            for col in range(1, (ws.max_column or 0) + 1):
-                hdr = str(ws.cell(1, col).value or '').upper()
-                if 'DATE' in hdr and 'REAL' not in hdr and 'SUBMIT' not in hdr:
-                    date_col = col; break
-            if not date_col:
-                date_col = 4  # 默认第4列
-            for row in range(2, min((ws.max_row or 0) + 1, 200)):
-                cell = ws.cell(row, date_col).value
-                if cell and isinstance(cell, str) and len(cell) >= 10 and cell[4] == '-' and cell[7] == '-':
-                    months_found.add(cell[:7])
-                elif hasattr(cell, 'strftime'):
-                    try: months_found.add(cell.strftime('%Y-%m'))
-                    except: pass
-        wb.close()
-        if months_found:
-            if current_month in months_found:
-                chosen_month = current_month
-            else:
-                chosen_month = max(months_found)
-    except Exception:
-        pass
 
-    ok, msg = _run_pipeline(files, month_filter=chosen_month)
+    ok, msg = _run_pipeline(month_filter=chosen_month)
     print(f'  {msg}')
     _ensure_viewer_account()
     return ok

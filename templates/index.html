@@ -291,8 +291,8 @@
       </select></div>
       <div class="form-row" id="hireRowDayRate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="hireDayRate" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row" id="hireRowMonthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="hireMonthly" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="emp_team">班组</label><select id="hireTeamId" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><option value="0" data-i18n="emp_no_team">未分班</option></select></div>
-      <div class="form-row"><label data-i18n="emp_custom_number">自定义工号</label><input type="text" id="hireCustomNumber" data-i18n-placeholder="ph_custom_number_example" placeholder="如 W1 / ABEID1" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row" id="hireRowTeam" style="display:none;"><label data-i18n="emp_team">班组</label><select id="hireTeamId" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><option value="0" data-i18n="emp_no_team">未分班</option></select></div>
+      <div class="form-row"><label data-i18n="emp_custom_number">工号</label><input type="text" id="hireCustomNumber" readonly placeholder="工号 = 员工 ID，提交后自动生成" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text-muted);font-size:13px;box-sizing:border-box;"></div>
     </div>
     <!-- P13: 入职头像上传（base64 dataURL → 随审批 payload 提交） -->
     <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;max-width:760px;">
@@ -388,13 +388,16 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 id="profileName" style="margin-bottom:0;">—</h2>
-      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="profileStatus" style="font-size:11px;"></span>
+        <button class="nav-btn" onclick="editEmployeeProfile()" style="font-size:11px;padding:4px 10px;" data-i18n="btn_edit">✎ 编辑</button>
+        <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div style="min-width:0;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h2 style="margin-bottom:0;font-size:14px;" data-i18n="emp_basic_info">基本信息</h2>
-          <span id="profileStatus" style="font-size:11px;"></span>
         </div>
         <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
           <img id="pfAvatar" alt="" style="width:96px;height:120px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);">
@@ -420,10 +423,17 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_annual_balance">年假余额</span><span class="info-value" id="pfAnnual">—</span><button class="nav-btn" id="pfAnnualAdjBtn" onclick="adjustLeaveBalance('annual')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_comp_balance">调休余额</span><span class="info-value" id="pfComp">—</span><button class="nav-btn" id="pfCompAdjBtn" onclick="adjustLeaveBalance('comp')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
           <div class="info-row"><span class="info-label" data-i18n="leave_sick">病假余额</span><span class="info-value" id="pfSick">—</span><button class="nav-btn" id="pfSickAdjBtn" onclick="adjustLeaveBalance('sick')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
+          <!-- P14.5: 薪资类型（可编辑） -->
+          <div class="info-row"><span class="info-label" data-i18n="emp_salary_type">薪资类别</span><span class="info-value" id="pfSalaryType">—</span><button class="nav-btn" id="pfSalaryTypeEditBtn" onclick="editProfileSalaryType()" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_edit">✎ 编辑</button></div>
         </div>
-        <button class="nav-btn" onclick="editEmployeeProfile()" style="margin-top:8px;font-size:11px;" data-i18n="btn_edit">✎ 编辑</button>
-        <button class="nav-btn" onclick="toggleSchemaForm()" style="margin-top:8px;margin-left:4px;font-size:11px;" data-i18n="form_toggle_schema">📝 表单模式</button>
-        <div id="profileSchemaForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);"></div>
+        <!-- P14.6: 临时例外区块 -->
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h3 style="margin:0;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="profile_temp_overrides">临时例外</h3>
+            <button class="nav-btn" id="pfTempOverrideAddBtn" onclick="openTempOverrideModal()" style="font-size:11px;" data-i18n="temp_override_add">＋ 添加</button>
+          </div>
+          <div id="profileTempOverrides" style="font-size:12px;color:var(--text-muted);" data-i18n="loading">加载中...</div>
+        </div>
       </div>
       <!-- 生命周期时间线 -->
       <div style="min-width:0;">
@@ -628,7 +638,7 @@
       <h3 style="margin-bottom:8px;font-size:13px;">🔄 <span data-i18n="settings_ug_mode">井下计薪模式</span></h3>
       <div class="form-row">
         <label style="min-width:90px;" data-i18n="settings_ug_mode_label">模式</label>
-        <select id="cfg_ug_mode" class="cfg-input" onchange="saveUndergroundMode()" style="flex:1;padding:4px 8px;">
+        <select id="cfg_ug_mode" class="cfg-input" onchange="saveConfig()" style="flex:1;padding:4px 8px;">
           <option value="piecework" data-i18n="settings_ug_mode_piecework">⚒ 纯计件</option>
           <option value="scoring" data-i18n="settings_ug_mode_scoring">★ 评分+固定月薪</option>
         </select>
@@ -639,6 +649,12 @@
       <h3 style="margin-bottom:8px;font-size:13px;">🤒 <span data-i18n="settings_sick_leave">病假年额度</span></h3>
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_sick_days">天数/年</label><input type="number" id="cfg_sick_days" class="cfg-input" data-key="sick_leave_days" step="1" onchange="saveConfig()"></div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_sick_desc">新员工病假年额度（默认14），修改后新扣减按新额度</p>
+    </div>
+    <!-- P14: 保存按钮（onchange 只标记，显式保存提交） -->
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button id="cfgSaveBtn" class="btn-primary admin-only" onclick="doSaveConfig()" style="display:none;padding:8px 22px;font-size:13px;font-weight:600;" data-i18n="btn_save">💾 保存</button>
+      <span id="cfgDirtyHint" style="display:none;font-size:12px;color:#F59E0B;" data-i18n="settings_dirty_hint">⚠ 有未保存的修改</span>
+      <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default">↺ 恢复默认</button>
     </div>
     <!-- P10: 评分班组管理（admin+） -->
     <div class="card admin-only" style="margin-top:16px;">
@@ -758,12 +774,20 @@
       <select id="scoreTeamSel" onchange="loadScoreTeam()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
         <option value="" data-i18n="scoring_sel_team">选择班组</option>
       </select>
+      <select id="scoreWeekSel" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="" data-i18n="score_sel_week">选择周次</option>
+        <option value="1">第 1 周</option><option value="2">第 2 周</option>
+        <option value="3">第 3 周</option><option value="4">第 4 周</option>
+        <option value="5">第 5 周</option>
+      </select>
       <select id="scoreSourceSel" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
         <option value="工友" data-i18n="score_src_worker">工友</option><option value="管理" data-i18n="score_src_mgmt">管理</option>
       </select>
       <span id="scoreMonthLabel" style="font-size:13px;color:var(--text-muted);"></span>
       <span id="scoreTeamCount" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
+    <!-- P14.7: 卡号导航 -->
+    <div id="scoreCardNav" style="display:none;margin-bottom:12px;flex-wrap:wrap;gap:6px;align-items:center;"></div>
     <div id="scoreCardArea" style="padding:8px;">
       <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="scoring_pick_team_hint">选择班组开始录入</div>
     </div>
@@ -1305,18 +1329,8 @@ async function submitLogin() {
     if (data.ok) {
       closeLoginModal();
       await checkAuth();
-      // P11-fix: 登录成功后确保 currentMonth 有值（init() 登录前跑，未登录时 /salary 401）
-      if (!STATE.currentMonth) {
-        try {
-        const sRes = await fetch(api('/salary'));
-        const sData = await sRes.json();
-        const m = (sData.result && sData.result.month) || sData.month;
-        if (m) {
-          STATE.currentMonth = m;
-          updatePeriodBar();
-        }
-        } catch(e) {}
-      }
+      // P14.2: 登录成功后立即渲染首页（数据台/薪资表/员工表），无需手动切月
+      await loadDashboard();
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
     } else {
       errEl.textContent = data.error === 'invalid_credentials' ? t('err_invalid_credentials') :
@@ -1346,8 +1360,7 @@ function authFetch(url, opts = {}) {
       });
     }
     if (res.status === 403) {
-      showToast(t('toast_admin_only'), 'error');
-    }
+      showToast(t('toast_admin_only'), 'error');    }
     return res;
   });
 }
@@ -1692,8 +1705,9 @@ function toggleCollapseSidebar() {
 // ════════════════════════════════════════════════
 //  页面加载: 检查自动加载数据
 // ════════════════════════════════════════════════
-(async function init() {
-  await checkAuth();
+
+// P14.2: 登录后拉取薪资 + 员工数据并渲染首页（登录成功与 init 复用）
+async function loadDashboard() {
   try {
     const res = await fetch(api('/salary'));
     const data = await res.json();
@@ -1706,7 +1720,8 @@ function toggleCollapseSidebar() {
       STATE._headless = d2.headless || STATE._headless;
       renderDashboard(data.result);
       renderSalaryTable(data.result);
-      document.getElementById('recalcBtn').disabled = false;
+      const recalcBtn = document.getElementById('recalcBtn');
+      if (recalcBtn) recalcBtn.disabled = false;
       renderEmployeeTable();
       loadProductionData();
       loadSourceInfo();
@@ -1718,8 +1733,19 @@ function toggleCollapseSidebar() {
         updatePeriodBar();
       }
     }
-  } catch(e) { /* 静默失败，用户可登录后重试 */ }
+  } catch(e) { /* 登录后可重试 */ }
+}
 
+(async function init() {
+  await checkAuth();
+  // P14.1: 未登录直接弹出登录框，不再空白加载
+  if (!_authState.logged_in) {
+    openLoginModal();
+  }
+  // P14.2: 登录后首屏自动渲染（登录成功由 loadDashboard 调用；这里仅已登录时兜底）
+  if (_authState.logged_in) {
+    await loadDashboard();
+  }
   // P0 导航初始化：解析 hash 路由
   renderSidebar();
   if (window.location.hash && window.location.hash.length > 1) {
@@ -1859,33 +1885,13 @@ async function changeMonth(month) {
 }
 
 // ════════════════════════════════════════════════
-//  源文件信息
+//  数据来源信息（纯采集模式）
 // ════════════════════════════════════════════════
 async function loadSourceInfo() {
   try {
-    const res = await fetch(api('/source-info'));
-    const info = await res.json();
     const container = document.getElementById('sourceInfo');
-    if (!info.main) {
-      container.innerHTML = '<div class="source-item"><div class="icon">⚠️</div><div class="info"><div class="fname">' + t('source_no_file') + '</div><div class="fpath">' + t('source_please_add') + '</div></div></div>';
-      return;
-    }
-    const icons = {
-      main: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
-      advance: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
-      addressbook: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-    };
-    const labels = {main: t('source_main'), advance: t('source_advance'), addressbook: t('source_addressbook'), nssf: t('source_nssf'), crush: t('source_crush')};
-    container.innerHTML = ['main', 'advance', 'addressbook', 'nssf', 'crush'].map(k => {
-      if (!info[k]) return '';
-      return `<div class="source-item">
-        ${icons[k]}
-        <div class="info">
-          <div class="fname">${escHtml(labels[k])}</div>
-          <div class="fpath">${escHtml(info[k])}</div>
-        </div>
-      </div>`;
-    }).filter(Boolean).join('');
+    if (!container) return;
+    container.innerHTML = '<div class="source-item"><div class="icon">🖥️</div><div class="info"><div class="fname">' + t('source_collection_mode') + '</div><div class="fpath">' + t('source_collection_hint') + '</div></div></div>';
   } catch(e) {}
 }
 
@@ -2021,6 +2027,19 @@ async function loadEmployeeProfilePage(eid) {
       const btn = document.getElementById(id);
       if (btn) btn.style.display = isAdminUser() ? 'inline-block' : 'none';
     });
+
+    // P14.5: 薪资类型显示
+    const TYPE_LBL = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
+      piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
+    const salType = emp.override_type || emp.default_type || 'day_rate';
+    document.getElementById('pfSalaryType').textContent = TYPE_LBL[salType] || salType;
+    const stBtn = document.getElementById('pfSalaryTypeEditBtn');
+    if (stBtn) stBtn.style.display = isAdminUser() ? 'inline-block' : 'none';
+
+    // P14.6: 加载临时例外列表
+    loadProfileTempOverrides(eid);
+    const toBtn = document.getElementById('pfTempOverrideAddBtn');
+    if (toBtn) toBtn.style.display = isAdminUser() ? 'inline-block' : 'none';
 
     // 时间线
     const EVENT_LABELS = { hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
@@ -2263,9 +2282,9 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfEdit_salary_type" onchange="toggleSalaryBaseFields()" style="${inStyle}">${selOpts(Object.keys(typeLabels), curType)}</select></div>`;
   form += `<div class="form-row" id="pfEdit_row_dayrate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfEdit_day_rate" value="${g(emp.day_rate)}" min="0" style="${inStyle}"></div>`;
   form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
-  // P10: 班组 + 自定义工号
-  form += `<div class="form-row"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
-  form += `<div class="form-row"><label data-i18n="emp_custom_number">自定义工号</label><input id="pfEdit_custom_number" value="${g(emp.custom_number)}" placeholder="${t('ph_custom_number_example')}" style="${inStyle}"></div>`;
+  // P10: 班组 + 工号（P14.10: 班组仅井下生产工人；P14.11: 工号只读）
+  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_custom_number">工号</label><input id="pfEdit_custom_number" value="${g(emp.custom_number || emp.id)}" readonly style="${inStyle}color:var(--text-muted);"></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
   form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
   form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button>';
@@ -2279,7 +2298,7 @@ async function editEmployeeProfile() {
   applyI18n();
 }
 
-/* P7: 按薪资类别显隐基数输入 */
+/* P7: 按薪资类别显隐基数输入 + P14.10: 班组仅井下生产工人 */
 function toggleSalaryBaseFields() {
   const sel = document.getElementById('pfEdit_salary_type');
   if (!sel) return;
@@ -2288,6 +2307,8 @@ function toggleSalaryBaseFields() {
   const rowMs = document.getElementById('pfEdit_row_monthly');
   if (rowDr) rowDr.style.display = (v === 'day_rate') ? '' : 'none';
   if (rowMs) rowMs.style.display = (v === 'monthly') ? '' : 'none';
+  const rowTeam = document.getElementById('pfEdit_row_team');
+  if (rowTeam) rowTeam.style.display = (v === 'piece_underground') ? '' : 'none';
 }
 
 async function saveEmployeeProfile(eid) {
@@ -2307,7 +2328,10 @@ async function saveEmployeeProfile(eid) {
   ['position','skill_level','hire_date','nida_number','nssf_number',
    'bank_name','bank_account','bank_owner','gender','date_of_birth','custom_number']
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
-  data.team_id = parseInt(document.getElementById('pfEdit_team_id').value) || 0;
+  // P14.10: 班组仅井下生产工人（非井下置 0）
+  const salType = document.getElementById('pfEdit_salary_type').value;
+  data.team_id = (salType === 'piece_underground')
+    ? (parseInt(document.getElementById('pfEdit_team_id').value) || 0) : 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
 
   const res = await authFetch(api('/api/employees/' + eid), {
@@ -2345,6 +2369,158 @@ async function removeOverride(eid, idx) {
   const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
   STATE.employees = (await r.json()).employees;
   renderEmployeeTable();
+}
+
+/* ── P14.5: 档案页薪资类型快捷编辑 ── */
+function editProfileSalaryType() {
+  const eid = _profileEid;
+  if (!eid) return;
+  const emp = (STATE._empAll || []).find(e => String(e.id) === String(eid));
+  const cur = (emp && (emp.override_type || emp.default_type)) || 'day_rate';
+  const typeLabels = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
+    piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
+  const options = Object.keys(typeLabels).map(k =>
+    `<option value="${k}" ${k===cur?'selected':''}>${escHtml(typeLabels[k])}</option>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'pfSalTypeModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:500;';
+  modal.innerHTML = `
+    <div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:501;width:360px;padding:20px;">
+      <h3 style="margin-bottom:12px;" data-i18n="emp_salary_type">薪资类别</h3>
+      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label>
+        <select id="pfSalTypeSel" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">${options}</select></div>
+      <div class="form-row" id="pfSalTypeRowDay" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfSalTypeDay" value="${emp&&emp.day_rate||0}" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
+      <div class="form-row" id="pfSalTypeRowMon" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfSalTypeMon" value="${emp&&emp.monthly_salary||0}" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn-primary" onclick="saveProfileSalaryType()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
+        <button class="btn-cancel" onclick="document.getElementById('pfSalTypeModal').remove()" style="padding:6px 16px;" data-i18n="btn_cancel">取消</button>
+      </div>
+      <div id="pfSalTypeMsg" style="margin-top:8px;font-size:12px;"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  applyI18n();
+  toggleSalTypeBase();
+  document.getElementById('pfSalTypeSel').addEventListener('change', toggleSalTypeBase);
+}
+function toggleSalTypeBase() {
+  const v = document.getElementById('pfSalTypeSel').value;
+  const r1 = document.getElementById('pfSalTypeRowDay');
+  const r2 = document.getElementById('pfSalTypeRowMon');
+  if (r1) r1.style.display = v === 'day_rate' ? '' : 'none';
+  if (r2) r2.style.display = v === 'monthly' ? '' : 'none';
+}
+async function saveProfileSalaryType() {
+  const eid = _profileEid;
+  const msg = document.getElementById('pfSalTypeMsg');
+  const st = document.getElementById('pfSalTypeSel').value;
+  const day = parseInt(document.getElementById('pfSalTypeDay').value) || 0;
+  const mon = parseInt(document.getElementById('pfSalTypeMon').value) || 0;
+  const res = await authFetch(api('/api/employees/' + eid + '/salary-type'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({salary_type: st, day_rate: day, monthly_salary: mon}),
+  });
+  const r = await res.json();
+  if (!r.ok) { msg.textContent = t('salary_type_save_failed'); msg.style.color = 'var(--danger)'; return; }
+  document.getElementById('pfSalTypeModal').remove();
+  showEmployeeProfile(eid);
+  renderEmployeeTable();
+  const recalc = document.getElementById('recalcBtn');
+  if (recalc) recalc.click();
+}
+
+/* ── P14.6: 档案页临时例外 ── */
+async function loadProfileTempOverrides(eid) {
+  const container = document.getElementById('profileTempOverrides');
+  if (!container) return;
+  try {
+    const res = await fetch(api('/api/employees/' + eid + '/temp-overrides'));
+    const data = await res.json();
+    const list = data.overrides || [];
+    const typeLabels = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
+      piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
+    if (list.length === 0) {
+      container.innerHTML = '<span data-i18n="temp_override_empty">无临时例外</span>';
+      return;
+    }
+    container.innerHTML = list.map(o => {
+      const lbl = typeLabels[o.salary_type] || o.salary_type;
+      const base = o.salary_type === 'day_rate' ? (o.day_rate ? ' · ' + o.day_rate + ' TZS/天' : '')
+                 : o.salary_type === 'monthly' ? (o.monthly_salary ? ' · ' + o.monthly_salary + ' TZS/月' : '') : '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);">
+        <span>${escHtml(lbl)}${base}<span style="color:var(--text-muted);"> · ${escHtml(o.start_date||'?')} ~ ${escHtml(o.end_date||'?')}</span></span>
+        <button class="nav-btn" onclick="removeProfileTempOverride(${o.id})" style="font-size:10px;padding:2px 8px;" data-i18n="btn_delete">删除</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    container.innerHTML = '<span data-i18n="load_fail">加载失败</span>';
+  }
+}
+async function removeProfileTempOverride(oid) {
+  if (!confirm(t('confirm_delete_override'))) return;
+  await authFetch(api('/employees/remove-override-by-id'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({override_id: oid}),
+  });
+  loadProfileTempOverrides(_profileEid);
+}
+function openTempOverrideModal() {
+  const eid = _profileEid;
+  if (!eid) return;
+  const typeLabels = { day_rate: t('type_dayrate'), monthly: t('type_monthly'),
+    piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'), piece_crush: t('type_crush_piece') };
+  const options = Object.keys(typeLabels).map(k => `<option value="${k}">${escHtml(typeLabels[k])}</option>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'pfTempModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:500;';
+  const inStyle = 'padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;';
+  modal.innerHTML = `
+    <div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:501;width:400px;padding:20px;">
+      <h3 style="margin-bottom:12px;" data-i18n="temp_override_add">添加临时例外</h3>
+      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfTempType" onchange="toggleTempBase()" style="${inStyle}">${options}</select></div>
+      <div class="form-row" id="pfTempRowDay" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfTempDay" value="0" min="0" style="${inStyle}"></div>
+      <div class="form-row" id="pfTempRowMon" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfTempMon" value="0" min="0" style="${inStyle}"></div>
+      <div class="form-row"><label data-i18n="temp_override_start">开始日期</label><input type="date" id="pfTempStart" style="${inStyle}"></div>
+      <div class="form-row"><label data-i18n="temp_override_end">结束日期</label><input type="date" id="pfTempEnd" style="${inStyle}"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn-primary" onclick="saveTempOverride()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
+        <button class="btn-cancel" onclick="document.getElementById('pfTempModal').remove()" style="padding:6px 16px;" data-i18n="btn_cancel">取消</button>
+      </div>
+      <div id="pfTempMsg" style="margin-top:8px;font-size:12px;"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  applyI18n();
+  toggleTempBase();
+}
+function toggleTempBase() {
+  const v = document.getElementById('pfTempType').value;
+  const r1 = document.getElementById('pfTempRowDay');
+  const r2 = document.getElementById('pfTempRowMon');
+  if (r1) r1.style.display = v === 'day_rate' ? '' : 'none';
+  if (r2) r2.style.display = v === 'monthly' ? '' : 'none';
+}
+async function saveTempOverride() {
+  const eid = _profileEid;
+  const msg = document.getElementById('pfTempMsg');
+  const start = document.getElementById('pfTempStart').value;
+  const end = document.getElementById('pfTempEnd').value;
+  if (!start) { msg.textContent = t('err_date_required'); msg.style.color = 'var(--danger)'; return; }
+  const payload = {
+    employee_id: eid,
+    salary_type: document.getElementById('pfTempType').value,
+    day_rate: parseInt(document.getElementById('pfTempDay').value) || 0,
+    monthly_salary: parseInt(document.getElementById('pfTempMon').value) || 0,
+    start_date: start,
+    end_date: end || start,
+  };
+  const res = await authFetch(api('/employees/override'), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload),
+  });
+  const r = await res.json();
+  if (!r.ok) { msg.textContent = t('save_failed'); msg.style.color = 'var(--danger)'; return; }
+  document.getElementById('pfTempModal').remove();
+  loadProfileTempOverrides(eid);
+  const recalc = document.getElementById('recalcBtn');
+  if (recalc) recalc.click();
 }
 
 // ── 离职管理 ──
@@ -3466,9 +3642,6 @@ async function changeUserRole(username, role) {
   }
 }
 
-//  源文件上传管理
-// ═════��══════════════════════════════════════════
-
 // ════════════════════════════════════════════════
 //  配置
 // ════════════════════════════════════════════════
@@ -3493,36 +3666,59 @@ async function loadConfig() {
   } catch(e) {}
 }
 
-let _cfgTimer = null;
+// P14: 计薪参数保存（显式按钮触发；onchange 只标记待保存，不自动提交，避免 0 值被默认值吞掉）
+let _cfgDirty = false;
 async function saveConfig() {
-  clearTimeout(_cfgTimer);
-  _cfgTimer = setTimeout(async () => {
-    const config = {
-      underground_prices: {
-        'NICKEL（H）': parseInt(document.getElementById('cfg_ug_nh').value) || 6000,
-        'NICKEL（L）': parseInt(document.getElementById('cfg_ug_nl').value) || 5000,
-        'MAWE': parseInt(document.getElementById('cfg_ug_mw').value) || 4000,
-      },
-      driller_prices: {
-        'NICKEL（H）': parseInt(document.getElementById('cfg_dr_nh').value) || 5000,
-        'NICKEL（L）': parseInt(document.getElementById('cfg_dr_nl').value) || 4000,
-        'MAWE': parseInt(document.getElementById('cfg_dr_mw').value) || 3000,
-      },
-      nssf_rate: (parseFloat(document.getElementById('cfg_nssf').value) || 10) / 100,
-      crush_price: parseInt(document.getElementById('cfg_crush_price').value) || 300,
-      underground_mode: document.getElementById('cfg_ug_mode').value || 'piecework',
-    };
-    const res = await authFetch(api('/config'), {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(config),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      // 自动重新计算
-      document.getElementById('recalcBtn').click();
-      showToast(t('toast_saved'));
-    }
-  }, 500);
+  // onchange 调用 → 标记脏，显示保存按钮
+  _cfgDirty = true;
+  const btn = document.getElementById('cfgSaveBtn');
+  if (btn) { btn.style.display = ''; btn.classList.add('att-save-dirty'); }
+  const hint = document.getElementById('cfgDirtyHint');
+  if (hint) hint.style.display = '';
+  // 若由保存按钮调用（带参数 force），直接提交
+  if (arguments.length > 0 && arguments[0] === true) {
+    return await doSaveConfig();
+  }
+}
+
+async function doSaveConfig() {
+  // 显式读取值，0 合法（不兜底），仅空/NaN 才回退默认
+  const _num = (id, dft) => {
+    const el = document.getElementById(id);
+    if (!el) return dft;
+    const v = parseFloat(el.value);
+    return isNaN(v) ? dft : v;
+  };
+  const config = {
+    underground_prices: {
+      'NICKEL（H）': _num('cfg_ug_nh', 6000),
+      'NICKEL（L）': _num('cfg_ug_nl', 5000),
+      'MAWE': _num('cfg_ug_mw', 4000),
+    },
+    driller_prices: {
+      'NICKEL（H）': _num('cfg_dr_nh', 5000),
+      'NICKEL（L）': _num('cfg_dr_nl', 4000),
+      'MAWE': _num('cfg_dr_mw', 3000),
+    },
+    nssf_rate: _num('cfg_nssf', 10) / 100,
+    crush_price: _num('cfg_crush_price', 300),
+    underground_mode: document.getElementById('cfg_ug_mode').value || 'piecework',
+    sick_leave_days: _num('cfg_sick_days', 14),
+  };
+  const res = await authFetch(api('/config'), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(config),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    _cfgDirty = false;
+    const btn = document.getElementById('cfgSaveBtn');
+    if (btn) { btn.style.display = 'none'; btn.classList.remove('att-save-dirty'); }
+    document.getElementById('recalcBtn').click();
+    showToast(t('toast_saved'));
+  } else {
+    showToast(data.error || t('toast_operation_fail'), 'error');
+  }
 }
 
 async function resetConfig() {
@@ -3536,6 +3732,11 @@ async function resetConfig() {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(defaults),
   });
+  _cfgDirty = false;
+  const btn = document.getElementById('cfgSaveBtn');
+  if (btn) { btn.style.display = 'none'; btn.classList.remove('att-save-dirty'); }
+  const hint = document.getElementById('cfgDirtyHint');
+  if (hint) hint.style.display = 'none';
   loadConfig();
   document.getElementById('recalcBtn').click();
   showToast(t('toast_reset_done'));
@@ -4119,6 +4320,9 @@ function toggleHireBaseFields() {
   const rowMs = document.getElementById('hireRowMonthly');
   if (rowDr) rowDr.style.display = (v === 'day_rate') ? '' : 'none';
   if (rowMs) rowMs.style.display = (v === 'monthly') ? '' : 'none';
+  // P14.10: 班组仅井下生产工人（piece_underground）显示
+  const rowTeam = document.getElementById('hireRowTeam');
+  if (rowTeam) rowTeam.style.display = (v === 'piece_underground') ? '' : 'none';
 }
 
 /* ── P9 数据采集 ── */
@@ -4712,9 +4916,9 @@ async function submitColPayload(formType, date, payload, historyId) {
   }
 }
 /* ── P3 评分录入 ── */
-/* ── P10 评分录入（班组+月份，一张卡一人翻卡） ── */
+/* ── P10/P14.7 评分录入（班组+周次，一张卡覆盖全班组 W1-W9） ── */
 let _scoreEmps = [];       // 班组全员 [{id,name,custom_number}]
-let _scoreData = {};       // eid → {initiative,diligence,discipline,cooperation,safety,driving,note}
+let _scoreCards = [];      // 已录入卡列表 [{card_no, source, filled, rows}]
 let _scoreIdx = 0;         // 当前卡下标
 
 const SCORE_DIMS = [
@@ -4741,46 +4945,102 @@ async function loadScoreTeams() {
     if (objSel) {
       objSel.innerHTML = groups.map(g => `<option value="${g.id}">${escHtml(g.name)}</option>`).join('');
     }
+    // P14.7: 周次/来源变化时重新加载卡列表
+    const srcSel = document.getElementById('scoreSourceSel');
+    if (srcSel) srcSel.onchange = loadScoreTeam;
+    const weekSel = document.getElementById('scoreWeekSel');
+    if (weekSel) weekSel.onchange = loadScoreTeam;
   } catch(e) {}
 }
 
 async function loadScoreTeam() {
   const teamId = document.getElementById('scoreTeamSel').value;
+  const week = document.getElementById('scoreWeekSel').value;
   const area = document.getElementById('scoreCardArea');
+  const nav = document.getElementById('scoreCardNav');
   const month = STATE.currentMonth;
   const label = document.getElementById('scoreMonthLabel');
   if (label) label.textContent = month ? t('scoring_month_label') + ' ' + month : '';
   if (!teamId) {
     area.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('scoring_pick_team_hint') + '</div>';
-    _scoreEmps = [];
+    if (nav) nav.style.display = 'none';
+    _scoreEmps = []; _scoreCards = []; _scoreIdx = 0;
     return;
   }
   try {
     const res = await fetch(api(`/api/scoring/team/${teamId}/month/${encodeURIComponent(month)}`));
     const data = await res.json();
     _scoreEmps = data.employees || [];
-    const source = document.getElementById('scoreSourceSel').value;
-    const submitted = (data.submitted && data.submitted[source]) || {};
-    _scoreData = {};
-    _scoreEmps.forEach(e => {
-      const pre = submitted[e.id] || {};
-      _scoreData[e.id] = {
-        initiative: pre.initiative || '', diligence: pre.diligence || '',
-        discipline: pre.discipline || '', cooperation: pre.cooperation || '',
-        safety: pre.safety || '', driving: pre.driving === undefined ? '' : (pre.driving === null ? '' : pre.driving),
-        note: '',
-      };
-    });
-    _scoreIdx = 0;
     document.getElementById('scoreTeamCount').textContent = _scoreEmps.length ? `${_scoreEmps.length} ${t('unit_person')}` : '';
     if (!_scoreEmps.length) {
       area.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('scoring_no_members') + '</div>';
+      if (nav) nav.style.display = 'none';
       return;
     }
+    // P14.7: 加载该班组该周已录入的卡（记录可查）
+    if (week) {
+      _scoreCards = await loadScoreCards(teamId, week);
+    } else {
+      _scoreCards = [{ card_no: '01', source: document.getElementById('scoreSourceSel').value, filled: false }];
+    }
+    _scoreIdx = 0;
+    renderScoreCardNav();
     renderScoreCard();
   } catch(e) {
     area.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>';
   }
+}
+
+// P14.8: 加载已录入卡列表（每张卡含每行 6 维）
+async function loadScoreCards(teamId, week) {
+  const source = document.getElementById('scoreSourceSel').value;
+  try {
+    const res = await fetch(api(`/api/scoring/entries?team=${teamId}&week=${week}&source=${encodeURIComponent(source)}`));
+    const data = await res.json();
+    const rows = data.entries || [];
+    // 按 card_no 分组
+    const byCard = {};
+    rows.forEach(r => {
+      byCard[r.card_no] = byCard[r.card_no] || [];
+      byCard[r.card_no].push(r);
+    });
+    const cards = Object.keys(byCard).sort().map(cardNo => ({
+      card_no: cardNo, source, filled: true, rows: byCard[cardNo],
+    }));
+    // 若没有卡，给一个空卡
+    if (!cards.length) cards.push({ card_no: '01', source, filled: false });
+    return cards;
+  } catch(e) {
+    return [{ card_no: '01', source, filled: false }];
+  }
+}
+
+// P14.7: 卡号导航（已填卡显示"已录"，当前卡高亮）
+function renderScoreCardNav() {
+  const nav = document.getElementById('scoreCardNav');
+  if (!nav) return;
+  if (_scoreCards.length <= 1 && !_scoreCards[0].filled) { nav.style.display = 'none'; return; }
+  nav.style.display = 'flex';
+  nav.innerHTML = _scoreCards.map((c, i) =>
+    `<button class="nav-btn" onclick="gotoScoreCard(${i})" style="font-size:11px;padding:3px 10px;${i === _scoreIdx ? 'border-color:var(--accent);color:var(--accent);' : ''}">
+      卡 ${c.card_no}${c.filled ? ' ✓' : ''}
+     </button>`).join('') +
+    `<button class="nav-btn" onclick="addScoreCard()" style="font-size:11px;padding:3px 10px;" data-i18n="score_new_card">＋ 新卡</button>`;
+}
+function gotoScoreCard(i) { if (i >= 0 && i < _scoreCards.length) { _scoreIdx = i; renderScoreCardNav(); renderScoreCard(); } }
+
+// P14.7: 新增一张空卡
+function addScoreCard() {
+  const last = _scoreCards[_scoreCards.length - 1];
+  let nextNo = '01';
+  if (last && last.card_no) {
+    const n = parseInt(String(last.card_no).replace(/[^0-9]/g, '')) || 0;
+    nextNo = String(n + 1).padStart(2, '0');
+  }
+  _scoreCards.push({ card_no: nextNo, source: document.getElementById('scoreSourceSel').value, filled: false });
+  _scoreIdx = _scoreCards.length - 1;
+  renderScoreCardNav();
+  renderScoreCard();
 }
 
 function scoreAvg(d) {
@@ -4793,90 +5053,113 @@ function scoreAvg(d) {
   return (filled.reduce((a, b) => a + b, 0) / filled.length).toFixed(1);
 }
 
+// P14.7: 一张卡 = 全班组 W1..W9 各 6 维
 function renderScoreCard() {
   const area = document.getElementById('scoreCardArea');
-  if (!_scoreEmps.length) return;
-  const e = _scoreEmps[_scoreIdx];
-  const d = _scoreData[e.id] || ( _scoreData[e.id] = { initiative:'',diligence:'',discipline:'',cooperation:'',safety:'',driving:'',note:'' });
-  const inputStyle = 'width:52px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;text-align:center;';
-  const dimRow = (k, label, extra) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
-      <span style="font-size:13px;">${label}</span>
-      <input type="number" min="1" max="5" value="${d[k]}" onchange="updateScoreDim('${k}', this.value)" style="${inputStyle}">
-      ${extra || ''}
-    </div>`;
+  const card = _scoreCards[_scoreIdx];
+  if (!card) return;
+  const rows = card.rows || [];
+  const rowMap = {};
+  rows.forEach(r => { rowMap[r.subject_employee_id] = r; });
+  const inputStyle = 'width:48px;padding:3px 4px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;text-align:center;';
+  const dims = [['initiative', t('score_dim_initiative')], ['diligence', t('score_dim_diligence')],
+    ['discipline', t('score_dim_discipline')], ['cooperation', t('score_dim_cooperation')],
+    ['safety', t('score_dim_safety')], ['driving', t('score_dim_driving')]];
+  // 行头 + 每人一行
+  const head = `<tr style="background:var(--bg-secondary);">
+    <th style="padding:6px;text-align:left;font-size:12px;">${t('sum_th_id')}</th>
+    <th style="padding:6px;text-align:left;font-size:12px;">${t('sum_th_name')}</th>
+    ${dims.map(d => `<th style="padding:6px;font-size:11px;">${d[1]}</th>`).join('')}
+  </tr>`;
+  const bodyRows = _scoreEmps.map((e, i) => {
+    const pre = rowMap[e.id] || {};
+    const val = (k) => pre[k] != null && pre[k] !== '' ? pre[k] : '';
+    return `<tr>
+      <td style="padding:4px 6px;font-size:12px;color:var(--text-muted);">W${i + 1}</td>
+      <td style="padding:4px 6px;font-size:12px;">${escHtml(e.name)}<span style="color:var(--text-muted);font-size:10px;"> #${escHtml(e.custom_number || e.id)}</span></td>
+      ${dims.map(d => `<td style="padding:4px 4px;"><input type="number" min="1" max="5" id="scoreCell_${i}_${d[0]}" value="${val(d[0])}" onchange="updateScoreCell(${i},'${d[0]}',this.value)" style="${inputStyle}" ${d[0] === 'driving' ? 'title="仅驾驶员"' : ''}></td>`).join('')}
+    </tr>`;
+  }).join('');
   area.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div>
-        <span style="font-size:16px;font-weight:600;">${e.custom_number || '—'} · ${escHtml(e.name)}</span>
-        <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">#${escHtml(e.id)}</span>
-      </div>
-      <span style="font-size:13px;color:var(--text-muted);">${_scoreIdx + 1} / ${_scoreEmps.length}</span>
+      <div style="font-size:14px;font-weight:600;">${t('score_card_title')} — ${t('score_sel_week')} ${card.card_no} <span style="color:var(--text-muted);font-size:12px;">(${_scoreIdx + 1} / ${_scoreCards.length})</span></div>
+      <button class="btn-primary" onclick="submitScoreCard()" style="padding:6px 18px;font-size:12px;" data-i18n="score_done_btn">✔ 完成</button>
     </div>
-    <div style="max-width:360px;">
-      ${dimRow('initiative', t('score_dim_initiative'))}
-      ${dimRow('diligence', t('score_dim_diligence'))}
-      ${dimRow('discipline', t('score_dim_discipline'))}
-      ${dimRow('cooperation', t('score_dim_cooperation'))}
-      ${dimRow('safety', t('score_dim_safety'))}
-      ${dimRow('driving', t('score_dim_driving'))}
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;">
-        <span style="font-size:13px;font-weight:600;">${t('score_total')}</span>
-        <span id="scoreTotal" style="font-size:16px;font-weight:700;color:var(--accent);">${scoreAvg(d)}</span>
-      </div>
-      <div style="padding:6px 0;">
-        <input type="text" placeholder="${t('score_note_ph')}" value="${escHtml(d.note || '')}" onchange="updateScoreNote(this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
-      </div>
+    <div style="overflow-x:auto;">
+    <table class="data-table" style="min-width:720px;">
+      <thead>${head}</thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
     </div>
-    <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="nav-btn" onclick="scorePrev()" ${_scoreIdx === 0 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">${t('score_prev')}</button>
-      <button class="nav-btn" onclick="scoreNext()" ${_scoreIdx >= _scoreEmps.length - 1 ? 'disabled style="opacity:.4"' : ''} style="font-size:12px;padding:5px 14px;">${t('score_next')}</button>
-      <button class="btn-primary" onclick="submitScoreBatch()" style="margin-left:auto;padding:6px 16px;font-size:12px;">${t('scoring_submit_team')}</button>
-    </div>
-    <div id="scoreBatchMsg" style="margin-top:8px;font-size:12px;"></div>`;
+    <div id="scoreCardMsg" style="margin-top:8px;font-size:12px;"></div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text-muted);" data-i18n="score_card_hint">前 5 维必须全部填满（1-5 分）才可完成；驾驶操作仅对驾驶员评分，可留空。</div>`;
 }
 
-function updateScoreDim(key, val) {
-  const e = _scoreEmps[_scoreIdx];
-  _scoreData[e.id][key] = val;
-  const total = document.getElementById('scoreTotal');
-  if (total) total.textContent = scoreAvg(_scoreData[e.id]);
+function updateScoreCell(i, key, val) {
+  const e = _scoreEmps[i];
+  const card = _scoreCards[_scoreIdx];
+  card.rows = card.rows || [];
+  let row = card.rows.find(r => r.subject_employee_id === e.id);
+  if (!row) { row = { subject_employee_id: e.id, subject_name: e.name }; card.rows.push(row); }
+  // P14: 评分强制 1-5 分（驾驶可空，其余超范围重置为最近合法值）
+  const n = parseInt(val);
+  if (val === '' || val == null) {
+    if (key === 'driving') { row[key] = ''; }
+    else { row[key] = ''; }
+  } else if (isNaN(n)) {
+    row[key] = '';
+  } else if (n < 1) { row[key] = 1; }
+  else if (n > 5) { row[key] = 5; }
+  else { row[key] = n; }
+  const cell = document.getElementById('scoreCell_' + i + '_' + key);
+  if (cell && String(cell.value) !== String(row[key])) cell.value = row[key];
 }
 
-function updateScoreNote(val) {
-  const e = _scoreEmps[_scoreIdx];
-  _scoreData[e.id].note = val;
-}
+function scorePrev() { if (_scoreIdx > 0) { _scoreIdx--; renderScoreCardNav(); renderScoreCard(); } }
+function scoreNext() { if (_scoreIdx < _scoreCards.length - 1) { _scoreIdx++; renderScoreCardNav(); renderScoreCard(); } }
 
-function scorePrev() { if (_scoreIdx > 0) { _scoreIdx--; renderScoreCard(); } }
-function scoreNext() { if (_scoreIdx < _scoreEmps.length - 1) { _scoreIdx++; renderScoreCard(); } }
-
-async function submitScoreBatch() {
-  const msg = document.getElementById('scoreBatchMsg');
+// P14.7: 完成当前卡（前 5 维必填校验）→ 保存 → 跳下一张
+async function submitScoreCard() {
+  const msg = document.getElementById('scoreCardMsg');
+  if (!msg) return;
   const teamId = document.getElementById('scoreTeamSel').value;
+  const week = document.getElementById('scoreWeekSel').value;
   const source = document.getElementById('scoreSourceSel').value;
-  const month = STATE.currentMonth;
-  const cards = _scoreEmps.map(e => {
-    const d = _scoreData[e.id] || {};
+  const card = _scoreCards[_scoreIdx];
+  if (!teamId || !week) { msg.textContent = t('scoring_sel_team_first'); msg.style.color = 'var(--danger)'; return; }
+  // 校验前 5 维全部填满
+  const rows = _scoreEmps.map((e, i) => {
+    const row = (card.rows || []).find(r => r.subject_employee_id === e.id) || {};
     return {
-      employee_id: e.id, wid: e.custom_number || e.id,
-      initiative: parseInt(d.initiative) || 0, diligence: parseInt(d.diligence) || 0,
-      discipline: parseInt(d.discipline) || 0, cooperation: parseInt(d.cooperation) || 0,
-      safety: parseInt(d.safety) || 0,
-      driving: d.driving ? parseInt(d.driving) : null,
-      note: d.note || '',
+      subject_employee_id: e.id, subject_name: e.name,
+      initiative: parseInt(row.initiative) || 0, diligence: parseInt(row.diligence) || 0,
+      discipline: parseInt(row.discipline) || 0, cooperation: parseInt(row.cooperation) || 0,
+      safety: parseInt(row.safety) || 0,
+      driving: row.driving ? parseInt(row.driving) : null,
     };
   });
-  if (!teamId) { msg.textContent = t('scoring_sel_team_first'); msg.style.color = 'var(--danger)'; return; }
+  const incomplete = rows.filter(r => ![r.initiative, r.diligence, r.discipline, r.cooperation, r.safety].every(v => v >= 1 && v <= 5));
+  if (incomplete.length) {
+    msg.textContent = t('score_incomplete') + ' (' + incomplete.map(r => r.subject_name).join('、') + ')';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
   try {
-    const res = await authFetch(api('/api/scoring/card/batch'), {
+    const res = await authFetch(api('/api/scoring/card'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ team_id: parseInt(teamId), month, source, cards }),
+      body: JSON.stringify({ week: parseInt(week), team_id: parseInt(teamId), card_no: card.card_no, source, rows }),
     });
     const data = await res.json();
     if (data.ok) {
-      msg.textContent = t('scoring_submit_ok').replace('{n}', data.count);
+      msg.textContent = t('scoring_submit_ok').replace('{n}', rows.length);
       msg.style.color = 'var(--success)';
+      card.filled = true;
+      // 自动跳下一张
+      if (_scoreIdx < _scoreCards.length - 1) {
+        _scoreIdx++; renderScoreCardNav(); renderScoreCard();
+      } else {
+        addScoreCard();
+      }
       if (typeof loadScoringSummary === 'function' && STATE.scoringRefresh) loadScoringSummary();
     } else {
       msg.textContent = data.error || t('toast_operation_fail');
@@ -4887,6 +5170,7 @@ async function submitScoreBatch() {
     msg.style.color = 'var(--danger)';
   }
 }
+
 
 async function loadScoringSummary() {
   const team = document.getElementById("sumTeam").value;

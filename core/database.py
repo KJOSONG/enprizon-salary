@@ -241,6 +241,25 @@ def init_db(data_folder):
             driving INTEGER DEFAULT NULL,
             UNIQUE(card_id, target_wid)
         );
+        CREATE TABLE IF NOT EXISTS scoring_card_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            week INTEGER NOT NULL,
+            team_id INTEGER NOT NULL,
+            card_no TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT '工友',
+            subject_employee_id TEXT NOT NULL,
+            subject_name TEXT,
+            initiative INTEGER,
+            diligence INTEGER,
+            discipline INTEGER,
+            cooperation INTEGER,
+            safety INTEGER,
+            driving INTEGER,
+            operator_id TEXT,
+            submitted_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(week, team_id, card_no, source, subject_employee_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sce_team_week ON scoring_card_entries(team_id, week);
         CREATE TABLE IF NOT EXISTS objective_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             record_date TEXT NOT NULL,
@@ -505,8 +524,8 @@ def load_overrides(data_folder, month=None):
     for eid in list(result.keys()):
         perms = [o for o in result[eid] if not o['start_date'] and not o['end_date'] and o['salary_type'] and o['type'] != 'exclusion']
         if len(perms) > 1:
-            # 保留 effective_from 最大的那条，删除其余的
-            perms.sort(key=lambda x: x['effective_from'], reverse=True)
+            # 保留 effective_from 最大的那条；同 effective_from 时优先保留有金额的（day_rate>0 或 monthly_salary>0）
+            perms.sort(key=lambda x: (x['effective_from'], 1 if (x['day_rate'] > 0 or x['monthly_salary'] > 0) else 0), reverse=True)
             keep_id = perms[0]['id']
             result[eid] = [o for o in result[eid] if not (not o['start_date'] and not o['end_date'] and o['salary_type'] and o['type'] != 'exclusion') or o['id'] == keep_id]
     return result
@@ -868,6 +887,11 @@ def apply_approved_event(data_folder, event):
                 conn.execute(
                     f"INSERT OR IGNORE INTO employees ({', '.join(_all_cols)}) VALUES ({_ph})",
                     _all_vals)
+            # P14.11: 工号来源于 ID — custom_number 为空时自动等于 employee_id
+            _cn = (payload.get('custom_number') or '').strip()
+            if not _cn:
+                _cn = eid
+                conn.execute("UPDATE employees SET custom_number=? WHERE id=?", (_cn, eid))
             # P13: 入职头像 base64 dataURL 落盘（≤2MB，PNG/JPG）
             avatar_data = payload.get('avatar_data', '') or ''
             if avatar_data:
@@ -1383,6 +1407,13 @@ def update_employee_fields(data_folder, employee_id, fields):
                'phone', 'note', 'status', 'dismissed_at', 'custom_fields',
                'gender', 'date_of_birth', 'avatar_path', 'department',
                'team_id', 'custom_number'}
+    # P14.10: 班组仅井下生产工人——非井下岗位（按数据库当前 default_type）一律 team_id 置 0
+    if fields.get('team_id'):
+        conn = get_conn(data_folder)
+        _row = conn.execute("SELECT default_type FROM employees WHERE id=?", (employee_id,)).fetchone()
+        conn.close()
+        if _row and _row['default_type'] != 'piece_underground':
+            fields['team_id'] = 0
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return False
@@ -1655,6 +1686,54 @@ def get_all_scoring_entries(data_folder, team):
     """, (team,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+# ── P14.8: 评分原始记录（一张卡 9 行明细） ──
+
+def save_scoring_card_entries(data_folder, week, team_id, card_no, source, rows):
+    """保存一张评分卡的全部行（按 UNIQUE 键 UPSERT，重录覆盖）"""
+    conn = get_conn(data_folder)
+    for r in rows:
+        conn.execute("""
+            INSERT OR REPLACE INTO scoring_card_entries
+                (week, team_id, card_no, source, subject_employee_id, subject_name,
+                 initiative, diligence, discipline, cooperation, safety, driving)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (week, team_id, card_no, source,
+              r.get('subject_employee_id', '') or r.get('employee_id', ''),
+              r.get('subject_name', '') or r.get('name', ''),
+              r.get('initiative'), r.get('diligence'), r.get('discipline'),
+              r.get('cooperation'), r.get('safety'), r.get('driving')))
+    conn.commit()
+    conn.close()
+
+def get_scoring_card_entries(data_folder, team_id=None, week=None, card_no=None, source=None):
+    """按条件组合查询评分原始记录"""
+    conn = get_conn(data_folder)
+    where, params = [], []
+    if team_id is not None:
+        where.append('team_id=?'); params.append(team_id)
+    if week is not None:
+        where.append('week=?'); params.append(week)
+    if card_no:
+        where.append('card_no=?'); params.append(card_no)
+    if source:
+        where.append('source=?'); params.append(source)
+    sql = 'SELECT * FROM scoring_card_entries'
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += ' ORDER BY week, team_id, card_no, source, id'
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def delete_scoring_card_entries(data_folder, week, team_id, card_no, source):
+    """删除整张卡（重录时先删再插）"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        DELETE FROM scoring_card_entries WHERE week=? AND team_id=? AND card_no=? AND source=?
+    """, (week, team_id, card_no, source))
+    conn.commit()
+    conn.close()
 
 def save_objective_entry(data_folder, record_date, team, planned, actual, total_h, effective_h, week):
     conn = get_conn(data_folder)

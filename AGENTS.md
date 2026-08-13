@@ -387,11 +387,12 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 - 临时分析脚本、报告放在 `_work/`（已 gitignore，可随时删除）
 
-## 重构状态（2026-08-12）
+## 重构状态（2026-08-13）
 
 **分支**: `refactor`（本地已 checkout 且推送到 GitHub，**未部署服务器**）
-**阶段**: **P0-P12 全部完成，v5 本地验收通过**（REFACTOR_SPEC.md v5 已落地，P12 代码已改未提交）
-**v6**: 验收后 10 条有效反馈已对齐并入 **REFACTOR_SPEC.md v6**，实施归入 **P13**（DEV_WORKFLOW §5），尚未动代码
+**阶段**: **P0-P12 全部完成 + P13 纯采集驱动改造完成（本地已改未提交）**，v5/v6 本地验收通过
+**纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集（井下/钻工/破碎/出勤4类）驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
+**8月数据**: 已导入本地（employees 130人 / overrides 202条 / collection_submissions 40条 / attendance_overrides 538条 / leave_balances 108 / leave_requests 7），本地验证 gross 20,859,271 TZS
 **服务器**: 仍在运行 `main` 分支旧代码，待部署切换 refactor 分支
 
 ### 重构新增主要功能
@@ -412,10 +413,30 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | P11 | 系统清理 + 薪资总表新列（源文件管理 UI 删除 / 司机津贴 is_driver 机制 / driver_allowance 列 / 生产薪资改名） |
 | **P12** | **v5 需求对齐迭代**（OA 三申请独立子页+入职全字段 / 档案独立页+简历头像+余额可改 / 姓名可选中复制 / 井下三列标签+双备注+驾驶勾选 / 钻工队长名单化+添加队伍 / 出勤收集按部门 / 采集选中框对齐 / 计薪参数删司机津贴+队长名单 / 评分系统改名） |
 | **P13** | **v6 需求对齐迭代**（部门筛选修复 / 档案子页移出侧栏 / OA 自审分角色+审批详情 / 请假子页 / 侧栏折叠样式 / 入职头像 / 入职后跳转待审 / 通知铃铛红点 / 后台指定审批人 / 全页面中英双语） |
+| **纯采集改造** | **移除 Excel 数据源**（_run_pipeline 纯 DB 模式 / 删除 scan_source_files+upload-source+download-source / employees 从 DB 读取 / 月份从采集数据生成 / 采集提交自动触发计算 / data/source 清空） |
+| **P14（待实施）** | **v7 需求对齐迭代**（未登录弹登录 / 登录后首屏自动渲染 / 井下scoring与piecework互斥 / 计薪模式单一开关 / 档案页薪资类型编辑 / 档案页临时例外 / 评分录入页完全重做对齐参考卡 / 评分记录可查 + 档案页4条：删表单模式按钮/班组仅井下/工号自动生成/编辑按钮归位），详见 `docs/P14_USER_FEEDBACK_2026_08_13.md` |
+
+### 纯采集模式修复的 Bug（2026-08-13）
+
+1. **`parse_crush_sheet` 选错 sheet**：企业微信导出文件带"智能表1"空壳 → 优先选 `CRUSH TEAM Production Data`
+2. **破碎表头带"数字"后缀**：`How many Bgas -数字` 匹配失败 → 补充匹配 key
+3. **`load_overrides` 去重 bug**：同 effective_from 多条永久覆盖时误删有金额的 monthly → 同优先级保留有金额的
+4. **`calculate_all` 顶层 monthly 满勤**：薪资总表与日工资明细不一致（12天 vs 26天）→ 遍历 present_dates 补满26天
+5. **namematch 索引**：纯采集模式从 DB employees 表构建 `_AB_INDEX`（替代通讯录 Excel）
+6. **井下计件人均虚高**：井下工人被 day_rate/monthly 永久覆盖后从计件分配排除 → 分母错误致人均翻倍（8/3 夜班 8 人只剩 2 人分钱）→ 清理历史覆盖残留 + 38 AYUBU default_type 修正为 piece_underground
+7. **计薪参数保存无效**：`cfg_ug_mode` 绑定不存在的 `saveUndergroundMode()` + 单价 `||6000` 吞 0 值 → 改绑 `saveConfig()` + 显式保存按钮 + 0 值合法
+8. **评分汇总无数据**：`/api/scoring/summary` 读旧表 `scoring_entries`，录入用的是新表 `scoring_card_entries` → 改为从新表读 + 旧表回退
+
+### 8月数据补录（2026-08-13）
+
+- **班组设定**：LAMBA LAMBA（班组1）9 人（26/27/33/34/36/38/41/50/52）、SAKA SAKA（班组2）8 人（24/25/42/44/45/47/48/49）
+- **评分录入**：从 `井下出渣工人评分系统.xlsx` 导入 19 张卡 162 行（班组1 9 卡 + 班组2 9 卡 + 管理卡），映射 Excel 短名 → 系统 employee_id
 
 ### 下一步
 
-1. **本地验证**：`python3 app.py` 检查所有页面无 JS 错误
-2. **P13 实施**：按 REFACTOR_SPEC.md v6（§0.2/§11-P13）落地 10 条有效反馈，逐项对照 §13 验收
+1. **本地验收**：`python3 app.py` 检查所有页面无 JS 错误（纯采集模式）
+2. **P13 剩余项**：按 REFACTOR_SPEC.md v6 落地尚未完成的反馈项
 3. **推送部署**：服务器 `git checkout refactor && systemctl restart enprizon-salary`
 4. **git 清理**：提交误跟踪的 `data/kilwa.db-wal`/`data/kilwa.db-shm` 删除（.gitignore 已补防）
+5. **8月数据**：本地导入已完成，服务器部署后需重新导入（或随迁移）
+

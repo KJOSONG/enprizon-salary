@@ -3,7 +3,8 @@
 解析 ENPRIZON LINDI PROJECT通讯录.xlsx 和 员工基础信息表.xlsx
 """
 import openpyxl
-from .namematch import canonical, make_employee_id, load_address_book_index, strip_alias, display_name
+from .namematch import (canonical, make_employee_id, load_address_book_index, strip_alias,
+                        display_name, _find_header_row, _build_header_col_map, _norm_header)
 
 # ── 部门映射（用于批量设置薪资类型） ──────────────
 DEPT_PATTERNS = {
@@ -49,27 +50,28 @@ def parse_address_book(filepath):
     # 从通讯录加载员工索引
     load_address_book_index(filepath)
     book = {}
-    header_row = None
-    # Find header row
-    for row in range(1, (ws.max_row or 0) + 1):
-        v = ws.cell(row, 1).value
-        if v and '姓名' in str(v):
-            header_row = row
-            break
+    header_row = _find_header_row(ws)
     if not header_row:
         wb.close()
         return {}
+    cm = _build_header_col_map(ws, header_row)
+    # 列定位：表头优先，回退到旧硬编码（姓名1/账号2/别名3/部门5/手机7）
+    name_col = cm.get('姓名') or 1
+    acct_col = cm.get('账号') or 2
+    alias_col = cm.get('别名')
+    dept_col = cm.get('部门') or 5
+    phone_col = cm.get('手机') or 7
     for row in range(header_row + 1, (ws.max_row or 0) + 1):
-        name_raw = ws.cell(row, 1).value
+        name_raw = ws.cell(row, name_col).value
         if not name_raw:
             continue
         name_str = str(name_raw).strip()
         if not name_str:
             continue
-        acct = ws.cell(row, 2).value
-        alias = ws.cell(row, 3).value
-        department = ws.cell(row, 5).value
-        phone = ws.cell(row, 7).value
+        acct = ws.cell(row, acct_col).value
+        alias = ws.cell(row, alias_col).value if alias_col else None
+        department = ws.cell(row, dept_col).value
+        phone = ws.cell(row, phone_col).value
         # 使用账号作为 key
         acct_str = str(acct).strip() if acct else ''
         if not acct_str:

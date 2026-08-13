@@ -306,6 +306,8 @@ const I18N_DICT = {
     /* ── 来源文件 ── */
     source_no_file: '无源文件',
     source_please_add: '请放入 data/source/ 目录',
+    source_collection_mode: '纯采集模式',
+    source_collection_hint: '所有数据通过手动采集录入数据库，提交后自动计算薪资。',
     source_main: '主产量表',
     source_advance: '预支表',
     source_addressbook: '通讯录',
@@ -596,8 +598,8 @@ const I18N_DICT = {
     routes_delete_fail: '删除失败',
 
     /* ── Headless 预览模式 ── */
-    headless_banner_dash: '📋 预览模式 — 当月暂无源数据，仅支持出勤记录与奖金/罚款',
-    headless_banner_att: '📋 预览模式 — 当月暂无源数据，可手动记录出勤（P/A/L）。上传源数据后手动标记不会被覆盖。',
+    headless_banner_dash: '📋 预览模式 — 当月暂无采集数据，仅支持出勤记录与奖金/罚款',
+    headless_banner_att: '📋 纯采集模式 — 出勤通过采集记录（P/A/L），提交后自动计入薪资。',
 
     /* ── 审计 ── */
     audit_dismiss_employee: '标记离职',
@@ -653,7 +655,7 @@ const I18N_DICT = {
     login_setup_title: '设置管理员账号',
     collapse_sidebar: '折叠侧边栏',
     expand_sidebar: '展开侧边栏',
-    reload_source: '重新加载源文件',
+    reload_source: '重新加载数据',
     emp_basic_info: '基本信息',
     emp_timeline: '事件时间线',
     btn_edit: '✎ 编辑',
@@ -724,6 +726,12 @@ const I18N_DICT = {
     score_note_ph: '备注',
     score_prev: '← 上一张',
     score_next: '下一张 →',
+    score_sel_week: '选择周次',
+    score_new_card: '＋ 新卡',
+    score_done_btn: '✔ 完成',
+    score_card_title: '评分卡',
+    score_card_hint: '前 5 维必须全部填满（1-5 分）才可完成；驾驶操作仅对驾驶员评分，可留空。',
+    score_incomplete: '以下人员前 5 维未填满',
     no_scores: '暂无评分',
     gate_title: '三闸检测',
     gate1: '① 零方差',
@@ -1099,6 +1107,8 @@ const I18N_DICT = {
     /* ── Source Files ── */
     source_no_file: 'No source file',
     source_please_add: 'Please add to data/source/ directory',
+    source_collection_mode: 'Collection Mode',
+    source_collection_hint: 'All data entered manually into database; salary auto-calculated on submit.',
     source_main: 'Production Table',
     source_advance: 'Advance Table',
     source_addressbook: 'Address Book',
@@ -1389,8 +1399,8 @@ const I18N_DICT = {
     routes_delete_fail: 'Failed to delete',
 
     /* ── Headless Preview Mode ── */
-    headless_banner_dash: '📋 Preview Mode — No source data this month, attendance and bonus/penalty only',
-    headless_banner_att: '📋 Preview Mode — No source data this month, manual attendance (P/A/L) supported. Manual marks are safe after uploading source data.',
+    headless_banner_dash: '📋 Preview Mode — No collection data this month, attendance and bonus/penalty only',
+    headless_banner_att: '📋 Collection Mode — Attendance via collection (P/A/L), auto-counted into salary after submit.',
 
     /* ── Audit ── */
     audit_dismiss_employee: 'Dismiss Employee',
@@ -1446,7 +1456,7 @@ const I18N_DICT = {
     login_setup_title: 'Set Admin Account',
     collapse_sidebar: 'Collapse sidebar',
     expand_sidebar: 'Expand sidebar',
-    reload_source: 'Reload source files',
+    reload_source: 'Reload data',
     emp_basic_info: 'Basic Info',
     emp_timeline: 'Event Timeline',
     btn_edit: '✎ Edit',
@@ -1517,6 +1527,12 @@ const I18N_DICT = {
     score_note_ph: 'Note',
     score_prev: '← Prev',
     score_next: 'Next →',
+    score_sel_week: 'Select Week',
+    score_new_card: '＋ New Card',
+    score_done_btn: '✔ Done',
+    score_card_title: 'Score Card',
+    score_card_hint: 'All 5 core dimensions must be filled (1-5) to complete; driving is only for drivers, may be empty.',
+    score_incomplete: 'Incomplete (5 core dims) for:',
     no_scores: 'No scores',
     gate_title: 'Three Gates',
     gate1: '① Zero variance',

@@ -7,6 +7,14 @@ import re
 # ── 通讯录驱动的员工索引（key: 变体去空格大写 → (账号, 显示名)）──
 _AB_INDEX = {}
 
+# ── 通讯录外人员补充索引（离职但有未结工资，需保留计薪；8月导入新增）──
+# key: 姓名变体去空格大写 → (新ID, 显示名)
+_EXTRA_AB_ENTRIES = {
+    'EZRAIBRAHIM':  ('129', 'EZRA IBRAHIM'),
+    'PAULOLAIZA':   ('130', 'PAULO LAIZA'),
+    'PAULOKISENA':  ('131', 'paulo kisena'),
+}
+
 # ── 遗留 CANONICAL 映射（通讯录外人员的手动回退）──
 _LEGACY_CANONICAL = {
     'SHEDRACK':                  'SHEDRACK PINIEL LAIZER',
@@ -37,8 +45,39 @@ DRILLER_LEADER_NAMES = [
 DRILLER_LEADERS = []
 
 
+def _norm_header(val):
+    """规范化表头文字用于匹配（去空格/括号/下划线，大写）"""
+    if not val:
+        return ''
+    return re.sub(r'[\s_（）()]', '', str(val).strip()).upper()
+
+
+def _find_header_row(ws):
+    """扫描第 1 列找表头行（含『姓名』）"""
+    for row in range(1, (ws.max_row or 0) + 1):
+        v = ws.cell(row, 1).value
+        if v and '姓名' in str(v):
+            return row
+    return None
+
+
+def _build_header_col_map(ws, header_row):
+    """扫描表头行建立 { 规范化表头: 列号 } 映射"""
+    col_map = {}
+    for col in range(1, (ws.max_column or 0) + 1):
+        val = ws.cell(header_row, col).value
+        if val:
+            col_map[_norm_header(val)] = col
+    return col_map
+
+
 def load_address_book_index(filepath):
-    """从通讯录 Excel 加载员工索引，填充 _AB_INDEX"""
+    """从通讯录 Excel 加载员工索引，填充 _AB_INDEX。
+
+    列位置通过表头文字识别（兼容新旧格式）：
+    - 旧格式: 姓名|账号|别名|职务|部门|性别|手机...
+    - 新格式: 姓名|账号|职务|部门|性别|手机...（无别名列）
+    """
     global _AB_INDEX, DRILLER_LEADERS
     _AB_INDEX = {}
     import openpyxl
@@ -52,19 +91,19 @@ def load_address_book_index(filepath):
         wb.close()
         return
     ws = wb[sheet]
-    header_row = None
-    for row in range(1, (ws.max_row or 0) + 1):
-        v = ws.cell(row, 1).value
-        if v and '姓名' in str(v):
-            header_row = row
-            break
+    header_row = _find_header_row(ws)
     if not header_row:
         wb.close()
         return
+    cm = _build_header_col_map(ws, header_row)
+    # 列定位：表头优先，回退到旧硬编码（姓名1/账号2/别名3）
+    name_col = cm.get('姓名') or 1
+    acct_col = cm.get('账号') or 2
+    alias_col = cm.get('别名')
     for row in range(header_row + 1, (ws.max_row or 0) + 1):
-        name_raw = ws.cell(row, 1).value
-        acct = ws.cell(row, 2).value
-        alias = ws.cell(row, 3).value
+        name_raw = ws.cell(row, name_col).value
+        acct = ws.cell(row, acct_col).value
+        alias = ws.cell(row, alias_col).value if alias_col else None
         if not name_raw:
             continue
         name_str = str(name_raw).strip()
@@ -96,6 +135,9 @@ def load_address_book_index(filepath):
             if short_key and short_key not in _AB_INDEX:
                 _AB_INDEX[short_key] = (acct_str, display)
     wb.close()
+    # 合并通讯录外补充索引（离职人员等）
+    for _k, _v in _EXTRA_AB_ENTRIES.items():
+        _AB_INDEX.setdefault(_k, _v)
     # 自动计算钻工队长账号（修改列表内容而非重新赋值，确保外部 import 可见）
     DRILLER_LEADERS.clear()
     for leader_name in DRILLER_LEADER_NAMES:
@@ -126,15 +168,48 @@ def norm_key_static(name):
     return re.sub(r'\s+', '', sa).upper()
 
 
+def _extract_paren_names(name):
+    """提取括号内的全名候选（按长度降序，优先最长/最全）"""
+    if not name:
+        return []
+    cands = re.findall(r'\(([^)]+)\)', str(name))
+    # 去空白+大写后的 key 列表（去重，保持长度降序）
+    seen = set()
+    result = []
+    for c in sorted(cands, key=len, reverse=True):
+        k = re.sub(r'\s+', '', c).upper()
+        if k and k not in seen:
+            seen.add(k)
+            result.append((k, c.strip()))
+    return result
+
+
+def _ab_lookup(key):
+    """通讯录索引查找：返回 (账号, 显示名) 或 None"""
+    if _AB_INDEX and key in _AB_INDEX:
+        return _AB_INDEX[key]
+    return None
+
+
 def canonical(name):
-    """标准化姓名：通讯录查找 → 显示名；未匹配时回退到遗留 CANONICAL + strip_alias"""
+    """标准化姓名：通讯录查找 → 显示名；未匹配时回退到遗留 CANONICAL + strip_alias
+
+    优先尝试去括号短名，未命中再尝试括号内全名（源数据格式『短名(全名)』，
+    全名才是新通讯录的标准姓名）。
+    """
     if not name or _is_na(name):
         return None
-    key = norm_key_static(name)
-    # 通讯录索引优先
-    if _AB_INDEX and key in _AB_INDEX:
-        return _AB_INDEX[key][1]  # 返回显示名
+    # 去括号短名
+    hit = _ab_lookup(norm_key_static(name))
+    if hit:
+        return hit[1]
+    # 括号内全名（如 ALLY VENANCE(Ally Venasi Matias) → Ally Venasi Matias）
+    for pk, raw in _extract_paren_names(name):
+        hit = _ab_lookup(pk)
+        if hit:
+            return hit[1]
     # 遗留 CANONICAL 回退
+    key = norm_key_static(name)
     if key in _LEGACY_CANONICAL:
         return _LEGACY_CANONICAL[key]
     # 最终回退：去括号结果
@@ -143,7 +218,12 @@ def canonical(name):
 
 
 def make_employee_id(name):
-    """生成唯一员工ID：通讯录 → 账号；未匹配时回退到姓名去空格大写"""
+    """生成唯一员工ID：通讯录 → 账号；未匹配时回退到姓名去空格大写
+
+    匹配顺序：去括号短名 → 括号内全名 → 遗留 CANONICAL → 姓名回退。
+    括号内全名处理源数据『ALLY VENANCE(Ally Venasi Matias)』这类变体，
+    避免回退成旧格式姓名 ID（破坏『账号=ID』原则）。
+    """
     if not name or _is_na(name):
         return None
     key = norm_key_static(name)
@@ -154,9 +234,13 @@ def make_employee_id(name):
         full_key = re.sub(r'\s+', '', full_name).upper()
         if _AB_INDEX and full_key in _AB_INDEX:
             return _AB_INDEX[full_key][0]
-    # 通讯录索引直接查找
+    # 通讯录索引直接查找（去括号短名）
     if _AB_INDEX and key in _AB_INDEX:
         return _AB_INDEX[key][0]
+    # 括号内全名匹配（源数据『短名(全名)』格式）
+    for pk, raw in _extract_paren_names(name):
+        if _AB_INDEX and pk in _AB_INDEX:
+            return _AB_INDEX[pk][0]
     # 遗留 CANONICAL → 转换为旧格式 ID
     if full_name:
         return re.sub(r'\s+', '', full_name).upper()

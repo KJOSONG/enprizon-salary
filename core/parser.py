@@ -271,7 +271,20 @@ def parse_crush_sheet(filepath):
     wb = openpyxl.load_workbook(filepath, data_only=True)
     sheet_names = wb.sheetnames
     ws = None
-    if sheet_names and sheet_names[0]:
+    # 优先选数据 sheet（企业微信智能表可能带空壳 sheet 如"智能表1"）
+    for _sn in sheet_names:
+        if 'CRUSH TEAM' in str(_sn).upper() or 'PRODUCTION' in str(_sn).upper():
+            ws = wb[_sn]
+            break
+    if ws is None and sheet_names:
+        # 回退：选第一个含 'Date' 表头的 sheet
+        for _sn in sheet_names:
+            _cand = wb[_sn]
+            _cm = _build_col_map(_cand)
+            if _get_col(_cm, 'DATE') is not None or _get_col(_cm, 'HOWMANYBGAS', 'BAGAS', 'BAGS') is not None:
+                ws = _cand
+                break
+    if ws is None and sheet_names and sheet_names[0]:
         ws = wb[sheet_names[0]]
     if ws is None:
         wb.close()
@@ -279,7 +292,8 @@ def parse_crush_sheet(filepath):
 
     cm = _build_col_map(ws)
     date_col = _get_col(cm, 'DATE', fallback=1)
-    bags_col = _get_col(cm, 'HOWMANYBGAS', 'BAGAS', 'BAGS', fallback=2)
+    # 兼容企业微信导出的表头带"数字"后缀或连字符（如 'How many Bgas -数字'）
+    bags_col = _get_col(cm, 'HOWMANYBGAS', 'HOWMANYBGAS-数字', 'HOWMANYBGAS数字', 'BAGAS', 'BAGS', fallback=2)
     person_col = _get_col(cm, 'ATTENDANCEPERSONNEL', fallback=3)
 
     result = []

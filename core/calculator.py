@@ -571,11 +571,13 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
 #  4. 月薪计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_monthly_salary(employees, overrides):
+def calc_monthly_salary(employees, overrides, underground_mode='piecework'):
     """
     计算月薪工资
     被标记为 monthly 的员工，取月薪基数
     优先取 override，回退到员工基础字段
+    P14.4: scoring 模式下井下工人（default_type 仍为 piece_underground）也自动按月薪基数计算，
+           无需用户手动改员工薪资类型
     返回: { employee_id: total_salary }
     """
     result = {}
@@ -587,9 +589,15 @@ def calc_monthly_salary(employees, overrides):
     # 回退：没有 override 的月薪员工，用基础字段
     for emp in employees:
         eid = emp['id']
-        if eid not in result and (emp.get('default_type') == 'monthly' or emp.get('override_type') == 'monthly'):
-            if emp.get('monthly_salary', 0) > 0:
-                result[eid] = emp['monthly_salary']
+        if eid in result:
+            continue
+        eff_type = emp.get('override_type') or emp.get('default_type', '')
+        # P14.4: scoring 模式下井下工人（default_type 仍为 piece_underground）自动纳入月薪轨道。
+        # 按 default_type 识别（模式优先），即使 override_type 被其他类型覆盖也按月薪基数计算
+        is_monthly = eff_type == 'monthly' or (
+            underground_mode == 'scoring' and emp.get('default_type') == 'piece_underground')
+        if is_monthly and emp.get('monthly_salary', 0) > 0:
+            result[eid] = emp['monthly_salary']
     return result
 def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, bonus_penalties=None):
     overrides = overrides or {}
@@ -717,13 +725,15 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             for dt in dates:
                 per_date_type[eid][dt] = 'piece_crush'
 
-        # P5-b: 评分模式 — 井下工人全体重定向为 monthly
+        # P14.3: 评分模式 — 井下工人全体重定向为 monthly
+        # 按 default_type 识别（模式优先），与 override_type 无关：
+        # 即使井下工人被 day_rate/monthly 永久覆盖覆盖了 override_type，
+        # scoring 模式下仍按月薪轨道计，无需用户改员工类型（P14.4）
         scoring_employees = set()
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                eff_type = emp.get('override_type') or emp.get('default_type', '')
-                if eff_type == 'piece_underground':
+                if emp.get('default_type') == 'piece_underground':
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
@@ -747,10 +757,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         perm_type = st
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
-                # P5-b: 评分模式 — 井下工人从计件排除
-                if dtype == 'piece_underground' and eid in scoring_employees:
-                    ug_type_excl.add((eid, dt))
-                elif dtype != 'piece_underground':
+                # P14.3: 非井下计件类型一律从井下计件排除。
+                # scoring 模式下井下工人已在 per_date_type 准备阶段被一次性改写为 monthly，
+                # 因此无需再按 scoring_employees 运行时逐个判断（该集合仅保留供评分奖金等下游使用）。
+                if dtype != 'piece_underground':
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
@@ -758,7 +768,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_exclusions | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
-        monthly_base = calc_monthly_salary(employees, overrides)
+        monthly_base = calc_monthly_salary(employees, overrides, underground_mode=underground_mode)
     finally:
         mod.PRICES_UNDERGROUND = old_up
         mod.PRICES_DRILLER = old_dp
@@ -850,7 +860,15 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         pu = pd_val = dr_total = ms_total = cr_total = 0.0
         monthly_present_count = 0
 
-        for dt in final_dates:
+        # 顶层部门 monthly 员工满勤26天：遍历 present_dates（已补1-26号），
+        # 与 compute_daily_breakdown 的整月遍历保持一致，避免薪资页与日明细差异
+        if emp.get("department") == "ENPRIZON LINDI PROJECT" and (
+                emp.get("override_type") == "monthly" or emp.get("default_type") == "monthly"):
+            _iter_dates = sorted(present_dates[eid])
+        else:
+            _iter_dates = final_dates
+
+        for dt in _iter_dates:
             dtype = per_date_type.get(eid, {}).get(dt, eff_type)
             absent = att_overrides.get((eid, dt)) in ('A', 'L')
 
@@ -1075,13 +1093,13 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for dt in dates:
                 per_date_type[eid][dt] = 'piece_crush'
 
-        # P5-b: 评分模式 — 井下工人全体重定向为 monthly（与 calculate_all 保持一致，供下方类型排除使用）
+        # P14.3: 评分模式 — 井下工人全体重定向为 monthly（与 calculate_all 保持一致，供下方类型排除使用）
+        # 按 default_type 识别，模式优先，不受 override_type 影响（P14.4）
         scoring_employees = set()
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                eff_type = emp.get('override_type') or emp.get('default_type', '')
-                if eff_type == 'piece_underground':
+                if emp.get('default_type') == 'piece_underground':
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
@@ -1105,10 +1123,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         perm_type = st
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
-                # P5-b: 评分模式 — 井下工人从计件排除
-                if dtype == 'piece_underground' and eid in scoring_employees:
-                    ug_type_excl.add((eid, dt))
-                elif dtype != 'piece_underground':
+                # P14.3: 非井下计件类型一律从井下计件排除（scoring 井下工人已前置改写为 monthly）
+                if dtype != 'piece_underground':
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
@@ -1131,7 +1147,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     break
 
         day_sal = calc_day_salary(attendance_data, employees, overrides, data_folder, shift_data, month_prefix=_ym)
-        month_sal = calc_monthly_salary(employees, overrides)
+        month_sal = calc_monthly_salary(employees, overrides, underground_mode=underground_mode)
 
         # 出勤覆盖
         att_all = {}
@@ -1325,7 +1341,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             daily = defaultdict(float)
             shifts_info = {}
             for dt in final_dates:
-                dt_eff = pdt.get(dt, eff)
+                # P14.3: 轨道类型统一以 per_date_type 为准（含 scoring 改写后的 monthly，
+                # 与 calculate_all 861 行保持一致），pdt/eff 仅作兜底
+                dt_eff = per_date_type.get(eid, {}).get(dt, pdt.get(dt, eff))
                 if dt_eff == 'piece_underground':
                     amt = ug_daily.get(eid, {}).get(dt, 0)
                     if amt > 0:
