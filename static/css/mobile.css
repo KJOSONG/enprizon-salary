@@ -281,6 +281,8 @@ a { color: inherit; text-decoration: none; }
 .chart-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-md); margin-bottom: var(--space-md); }
 .chart-box__title { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-sm); }
 .chart-canvas-wrap { position: relative; width: 100%; }
+/* 趋势图防 iOS Safari 双击缩放被浏览器手势拦截,并避免缩放时页面滚动 */
+#chart-trend { touch-action: manipulation; }
 
 /* ── 破碎产量列表 ── */
 .crush-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }

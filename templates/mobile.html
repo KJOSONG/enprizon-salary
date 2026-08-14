@@ -533,6 +533,13 @@
       { label:t('night'), data:sp.map(s=>pick(s,'night')), borderColor:'hsl(180 50% 40%)', backgroundColor:'hsl(180 50% 40% / 0.08)', fill:false, tension:0.3, pointRadius:0 },
       { label:t('total'), data:sp.map(s=>pick(s,'total')), borderColor:'hsl(28.99 91.75% 61.96%)', backgroundColor:'transparent', borderWidth:2, tension:0.3, pointRadius:0 },
     ]}, options: opts, plugins:[crosshairPlugin] });
+    // 修复: zoom 插件精简版(12KB)defaults 无 doubleClick 配置,双击重置不生效。
+    // 改手动 dblclick 监听调用 chart.resetZoom()(函数存在且可用),防重复绑定用 canvas 标志。
+    const _trendEl = document.getElementById('chart-trend');
+    if(_trendEl && !_trendEl._zoomDblListener){
+      _trendEl._zoomDblListener = true;
+      _trendEl.addEventListener('dblclick', ()=>{ const c=STATE.charts['chart-trend']; if(c && c.resetZoom) c.resetZoom(); });
+    }
   }
   // 白班 vs 夜班：按 dnTab 切换 NH/NL/MW/合计 双柱
   function drawDayNight(){
