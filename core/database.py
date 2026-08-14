@@ -1399,7 +1399,8 @@ def get_user_permissions_summary(data_folder, username):
     """, (username,)).fetchall()
     for g in grants:
         if g['module'] in summary and g['action'] in summary[g['module']]:
-            summary[g['module']][g['action']] = g['grant_type']
+            # 归一化: user_grants.grant_type 为 'allow'/'deny',契约返回 'grant'/'deny'
+            summary[g['module']][g['action']] = 'grant' if g['grant_type'] == 'allow' else 'deny'
     conn.close()
     return summary
 
