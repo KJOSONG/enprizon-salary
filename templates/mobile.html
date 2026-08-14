@@ -1090,8 +1090,9 @@
     }
     if(ty==='attendance'){
       const marks=p.marks||[];
+      const AT={P:t('att_status_p'),A:t('att_status_a'),S:t('att_status_s'),Y:t('att_status_y'),T:t('att_status_t'),B:t('att_status_b'),L:t('att_status_l')};
       return '<div class="detail-line">'+t('col_marks')+': '+marks.length+'</div>'
-        + marks.map(m=>'<div class="detail-line">'+esc(colMobEidName(m.employee_id))+': '+(ST[m.status]||m.status||'')+'</div>').join('');
+        + marks.map(m=>'<div class="detail-line">'+esc(colMobEidName(m.employee_id))+': '+esc(m.status||'')+' · '+esc(AT[m.status]||'')+'</div>').join('');
     }
     return '';
   }

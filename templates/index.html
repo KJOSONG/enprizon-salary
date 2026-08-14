@@ -502,6 +502,8 @@
           <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_custom_number">工号</span><span class="info-value" id="pfCustomNumber">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
+          <!-- P14.5: 薪资类型（可编辑，置于岗位下方） -->
+          <div class="info-row"><span class="info-label" data-i18n="emp_salary_type">薪资类别</span><span class="info-value" id="pfSalaryType">—</span><button class="nav-btn" id="pfSalaryTypeEditBtn" onclick="editProfileSalaryType()" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_edit">✎ 编辑</button></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_skill_level">技能等级</span><span class="info-value" id="pfSkill">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
@@ -512,8 +514,6 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_annual_balance">年假余额</span><span class="info-value" id="pfAnnual">—</span><button class="nav-btn" id="pfAnnualAdjBtn" onclick="adjustLeaveBalance('annual')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_comp_balance">调休余额</span><span class="info-value" id="pfComp">—</span><button class="nav-btn" id="pfCompAdjBtn" onclick="adjustLeaveBalance('comp')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
           <div class="info-row"><span class="info-label" data-i18n="leave_sick">病假余额</span><span class="info-value" id="pfSick">—</span><button class="nav-btn" id="pfSickAdjBtn" onclick="adjustLeaveBalance('sick')" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_adjust">调整</button></div>
-          <!-- P14.5: 薪资类型（可编辑） -->
-          <div class="info-row"><span class="info-label" data-i18n="emp_salary_type">薪资类别</span><span class="info-value" id="pfSalaryType">—</span><button class="nav-btn" id="pfSalaryTypeEditBtn" onclick="editProfileSalaryType()" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_edit">✎ 编辑</button></div>
         </div>
         <!-- P14.6: 临时例外区块 -->
         <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
@@ -2838,14 +2838,15 @@ async function renderEmployeeTable() {
     const q = (document.getElementById('empSearch').value || '').toLowerCase();
     const d = sel.value;
     const filtered = emps.filter(e => {
-      if (q && !(e.name || '').toLowerCase().includes(q) && !(e.alias || '').toLowerCase().includes(q)) return false;
+      if (q && !(e.name || '').toLowerCase().includes(q) && !(e.alias || '').toLowerCase().includes(q)
+          && !String(e.custom_number || e.id).toLowerCase().includes(q)) return false;
       if (d && e.department !== d) return false;
       return true;
     });
 
     tbody.innerHTML = filtered.map(e => `
       <tr style="cursor:pointer;" onclick="if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'})">
-        <td style="color:var(--text-muted);font-size:11px;">${escHtml(e.id)}</td>
+        <td style="color:var(--text-muted);font-size:11px;">${escHtml(e.custom_number || e.id)}</td>
         <td class="left">
           <a href="#employees/profile?id=${encodeURIComponent(e.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'});"
              style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(e.name)}</a>
@@ -3804,10 +3805,11 @@ function filterSalaryTable() {
   const filtered = result.employees.filter(e => {
     if (q) {
       const nameHit = (e.name || '').toLowerCase().includes(q);
-      // salary 结果无 alias 字段,从员工缓存关联
+      // salary 结果无 alias/custom_number 字段,从员工缓存关联
       const empRec = (STATE._empAll || []).find(x => String(x.id) === String(e.employee_id || e.id));
       const aliasHit = ((empRec && empRec.alias) || e.alias || '').toLowerCase().includes(q);
-      if (!nameHit && !aliasHit) return false;
+      const numHit = String((empRec && (empRec.custom_number || empRec.id)) || e.id).toLowerCase().includes(q);
+      if (!nameHit && !aliasHit && !numHit) return false;
     }
     if (ft && e.salary_type !== ft) return false;
     if (fd && (deptMap[e.employee_id || e.id]||'') !== fd) return false;
@@ -4093,7 +4095,8 @@ function renderDailyWages() {
       // 薪资结果无 alias,从员工缓存关联
       const empRec = (STATE._empAll || []).find(x => String(x.id) === String(eid));
       const aliasHit = ((empRec && empRec.alias) || '').toLowerCase().includes(q);
-      if (!nameHit && !aliasHit) continue;
+      const numHit = String((empRec && (empRec.custom_number || empRec.id)) || eid).toLowerCase().includes(q);
+      if (!nameHit && !aliasHit && !numHit) continue;
     }
     if (ft && e.salary_type !== ft) continue;
     if (fd && e.department !== fd) continue;
@@ -4293,7 +4296,8 @@ function renderAttendance() {
       // attendance rows 可能无 alias,从员工缓存关联
       const empRec = (STATE._empAll || []).find(x => String(x.id) === String(r.id || r.employee_id));
       const aliasHit = ((empRec && empRec.alias) || '').toLowerCase().includes(q);
-      if (!nameHit && !aliasHit) return false;
+      const numHit = String(r.custom_number || (empRec && (empRec.custom_number || empRec.id)) || r.id).toLowerCase().includes(q);
+      if (!nameHit && !aliasHit && !numHit) return false;
     }
     if (ft && r.type !== ft) return false;
     if (fd && (r.department||'') !== fd) return false;
@@ -4871,7 +4875,7 @@ async function loadCaptainsAdmin() {
     const display = e ? e.name : (c.name || c.employee_id);
     return `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-      <span style="flex:1;">${escHtml(display)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(c.employee_id)}</span></span>
+      <span style="flex:1;">${escHtml(display)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml((e && (e.custom_number || e.id)) || c.employee_id)}</span></span>
       <button class="nav-btn" onclick="deleteDrillerCaptain('${escHtml(c.id)}')" style="font-size:11px;padding:3px 8px;color:var(--danger);" data-i18n="captains_delete">🗑 删除</button>
     </div>`;
   }).join('');
@@ -5280,14 +5284,14 @@ function initEmpTypeahead(inputId, hiddenId, pickId) {
       if (q.length < 1) { pick.innerHTML = ''; pick.style.display = 'none'; return; }
       const pool = await ensureEmpPool();
       const hits = pool.filter(e =>
-        (e.name || '').toLowerCase().includes(q) || String(e.id).includes(q) ||
+        (e.name || '').toLowerCase().includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) ||
         (e.alias || '').toLowerCase().includes(q)).slice(0, 8);
       if (!hits.length) {
         pick.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:12px;">' + t('no_match_emp') + '</div>';
         pick.style.display = 'block';
         return;
       }
-      pick.innerHTML = hits.map(e => `<div onclick="pickEmp('${inputId}','${hiddenId}','${pickId}','${escHtml(String(e.id))}','${escHtml(e.name)}')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${e.id}</span></div>`).join('');
+      pick.innerHTML = hits.map(e => `<div onclick="pickEmp('${inputId}','${hiddenId}','${pickId}','${escHtml(String(e.id))}','${escHtml(e.name)}')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></div>`).join('');
       pick.style.display = 'block';
     }, 300);
   });
@@ -5579,8 +5583,9 @@ function renderColPayloadPreview(formType, payload) {
   }
   if (formType === 'attendance') {
     const marks = payload.marks || [];
+    const AT = { P: t('att_status_p'), A: t('att_status_a'), S: t('att_status_s'), Y: t('att_status_y'), T: t('att_status_t'), B: t('att_status_b'), L: t('att_status_l') };
     return '<div style="font-size:12px;line-height:1.9;">' + marks.map(m =>
-      '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + (ST[m.status] || m.status || '') + '</div>'
+      '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + escHtml(m.status || '') + ' · ' + escHtml(AT[m.status] || '') + '</div>'
     ).join('') + '</div>';
   }
   return '<div style="font-size:12px;color:var(--text-muted);">' + escHtml(JSON.stringify(payload)) + '</div>';
@@ -5718,7 +5723,7 @@ async function openEmpPicker(kw, hiddenId, displayId, opts) {
 /* 渲染单栏人员勾选行：左出勤checkbox，右驾驶checkbox（showDriver 时） */
 function renderEmpCheckRows(list, checked, curDrivers, showDriver) {
   const q = _pickerSearch.toLowerCase();
-  const filtered = q ? list.filter(e => (e.name || '').toLowerCase().includes(q) || String(e.id).includes(q) || (e.alias || '').toLowerCase().includes(q)) : list;
+  const filtered = q ? list.filter(e => (e.name || '').toLowerCase().includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) || (e.alias || '').toLowerCase().includes(q)) : list;
   if (!filtered.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
   return filtered.map(e => {
     const isChecked = checked.includes(e.id);
@@ -5729,7 +5734,7 @@ function renderEmpCheckRows(list, checked, curDrivers, showDriver) {
     <div class="picker-row" style="justify-content:flex-start;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" class="picker-check" value="${escHtml(e.id)}" ${isChecked ? 'checked' : ''} onchange="onEmpCheckToggle()">
       <span style="font-size:13px;white-space:nowrap;">${escHtml(e.name)}</span>
-      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(e.id)}</span>
+      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(e.custom_number || e.id)}</span>
       ${showDriver ? `<label style="display:flex;align-items:center;gap:2px;font-size:11px;color:var(--text);cursor:pointer;flex-shrink:0;opacity:${drvDisabled ? '0.4' : '1'};">
         <input type="checkbox" class="driver-check" value="${escHtml(e.id)}" data-eid="${escHtml(e.id)}" ${isDrv ? 'checked' : ''} ${drvDisabled ? 'disabled' : ''} onchange="onDrvCheckToggle()">${t('col_driving')}
       </label>` : ''}
@@ -5997,7 +6002,7 @@ async function addDrSlot() {
     <div class="picker-row" style="justify-content:flex-start;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" class="picker-check" value="${escHtml(c.employee_id)}">
       <span style="font-size:13px;white-space:nowrap;">${escHtml(c.name)}</span>
-      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(c.employee_id)}</span>
+      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml((e && (e.custom_number || e.id)) || c.employee_id)}</span>
     </div>`;
   }).join('');
   modal.style.display = 'flex';
@@ -6051,7 +6056,7 @@ function renderDrMemberRows(list, checked) {
     <div class="picker-row dr-member-row" style="justify-content:flex-start;gap:4px;padding:3px 6px;border-bottom:1px solid var(--border-dim);">
       <input type="checkbox" value="${escHtml(e.id)}" ${checked.includes(e.id) ? 'checked' : ''} onchange="updateDrMemberCount()">
       <span style="font-size:13px;white-space:nowrap;">${escHtml(e.name)}</span>
-      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(e.id)}</span>
+      <span style="color:var(--text-muted);font-size:10px;white-space:nowrap;">#${escHtml(e.custom_number || e.id)}</span>
     </div>`).join('') : '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
 }
 
@@ -6064,7 +6069,7 @@ function filterDrMemberList() {
   const q = (document.getElementById('drMemberSearch').value || '').toLowerCase();
   const pool = _colEmpPool || STATE._empAll || [];
   const driller = filterEmpByDept(pool, 'driller').filter(e =>
-    (e.name || '').toLowerCase().includes(q) || String(e.id).includes(q) ||
+    (e.name || '').toLowerCase().includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) ||
     (e.alias || '').toLowerCase().includes(q));
   const checked = [...document.querySelectorAll('#drMemberList input:checked')].map(c => c.value);
   document.getElementById('drMemberList').innerHTML = renderDrMemberRows(driller, checked);
@@ -6171,7 +6176,7 @@ async function renderAttCollectionForm(payload) {
     return `
       <div class="picker-row att-row" data-dept="${escHtml(e.department || '')}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
-        <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.id)}</span></span>
+        <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
       </div>`;
   }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
   document.getElementById('colAttForm').innerHTML = `

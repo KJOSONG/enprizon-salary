@@ -804,7 +804,7 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, phone, team_id
+               nssf_enrolled, phone, team_id, custom_number
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -828,6 +828,7 @@ def load_employees_from_db(data_folder):
             'phone': r['phone'] or '',
             'nssf_enrolled': bool(r['nssf_enrolled']),
             'team_id': r['team_id'] or 0,   # P15: 评分奖金按班组归属
+            'custom_number': r['custom_number'] or '',  # 工号（新入职自动递增生成）
         })
 
     # 离职过滤
@@ -3215,6 +3216,7 @@ def get_attendance():
             'name': emp.get('name', ''),
             'type': type_labels.get(emp.get('override_type') or emp.get('default_type', ''), emp.get('default_type', '')),
             'department': emp.get('department', ''),
+            'custom_number': emp.get('custom_number', '') or '',
             'days': status_row,
             'origin': origin_row,
             'auto': auto_row,
