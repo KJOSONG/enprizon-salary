@@ -405,7 +405,10 @@
     document.getElementById('login-screen').style.display='none'; document.getElementById('app').style.display='flex';
     // 需求5: 登录后设置菜单用户名 + 显示 ☰ 按钮
     const un=document.getElementById('menu-user-name'); if(un) un.textContent = (STATE.auth && STATE.auth.username) || '—';
-    applyTheme(); applyLang(); loadDashboard(); loadOAPendingCount();
+    applyTheme(); applyLang();
+    // P18F: 登录后重置到默认数据台 tab(内部会设 activeTab/清 _pageStack/切高亮/懒加载 dashboard)
+    switchTab('dashboard');
+    loadOAPendingCount();
   }
   // ── 需求5: 顶栏三道杠菜单 ──
   function toggleUserMenu(e){
@@ -436,6 +439,10 @@
   }
   function doMobileLogout(){
     api('/api/logout', { method:'POST', body:'{}' }).then(()=>{
+      // P18F: 先清空 STATE 数据缓存,避免下个用户看到上个用户的敏感数据
+      STATE.dashboard=null; STATE.employees=[]; STATE.attendance=null;
+      STATE.currentMonth=''; STATE._groups=[]; STATE._drCaps=[]; STATE._drSlots=[];
+      STATE.colType=''; STATE.empSeg='list';
       document.getElementById('user-menu').style.display='none';
       showLogin();
     }).catch(()=>{ document.getElementById('user-menu').style.display='none'; showLogin(); });

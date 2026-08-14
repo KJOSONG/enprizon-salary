@@ -1642,6 +1642,8 @@ async function submitLogin() {
           if (recalcBtn) recalcBtn.disabled = false;
         }
       } catch(e) {}
+      // 登录成功后回到数据台首页(重置 hash,避免停留在登出前页面)
+      navigate('dashboard', null);
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
     } else {
       errEl.textContent = data.error === 'invalid_credentials' ? t('err_invalid_credentials') :
@@ -1657,8 +1659,22 @@ async function submitLogin() {
 }
 
 async function doLogout() {
-  await fetch(api('/api/logout'), {method: 'POST'});
+  try { await fetch(api('/api/logout'), {method: 'POST'}); } catch(e) {}
   await checkAuth();
+  // 清空数据缓存,避免下个用户看到上个用户的敏感数据
+  STATE.currentMonth = '';
+  STATE.salaryResult = null;
+  STATE.productionData = null;
+  STATE.employees = [];
+  STATE._empAll = [];
+  STATE._attendanceDirty = false;
+  STATE._attendancePending = {};
+  STATE._dashData = null;
+  STATE._dashFilters = null;
+  // 重置 hash + 回到数据台(未登录时 dashboard 模块允许访问)
+  history.replaceState(null, '', window.location.pathname + '#dashboard');
+  navigate('dashboard', null);
+  openLoginModal();
   showToast(t('logout_success'));
 }
 
