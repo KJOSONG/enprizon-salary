@@ -762,6 +762,21 @@ def mark_driver_flag(data_folder, employee_id, date):
     conn.commit()
     conn.close()
 
+def clear_driver_flag(data_folder, employee_id, date):
+    """B1b: 清除某人的某天司机标志（is_driver 置 0），供编辑移除驾驶勾选时清理残留"""
+    conn = get_conn(data_folder)
+    conn.execute("UPDATE attendance_overrides SET is_driver=0 WHERE employee_id=? AND date=?",
+                 (employee_id, date))
+    conn.commit()
+    conn.close()
+
+def clear_driver_flags_for_date(data_folder, date):
+    """B1b: 清除某日期所有井下提交的司机标志残留（is_driver 置 0），供全量重建使用"""
+    conn = get_conn(data_folder)
+    conn.execute("UPDATE attendance_overrides SET is_driver=0 WHERE date=? AND is_driver=1", (date,))
+    conn.commit()
+    conn.close()
+
 # ── 审计日志 ──────────────────────────────────
 
 def log_audit(data_folder, action, employee_id='', detail='{}'):

@@ -2019,9 +2019,17 @@ def rebuild_main_data_from_collections(main_data):
             _merge_collection_to_main_data(main_data, s['form_type'], s['submission_date'], payload)
 
 def _reapply_driver_flags():
-    """B1: 全量重建 main_data 后重设井下 driver 标志（遍历所有井下提交的 drivers）"""
-    from core.database import get_collection_submissions, mark_driver_flag
+    """B1: 全量重建 main_data 后重设井下 driver 标志。
+    B1b: 先清除再重设——先清除每个井下提交日期上所有残留 is_driver，
+    再对当前 payload.drivers 重设 mark_driver_flag，杜绝编辑移除驾驶勾选后津贴仍被计算"""
+    from core.database import get_collection_submissions, mark_driver_flag, clear_driver_flags_for_date
     subs = get_collection_submissions(app.config['DATA_FOLDER'])
+    # 第一遍：按井下提交日期清除残留 is_driver（is_driver 只由井下采集驱动，按日期清 0 安全）
+    ug_dates = sorted({s.get('submission_date') for s in subs
+                       if s.get('form_type') == 'underground' and s.get('submission_date')})
+    for _dt in ug_dates:
+        clear_driver_flags_for_date(app.config['DATA_FOLDER'], _dt)
+    # 第二遍：按当前 payload.drivers 重设
     for s in subs:
         if s.get('form_type') != 'underground':
             continue
@@ -2165,6 +2173,7 @@ def collection_edit(submission_id):
 
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
+    merged_target = None  # B1b: 覆盖合并的目标行（attendance 分支需清理其旧 marks）
     if new_date != old_date:
         existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
         ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
@@ -2172,6 +2181,7 @@ def collection_edit(submission_id):
             ok = update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username, date=new_date)
             delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
             submission_id = ex['id']
+            merged_target = ex
         else:
             ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username, date=new_date)
     else:
@@ -2194,6 +2204,15 @@ def collection_edit(submission_id):
                     delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], old_date)
         except Exception:
             pass
+        # B1b: 覆盖合并场景——目标行(new_date)原来的 marks 也要删除，避免残留
+        if merged_target:
+            try:
+                target_payload = json.loads(merged_target['payload'] or '{}')
+                for m in (target_payload.get('marks') or []):
+                    if m.get('employee_id'):
+                        delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
+            except Exception:
+                pass
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')
             status = m.get('status', '')
