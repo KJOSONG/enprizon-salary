@@ -1051,7 +1051,22 @@
     <!-- ══ 角色管理 Tab(角色维度) ══ -->
     <div id="permRolesPanel" style="display:none;">
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_roles_desc">定义各角色的默认权限,保存后该角色用户重新登录生效。超级管理员拥有全部权限。</p>
-      <div id="permRolesList"></div>
+      <div style="margin-bottom:12px;">
+        <button class="btn-primary" onclick="openCreateRoleModal()" style="padding:6px 16px;font-size:12px;" data-i18n="perm_add_role">＋ 新增角色</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="perm_role_col">角色</th>
+              <th data-i18n="perm_owned_col">已拥有权限</th>
+              <th data-i18n="perm_users_col">用户数</th>
+              <th data-i18n="user_mgmt_th_actions">操作</th>
+            </tr>
+          </thead>
+          <tbody id="permRolesTable"></tbody>
+        </table>
+      </div>
     </div>
   </div>
   <!-- ══ 用户编辑抽屉 ══ -->
@@ -1117,11 +1132,20 @@
     <div id="roleDrawerGroups" style="max-height:48vh;overflow-y:auto;"></div>
     <div style="position:sticky;bottom:0;margin-top:14px;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span id="roleDrawerCount" style="font-size:12px;font-weight:600;flex:1;"></span>
-      <button class="btn-primary" onclick="saveRolePerms()" data-i18n="perm_save">保存</button>
-      <button class="nav-btn" onclick="discardRolePerms()" data-i18n="perm_discard">撤销修改</button>
-      <button class="nav-btn" onclick="resetRolePermsToDefault()" data-i18n="perm_reset_default">恢复默认</button>
+      <button class="btn-primary" id="roleSaveBtn" onclick="saveRolePerms()" disabled style="font-size:12px;" data-i18n="perm_save">保存</button>
+      <button class="nav-btn" id="roleDiscardBtn" onclick="discardRolePerms()" disabled style="font-size:12px;" data-i18n="perm_discard">撤销修改</button>
+      <button class="nav-btn" onclick="resetRolePermsToDefault()" style="font-size:12px;" data-i18n="perm_reset_default">恢复默认</button>
     </div>
     <div id="roleDrawerMsg" style="font-size:12px;margin-top:8px;"></div>
+  </div>
+  <!-- P18E: 角色 CRUD 模态框(新增/删除/恢复默认确认) -->
+  <div class="modal-overlay" id="roleModalOverlay" style="display:none;" onclick="closeRoleModal()"></div>
+  <div class="modal" id="roleModal" style="display:none;max-width:560px;width:92vw;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+      <h3 style="font-size:14px;flex:1;" id="roleModalTitle"></h3>
+      <button class="nav-btn" onclick="closeRoleModal()" data-i18n="btn_close">✕ 关闭</button>
+    </div>
+    <div id="roleModalBody"></div>
   </div>
   <!-- P13: 审批人设定（super_admin） -->
   <div class="card" id="approvalRoutesCard" style="margin-top:16px;display:none;">
@@ -7004,33 +7028,36 @@ function roleLabel(role) {
 }
 
 async function renderRoleList() {
-  const wrap = document.getElementById('permRolesList');
-  if (!wrap) return;
+  const tbody = document.getElementById('permRolesTable');
+  if (!tbody) return;
   try {
     const res = await authFetch(api('/api/permissions/roles'));
     const data = await res.json();
-    if (!data.ok) { wrap.innerHTML = ''; return; }
+    if (!data.ok) { tbody.innerHTML = '<tr><td colspan="4">' + t('perm_no_users') + '</td></tr>'; return; }
     const roles = (data.roles || []).filter(r => r.role !== 'super_admin');
-    // 新增角色按钮
-    let html = `<div style="margin-bottom:12px;">
-      <button class="btn-primary" onclick="openCreateRoleDrawer()" data-i18n="perm_add_role">＋ 新增角色</button>
-    </div>`;
-    roles.forEach(r => {
+    const eff = data.effective || {};
+    const total = Object.keys(data.catalog || {}).length;
+    tbody.innerHTML = roles.map(r => {
       const isBuiltin = r.builtin;
-      html += `<div class="perm-role-card" style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;display:flex;align-items:center;gap:12px;background:var(--bg-secondary);flex-wrap:wrap;">
-        <div style="font-size:15px;font-weight:700;flex:1;min-width:120px;">${roleLabel(r.role)}
-          ${isBuiltin ? `<span style="font-size:10px;padding:2px 8px;background:var(--muted);border-radius:10px;color:var(--text-muted);margin-left:6px;" data-i18n="perm_role_builtin">内置</span>` : ''}
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);">${r.permission_count} ${t('perm_items_count')} · ${r.user_count} ${t('perm_user_unit')}</div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn-primary" style="font-size:10px;padding:3px 8px;" onclick="openRoleDrawer('${r.role}')" data-i18n="perm_role_edit_perm">编辑权限</button>
-          <button class="nav-btn" style="font-size:10px;padding:3px 8px;" onclick="renameRolePrompt('${r.role}')" data-i18n="perm_rename_role">重命名</button>
-          ${isBuiltin ? '' : `<button class="oa-btn oa-btn-reject" style="font-size:10px;padding:3px 8px;" onclick="deleteRolePrompt('${r.role}')" data-i18n="perm_delete_role">删除</button>`}
-        </div>
-      </div>`;
-    });
-    wrap.innerHTML = html;
-  } catch(e) { wrap.innerHTML = ''; }
+      const owned = (eff[r.role] || []).length;
+      return `
+      <tr>
+        <td style="cursor:pointer;" onclick="openRoleDrawer('${r.role}')">${roleLabel(r.role)}
+          ${isBuiltin ? `<span style="font-size:10px;padding:1px 8px;background:var(--muted);border-radius:10px;color:var(--text-muted);margin-left:6px;" data-i18n="perm_role_builtin">内置</span>` : ''}
+        </td>
+        <td style="cursor:pointer;" onclick="openRoleDrawer('${r.role}')"><span style="font-weight:600;color:#4CAF50;">${owned}/${total}</span> ${t('perm_owned_count').replace('{n}', owned)}</td>
+        <td>${r.user_count} ${t('perm_user_unit')}</td>
+        <td>
+          <button class="btn-primary" style="font-size:10px;padding:2px 6px;margin-right:4px;"
+            onclick="openRoleDrawer('${r.role}')" data-i18n="perm_role_edit_perm">编辑权限</button>
+          <button class="nav-btn" style="font-size:10px;padding:2px 6px;"
+            onclick="startRoleRename('${r.role}')" data-i18n="perm_rename_role">重命名</button>
+          ${isBuiltin ? '' : `<button class="oa-btn oa-btn-reject" style="font-size:10px;padding:2px 6px;margin-left:4px;"
+            onclick="openDeleteRoleModal('${r.role}')" data-i18n="perm_delete_role">删除</button>`}
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) { tbody.innerHTML = ''; }
 }
 
 async function openRoleDrawer(role) {
@@ -7087,36 +7114,172 @@ async function openCreateRoleModal() {
     _rpState.dirty = {};
     _rpState.isNew = true;
     _rpState.role = '__new__';
-    renderRoleGroups();
+    body.innerHTML = `
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px;" data-i18n="perm_role_name">角色名</div>
+      <input id="roleModalName" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;margin-bottom:12px;" placeholder="${t('perm_role_name')}">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;" data-i18n="perm_create_perm_hint">勾选该角色的默认权限(可稍后在编辑中调整)</div>
+      <div id="roleModalMatrix" style="max-height:44vh;overflow-y:auto;"></div>
+      <div style="margin-top:12px;display:flex;gap:10px;">
+        <button class="btn-primary" onclick="saveCreateRole()" data-i18n="perm_save">保存</button>
+        <span id="roleModalMsg" style="font-size:12px;align-self:center;"></span>
+      </div>`;
+    // 渲染矩阵到模态框容器
+    renderMatrix('#roleModalMatrix');
     renderRoleBar();
   } catch(e) {}
 }
+function closeRoleModal() {
+  const ov = document.getElementById('roleModalOverlay'), mo = document.getElementById('roleModal');
+  if (ov) ov.style.display = 'none';
+  if (mo) mo.style.display = 'none';
+}
+async function saveCreateRole() {
+  const nameInput = document.getElementById('roleModalName');
+  const name = nameInput ? nameInput.value.trim() : '';
+  const msg = document.getElementById('roleModalMsg');
+  if (!name) { if (msg) { msg.textContent = t('perm_role_name_required'); msg.style.color = '#F44336'; } return; }
+  const permissions = Object.entries(_rpState.dirty).map(([key, allow]) => {
+    const [module, action] = key.split(':');
+    return { module, action, allow };
+  });
+  try {
+    const res = await authFetch(api('/api/permissions/roles'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, permissions }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeRoleModal();
+      renderRoleList();
+      showToast(t('perm_role_saved'));
+    } else {
+      if (msg) { msg.textContent = data.error === 'role_name_exists' ? t('perm_role_name_exists') : (data.error || t('fail')); msg.style.color = '#F44336'; }
+    }
+  } catch(e) { if (msg) { msg.textContent = t('fail'); msg.style.color = '#F44336'; } }
+}
 
-async function renameRolePrompt(role) {
-  const newName = window.prompt(t('perm_rename_role') + ': ' + roleLabel(role), role);
-  if (!newName || newName.trim() === '' || newName.trim() === role) return;
-  const msg = document.getElementById('roleDrawerMsg');
+// 内联重命名(抽屉内角色信息行)
+function startRoleRename(role) {
+  if (role) {
+    // 从列表触发: 先打开抽屉(角色权限编辑),再进入重命名
+    openRoleDrawer(role).then(() => { _beginRenameUI(role); });
+    return;
+  }
+  _beginRenameUI(_rpState.role);
+}
+function _beginRenameUI(role) {
+  const nameSpan = document.getElementById('roleInfoName');
+  const input = document.getElementById('roleRenameInput');
+  const saveBtn = document.getElementById('roleRenameSave');
+  const renameBtn = document.getElementById('roleRenameBtn');
+  if (input) { input.value = role; input.style.display = ''; }
+  if (saveBtn) saveBtn.style.display = '';
+  if (renameBtn) renameBtn.style.display = 'none';
+  if (nameSpan) nameSpan.style.display = 'none';
+  if (input) input.focus();
+}
+function stopRoleRename() {
+  const nameSpan = document.getElementById('roleInfoName');
+  const input = document.getElementById('roleRenameInput');
+  const saveBtn = document.getElementById('roleRenameSave');
+  const renameBtn = document.getElementById('roleRenameBtn');
+  if (input) input.style.display = 'none';
+  if (saveBtn) saveBtn.style.display = 'none';
+  if (renameBtn) renameBtn.style.display = '';
+  if (nameSpan) nameSpan.style.display = '';
+}
+async function confirmRoleRename() {
+  const old = _rpState.role;
+  const input = document.getElementById('roleRenameInput');
+  const newName = input ? input.value.trim() : '';
+  if (!newName || newName === old) { stopRoleRename(); return; }
   try {
     const res = await authFetch(api('/api/permissions/roles/rename'), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ old: role, new: newName.trim() }),
+      body: JSON.stringify({ old, new: newName }),
     });
     const data = await res.json();
-    if (data.ok) { showToast(t('perm_role_saved')); renderRoleList(); }
-    else showToast(data.error === 'role_name_exists' ? t('perm_role_name_exists') : t('fail'), 'warning');
+    if (data.ok) {
+      showToast(t('perm_role_saved'));
+      stopRoleRename();
+      await loadRolePermissions(newName);
+      renderRoleList();
+    } else {
+      showToast(data.error === 'role_name_exists' ? t('perm_role_name_exists') : t('fail'), 'warning');
+    }
   } catch(e) { showToast(t('fail'), 'warning'); }
 }
 
-async function deleteRolePrompt(role) {
-  if (!window.confirm(t('perm_role_delete_confirm').replace('{role}', roleLabel(role)))) return;
+// 删除角色模态框
+function openDeleteRoleModal(role) {
+  if (_authState.role !== 'super_admin') { showToast(t('need_super_admin'), 'warning'); return; }
+  const ov = document.getElementById('roleModalOverlay'), mo = document.getElementById('roleModal');
+  if (ov) ov.style.display = 'block';
+  if (mo) mo.style.display = 'block';
+  const title = document.getElementById('roleModalTitle');
+  if (title) title.textContent = t('perm_delete_role') + ' — ' + roleLabel(role);
+  const body = document.getElementById('roleModalBody');
+  if (!body) return;
+  const isBuiltin = (role === 'viewer' || role === 'editor' || role === 'admin');
+  body.innerHTML = `
+    <p style="font-size:13px;margin-bottom:16px;">${t('perm_role_delete_confirm').replace('{role}', roleLabel(role))}</p>
+    ${isBuiltin ? `<p style="font-size:12px;color:#F44336;margin-bottom:12px;" data-i18n="perm_role_builtin_nodel">系统内置角色不可删除</p>`
+      : `<div style="display:flex;gap:10px;">
+        <button class="oa-btn oa-btn-reject" onclick="confirmDeleteRole('${role}')" data-i18n="perm_delete_role">删除</button>
+        <button class="nav-btn" onclick="closeRoleModal()" data-i18n="btn_cancel">取消</button>
+      </div>`}
+    ${isBuiltin ? `<button class="nav-btn" onclick="closeRoleModal()" style="margin-top:10px;" data-i18n="btn_close">关闭</button>` : ''}`;
+}
+async function confirmDeleteRole(role) {
   try {
     const res = await authFetch(api('/api/permissions/roles/' + encodeURIComponent(role)), { method: 'DELETE' });
     const data = await res.json();
-    if (data.ok) { showToast(t('perm_role_saved')); renderRoleList(); }
-    else if (data.error === 'role_has_users') showToast(t('perm_role_has_users'), 'warning');
-    else if (data.error === 'role_builtin_nodel') showToast(t('perm_role_builtin_nodel'), 'warning');
+    if (data.ok) {
+      closeRoleModal();
+      renderRoleList();
+      showToast(t('perm_role_saved'));
+    } else if (data.error === 'role_has_users') { showToast(t('perm_role_has_users'), 'warning'); }
+    else if (data.error === 'role_builtin_nodel') { showToast(t('perm_role_builtin_nodel'), 'warning'); }
     else showToast(t('fail'), 'warning');
+  } catch(e) { showToast(t('fail'), 'warning'); }
+}
+
+// 恢复默认模态框确认
+function resetRolePermsToDefault() {
+  if (_rpState.isNew) return;
+  const ov = document.getElementById('roleModalOverlay'), mo = document.getElementById('roleModal');
+  if (ov) ov.style.display = 'block';
+  if (mo) mo.style.display = 'block';
+  const title = document.getElementById('roleModalTitle');
+  if (title) title.textContent = t('perm_reset_default');
+  const body = document.getElementById('roleModalBody');
+  if (!body) return;
+  body.innerHTML = `
+    <p style="font-size:13px;margin-bottom:16px;">${t('perm_reset_confirm')}</p>
+    <div style="display:flex;gap:10px;">
+      <button class="btn-primary" onclick="confirmResetRole()" data-i18n="perm_save">确认</button>
+      <button class="nav-btn" onclick="closeRoleModal()" data-i18n="btn_cancel">取消</button>
+    </div>`;
+}
+async function confirmResetRole() {
+  const msg = document.getElementById('roleDrawerMsg');
+  try {
+    const res = await authFetch(api('/api/permissions/roles/reset'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: _rpState.role }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeRoleModal();
+      loadRolePermissions(_rpState.role);
+      renderRoleList();
+      if (msg) { msg.textContent = t('saved'); msg.style.color = ''; }
+    } else {
+      showToast(data.error || t('fail'), 'warning');
+    }
   } catch(e) { showToast(t('fail'), 'warning'); }
 }
 
