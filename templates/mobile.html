@@ -325,16 +325,34 @@
   // ── Tab 路由 ──
   const TAB_TITLES = { dashboard:'tab_dashboard', employees:'tab_employees', collection:'tab_collection', attendance:'tab_attendance' };
   let activeTab = 'dashboard';
-  let _pageStack = [];  // 子页栈: ['emp-profile:123', 'col-form:underground']
+  // 子页栈按 tab 维护: 切走清空全局改为按 tab 保留,切回恢复子页状态
+  let _pageStack = { dashboard:[], employees:[], collection:[], attendance:[] };
+  function _subPageTitle(name){
+    if(name==='collection'){
+      const ty = STATE.colType || '';
+      const key = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att'));
+      return t(key);
+    }
+    if(name==='employees') return t('emp_profile');
+    return t(TAB_TITLES[name]);
+  }
   function switchTab(name){
     activeTab = name;
-    _pageStack = [];
     document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
     document.getElementById('tab-'+name).classList.add('active');
     document.querySelectorAll('.tab-bar__item').forEach(i=>i.classList.toggle('active', i.dataset.tab===name));
-    document.getElementById('top-title').textContent = t(TAB_TITLES[name]);
-    document.getElementById('topback').classList.remove('visible');
     window.scrollTo(0,0);
+    // 恢复该 tab 子页状态(残留修复): 有子页保持子页容器,否则回根视图
+    const hasSub = (_pageStack[name]||[]).length > 0;
+    if(name==='employees'){
+      if(!hasSub){ document.getElementById('emp-detail').style.display='none'; document.getElementById('emp-list').style.display='block'; document.getElementById('emp-search-wrap').style.display='block'; }
+    } else if(name==='collection'){
+      if(!hasSub){ document.getElementById('col-home').style.display='block'; document.getElementById('col-form').style.display='none'; }
+    }
+    // topback 显隐 + 标题(替代无条件隐藏)
+    const tb=document.getElementById('topback');
+    if(tb) tb.classList.toggle('visible', hasSub);
+    document.getElementById('top-title').textContent = hasSub ? _subPageTitle(name) : t(TAB_TITLES[name]);
     if(name==='dashboard' && !STATE.dashboard) loadDashboard();
     if(name==='employees'){ if(!STATE.employees.length) loadEmployees(); loadOAPendingCount(); }
     if(name==='collection'){ if(!STATE.employees.length) loadEmployees(); loadCollectionHome(); }
@@ -346,10 +364,12 @@
       if(badge){ badge.textContent=n; badge.style.display=n>0?'inline-flex':'none'; }
     }).catch(()=>{});
   }
-  function pushPage(title){ _pageStack.push(title||''); document.getElementById('topback').classList.add('visible'); }
+  function pushPage(title){ (_pageStack[activeTab] || (_pageStack[activeTab]=[])).push(title||''); document.getElementById('topback').classList.add('visible'); }
   function popPage(){
-    _pageStack.pop();
-    if(_pageStack.length) return;  // 还有更上层子页
+    const stack = _pageStack[activeTab];
+    if(!stack || !stack.length) return;
+    stack.pop();
+    if(stack.length){ document.getElementById('top-title').textContent = stack[stack.length-1]; return; }  // 还有更上层子页
     document.getElementById('topback').classList.remove('visible');
     // 按当前 tab 回到根视图
     if(activeTab==='employees'){
