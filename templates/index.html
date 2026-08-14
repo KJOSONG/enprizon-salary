@@ -6155,7 +6155,7 @@ async function submitColPayload(formType, date, payload, historyId) {
   if (_colEditing) {
     res = await authFetch(api('/api/collection/edit/' + _colEditing.id), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload }),
+      body: JSON.stringify({ payload, submission_date: date }),
     });
   } else {
     res = await authFetch(api('/api/collection/submit'), {

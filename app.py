@@ -2003,8 +2003,12 @@ def _merge_collection_to_main_data(main_data, form_type, date, payload):
         crush.append(rec)
 
 def rebuild_main_data_from_collections(main_data):
-    """P9: /reload 后从 collection_submissions 最新版本回填 main_data（Web 采集覆盖 Excel 同日期）"""
+    """P9: /reload 后从 collection_submissions 最新版本回填 main_data（Web 采集覆盖 Excel 同日期）
+    B1: 全量重建语义——先清空产量数组，再从 DB 最新提交重建，杜绝双日期残留"""
     from core.database import get_collection_submissions
+    main_data['shift_production'] = []
+    main_data['driller_production'] = []
+    main_data['crush_production'] = []
     subs = get_collection_submissions(app.config['DATA_FOLDER'])
     for s in subs:
         try:
@@ -2013,6 +2017,23 @@ def rebuild_main_data_from_collections(main_data):
             continue
         if s.get('form_type') in ('underground', 'driller', 'crush'):
             _merge_collection_to_main_data(main_data, s['form_type'], s['submission_date'], payload)
+
+def _reapply_driver_flags():
+    """B1: 全量重建 main_data 后重设井下 driver 标志（遍历所有井下提交的 drivers）"""
+    from core.database import get_collection_submissions, mark_driver_flag
+    subs = get_collection_submissions(app.config['DATA_FOLDER'])
+    for s in subs:
+        if s.get('form_type') != 'underground':
+            continue
+        try:
+            payload = json.loads(s.get('payload', '{}'))
+        except (TypeError, ValueError):
+            continue
+        drivers = []
+        for _shift in ('day', 'night'):
+            drivers += (payload.get(_shift) or {}).get('drivers') or []
+        for _eid in drivers:
+            mark_driver_flag(app.config['DATA_FOLDER'], _eid, s.get('submission_date'))
 
 @app.route('/api/collection/submit', methods=['POST'])
 @editor_required
@@ -2052,14 +2073,9 @@ def collection_submit():
 
     # 合并 main_data + 重算（仅产量类；出勤已直写 attendance_overrides）
     if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
-        # P15: 井下采集勾选驾驶 → 只置 is_driver=1 不覆盖 status（任何人勾选即计司机津贴，不要求司机名单）
-        if form_type == 'underground':
-            drivers = []
-            for _shift in ('day', 'night'):
-                drivers += (payload.get(_shift) or {}).get('drivers') or []
-            for _eid in drivers:
-                mark_driver_flag(app.config['DATA_FOLDER'], _eid, date)
-        _merge_collection_to_main_data(APP_STATE['main_data'], form_type, date, payload)
+        # B1: 全量重建（替代增量合并），杜绝编辑改日期后新旧双日期数据残留导致产量重复
+        rebuild_main_data_from_collections(APP_STATE['main_data'])
+        _reapply_driver_flags()
         _recalc_internal()
 
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
@@ -2125,8 +2141,8 @@ def collection_driller_teams():
 @editor_required
 def collection_edit(submission_id):
     """P9: 再编辑采集提交（仅本人或 admin+），版本+1 + 旧版写 history + 重新合并 main_data"""
-    from core.database import get_collection_submission, update_collection_submission, log_audit, \
-        delete_attendance_override, save_attendance_override
+    from core.database import get_collection_submission, get_collection_submissions, update_collection_submission, \
+        delete_collection_submission, log_audit, delete_attendance_override, save_attendance_override
     username = session.get('username', 'unknown')
     sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     if not sub:
@@ -2136,20 +2152,39 @@ def collection_edit(submission_id):
         return jsonify({'ok': False, 'error': '只能编辑本人提交或管理员可改'}), 403
     data = request.get_json() or {}
     payload = data.get('payload') or {}
-    ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
+    form_type = sub['form_type']
+    old_date = sub['submission_date']
+    new_date = data.get('submission_date') or old_date
+
+    # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
+    #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
+    if new_date != old_date:
+        existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
+        ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
+        if ex:
+            ok = update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username, date=new_date)
+            delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
+            submission_id = ex['id']
+        else:
+            ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username, date=new_date)
+    else:
+        ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
     if not ok:
         return jsonify({'ok': False, 'error': '更新失败'}), 500
     # 重新合并 + 重算
-    if sub['form_type'] in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
-        _merge_collection_to_main_data(APP_STATE['main_data'], sub['form_type'], sub['submission_date'], payload)
+    if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
+        # B1: 全量重建（替代增量合并），杜绝编辑改日期后新旧双日期数据残留导致产量重复
+        rebuild_main_data_from_collections(APP_STATE['main_data'])
+        _reapply_driver_flags()
         _recalc_internal()
-    elif sub['form_type'] == 'attendance':
+    elif form_type == 'attendance':
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
+        # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
         try:
             old_payload = json.loads(sub['payload'] or '{}')
             for m in (old_payload.get('marks') or []):
                 if m.get('employee_id'):
-                    delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], sub['submission_date'])
+                    delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], old_date)
         except Exception:
             pass
         for m in (payload.get('marks') or []):
@@ -2157,11 +2192,11 @@ def collection_edit(submission_id):
             status = m.get('status', '')
             if not eid or not status:
                 continue
-            save_attendance_override(app.config['DATA_FOLDER'], eid, sub['submission_date'], status)
+            save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
-              json.dumps({'submission_id': submission_id, 'form_type': sub['form_type'],
-                          'date': sub['submission_date']}))
-    return jsonify({'ok': True})
+              json.dumps({'submission_id': submission_id, 'form_type': form_type,
+                          'date': new_date}))
+    return jsonify({'ok': True, 'submission_id': submission_id})
 
 @app.route('/api/production/shift', methods=['POST'])
 @editor_required

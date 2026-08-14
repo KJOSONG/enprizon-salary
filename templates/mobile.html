@@ -1058,6 +1058,7 @@
     STATE._colEditing = { id: Number(id), ty };
     const s=(STATE._colSubs||[]).find(x=>x.id===id);
     let p={}; try{ p = s ? JSON.parse(s.payload||'{}') : {}; }catch(e){}
+    p.submission_date = s ? (s.submission_date || '') : '';
     openColForm(ty, p);
   }
 
@@ -1077,7 +1078,7 @@
     if(btn){ btn.disabled=true; btn.textContent=t('submitting'); }
     const editing = STATE._colEditing && STATE._colEditing.ty===ty ? STATE._colEditing : null;
     const req = editing
-      ? api('/api/collection/edit/'+editing.id, { method:'POST', body: JSON.stringify({ payload }) })
+      ? api('/api/collection/edit/'+editing.id, { method:'POST', body: JSON.stringify({ payload, submission_date:date }) })
       : api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) });
     req.then(r=>{
       if(r.ok){ STATE._colEditing=null; showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }

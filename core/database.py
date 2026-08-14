@@ -2545,8 +2545,9 @@ def get_collection_submission(data_folder, submission_id):
     conn.close()
     return dict(row) if row else None
 
-def update_collection_submission(data_folder, submission_id, payload, operator_id):
-    """再编辑：版本+1，旧 payload 写 collection_history，返回是否成功"""
+def update_collection_submission(data_folder, submission_id, payload, operator_id, date=None):
+    """再编辑：版本+1，旧 payload 写 collection_history，返回是否成功。
+    date 可选：B1 修复——编辑改日期时同步更新 submission_date 与 month"""
     conn = get_conn(data_folder)
     row = conn.execute(
         "SELECT payload, version FROM collection_submissions WHERE id=?", (submission_id,)).fetchone()
@@ -2560,11 +2561,28 @@ def update_collection_submission(data_folder, submission_id, payload, operator_i
         INSERT INTO collection_history (submission_id, version, payload, operator_id)
         VALUES (?,?,?,?)
     """, (submission_id, old_version, old_payload, operator_id))
-    conn.execute("""
-        UPDATE collection_submissions SET payload=?, version=?, operator_id=?,
-            updated_at=datetime('now','localtime')
-        WHERE id=?
-    """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, submission_id))
+    if date:
+        conn.execute("""
+            UPDATE collection_submissions SET payload=?, version=?, operator_id=?, submission_date=?, month=?,
+                updated_at=datetime('now','localtime')
+            WHERE id=?
+        """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, date, (date or '')[:7], submission_id))
+    else:
+        conn.execute("""
+            UPDATE collection_submissions SET payload=?, version=?, operator_id=?,
+                updated_at=datetime('now','localtime')
+            WHERE id=?
+        """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, submission_id))
+    conn.commit()
+    conn.close()
+    return True
+
+def delete_collection_submission(data_folder, submission_id):
+    """B1: 删除一条采集提交（编辑改日期覆盖合并时清理被编辑的旧行）。
+    先删关联 collection_history（外键约束），再删提交行"""
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM collection_history WHERE submission_id=?", (submission_id,))
+    conn.execute("DELETE FROM collection_submissions WHERE id=?", (submission_id,))
     conn.commit()
     conn.close()
     return True
