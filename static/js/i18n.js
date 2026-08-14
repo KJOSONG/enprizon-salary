@@ -924,7 +924,7 @@ const I18N_DICT = {
     batch_title: '批量标记', batch_selected: '已选: {n} 人', batch_range: '日期范围', batch_to: '至',
     batch_apply: '应用到选中 {n} 人', batch_progress: '正在标记 {a}/{b}...', batch_done: '完成! 已标记 {n} 条记录',
     /* 请假 / 其他 */
-    annual_leave: '年假', comp_leave: '调休', sick_leave: '病假', leave_type: '请假类型',
+    annual_leave: '年假', comp_leave: '调休', sick_leave: '病假', personal_leave: '事假', leave_type: '请假类型',
     start_date: '开始日期', reason: '事由', days: '天', fill_date: '请选择日期', next: '继续',
     all_depts: '全部部门', emp_list_hint: '共 {n} 人',
   },
@@ -1848,7 +1848,7 @@ const I18N_DICT = {
     batch_title: 'Batch Mark', batch_selected: '{n} selected', batch_range: 'Date Range', batch_to: 'to',
     batch_apply: 'Apply to {n}', batch_progress: 'Marking {a}/{b}...', batch_done: 'Done! {n} marked',
     /* Leave / Other */
-    annual_leave: 'Annual', comp_leave: 'Comp', sick_leave: 'Sick', leave_type: 'Leave Type',
+    annual_leave: 'Annual', comp_leave: 'Comp', sick_leave: 'Sick', personal_leave: 'Personal Leave', leave_type: 'Leave Type',
     start_date: 'Start', reason: 'Reason', days: 'd', fill_date: 'Pick a date', next: 'Next',
     all_depts: 'All depts', emp_list_hint: '{n} total',
   }

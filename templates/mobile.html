@@ -792,7 +792,7 @@
   // ── 请假 ──
   function openLeave(empId){
     const body = document.getElementById('sheet-body');
-    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="annual_leave">'+t('annual_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick_leave">'+t('sick_leave')+'</option></select></div>'
+    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="casual" selected>'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick_leave">'+t('sick_leave')+'</option></select></div>'
       + '<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
       + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitLeave(\''+esc(empId)+'\')">'+t('submit')+'</button>';
@@ -861,6 +861,13 @@
         + '<div class="entry-card__meta" id="col-cnt-'+ty+'">'+t('loading')+'</div>'
         + '<div class="entry-card__footer"><span data-i18n="col_enter">进入采集</span><span class="entry-card__chevron">›</span></div>'
         + '</button>').join('')+'</div>'
+      + '<div class="section-label" style="padding:0 var(--space-md);">'+t('quick_actions')+'</div>'
+      + '<div class="quick-actions">'
+      + '<button class="quick-action-btn" onclick="openHireApply()"><span class="qa-icon">+</span><span>'+t('oa_hire')+'</span></button>'
+      + '<button class="quick-action-btn" onclick="openTransferApply()"><span class="qa-icon">+</span><span>'+t('oa_transfer')+'</span></button>'
+      + '<button class="quick-action-btn" onclick="openQuickLeave()"><span class="qa-icon">+</span><span>'+t('leave_apply')+'</span></button>'
+      + '<button class="quick-action-btn" onclick="openDismissApply()"><span class="qa-icon">+</span><span>'+t('oa_dismiss')+'</span></button>'
+      + '</div>'
       + '<div class="section-title">'+t('col_history')+'</div>'
       + '<div class="history-list" id="col-recent"><div class="history-row"><span class="history-row__date">'+t('loading')+'</span></div></div>';
     ['underground','driller','crush','attendance'].forEach(ty=>{
@@ -1095,9 +1102,7 @@
       + '  <div class="batch-panel__list" id="attBatchList"></div>'
       + '  <div class="batch-panel__progress" id="attBatchProgress"><div class="batch-panel__bar"><div class="batch-panel__fill" id="attBatchFill"></div></div><span class="batch-panel__progress-text" id="attBatchProgressText"></span></div>'
       + '  <button class="btn btn-primary btn-block" onclick="applyAttBatch()">'+t('batch_apply',{n:0})+'</button>'
-      + '</div>'
-      + '<div class="section-label" style="padding:0 var(--space-md);">'+t('quick_actions')+'</div>'
-      + '<div class="quick-actions"><button class="quick-action-btn" onclick="quickLeave()"><span class="qa-icon">+</span><span>'+t('leave_apply')+'</span></button><button class="quick-action-btn" onclick="quickSick()"><span class="qa-icon">+</span><span>'+t('leave_sick')+'</span></button></div>';
+      + '</div>';
     renderAttGrid();
   }
   // 出勤卡：左固定 100px 信息栏 + 右 28px 圆形状态格横向滚动
@@ -1208,6 +1213,12 @@
   function quickLeave(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openLeave(document.getElementById(\'ql-emp\').value)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
   function quickSick(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
+  // 采集页快捷操作四宫格入口(需求 1b)
+  function openQuickLeave(){ quickLeave(); }
+  // 三个 OA 申请页(需求 4): commit 2 覆盖为真实表单
+  function openHireApply(){ toast(t('need_editor'),'warning'); }
+  function openTransferApply(){ toast(t('need_editor'),'warning'); }
+  function openDismissApply(){ toast(t('need_editor'),'warning'); }
 
   // ── 启动 ──
   applyTheme();
