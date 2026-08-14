@@ -1215,10 +1215,99 @@
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
   function openQuickLeave(){ quickLeave(); }
-  // 三个 OA 申请页(需求 4): commit 2 覆盖为真实表单
-  function openHireApply(){ toast(t('need_editor'),'warning'); }
-  function openTransferApply(){ toast(t('need_editor'),'warning'); }
-  function openDismissApply(){ toast(t('need_editor'),'warning'); }
+  // ── 三个 OA 申请页(需求 4): Sheet 表单,POST /api/oa/events ──
+  function oaFormMsg(ok, msg){ const el=document.getElementById('oaFormMsg'); if(!el) return; el.textContent=msg||''; el.className='form-message visible '+(ok?'success':'error'); }
+  function oaFormHTML(html){ const body=document.getElementById('sheet-body'); body.innerHTML=html+'<div class="form-message" id="oaFormMsg"></div>'; }
+  // 入职申请(全字段,对齐桌面端 index.html:5128-5155)
+  function openHireApply(){
+    const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
+    const role=STATE.auth && STATE.auth.role;
+    const isSuper=role==='super_admin';
+    api('/api/employee_groups').then(d=>{ STATE._groups=d.groups||[]; renderHireForm(depts, isSuper); }).catch(()=>{ STATE._groups=[]; renderHireForm(depts, isSuper); });
+  }
+  function renderHireForm(depts, isSuper){
+    const g=STATE._groups||[];
+    const gOpts='<option value="0">—</option>'+g.map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('');
+    const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+    oaFormHTML(
+      '<div class="field"><label class="field__label">'+t('emp_name')+'</label><input id="oaHireName" placeholder="FULL NAME"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaHireDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="oaHireDept">'+deptOpts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('position')+'</label><input id="oaHirePosition"></div>'
+      + '<div class="field"><label class="field__label">'+t('gender')+'</label><select id="oaHireGender"><option value="">—</option><option>M</option><option>F</option></select></div>'
+      + '<div class="field"><label class="field__label">'+t('dob')+'</label><input type="date" id="oaHireDob"></div>'
+      + '<div class="field"><label class="field__label">'+t('position')+' (skill)</label><input id="oaHireSkill"></div>'
+      + '<div class="field"><label class="field__label">'+t('nida')+'</label><input id="oaHireNida"></div>'
+      + '<div class="field"><label class="field__label">'+t('nssf')+'</label><input id="oaHireNssf"></div>'
+      + '<div class="field"><label class="field__label">'+t('phone')+'</label><input id="oaHirePhone" inputmode="numeric" pattern="[0-9]*" placeholder="7XX XXX XXX"></div>'
+      + '<div class="field"><label class="field__label">'+t('bank')+'</label><input id="oaHireBank"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_bank_account')+'</label><input id="oaHireAccount"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_bank_owner')+'</label><input id="oaHireOwner"></div>'
+      + '<div class="field"><label class="field__label">'+t('salary_type')+'</label><select id="oaHireSalaryType"><option value="piece_underground">'+t('type_ug_piece')+'</option><option value="piece_driller">'+t('type_dr_piece')+'</option><option value="day_rate">'+t('type_dayrate')+'</option><option value="monthly">'+t('type_monthly')+'</option></select></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_day_rate')+'</label><input type="number" id="oaHireDayRate" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_monthly_salary')+'</label><input type="number" id="oaHireMonthly" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field"><label class="field__label">'+t('team')+'</label><select id="oaHireTeamId">'+gOpts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('custom_number')+'</label><input id="oaHireCustomNumber"></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitHireApply()">'+t('submit')+'</button>');
+    openSheet(t('emp_apply_hire'), document.getElementById('sheet-body'));
+  }
+  function submitHireApply(){
+    const name=document.getElementById('oaHireName').value.trim();
+    const date=document.getElementById('oaHireDate').value;
+    if(!name||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
+    const phoneRaw=document.getElementById('oaHirePhone').value.trim();
+    if(phoneRaw && (!/^\d{9,10}$/.test(phoneRaw))){ oaFormMsg(false, t('phone_invalid')); return; }
+    const payload={
+      name, department:document.getElementById('oaHireDept').value, position:document.getElementById('oaHirePosition').value.trim(),
+      gender:document.getElementById('oaHireGender').value, date_of_birth:document.getElementById('oaHireDob').value,
+      skill_level:document.getElementById('oaHireSkill').value.trim(), nida_number:document.getElementById('oaHireNida').value.trim(),
+      nssf_number:document.getElementById('oaHireNssf').value.trim(), phone:phoneRaw? '+255'+phoneRaw : '',
+      bank_name:document.getElementById('oaHireBank').value.trim(), bank_account:document.getElementById('oaHireAccount').value.trim(),
+      bank_owner:document.getElementById('oaHireOwner').value.trim(), salary_type:document.getElementById('oaHireSalaryType').value,
+      day_rate:parseInt(document.getElementById('oaHireDayRate').value)||0, monthly_salary:parseInt(document.getElementById('oaHireMonthly').value)||0,
+      team_id:parseInt(document.getElementById('oaHireTeamId').value)||0, custom_number:document.getElementById('oaHireCustomNumber').value.trim(),
+    };
+    api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'hire', employee_id:'', effective_date:date, payload }) }).then(r=>{
+      if(r.ok){ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, r.error||t('fail'));
+    }).catch(()=>oaFormMsg(false, t('fail')));
+  }
+  // 调岗申请
+  function openTransferApply(){
+    const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
+    const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
+    const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+    oaFormHTML(
+      '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaTrEid">'+opts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaTrDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_new_dept')+'</label><select id="oaTrDept">'+deptOpts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_new_position')+'</label><input id="oaTrPosition"></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitTransferApply()">'+t('submit')+'</button>');
+    openSheet(t('emp_apply_transfer'), document.getElementById('sheet-body'));
+  }
+  function submitTransferApply(){
+    const eid=document.getElementById('oaTrEid').value, date=document.getElementById('oaTrDate').value;
+    if(!eid||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
+    api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'transfer', employee_id:eid, effective_date:date, payload:{ new_department:document.getElementById('oaTrDept').value, new_position:document.getElementById('oaTrPosition').value.trim() } }) }).then(r=>{
+      if(r.ok){ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, r.error||t('fail'));
+    }).catch(()=>oaFormMsg(false, t('fail')));
+  }
+  // 离职申请
+  function openDismissApply(){
+    const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
+    oaFormHTML(
+      '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaDmEid">'+opts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaDmDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="oaDmReason" rows="3"></textarea></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitDismissApply()">'+t('submit')+'</button>');
+    openSheet(t('emp_apply_dismiss'), document.getElementById('sheet-body'));
+  }
+  function submitDismissApply(){
+    const eid=document.getElementById('oaDmEid').value, date=document.getElementById('oaDmDate').value;
+    if(!eid||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
+    api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'dismiss', employee_id:eid, effective_date:date, payload:{ reason:document.getElementById('oaDmReason').value.trim() } }) }).then(r=>{
+      if(r.ok){ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, r.error||t('fail'));
+    }).catch(()=>oaFormMsg(false, t('fail')));
+  }
 
   // ── 启动 ──
   applyTheme();

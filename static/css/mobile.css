@@ -319,9 +319,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ── 出勤网格 (Phase 4) ── */
 .att-month { font-size: var(--text-lg); font-weight: 700; padding: var(--space-md) var(--space-md) 0; }
-.att-toolbar { position: sticky; top: 0; z-index: 10; display: flex; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--background); border-bottom: 1px solid var(--border); align-items: center; }
-.att-search { flex: 1; min-height: var(--touch-target); padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); color: var(--foreground); }
+.att-toolbar { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--background); border-bottom: 1px solid var(--border); align-items: center; }
+.att-search { flex: 0 1 40%; min-width: 0; min-height: var(--touch-target); padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); color: var(--foreground); }
 .att-search:focus { outline: 2px solid var(--ring); }
+.att-toolbar select { max-width: 34%; flex-shrink: 1; min-width: 0; min-height: var(--touch-target); padding: 8px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); color: var(--foreground); font-size: var(--text-xs); }
+.att-toolbar .icon-btn { flex-shrink: 0; }
 .att-grid { padding: var(--space-sm) var(--space-md) var(--space-xl); }
 .att-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-sm); margin-bottom: var(--space-sm); }
 .att-card__head { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-xs); }
