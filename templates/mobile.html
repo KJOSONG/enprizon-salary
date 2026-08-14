@@ -976,6 +976,7 @@
     });
     apiStatus('/api/collection/history').then(({status,json})=>{
       const subs=(json.submissions||[]).slice(0,8);
+      STATE._colSubs = json.submissions || [];
       const el=document.getElementById('col-recent'); if(!el) return;
       if(status===403){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('need_editor')+'</span></div>'; return; }
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
@@ -995,17 +996,57 @@
           else if(s.form_type==='crush'){ sub = (p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
           else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
         }catch(e){}
-        return '<div class="history-row"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+'</span></div>';
+        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
     }).catch(()=>{ const el=document.getElementById('col-recent'); if(el) el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
-  function openColForm(ty){
+  function openColForm(ty, initPayload){
     // P18 阶段2: 采集/出勤编辑入口按权限(生产/出勤 edit 权限)
     const needEdit = (ty==='attendance') ? hasPermission('attendance','edit') : hasPermission('production','edit');
     if(!needEdit){ toast(t('need_editor'),'warning'); return; }
     STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
-    if(ty==='underground') renderUgForm(); else if(ty==='driller') renderDrForm(); else if(ty==='crush') renderCrForm(); else renderAttForm(); }
-  function backColHome(){ _pageStack=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
+    if(ty==='underground') renderUgForm(initPayload); else if(ty==='driller') renderDrForm(initPayload); else if(ty==='crush') renderCrForm(initPayload); else renderAttForm(initPayload); }
+  function backColHome(){ _pageStack[activeTab]=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
+
+  // ── 采集历史详情 + 可修改 ──
+  function colDetailSummary(ty, p){
+    if(ty==='underground'){
+      const day=p.day||{}, night=p.night||{};
+      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+' · '+(day.emps||[]).length+' '+t('emp')+'</div>'
+        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+' · '+(night.emps||[]).length+' '+t('emp')+'</div>';
+    }
+    if(ty==='driller'){ const teams=p.teams||[]; return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'+teams.map(t=>'<div class="detail-line">· '+esc(t.captain||'')+': '+(t.members||[]).length+' '+t('emp')+'</div>').join(''); }
+    if(ty==='crush'){ return '<div class="detail-line">'+t('bags')+': '+esc(p.bags||0)+' · '+(p.emps||[]).length+' '+t('emp')+'</div>'+((p.remark)?'<div class="detail-line">'+t('remark')+': '+esc(p.remark)+'</div>':''); }
+    if(ty==='attendance'){ return '<div class="detail-line">'+t('col_marks')+': '+(p.marks||[]).length+'</div>'; }
+    return '';
+  }
+  function openColDetail(id){
+    const s=(STATE._colSubs||[]).find(x=>x.id===id);
+    if(!s) return;
+    let p={}; try{ p=JSON.parse(s.payload||'{}'); }catch(e){}
+    const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
+    const auth = STATE.auth || {};
+    const canEdit = auth.username===s.operator_id || auth.role==='admin' || auth.role==='super_admin';
+    const body=document.getElementById('sheet-body');
+    body.innerHTML =
+      '<div class="info-row"><span class="info-row__label">'+t('col_type')+'</span><span class="info-row__value">'+esc(typeLabel[s.form_type]||s.form_type)+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('date')+'</span><span class="info-row__value">'+esc(s.submission_date||'')+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_operator')+'</span><span class="info-row__value">'+esc(s.operator_id||'')+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_version')+'</span><span class="info-row__value">'+(s.version||1)+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_updated_at')+'</span><span class="info-row__value">'+esc(s.updated_at||'')+'</span></div>'
+      + '<div style="margin:10px 0;border-top:1px solid var(--border);"></div>'
+      + colDetailSummary(s.form_type, p)
+      + (canEdit ? '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="editColDetail('+s.id+',\''+s.form_type+'\')">'+t('col_edit_btn')+'</button>'
+        : '<div style="margin-top:12px;font-size:12px;color:var(--muted-foreground);">'+t('col_readonly_hint')+'</div>');
+    openSheet(typeLabel[s.form_type]||'', body);
+  }
+  function editColDetail(id, ty){
+    closeSheet();
+    STATE._colEditing = { id: Number(id), ty };
+    const s=(STATE._colSubs||[]).find(x=>x.id===id);
+    let p={}; try{ p = s ? JSON.parse(s.payload||'{}') : {}; }catch(e){}
+    openColForm(ty, p);
+  }
 
   // form-message 内联校验 + 提交 loading 态
   function showFormMsg(ty, msg, ok){
@@ -1015,43 +1056,58 @@
     el.className = 'form-message visible '+(ok?'success':'error');
   }
   function clearFormMsg(){ const el=document.getElementById('colFormMsg'); if(el){ el.textContent=''; el.className='form-message'; } }
+  let _colEditing = null;  // {id, ty} 编辑采集提交
   function colSubmit(ty, payload, validate){
     const date=document.getElementById('colDate').value;
     if(!date){ showFormMsg(ty, t('val_date'), false); return; }
     if(validate && !validate(payload)) return;
     const btn = document.getElementById('colSubmitBtn');
     if(btn){ btn.disabled=true; btn.textContent=t('submitting'); }
-    api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) }).then(r=>{
-      if(r.ok){ showFormMsg(ty, t('success'), true); setTimeout(()=>{ backColHome(); }, 500); }
+    const editing = _colEditing && _colEditing.ty===ty ? _colEditing : null;
+    const req = editing
+      ? api('/api/collection/edit/'+editing.id, { method:'POST', body: JSON.stringify({ payload }) })
+      : api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) });
+    req.then(r=>{
+      if(r.ok){ _colEditing=null; showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }
       else { showFormMsg(ty, r.error||t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
     }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
   }
 
-  // 井下出渣：白/夜分段卡片展示双段数据（payload 结构不变）
-  function renderUgForm(){
-    const d=new Date().toISOString().slice(0,10);
-    const seg=(p, title, dotClass)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
+  // 井下出渣：白/夜分段卡片展示双段数据（payload 结构不变；init 为编辑预填 payload）
+  function renderUgForm(init){
+    const d = (init && init.submission_date) || new Date().toISOString().slice(0,10);
+    const day = (init && init.day) || {}, night = (init && init.night) || {};
+    const seg=(p, title, dotClass, s)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
       + '<div style="display:flex;gap:6px;">'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="'+((s&&s.nl)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="'+((s&&s.mw)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '</div>'
-      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:0})+'</div><div id="'+p+'EmpsBox"></div></div>'
-      + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:0})+'</div><div id="'+p+'DriversBox"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:((s&&s.emps)||[]).length})+'</div><div id="'+p+'EmpsBox"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:((s&&s.drivers)||[]).length})+'</div><div id="'+p+'DriversBox"></div></div>'
       + '</div>';
     document.getElementById('col-form').innerHTML =
       '<div class="form-head"><span class="form-head__title">'+t('col_ug')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + seg('ugDay', t('day_shift'), 'day')
-      + seg('ugNight', t('night_shift'), 'night')
-      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark"></div>'
-      + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2"></div>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+t('submit')+'</button>';
-    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',[],'ugDay', deptPool('underground'));
-    document.getElementById('ugDayDriversBox').innerHTML='<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
-    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',[],'ugNight', deptPool('underground'));
-    document.getElementById('ugNightDriversBox').innerHTML='<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+      + seg('ugDay', t('day_shift'), 'day', day)
+      + seg('ugNight', t('night_shift'), 'night', night)
+      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark" value="'+esc(init&&init.remark||'')+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2" value="'+esc(init&&init.remark2||'')+'"></div>'
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
+    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',(day.emps||[]),'ugDay', deptPool('underground'));
+    document.getElementById('ugDayDriversBox').innerHTML=(day.emps||[]).length ? empChecklistHTML('ugDayDrivers',(day.drivers||[]),'ugDayDrv', STATE.employees.filter(e=>(day.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',(night.emps||[]),'ugNight', deptPool('underground'));
+    document.getElementById('ugNightDriversBox').innerHTML=(night.emps||[]).length ? empChecklistHTML('ugNightDrivers',(night.drivers||[]),'ugNightDrv', STATE.employees.filter(e=>(night.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+    // 预填: hidden value 同步(empChecklistHTML 只渲染 checkbox 选中态)
+    document.getElementById('ugDayEmps').value=(day.emps||[]).join(',');
+    document.getElementById('ugDayDrivers').value=(day.drivers||[]).join(',');
+    document.getElementById('ugNightEmps').value=(night.emps||[]).join(',');
+    document.getElementById('ugNightDrivers').value=(night.drivers||[]).join(',');
+    if(document.getElementById('ugDay-count')) document.getElementById('ugDay-count').textContent=t('col_selected_count',{n:(day.emps||[]).length});
+    if(document.getElementById('ugDayDrv-count')) document.getElementById('ugDayDrv-count').textContent=t('col_selected_count',{n:(day.drivers||[]).length});
+    if(document.getElementById('ugNight-count')) document.getElementById('ugNight-count').textContent=t('col_selected_count',{n:(night.emps||[]).length});
+    if(document.getElementById('ugNightDrv-count')) document.getElementById('ugNightDrv-count').textContent=t('col_selected_count',{n:(night.drivers||[]).length});
   }
   // 需求5: 驾驶员候选 = 已选中的出勤人员(天然是 emps 子集)
   function refreshUgDrivers(seg){
@@ -1072,11 +1128,12 @@
     });
   }
 
-  // 钻工组：多队伍 teams[]
+  // 钻工组：多队伍 teams[]（init 为编辑预填 payload）
   STATE._drSlots=[];
-  async function renderDrForm(){
-    const d=new Date().toISOString().slice(0,10);
-    STATE._drSlots=[{captain:'',nh:0,nl:0,mw:0,members:[]}];
+  async function renderDrForm(init){
+    const d = (init && init.submission_date) || new Date().toISOString().slice(0,10);
+    const teams = (init && init.teams && init.teams.length) ? init.teams.map(t=>({captain:t.captain||'', nh:t.nh||0, nl:t.nl||0, mw:t.mw||0, members:(t.members||[])})) : [{captain:'',nh:0,nl:0,mw:0,members:[]}];
+    STATE._drSlots = teams;
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
     STATE._drCaps=caps;
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_dr')+'</span></div>'
@@ -1084,7 +1141,7 @@
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div id="drSlots"></div>'
       + '<button class="btn btn-block" onclick="addDrSlotM()" style="margin:8px 0;">+ '+t('add_team')+'</button>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitDr()">'+t('submit')+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitDr()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderDrSlotsM();
   }
   function capOpts(sel){ return '<option value="">'+t('pick_captain')+'</option>'+(STATE._drCaps||[]).map(c=>'<option value="'+esc(c.employee_id)+'" '+(String(sel)===String(c.employee_id)?'selected':'')+'>'+esc(c.name)+'</option>').join(''); }
@@ -1105,15 +1162,16 @@
     colSubmit('driller', { submission_date:date, teams }, null); }
 
   // 破碎计件
-  function renderCrForm(){ const d=new Date().toISOString().slice(0,10);
+  function renderCrForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10);
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_cr')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
-      + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:0})+'</div><div id="crEmpsBox"></div></div>'
-      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark"></div>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+t('submit')+'</button>';
-    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',[],'crEmps', deptPool('crush'));
+      + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="'+((init&&init.bags)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:((init&&init.emps)||[]).length})+'</div><div id="crEmpsBox"></div></div>'
+      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark" value="'+esc((init&&init.remark)||'')+'"></div>'
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
+    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',(init&&init.emps)||[],'crEmps', deptPool('crush'));
+    document.getElementById('crEmps').value=((init&&init.emps)||[]).join(',');
   }
   function submitCr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('crush', t('val_date'), false); return; }
     const bags=+document.getElementById('crBags').value||0;
@@ -1121,8 +1179,10 @@
     if(!ck('crEmps').length){ showFormMsg('crush', t('val_workers'), false); return; }
     colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
-  // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣）
-  async function renderAttForm(){ const d=new Date().toISOString().slice(0,10); const pool=deptPool('other');
+  // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣）(init 为编辑预填 marks)
+  async function renderAttForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10); const pool=deptPool('other');
+    STATE._attEditMarks = {};
+    (init && init.marks || []).forEach(m=>{ if(m.employee_id) STATE._attEditMarks[String(m.employee_id)] = m.status; });
     const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
@@ -1131,7 +1191,7 @@
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+t('submit')+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderAttRoster();
   }
   function attRosterEmpIds(){
@@ -1140,7 +1200,9 @@
   }
   function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
-    box.innerHTML=list.map(e=>'<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="P">P</option><option value="A">A</option><option value="L">L</option><option value="D">D</option><option value="N">N</option><option value="C">C</option><option value="R">R</option><option value="B">B</option></select></div>').join('');
+    const marks = STATE._attEditMarks || {};
+    box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
+      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','D','N','C','R','B'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
     const c=document.getElementById('attRosterCount'); if(c) c.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
