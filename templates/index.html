@@ -6872,6 +6872,77 @@ const MODULE_NAMES = {
 
 const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage'];
 
+// ── P13: 审批人设定(P18C 误删后恢复) ──
+async function loadApprovalRoutes() {
+  const card = document.getElementById('approvalRoutesCard');
+  if (!card) return;
+  // 仅 super_admin 可见
+  if (_authState.role !== 'super_admin') { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const list = document.getElementById('approvalRoutesList');
+  if (!list) return;
+  try {
+    const res = await authFetch(api('/api/approval-routes'));
+    const data = await res.json();
+    const routes = data.routes || [];
+    // 填充审批人下拉（admin/super_admin 用户）
+    const sel = document.getElementById('routeApprover');
+    if (sel) {
+      const cur = sel.value;
+      let opts = '<option value="">—</option>';
+      try {
+        const uRes = await authFetch(api('/api/permissions/users'));
+        const uData = await uRes.json();
+        (uData.users || []).filter(u => u.role === 'admin' || u.role === 'super_admin')
+          .forEach(u => { opts += `<option value="${escHtml(u.username)}">${escHtml(u.username)}</option>`; });
+      } catch(e) {}
+      sel.innerHTML = opts;
+      if (cur) sel.value = cur;
+    }
+    if (!routes.length) {
+      list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="routes_empty">暂无设定</div>';
+      return;
+    }
+    list.innerHTML = routes.map(r => `
+      <div class="oa-event-card" style="padding:10px 12px;margin-bottom:6px;">
+        <div class="oa-event-info">
+          <span style="font-weight:600;font-size:13px;">${t('event_' + (r.event_type === 'leave' ? 'leave' : r.event_type)) || r.event_type}</span>
+          <span style="font-size:12px;color:var(--text-muted);"> → ${escHtml(r.approver)}</span>
+        </div>
+        <div class="oa-event-actions">
+          <button class="oa-btn oa-btn-reject" onclick="deleteApprovalRoute(${r.id})" data-i18n="routes_delete">删除</button>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--danger);padding:12px;">' + t('load_fail') + '</div>';
+  }
+}
+
+async function saveApprovalRoute() {
+  const eventType = document.getElementById('routeEventType').value;
+  const approver = document.getElementById('routeApprover').value;
+  if (!approver) { showToast(t('routes_pick_approver'), 'error'); return; }
+  try {
+    const res = await authFetch(api('/api/approval-routes'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ event_type: eventType, approver }),
+    });
+    const data = await res.json();
+    if (data.ok) { showToast(t('routes_saved')); loadApprovalRoutes(); }
+    else showToast(data.error || t('routes_save_fail'), 'error');
+  } catch(e) { showToast(t('routes_save_fail'), 'error'); }
+}
+
+async function deleteApprovalRoute(routeId) {
+  if (!confirm(t('routes_delete_confirm'))) return;
+  try {
+    const res = await authFetch(api('/api/approval-routes/' + routeId), { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) { showToast(t('routes_deleted')); loadApprovalRoutes(); }
+    else showToast(data.error || t('routes_delete_fail'), 'error');
+  } catch(e) { showToast(t('routes_delete_fail'), 'error'); }
+}
+
 async function loadPermissionsPage() {
   const tbody = document.getElementById('permUsersTable');
   if (!tbody) return;
