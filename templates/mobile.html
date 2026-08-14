@@ -1308,7 +1308,7 @@
       const dateCells=d.dates.map(dt=>'<div class="date-cell'+(isWeekend(dt)?' weekend':'')+(dt===today?' att-today':'')+'">'+dt.slice(5).replace('-','/')+'</div>').join('');
       const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'" onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')">'+(st||'·')+'</div>'; }).join('');
       return '<div class="att-card"><div class="att-card__row">'
-        + '<div class="card-left">'+sel+'<div class="card-avatar">'+esc(initials(r.name))+'</div><div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
+        + '<div class="card-left">'+sel+'<div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
         + '<div class="card-right"><div class="date-strip-scroll"><div class="date-strip"><div class="date-row">'+dateCells+'</div><div class="status-row">'+statusCells+'</div></div></div></div>'
         + '</div></div>';
     }).join('');
