@@ -91,7 +91,7 @@
           <div class="control-bar" id="dash-control">
             <button class="control-bar__trigger" onclick="toggleDashFilter()">
               <span data-i18n="dashboard_title">数据台</span>
-              <span class="ctrl-arrow" data-i18n="filter">筛选 ▾</span>
+              <span class="ctrl-wrap"><span data-i18n="filter">筛选</span><span class="ctrl-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M6 9l6 6 6-6"/></svg></span></span>
             </button>
             <div class="control-bar__body">
               <div class="filter-group">
@@ -241,6 +241,7 @@
   <script src="{{ static_url('js/i18n.js') }}?v={{ version }}"></script>
   <script src="{{ static_url('js/chart.umd.min.js') }}"></script>
   <script src="{{ static_url('js/chartjs-plugin-datalabels.min.js') }}"></script>
+  <script src="{{ static_url('js/chartjs-plugin-zoom.min.js') }}"></script>
   <script>
   // ═══════════════════════════════════════════════
   //  P16 移动端 SPA — Phase 1: 骨架 + 数据台
@@ -399,6 +400,10 @@
     const sk=document.getElementById('dash-skeleton'), err=document.getElementById('dash-error'), empty=document.getElementById('dash-empty'), content=document.getElementById('dash-content');
     sk.style.display='block'; err.style.display='none'; empty.style.display='none'; content.style.display='none';
     api('/api/production/dashboard').then(d=>{
+      // 需求1: 后端 shift_production 未排序,按日期升序(ISO 字符串可直接比较)
+      if(Array.isArray(d.shift_production)) d.shift_production.sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+      if(Array.isArray(d.driller_production)) d.driller_production.sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+      if(Array.isArray(d.crush_production)) d.crush_production.sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
       STATE.dashboard = d; STATE.currentMonth = d.month || '';
       document.getElementById('top-month').textContent = STATE.currentMonth;
       sk.style.display='none';
@@ -479,17 +484,55 @@
 
   // 产量趋势：白班/夜班/合计 三线（设计稿 dashboard.html:450-460）
   // 趋势图直接读原始 shift 数据（三线本身即班次维度），矿石过滤生效
+  // 需求3: K线式交互 — 缩放/平移(chartjs-plugin-zoom 本地引入) + 十字光标 + tooltip 三值
+  let _trendZoomAvailable = (typeof ChartZoom !== 'undefined');
+  const crosshairPlugin = {
+    id: 'mobileCrosshair',
+    afterDraw(chart){
+      if(chart.$cx === undefined || chart.$cy === undefined) return;
+      const ctx = chart.ctx, area = chart.chartArea;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(60,53,43,0.28)';
+      ctx.setLineDash([3,3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(chart.$cx, area.top); ctx.lineTo(chart.$cx, area.bottom); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(area.left, chart.$cy); ctx.lineTo(area.right, chart.$cy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  };
+  function trendHover(e, els, chart){
+    const area = chart.chartArea;
+    if(e.x >= area.left && e.x <= area.right && e.y >= area.top && e.y <= area.bottom){
+      chart.$cx = e.x; chart.$cy = e.y;
+    } else { chart.$cx = undefined; chart.$cy = undefined; }
+    chart.draw();
+  }
   function drawTrend(){
     const sp = STATE.dashboard.shift_production || [];
     if(!sp.length) return;
     const ore = STATE.dashOreFilter;
     const labels = sp.map(s=>s.date.slice(5));
     const pick = (s, f)=> ore==='nh'? (s[f+'_nh']||0) : ore==='nl'? (s[f+'_nl']||0) : ore==='mw'? (s[f+'_mw']||0) : (s[f+'_nh']||0)+(s[f+'_nl']||0)+(s[f+'_mw']||0);
+    const opts = Object.assign(baseOpts(), {
+      plugins:{
+        legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
+        tooltip:{ mode:'index', intersect:false },
+      },
+      hover:{ mode:'index', intersect:false },
+      onHover: trendHover,
+    });
+    if(_trendZoomAvailable){
+      opts.plugins.zoom = {
+        pan: { enabled: true, mode:'x' },
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode:'x' },
+      };
+    }
     newChart('chart-trend', { type:'line', data:{ labels, datasets:[
       { label:t('day'), data:sp.map(s=>pick(s,'day')), borderColor:'hsl(200 60% 45%)', backgroundColor:'hsl(200 60% 45% / 0.08)', fill:true, tension:0.3, pointRadius:0 },
       { label:t('night'), data:sp.map(s=>pick(s,'night')), borderColor:'hsl(180 50% 40%)', backgroundColor:'hsl(180 50% 40% / 0.08)', fill:false, tension:0.3, pointRadius:0 },
       { label:t('total'), data:sp.map(s=>pick(s,'total')), borderColor:'hsl(28.99 91.75% 61.96%)', backgroundColor:'transparent', borderWidth:2, tension:0.3, pointRadius:0 },
-    ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
+    ]}, options: opts, plugins:[crosshairPlugin] });
   }
   // 白班 vs 夜班：按 dnTab 切换 NH/NL/MW/合计 双柱
   function drawDayNight(){
