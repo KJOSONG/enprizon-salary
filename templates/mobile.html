@@ -605,7 +605,7 @@
     // 线 = 矿石维度(对齐桌面端);取值 = 班次维度(#dash-shift-seg: all/day/night)
     const oreKeys = STATE.dashOreFilter==='all' ? ['nh','nl','mw'] : [STATE.dashOreFilter];
     const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
-    const colors = { nh:'hsl(28.99 91.75% 61.96%)', nl:'hsl(200 60% 45%)', mw:'hsl(130 50% 45%)' };
+    const colors = { nh:'hsl(30 92% 52%)', nl:'hsl(210 85% 52%)', mw:'hsl(150 70% 38%)' };
     const opts = Object.assign(baseOpts(), {
       plugins:{
         legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
@@ -630,8 +630,8 @@
     newChart('chart-trend', { type:'line', data:{ labels, datasets: oreKeys.map((k,i)=>({
       label:k.toUpperCase(), oreKey:k,
       data: sp.map(s=>s[prefix+k]||0),
-      borderColor:colors[k], backgroundColor:colors[k]+' / 0.08',
-      fill: i===0, tension:0.3, pointRadius:0,
+      borderColor:colors[k], backgroundColor:'transparent',
+      fill: false, tension:0.3, pointRadius:0,
     })) }, options: opts, plugins:[crosshairPlugin] });
     // 修复: zoom 插件精简版(12KB)defaults 无 doubleClick 配置,双击重置不生效。
     // 改手动 dblclick 监听调用 chart.resetZoom()(函数存在且可用),防重复绑定用 canvas 标志。
@@ -1205,7 +1205,7 @@
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+'<option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
@@ -1226,7 +1226,15 @@
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
+    // 必须选择部门才能提交(防止误提交全部员工)
+    const deptEl=document.getElementById('attDept');
+    if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
     const marks=attRosterEmpIds().map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
+    // 编辑保数据: 原 marks 员工(即使不在选中部门)按保留状态并入,避免编辑丢人
+    const submitted=new Set(marks.map(m=>String(m.employee_id)));
+    Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
+      if(!submitted.has(String(eid))){ submitted.add(String(eid)); marks.push({employee_id:eid, status:st}); }
+    });
     colSubmit('attendance', { submission_date:date, marks }, null); }
 
   // ── 出勤模块 (Phase 4 / 2e) ──
@@ -1300,7 +1308,7 @@
       const dateCells=d.dates.map(dt=>'<div class="date-cell'+(isWeekend(dt)?' weekend':'')+(dt===today?' att-today':'')+'">'+dt.slice(5).replace('-','/')+'</div>').join('');
       const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'" onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')">'+(st||'·')+'</div>'; }).join('');
       return '<div class="att-card"><div class="att-card__row">'
-        + '<div class="card-left">'+sel+'<div class="card-avatar">'+esc(initials(r.name))+'</div><div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
+        + '<div class="card-left">'+sel+'<div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
         + '<div class="card-right"><div class="date-strip-scroll"><div class="date-strip"><div class="date-row">'+dateCells+'</div><div class="status-row">'+statusCells+'</div></div></div></div>'
         + '</div></div>';
     }).join('');

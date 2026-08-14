@@ -6065,7 +6065,6 @@ async function renderAttCollectionForm(payload) {
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
       <select id="attDeptSel" onchange="filterAttRoster()" style="${colInStyle(true)}">
-        <option value="" data-i18n="col_att_all_depts">全部</option>
         ${depts.map(d => `<option value="${escHtml(d)}">${escHtml(d)}</option>`).join('')}
       </select>
     </div>
@@ -6095,15 +6094,32 @@ function resetAttStatus() {
 async function submitAttCollection() {
   const date = document.getElementById('attDate').value;
   if (!date) { showToast(t('pick_date'), 'error'); return; }
+  // 必须选择部门才能提交(防止误提交全部员工)
+  const deptEl = document.getElementById('attDeptSel');
+  if (!deptEl || !deptEl.value) { showToast(t('col_att_need_dept'), 'error'); return; }
+  const dept = deptEl.value;
   const pool = await getEmpPool();
   const roster = filterEmpByDept(pool, 'other');
   const marks = [];
   for (const e of roster) {
+    if (e.department !== dept) continue; // 仅选中部门
     const sel = document.getElementById('attSt' + e.id);
     if (!sel) continue;
     let status = sel.value;
     if (status === 'B') status = 'P'; // 病假 → 出勤 P（与 P8 病假一致，不参与计件）
     marks.push({ employee_id: e.id, status });
+  }
+  // 编辑保数据: 原 marks 员工(即使不在选中部门)按原状态并入,避免编辑丢人
+  if (_colEditing) {
+    let oldMarks = [];
+    try { oldMarks = (_colEditing.payload && JSON.parse(_colEditing.payload).marks) || []; } catch(e) {}
+    const submitted = new Set(marks.map(m => String(m.employee_id)));
+    oldMarks.forEach(m => {
+      if (!submitted.has(String(m.employee_id))) {
+        submitted.add(String(m.employee_id));
+        marks.push({ employee_id: m.employee_id, status: m.status === 'B' ? 'P' : m.status });
+      }
+    });
   }
   await submitColPayload('attendance', date, { marks }, 'colAttHistory');
 }
