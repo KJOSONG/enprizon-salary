@@ -3819,7 +3819,7 @@ function filterSalaryTable() {
     const penalty = emp.penalty || 0;
     const n = g + bonus + (emp.driver_allowance||0) - (emp.advance||0) - (emp.nssf||0) - penalty;
     return `<tr>
-      <td class="left">${escHtml(emp.name)}</td>
+      <td class="left"><a href="#employees/profile?id=${encodeURIComponent(emp.employee_id || emp.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${emp.employee_id || emp.id}'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(emp.name)}</a></td>
       <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
       <td class="num">${fmtNum(emp.piece_underground||0)}</td>
       <td class="num">${fmtNum(emp.piece_driller||0)}</td>
@@ -4139,7 +4139,7 @@ function renderDailyWages() {
     const overrideDates = new Set([...(e.override_dates||[]), ...(e.att_override_dates||[])]);
     const isMonthly = e.salary_type === 'monthly';
     const shifts = e.daily_shifts || {};
-    bodyHtml += '<tr><td class="left" style="white-space:nowrap;">' + escHtml(e.name) + '</td>';
+    bodyHtml += '<tr><td class="left" style="white-space:nowrap;"><a href="#employees/profile?id=' + encodeURIComponent(e.id) + '" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate(\'employees\',\'profile\',{id:\'' + e.id + '\'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">' + escHtml(e.name) + '</a></td>';
     sortedDates.forEach(d => {
       const fs = shiftFilters[d] || '';
       let amt = e.daily[d] || 0;
