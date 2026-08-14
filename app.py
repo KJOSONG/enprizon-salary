@@ -2125,7 +2125,8 @@ def collection_driller_teams():
 @editor_required
 def collection_edit(submission_id):
     """P9: 再编辑采集提交（仅本人或 admin+），版本+1 + 旧版写 history + 重新合并 main_data"""
-    from core.database import get_collection_submission, update_collection_submission, log_audit
+    from core.database import get_collection_submission, update_collection_submission, log_audit, \
+        delete_attendance_override, save_attendance_override
     username = session.get('username', 'unknown')
     sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     if not sub:
@@ -2142,6 +2143,21 @@ def collection_edit(submission_id):
     if sub['form_type'] in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
         _merge_collection_to_main_data(APP_STATE['main_data'], sub['form_type'], sub['submission_date'], payload)
         _recalc_internal()
+    elif sub['form_type'] == 'attendance':
+        # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
+        try:
+            old_payload = json.loads(sub['payload'] or '{}')
+            for m in (old_payload.get('marks') or []):
+                if m.get('employee_id'):
+                    delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], sub['submission_date'])
+        except Exception:
+            pass
+        for m in (payload.get('marks') or []):
+            eid = m.get('employee_id', '')
+            status = m.get('status', '')
+            if not eid or not status:
+                continue
+            save_attendance_override(app.config['DATA_FOLDER'], eid, sub['submission_date'], status)
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
               json.dumps({'submission_id': submission_id, 'form_type': sub['form_type'],
                           'date': sub['submission_date']}))
