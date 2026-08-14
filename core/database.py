@@ -949,10 +949,20 @@ def apply_approved_event(data_folder, event):
                 conn.execute(
                     f"INSERT OR IGNORE INTO employees ({', '.join(_all_cols)}) VALUES ({_ph})",
                     _all_vals)
-            # P14.11: 工号来源于 ID — custom_number 为空时自动等于 employee_id
+            # P17: 工号唯一递增 — 入职无 custom_number 时生成 现有最大数字工号+1
+            # (原 P14.11: custom_number 为空时等于 employee_id，已废弃)
             _cn = (payload.get('custom_number') or '').strip()
             if not _cn:
-                _cn = eid
+                _rows = conn.execute(
+                    "SELECT custom_number FROM employees WHERE custom_number IS NOT NULL AND custom_number != ''"
+                ).fetchall()
+                _nums = []
+                for _r in _rows:
+                    try:
+                        _nums.append(int(str(_r[0]).strip()))
+                    except (ValueError, TypeError):
+                        pass
+                _cn = str((max(_nums) if _nums else 0) + 1)
                 conn.execute("UPDATE employees SET custom_number=? WHERE id=?", (_cn, eid))
             # P13: 入职头像 base64 dataURL 落盘（≤2MB，PNG/JPG）
             avatar_data = payload.get('avatar_data', '') or ''

@@ -759,7 +759,6 @@
     const role = STATE.auth && STATE.auth.role;
     const isSuper = role==='super_admin';
     let body = '<div class="field"><label class="field__label">'+t('alias')+'</label><input id="ed-alias" value="'+esc(e.alias||'')+'"></div>'
-      + '<div class="field"><label class="field__label">'+t('custom_number')+'</label><input id="ed-custom-number" value="'+esc(e.custom_number||'')+'"></div>'
       + '<div class="field"><label class="field__label">'+t('team')+'</label><input id="ed-team" value="'+esc(e.team||'')+'"></div>'
       + '<div class="field"><label class="field__label">'+t('position')+'</label><input id="ed-position" value="'+esc(e.position||'')+'"></div>'
       + '<div class="field"><label class="field__label">'+t('phone')+'</label><input id="ed-phone" value="'+esc(e.phone||'')+'"></div>'
@@ -767,7 +766,7 @@
     showModal(t('edit_profile'), body, '<button class="btn btn-block" onclick="closeModal()">'+t('cancel')+'</button><button class="btn btn-primary btn-block" onclick="submitEditEmp(\''+esc(id)+'\')">'+t('save')+'</button>');
   }
   function submitEditEmp(id){
-    const data = { team: document.getElementById('ed-team').value.trim(), position: document.getElementById('ed-position').value.trim(), phone: document.getElementById('ed-phone').value.trim(), alias: document.getElementById('ed-alias').value.trim(), custom_number: document.getElementById('ed-custom-number').value.trim() };
+    const data = { team: document.getElementById('ed-team').value.trim(), position: document.getElementById('ed-position').value.trim(), phone: document.getElementById('ed-phone').value.trim(), alias: document.getElementById('ed-alias').value.trim() };
     if(STATE.auth.role==='super_admin') data.department = document.getElementById('ed-dept').value.trim();
     api('/api/employees/'+encodeURIComponent(id), { method:'POST', body: JSON.stringify(data) }).then(r=>{
       if(r.ok){ toast(t('saved')); closeModal(); loadEmployees(); openEmpProfile(id); }
@@ -1298,7 +1297,6 @@
       + '<div class="field"><label class="field__label">'+t('emp_day_rate')+'</label><input type="number" id="oaHireDayRate" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('emp_monthly_salary')+'</label><input type="number" id="oaHireMonthly" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('team')+'</label><select id="oaHireTeamId">'+gOpts+'</select></div>'
-      + '<div class="field"><label class="field__label">'+t('custom_number')+'</label><input id="oaHireCustomNumber"></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitHireApply()">'+t('submit')+'</button>');
     openSheet(t('emp_apply_hire'), document.getElementById('sheet-body'));
   }
@@ -1316,7 +1314,7 @@
       bank_name:document.getElementById('oaHireBank').value.trim(), bank_account:document.getElementById('oaHireAccount').value.trim(),
       bank_owner:document.getElementById('oaHireOwner').value.trim(), salary_type:document.getElementById('oaHireSalaryType').value,
       day_rate:parseInt(document.getElementById('oaHireDayRate').value)||0, monthly_salary:parseInt(document.getElementById('oaHireMonthly').value)||0,
-      team_id:parseInt(document.getElementById('oaHireTeamId').value)||0, custom_number:document.getElementById('oaHireCustomNumber').value.trim(),
+      team_id:parseInt(document.getElementById('oaHireTeamId').value)||0,
     };
     api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'hire', employee_id:'', effective_date:date, payload }) }).then(r=>{
       if(r.ok){ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, r.error||t('fail'));

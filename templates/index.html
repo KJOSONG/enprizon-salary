@@ -376,7 +376,6 @@
       <div class="form-row" id="hireRowDayRate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="hireDayRate" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row" id="hireRowMonthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="hireMonthly" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row" id="hireRowTeam" style="display:none;"><label data-i18n="emp_team">班组</label><select id="hireTeamId" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><option value="0" data-i18n="emp_no_team">未分班</option></select></div>
-      <div class="form-row"><label data-i18n="emp_custom_number">工号</label><input type="text" id="hireCustomNumber" readonly placeholder="工号 = 员工 ID，提交后自动生成" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text-muted);font-size:13px;box-sizing:border-box;"></div>
     </div>
     <!-- P13: 入职头像上传（base64 dataURL → 随审批 payload 提交） -->
     <div style="display:flex;align-items:flex-start;gap:12px;margin-top:12px;max-width:760px;">
@@ -3013,8 +3012,6 @@ async function editEmployeeProfile() {
   if (!isSA) {
     form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('dept_superadmin_only')}</div>`;
   }
-  // 工号（只读）
-  form += `<div class="form-row"><label data-i18n="emp_custom_number">工号</label><input id="pfEdit_custom_number" value="${g(emp.custom_number || emp.id)}" readonly style="${inStyle}color:var(--text-muted);"></div>`;
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input id="pfEdit_skill_level" value="${g(emp.skill_level)}" style="${inStyle}"></div>`;
@@ -3073,7 +3070,7 @@ async function saveEmployeeProfile(eid) {
   const isSA = _authState.role === 'super_admin';
   const data = { department: document.getElementById('pfEdit_department').value };
   ['position','skill_level','hire_date','nida_number','nssf_number',
-   'bank_name','bank_account','bank_owner','gender','date_of_birth','custom_number','alias']
+   'bank_name','bank_account','bank_owner','gender','date_of_birth','alias']
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
   // 部门仅超级管理员可直改，非超管兜底移除，防误传/绕过
   if (!isSA) delete data.department;
@@ -5146,7 +5143,6 @@ async function submitApply(type) {
         day_rate: parseInt(document.getElementById('hireDayRate').value) || 0,
         monthly_salary: parseInt(document.getElementById('hireMonthly').value) || 0,
         team_id: parseInt(document.getElementById('hireTeamId').value) || 0,
-        custom_number: document.getElementById('hireCustomNumber').value.trim(),
       },
     };
     // P13: 头像 base64 dataURL（可选，非空才带）
@@ -5188,7 +5184,7 @@ async function submitApply(type) {
       setApplyMsg(msgId, t('apply_submitted'), true);
       // 清空表单
       if (type === 'hire') {
-        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly','hireCustomNumber']
+        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
           .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         ['hireGender','hireSalaryType'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';
