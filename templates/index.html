@@ -6950,8 +6950,11 @@ async function loadApprovalRoutes() {
       try {
         const uRes = await authFetch(api('/api/permissions/users'));
         const uData = await uRes.json();
-        (uData.users || []).filter(u => u.role === 'admin' || u.role === 'super_admin')
-          .forEach(u => { opts += `<option value="${escHtml(u.username)}">${escHtml(u.username)}</option>`; });
+        // P18F-2: 有效拥有 OA 审批权的用户均可作审批人(角色默认或被单用户授权)
+        (uData.users || []).filter(u => {
+          const p = (u.permissions && u.permissions.oa) || {};
+          return p.approve === 'role' || p.approve === 'grant';
+        }).forEach(u => { opts += `<option value="${escHtml(u.username)}">${escHtml(u.username)}</option>`; });
       } catch(e) {}
       sel.innerHTML = opts;
       if (cur) sel.value = cur;

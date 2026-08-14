@@ -3,13 +3,9 @@ __pycache__/
 *.pyc
 .env
 *.log
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
-data/*.db.bak*
-data/*.db.bak*-wal
-data/*.db.bak*-shm
+# data 目录整体忽略（数据库与备份，运行时数据；仅保留 source/.gitkeep 目录占位）
+data/
+!data/source/.gitkeep
 _work/
 uploads/*
 !uploads/.gitkeep
@@ -17,9 +13,6 @@ static/avatars/*
 !static/avatars/.gitkeep
 .DS_Store
 *.bak.*
-data/source/*.xlsx
-!data/source/.gitkeep
-data/kilwa_data.b64.txt
 .memory
 
 # Codebuddy/Workbuddy project dirs

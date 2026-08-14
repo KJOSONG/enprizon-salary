@@ -1367,7 +1367,11 @@ def get_user_permissions(data_folder, username):
         conn.close()
 
 def get_user_permissions_summary(data_folder, username):
-    """获取某用户的完整权限摘要：{module: {view: 'role'|'grant'|'deny', ...}}"""
+    """获取某用户的完整权限摘要：{module: {view: 'role'|'grant'|'deny'|'none'}}
+
+    角色部分基于 role_permissions 表 + 继承展开(get_role_permissions),
+    不用 ROLE_DEFAULT_PERMISSIONS 硬编码字典 —— 否则权限表修改不生效、自定义角色全 none。
+    """
     conn = get_conn(data_folder)
     role_row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
     if not role_row:
@@ -1375,15 +1379,14 @@ def get_user_permissions_summary(data_folder, username):
         return None
     role = role_row['role']
 
-    # 角色默认
-    role_grants = ROLE_DEFAULT_PERMISSIONS.get(role, {})
+    # 角色有效权限(role_permissions 表 + 继承展开;super_admin 返回 {'*': {'*'}})
+    role_perms = get_role_permissions(data_folder, role)
     summary = {}
     for module in ALL_MODULES:
         summary[module] = {}
         for action in ALL_ACTIONS:
-            if '*' in role_grants and '*' in role_grants['*']:
-                summary[module][action] = 'role'
-            elif action in role_grants.get(module, []) or '*' in role_grants.get(module, []):
+            if ('*' in role_perms and '*' in role_perms['*']) or \
+               (module in role_perms and ('*' in role_perms[module] or action in role_perms[module])):
                 summary[module][action] = 'role'
             else:
                 summary[module][action] = 'none'
