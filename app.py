@@ -1459,10 +1459,41 @@ def api_employees():
 @require_permission('employees', 'view')
 def api_employee_profile(employee_id):
     """员工档案详情"""
-    from core.database import get_employee_profile
+    from core.database import get_employee_profile, load_overrides
     profile = get_employee_profile(app.config['DATA_FOLDER'], employee_id)
     if not profile:
         return jsonify({'error': '员工不存在'}), 404
+    # R1b: 合并覆盖基数（对齐计算侧 _run_pipeline 逻辑：永久覆盖 > 默认）
+    # employees.day_rate/monthly_salary 可能为 0（真实基数在 overrides 表），
+    # 档案页需展示计算侧实际生效的类型与基数，否则"日薪 · 0 TZS/天"。
+    month = APP_STATE.get('month') or ''
+    db_ovs = load_overrides(app.config['DATA_FOLDER'], month=month)
+    ev_ovs = _derive_overrides_from_events(app.config['DATA_FOLDER'], month) if month else {}
+    all_ovs = (ev_ovs.get(employee_id, []) or []) + (db_ovs.get(employee_id, []) or [])
+    override_type = profile.get('override_type') or None
+    day_rate = profile.get('day_rate') or 0
+    monthly_salary = profile.get('monthly_salary') or 0
+    for o in all_ovs:
+        st = o.get('salary_type', '')
+        has_range = bool(o.get('start_date') or o.get('end_date'))
+        # 仅永久覆盖（无日期区间）更新类型；基数任何覆盖均可带入（对齐计算侧）
+        if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+            override_type = st
+        if st == 'day_rate' and o.get('day_rate', 0) > 0:
+            day_rate = o['day_rate']
+        if st == 'monthly' and o.get('monthly_salary', 0) > 0:
+            monthly_salary = o['monthly_salary']
+    # 清零对齐计算侧（按最终 override_type）
+    if override_type == 'day_rate':
+        monthly_salary = 0
+    elif override_type == 'monthly':
+        day_rate = 0
+    elif override_type in ('piece_underground', 'piece_driller', 'piece_crush'):
+        day_rate = 0
+        monthly_salary = 0
+    profile['override_type'] = override_type
+    profile['day_rate'] = day_rate
+    profile['monthly_salary'] = monthly_salary
     return jsonify({'employee': profile})
 
 @app.route('/api/employees/<employee_id>/events', methods=['GET'])
