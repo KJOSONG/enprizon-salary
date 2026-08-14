@@ -286,10 +286,26 @@ def delete_user():
 @app.route('/api/permissions/users', methods=['GET'])
 @admin_required
 def api_permissions_users():
-    from core.database import list_all_users, get_user_permissions_summary
+    """P18C: 用户列表 + 角色 + permissions 摘要 + 单用户 grants 明细"""
+    from core.database import (list_all_users, get_user_permissions_summary,
+                               get_conn, PERMISSION_CATALOG)
+    conn = get_conn(app.config['DATA_FOLDER'])
     users = list_all_users(app.config['DATA_FOLDER'])
-    for u in users:
-        u['permissions'] = get_user_permissions_summary(app.config['DATA_FOLDER'], u['username'])
+    try:
+        for u in users:
+            u['permissions'] = get_user_permissions_summary(app.config['DATA_FOLDER'], u['username'])
+            rows = conn.execute(
+                """SELECT p.module, p.action, g.grant_type
+                   FROM user_grants g JOIN permissions p ON g.permission_id = p.id
+                   WHERE g.username=? ORDER BY p.module, p.action""",
+                (u['username'],)).fetchall()
+            u['grants'] = [{
+                'module': r['module'], 'action': r['action'], 'grant_type': r['grant_type'],
+                'name': (PERMISSION_CATALOG.get(r['module'] + ':' + r['action']) or {})
+                        .get('name', r['module'] + ':' + r['action']),
+            } for r in rows]
+    finally:
+        conn.close()
     return jsonify({'ok': True, 'users': users})
 
 @app.route('/api/permissions/roles', methods=['GET'])
