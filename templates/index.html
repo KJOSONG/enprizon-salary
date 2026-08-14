@@ -1022,46 +1022,95 @@
 <div class="page" id="page-system-users">
   <div class="card">
     <h2>🔐 <span data-i18n="user_mgmt_title">用户权限管理</span></h2>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;" data-i18n="user_mgmt_desc">设置各用户的角色和操作权限</p>
-    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn-primary" onclick="openCreateUserModal()" style="padding:6px 16px;font-size:12px;" data-i18n="user_mgmt_add">＋ 新增用户</button>
-      <button class="btn-primary" onclick="initDefaultPermissions()" data-i18n="perm_init_defaults">初始化默认权限</button>
+    <!-- P18C: 双平级 Tab -->
+    <div class="perm-tabs" style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <button class="perm-tab active" id="permTabUsers" onclick="switchPermTab('users')" data-i18n="perm_tab_users">👥 用户管理</button>
+      <button class="perm-tab" id="permTabRoles" onclick="switchPermTab('roles')" data-i18n="perm_tab_roles">🎭 角色管理</button>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th data-i18n="user_mgmt_th_username">用户名</th>
-            <th data-i18n="user_mgmt_th_role">角色</th>
-            <th data-i18n="user_mgmt_th_actions">操作</th>
-            <th style="width:80px;"></th>
-          </tr>
-        </thead>
-        <tbody id="permUsersTable"></tbody>
-      </table>
+    <!-- ══ 用户管理 Tab(账号维度) ══ -->
+    <div id="permUsersPanel">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_users_desc">管理登录账号,分配角色。角色默认权限请在"角色管理"设置。</p>
+      <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-primary" onclick="openCreateUserModal()" style="padding:6px 16px;font-size:12px;" data-i18n="user_mgmt_add">＋ 新增用户</button>
+        <button class="btn-primary" onclick="initDefaultPermissions()" data-i18n="perm_init_defaults">初始化默认权限</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="user_mgmt_th_username">用户名</th>
+              <th data-i18n="user_mgmt_th_role">角色</th>
+              <th data-i18n="perm_user_status">状态</th>
+              <th data-i18n="user_mgmt_th_actions">操作</th>
+            </tr>
+          </thead>
+          <tbody id="permUsersTable"></tbody>
+        </table>
+      </div>
     </div>
-    <div id="permDetail" style="display:none;margin-top:16px;padding:16px;background:var(--bg-secondary);border-radius:var(--radius);border:1px solid var(--border);">
-      <h3 id="permDetailTitle" style="font-size:13px;margin-bottom:12px;"></h3>
-      <div id="permGrid"></div>
+    <!-- ══ 角色管理 Tab(角色维度) ══ -->
+    <div id="permRolesPanel" style="display:none;">
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_roles_desc">定义各角色的默认权限,保存后该角色用户重新登录生效。超级管理员拥有全部权限。</p>
+      <div id="permRolesList"></div>
     </div>
   </div>
-  <!-- P18 阶段2: 角色权限编辑(super_admin) -->
-  <div class="card" id="rolePermCard" style="margin-top:16px;display:none;">
-    <h3 style="margin-bottom:12px;font-size:14px;">🔑 <span data-i18n="perm_role_edit">角色权限编辑</span></h3>
-    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_role_edit_desc">编辑各角色的默认权限(不含超级管理员)。保存后该角色用户重新登录生效。</p>
-    <div id="rolePermSuperNote" style="display:none;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_super_admin_note">超级管理员拥有全部权限,不可修改。</div>
-    <!-- 角色 Tab 行 -->
-    <div id="rolePermTabs" style="display:flex;gap:8px;margin-bottom:14px;"></div>
-    <!-- 功能分组列表 -->
-    <div id="rolePermGroups" style="max-height:480px;overflow-y:auto;"></div>
-    <!-- 底部操作条 -->
+  <!-- ══ 用户编辑抽屉 ══ -->
+  <div class="drawer-overlay" id="userDrawerOverlay" style="display:none;" onclick="closeUserDrawer()"></div>
+  <div class="drawer" id="userDrawer" style="display:none;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+      <h3 style="font-size:14px;flex:1;" id="userDrawerTitle"></h3>
+      <button class="nav-btn" onclick="closeUserDrawer()" data-i18n="btn_close">✕ 关闭</button>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;" data-i18n="perm_relogin_hint">角色/覆盖修改保存后,该用户重新登录生效。</div>
+    <!-- 账号信息 + 分配角色 -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;" data-i18n="perm_assign_role">分配角色</div>
+      <select id="userDrawerRole" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="viewer" data-i18n="perm_role_viewer">只读</option>
+        <option value="editor" data-i18n="perm_role_editor">编辑员</option>
+        <option value="admin" data-i18n="perm_role_admin">管理员</option>
+      </select>
+      <div style="margin-top:10px;display:flex;gap:10px;">
+        <button class="btn-primary" onclick="saveUserRole()" style="font-size:12px;" data-i18n="perm_save_role">保存角色</button>
+        <span id="userDrawerRoleMsg" style="font-size:12px;align-self:center;"></span>
+      </div>
+    </div>
+    <!-- 单用户权限覆盖 -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;" data-i18n="perm_user_override">单用户权限覆盖(allow/deny)</div>
+      <div id="userDrawerGrants" style="margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="userGrantPermSel" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex:1;min-width:160px;"></select>
+        <select id="userGrantTypeSel" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
+          <option value="allow" data-i18n="perm_allow">允许</option>
+          <option value="deny" data-i18n="perm_deny">拒绝</option>
+        </select>
+        <button class="btn-primary" onclick="addUserGrant()" style="font-size:12px;" data-i18n="perm_add_override">添加覆盖</button>
+      </div>
+      <span id="userDrawerGrantMsg" style="font-size:12px;"></span>
+    </div>
+    <!-- 账号操作 -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+      <button class="nav-btn" onclick="openResetPwdModal(currentEditUser)" data-i18n="user_mgmt_reset_pwd">修改密码</button>
+      <button class="oa-btn oa-btn-reject" onclick="deleteUser(currentEditUser)" data-i18n="user_mgmt_delete">删除账号</button>
+    </div>
+  </div>
+  <!-- ══ 角色编辑抽屉 ══ -->
+  <div class="drawer-overlay" id="roleDrawerOverlay" style="display:none;" onclick="closeRoleDrawer()"></div>
+  <div class="drawer" id="roleDrawer" style="display:none;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+      <h3 style="font-size:14px;flex:1;" id="roleDrawerTitle"></h3>
+      <button class="nav-btn" onclick="closeRoleDrawer()" data-i18n="btn_close">✕ 关闭</button>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_role_edit_desc">编辑该角色的默认权限。保存后该角色用户重新登录生效。</p>
+    <div id="roleDrawerGroups" style="max-height:55vh;overflow-y:auto;"></div>
     <div style="position:sticky;bottom:0;margin-top:14px;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-      <span id="rolePermCount" style="font-size:12px;font-weight:600;flex:1;"></span>
+      <span id="roleDrawerCount" style="font-size:12px;font-weight:600;flex:1;"></span>
       <button class="btn-primary" onclick="saveRolePerms()" data-i18n="perm_save">保存</button>
       <button class="nav-btn" onclick="discardRolePerms()" data-i18n="perm_discard">撤销修改</button>
       <button class="nav-btn" onclick="resetRolePermsToDefault()" data-i18n="perm_reset_default">恢复默认</button>
     </div>
-    <div id="rolePermMsg" style="font-size:12px;margin-top:8px;"></div>
+    <div id="roleDrawerMsg" style="font-size:12px;margin-top:8px;"></div>
   </div>
   <!-- P13: 审批人设定（super_admin） -->
   <div class="card" id="approvalRoutesCard" style="margin-top:16px;display:none;">
@@ -6826,28 +6875,22 @@ const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage'];
 async function loadPermissionsPage() {
   const tbody = document.getElementById('permUsersTable');
   if (!tbody) return;
-  // P18 阶段2: 加载角色权限编辑区(super_admin 可见)
-  loadRolePermissions();
+  // P18C: 用户列表 + 角色列表
   try {
     const res = await authFetch(api('/api/permissions/users'));
     const data = await res.json();
     if (!data.ok) { tbody.innerHTML = '<tr><td colspan="4">' + t('perm_no_users') + '</td></tr>'; return; }
-    tbody.innerHTML = data.users.map(u => {
+    _permUsersCache = data.users || [];
+    tbody.innerHTML = _permUsersCache.map(u => {
       const isSelf = u.username === _authState.username;
       return `
       <tr>
         <td>${escHtml(u.username)}${isSelf ? ' <span style="color:var(--accent);font-size:10px;">(You)</span>' : ''}</td>
-        <td>
-          <select onchange="changeUserRole('${escHtml(u.username)}', this.value)" style="font-size:11px;padding:2px 6px;background:var(--bg-primary);color:var(--text);border:1px solid var(--border);border-radius:4px;" ${isSelf ? 'disabled' : ''}>
-            ${ROLE_OPTIONS.map(r => `<option value="${r.value}" ${u.role === r.value ? 'selected' : ''}>${t(r.label)}</option>`).join('')}
-          </select>
-        </td>
-        <td><span class="role-status" id="status_${escHtml(u.username)}" style="font-size:11px;"></span></td>
+        <td>${t('perm_role_' + u.role) || u.role}</td>
+        <td><span style="font-size:11px;color:#4CAF50;">${t('perm_user_status_ok')}</span></td>
         <td>
           <button class="btn-primary" style="font-size:10px;padding:2px 6px;margin-right:4px;"
-            onclick="togglePermPanel('${escHtml(u.username)}')" data-i18n="perm_expand">展开权限</button>
-          <button class="nav-btn" style="font-size:10px;padding:2px 6px;"
-            onclick="openResetPwdModal('${escHtml(u.username)}')" data-i18n="user_mgmt_reset_pwd">修改密码</button>
+            onclick="openUserDrawer('${escHtml(u.username)}')" data-i18n="perm_user_edit">编辑</button>
           ${isSelf ? '' : `<button class="nav-btn" style="font-size:10px;padding:2px 6px;margin-left:4px;"
             onclick="openRenameUserModal('${escHtml(u.username)}')" data-i18n="user_mgmt_rename">重命名</button>
           <button class="oa-btn oa-btn-reject" style="font-size:10px;padding:2px 6px;margin-left:4px;"
@@ -6855,11 +6898,65 @@ async function loadPermissionsPage() {
         </td>
       </tr>`;
     }).join('');
-
-    // 更新旧版 userMgmtBody (如果有)
-    const oldTbody = document.getElementById('userMgmtBody');
-    if (oldTbody) oldTbody.innerHTML = tbody.innerHTML;
   } catch(e) {}
+  renderRoleList();
+}
+
+// ── P18C: 双 Tab 切换 ──
+let _permActiveTab = 'users';
+function switchPermTab(tab) {
+  _permActiveTab = tab;
+  document.getElementById('permUsersPanel').style.display = tab === 'users' ? '' : 'none';
+  document.getElementById('permRolesPanel').style.display = tab === 'roles' ? '' : 'none';
+  const uTab = document.getElementById('permTabUsers'), rTab = document.getElementById('permTabRoles');
+  if (uTab) uTab.className = 'perm-tab' + (tab === 'users' ? ' active' : '');
+  if (rTab) rTab.className = 'perm-tab' + (tab === 'roles' ? ' active' : '');
+  if (tab === 'roles') renderRoleList();
+}
+
+// ── P18C: 角色列表(角色管理 Tab) ──
+async function renderRoleList() {
+  const wrap = document.getElementById('permRolesList');
+  if (!wrap) return;
+  const roles = [
+    { key: 'viewer', label: 'perm_role_viewer' },
+    { key: 'editor', label: 'perm_role_editor' },
+    { key: 'admin', label: 'perm_role_admin' },
+  ];
+  try {
+    const res = await authFetch(api('/api/permissions/roles'));
+    const data = await res.json();
+    if (!data.ok) { wrap.innerHTML = ''; return; }
+    const eff = data.effective || {};
+    wrap.innerHTML = roles.map(r => {
+      const count = (eff[r.key] || []).length;
+      const inherited = (eff[r.key] || []).filter(p => p.source_role && p.source_role !== r.key).length;
+      return `<div class="perm-role-card" onclick="openRoleDrawer('${r.key}')" style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--bg-secondary);">
+        <div style="font-size:15px;font-weight:700;flex:1;">${t(r.label)}</div>
+        <div style="font-size:12px;color:var(--text-muted);">
+          ${count} ${t('perm_items_count')}${inherited ? ' · ' + t('perm_inherited_count').replace('{n}', inherited) : ''}
+        </div>
+        <span style="font-size:11px;color:var(--accent);">${t('perm_edit_enter')} ›</span>
+      </div>`;
+    }).join('');
+  } catch(e) { wrap.innerHTML = ''; }
+}
+
+// ── P18C: 角色编辑抽屉 ──
+async function openRoleDrawer(role) {
+  if (_authState.role !== 'super_admin') { showToast(t('need_super_admin'), 'warning'); return; }
+  const ov = document.getElementById('roleDrawerOverlay'), dr = document.getElementById('roleDrawer');
+  if (ov) ov.style.display = 'block';
+  if (dr) dr.style.display = 'block';
+  const title = document.getElementById('roleDrawerTitle');
+  const labels = { viewer: 'perm_role_viewer', editor: 'perm_role_editor', admin: 'perm_role_admin' };
+  if (title) title.textContent = t('perm_role_edit_title') + ' — ' + t(labels[role] || role);
+  await loadRolePermissions(role);
+}
+function closeRoleDrawer() {
+  const ov = document.getElementById('roleDrawerOverlay'), dr = document.getElementById('roleDrawer');
+  if (ov) ov.style.display = 'none';
+  if (dr) dr.style.display = 'none';
 }
 
 // ── P18b: 角色权限编辑(角色中心 + 功能分组 + 继承显示 + 强反馈) ──
@@ -6869,11 +6966,10 @@ let _rpData = null; // 最近一次 /api/permissions/roles 响应
 function _rpKey(m, a) { return m + ':' + a; }
 
 async function loadRolePermissions(role) {
-  const card = document.getElementById('rolePermCard');
-  if (!card) return;
-  if (_authState.role !== 'super_admin') { card.style.display = 'none'; return; }
-  card.style.display = '';
-  const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = '';
+  // P18C: 渲染到角色抽屉 roleDrawerGroups
+  const wrap = document.getElementById('roleDrawerGroups');
+  if (!wrap) return;
+  const msg = document.getElementById('roleDrawerMsg'); if (msg) msg.textContent = '';
   try {
     const r = role || _rpState.role;
     const res = await authFetch(api('/api/permissions/roles?role=' + encodeURIComponent(r)));
@@ -6888,28 +6984,13 @@ async function loadRolePermissions(role) {
     _rpState.base = {};
     eff.forEach(p => { _rpState.base[_rpKey(p.module, p.action)] = true; });
     _rpState.dirty = {};
-    renderRoleTabs();
     renderRoleGroups();
     renderRoleBar();
   } catch(e) {}
 }
 
-function renderRoleTabs() {
-  const tabs = document.getElementById('rolePermTabs');
-  if (!tabs) return;
-  const roles = ['viewer', 'editor', 'admin'];
-  const labels = { viewer: 'perm_role_viewer', editor: 'perm_role_editor', admin: 'perm_role_admin' };
-  tabs.innerHTML = roles.map(r => {
-    const active = r === _rpState.role;
-    return `<button class="${active ? 'btn-primary' : 'nav-btn'}" style="font-size:12px;padding:6px 16px;"
-      onclick="switchRoleTab('${r}')">${t(labels[r])}</button>`;
-  }).join('');
-}
-
-function switchRoleTab(r) { loadRolePermissions(r); }
-
 function renderRoleGroups() {
-  const wrap = document.getElementById('rolePermGroups');
+  const wrap = document.getElementById('roleDrawerGroups');
   if (!wrap) return;
   // 按 catalog 分组(顺序: 数据台/产量/出勤/员工/OA/薪资/评分/系统)
   const groupOrder = ['数据台', '产量', '出勤', '员工', 'OA', '薪资', '评分', '系统'];
@@ -6955,7 +7036,7 @@ function onRolePermChange(key, checked) {
 
 function renderRoleBar() {
   const count = Object.keys(_rpState.dirty).length;
-  const el = document.getElementById('rolePermCount');
+  const el = document.getElementById('roleDrawerCount');
   if (el) el.textContent = count ? t('perm_dirty_count').replace('{n}', count) : t('perm_no_change');
 }
 
@@ -6964,8 +7045,8 @@ async function saveRolePerms() {
     const [module, action] = key.split(':');
     return { role: _rpState.role, module, action, allow };
   });
-  if (!updates.length) { const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = t('perm_no_change'); return; }
-  const msg = document.getElementById('rolePermMsg');
+  if (!updates.length) { const msg = document.getElementById('roleDrawerMsg'); if (msg) msg.textContent = t('perm_no_change'); return; }
+  const msg = document.getElementById('roleDrawerMsg');
   try {
     const res = await authFetch(api('/api/permissions/roles'), {
       method: 'PUT',
@@ -6976,6 +7057,7 @@ async function saveRolePerms() {
     if (data.ok) {
       if (msg) { msg.textContent = t('saved'); msg.style.color = ''; }
       loadRolePermissions(_rpState.role);
+      renderRoleList();
     } else {
       if (msg) { msg.textContent = data.error || t('fail'); msg.style.color = '#F44336'; }
     }
@@ -6986,12 +7068,12 @@ function discardRolePerms() {
   _rpState.dirty = {};
   renderRoleGroups();
   renderRoleBar();
-  const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = '';
+  const msg = document.getElementById('roleDrawerMsg'); if (msg) msg.textContent = '';
 }
 
 async function resetRolePermsToDefault() {
   if (!window.confirm(t('perm_reset_confirm'))) return;
-  const msg = document.getElementById('rolePermMsg');
+  const msg = document.getElementById('roleDrawerMsg');
   try {
     const res = await authFetch(api('/api/permissions/roles/reset'), {
       method: 'POST',
@@ -7002,170 +7084,119 @@ async function resetRolePermsToDefault() {
     if (data.ok) {
       if (msg) { msg.textContent = t('saved'); msg.style.color = ''; }
       loadRolePermissions(_rpState.role);
+      renderRoleList();
     } else {
       if (msg) { msg.textContent = data.error || t('fail'); msg.style.color = '#F44336'; }
     }
   } catch(e) { if (msg) { msg.textContent = t('fail'); msg.style.color = '#F44336'; } }
 }
 
-function togglePermPanel(username) {
-  const detail = document.getElementById('permDetail');
-  if (detail.style.display === 'none' || detail.getAttribute('data-username') !== username) {
-    detail.style.display = '';
-    detail.setAttribute('data-username', username);
-    document.getElementById('permDetailTitle').textContent = username + ' - ' + t('perm_user_override');
-    renderPermissionGrid(username);
-  } else {
-    detail.style.display = 'none';
-    detail.removeAttribute('data-username');
+// ── P18C: 用户编辑抽屉 ──
+let currentEditUser = '';
+let _permUsersCache = [];
+
+async function openUserDrawer(username) {
+  const ov = document.getElementById('userDrawerOverlay'), dr = document.getElementById('userDrawer');
+  if (ov) ov.style.display = 'block';
+  if (dr) dr.style.display = 'block';
+  currentEditUser = username;
+  const title = document.getElementById('userDrawerTitle');
+  if (title) title.textContent = t('perm_user_edit') + ' — ' + username;
+  // 从缓存取用户(或重拉)
+  let u = (_permUsersCache || []).find(x => x.username === username);
+  if (!u) {
+    try {
+      const res = await authFetch(api('/api/permissions/users'));
+      const data = await res.json();
+      if (data.ok) { _permUsersCache = data.users || []; u = _permUsersCache.find(x => x.username === username); }
+    } catch(e) {}
   }
+  const roleSel = document.getElementById('userDrawerRole');
+  if (roleSel && u) roleSel.value = u.role || 'viewer';
+  renderUserGrants(u ? (u.grants || []) : []);
+  // 填充覆盖下拉选项(catalog 权限项)
+  fillGrantPermSel();
+  const m = document.getElementById('userDrawerRoleMsg'); if (m) m.textContent = '';
+  const gm = document.getElementById('userDrawerGrantMsg'); if (gm) gm.textContent = '';
+}
+function closeUserDrawer() {
+  const ov = document.getElementById('userDrawerOverlay'), dr = document.getElementById('userDrawer');
+  if (ov) ov.style.display = 'none';
+  if (dr) dr.style.display = 'none';
 }
 
-async function renderPermissionGrid(username) {
-  const grid = document.getElementById('permGrid');
-  if (!grid) return;
+async function saveUserRole() {
+  const role = document.getElementById('userDrawerRole').value;
+  const m = document.getElementById('userDrawerRoleMsg');
   try {
-    const res = await authFetch(api('/api/permissions/users'));
-    const data = await res.json();
-    if (!data.ok) { grid.innerHTML = ''; return; }
-    const user = data.users.find(u => u.username === username);
-    if (!user || !user.permissions) { grid.innerHTML = ''; return; }
-
-    const perms = user.permissions;
-    let html = '<table style="font-size:11px;"><thead><tr><th style="width:100px;">' + t('perm_module_system') + '</th>';
-    MODULE_ACTIONS.forEach(a => {
-      html += '<th style="width:50px;text-align:center;">' + (t('perm_' + a) || a) + '</th>';
-    });
-    html += '</tr></thead><tbody>';
-
-    for (const [mod, acts] of Object.entries(perms)) {
-      const modLabel = t(MODULE_NAMES[mod]) || mod;
-      html += `<tr><td>${modLabel}</td>`;
-      MODULE_ACTIONS.forEach(a => {
-        const src = acts[a] || 'none';
-        let cls = '';
-        if (src === 'role') cls = 'style="color:#4CAF50;"';
-        else if (src === 'grant') cls = 'style="color:#2196F3;"';
-        else if (src === 'deny') cls = 'style="color:#F44336;"';
-        else cls = 'style="color:var(--text-muted);"';
-        html += `<td ${cls} title="${t('perm_source_' + src)}" onclick="toggleUserGrant('${username}', '${mod}', '${a}', '${src}')">`;
-        if (src === 'role') html += '●';
-        else if (src === 'grant') html += '▲';
-        else if (src === 'deny') html += '✕';
-        else html += '○';
-        html += '</td>';
-      });
-      html += '</tr>';
-    }
-    html += '</tbody></table>';
-    html += '<p style="margin-top:8px;font-size:10px;color:var(--text-muted);">' +
-      '● = ' + t('perm_source_role') + '&nbsp;&nbsp;' +
-      '▲ = ' + t('perm_source_grant') + '&nbsp;&nbsp;' +
-      '✕ = ' + t('perm_source_deny') + '&nbsp;&nbsp;' +
-      '○ = ' + t('perm_source_none') +
-      '&nbsp;&nbsp;| ' + t('user_mgmt_desc') + '</p>';
-    grid.innerHTML = html;
-  } catch(e) { grid.innerHTML = ''; }
-}
-
-/* ── P13: 审批人设定 ── */
-async function loadApprovalRoutes() {
-  const card = document.getElementById('approvalRoutesCard');
-  if (!card) return;
-  // 仅 super_admin 可见
-  if (_authState.role !== 'super_admin') { card.style.display = 'none'; return; }
-  card.style.display = '';
-  const list = document.getElementById('approvalRoutesList');
-  if (!list) return;
-  try {
-    const res = await authFetch(api('/api/approval-routes'));
-    const data = await res.json();
-    const routes = data.routes || [];
-    // 填充审批人下拉（admin/super_admin 用户）
-    const sel = document.getElementById('routeApprover');
-    if (sel) {
-      const cur = sel.value;
-      let opts = '<option value="">—</option>';
-      try {
-        const uRes = await authFetch(api('/api/permissions/users'));
-        const uData = await uRes.json();
-        (uData.users || []).filter(u => u.role === 'admin' || u.role === 'super_admin')
-          .forEach(u => { opts += `<option value="${escHtml(u.username)}">${escHtml(u.username)}</option>`; });
-      } catch(e) {}
-      sel.innerHTML = opts;
-      if (cur) sel.value = cur;
-    }
-    if (!routes.length) {
-      list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="routes_empty">暂无设定</div>';
-      return;
-    }
-    list.innerHTML = routes.map(r => `
-      <div class="oa-event-card" style="padding:10px 12px;margin-bottom:6px;">
-        <div class="oa-event-info">
-          <span style="font-weight:600;font-size:13px;">${t('event_' + (r.event_type === 'leave' ? 'leave' : r.event_type)) || r.event_type}</span>
-          <span style="font-size:12px;color:var(--text-muted);"> → ${escHtml(r.approver)}</span>
-        </div>
-        <div class="oa-event-actions">
-          <button class="oa-btn oa-btn-reject" onclick="deleteApprovalRoute(${r.id})" data-i18n="routes_delete">删除</button>
-        </div>
-      </div>`).join('');
-  } catch(e) {
-    list.innerHTML = '<div style="color:var(--danger);padding:12px;">' + t('load_fail') + '</div>';
-  }
-}
-
-async function saveApprovalRoute() {
-  const eventType = document.getElementById('routeEventType').value;
-  const approver = document.getElementById('routeApprover').value;
-  if (!approver) { showToast(t('routes_pick_approver'), 'error'); return; }
-  try {
-    const res = await authFetch(api('/api/approval-routes'), {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ event_type: eventType, approver }),
+    const res = await authFetch(api('/admin/users/role'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentEditUser, role }),
     });
     const data = await res.json();
-    if (data.ok) { showToast(t('routes_saved')); loadApprovalRoutes(); }
-    else showToast(data.error || t('routes_save_fail'), 'error');
-  } catch(e) { showToast(t('routes_save_fail'), 'error'); }
+    if (data.ok) { if (m) { m.textContent = t('saved') + ' · ' + t('perm_relogin_hint'); m.style.color = ''; } loadPermissionsPage(); }
+    else { if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
+  } catch(e) { if (m) { m.textContent = t('fail'); m.style.color = '#F44336'; } }
 }
 
-async function deleteApprovalRoute(routeId) {
-  if (!confirm(t('routes_delete_confirm'))) return;
+function renderUserGrants(grants) {
+  const wrap = document.getElementById('userDrawerGrants');
+  if (!wrap) return;
+  if (!grants || !grants.length) { wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">' + t('perm_no_grants') + '</div>'; return; }
+  wrap.innerHTML = grants.map((g, i) => {
+    const isDeny = g.grant_type === 'deny';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;background:var(--bg-secondary);">
+      <span style="font-size:12px;font-weight:600;flex:1;">${t(g.name) || g.name}</span>
+      <span style="font-size:11px;padding:2px 8px;border-radius:10px;${isDeny ? 'background:#FDE8E8;color:#F44336;' : 'background:#E8F5E9;color:#4CAF50;'}">${t(isDeny ? 'perm_deny' : 'perm_allow')}</span>
+      <button class="nav-btn" style="font-size:10px;padding:2px 6px;" onclick="deleteUserGrant('${g.module}','${g.action}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function fillGrantPermSel() {
+  const sel = document.getElementById('userGrantPermSel');
+  if (!sel) return;
   try {
-    const res = await authFetch(api('/api/approval-routes/' + routeId), { method: 'DELETE' });
+    const res = await authFetch(api('/api/permissions/roles'));
     const data = await res.json();
-    if (data.ok) { showToast(t('routes_deleted')); loadApprovalRoutes(); }
-    else showToast(data.error || t('routes_delete_fail'), 'error');
-  } catch(e) { showToast(t('routes_delete_fail'), 'error'); }
+    if (!data.ok || !data.catalog) return;
+    sel.innerHTML = Object.entries(data.catalog).map(([key, meta]) =>
+      `<option value="${key}">${t(meta.name) || meta.name} — ${t(meta.desc) || meta.desc}</option>`).join('');
+  } catch(e) {}
 }
 
-async function toggleUserGrant(username, module, action, currentSource) {
+async function addUserGrant() {
+  const sel = document.getElementById('userGrantPermSel');
+  const type = document.getElementById('userGrantTypeSel').value;
+  const key = sel.value;
+  if (!key || !currentEditUser) return;
+  const [module, action] = key.split(':');
+  const m = document.getElementById('userDrawerGrantMsg');
   try {
-    if (currentSource === 'grant' || currentSource === 'deny') {
-      // 撤销授权
-      await authFetch(api('/api/permissions/grant'), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, module, action }),
-      });
-      showToast(t('perm_revoked').replace('{m}', module + '.' + action));
-    } else if (currentSource === 'none') {
-      // 授予单用户权限
-      await authFetch(api('/api/permissions/grant'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, module, action, grant_type: 'allow' }),
-      });
-      showToast(t('perm_granted').replace('{m}', module + '.' + action));
-    } else if (currentSource === 'role') {
-      // P18 阶段3: 角色默认来源不产生垃圾 allow grant — 引导到角色权限编辑
-      showToast(t('perm_role_hint'), 'warning');
-      return;
-    }
-    renderPermissionGrid(username);
-    // 刷新用户列表
-    loadPermissionsPage();
-  } catch(e) { showToast(t('op_fail')); }
+    const res = await authFetch(api('/api/permissions/grant'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentEditUser, module, action, grant_type: type }),
+    });
+    const data = await res.json();
+    if (data.ok) { if (m) { m.textContent = t('saved'); m.style.color = ''; } openUserDrawer(currentEditUser); }
+    else { if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
+  } catch(e) { if (m) { m.textContent = t('fail'); m.style.color = '#F44336'; } }
+}
+
+async function deleteUserGrant(module, action) {
+  const m = document.getElementById('userDrawerGrantMsg');
+  try {
+    const res = await authFetch(api('/api/permissions/grant'), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentEditUser, module, action }),
+    });
+    const data = await res.json();
+    if (data.ok) { if (m) { m.textContent = t('saved'); m.style.color = ''; } openUserDrawer(currentEditUser); }
+    else { if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
+  } catch(e) { if (m) { m.textContent = t('fail'); m.style.color = '#F44336'; } }
 }
 
 async function initDefaultPermissions() {
