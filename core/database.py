@@ -1138,6 +1138,9 @@ PERMISSION_CATALOG = {
 ALL_MODULES = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system']
 ALL_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage']
 
+# P18D: 内置角色(查看者/编辑员/管理员) — 保护不可删除,sync 仅同步这 3 个,不触碰自定义角色
+BUILTIN_ROLES = ['viewer', 'editor', 'admin']
+
 def init_default_permissions(data_folder):
     """初始化默认权限数据到 permissions 表（幂等）"""
     conn = get_conn(data_folder)
@@ -1157,12 +1160,14 @@ def sync_role_permissions(data_folder):
     """P18: 角色默认权限字典 → role_permissions 表(REPLACE 语义,可重复执行)
 
     - super_admin 不写表(硬编码全权限)
-    - viewer 只写 dashboard.view(决策2,已从字典去掉 salary:view)
-    - 每角色先清空再按字典写入,保证与字典完全一致
+    - P18D: 仅同步内置角色(viewer/editor/admin),自定义角色保留不动
+      (否则重跑 sync 会清掉自定义角色的权限配置)
     """
     conn = get_conn(data_folder)
     for role, grants in ROLE_DEFAULT_PERMISSIONS.items():
         if role == 'super_admin':
+            continue
+        if role not in BUILTIN_ROLES:
             continue
         conn.execute("DELETE FROM role_permissions WHERE role=?", (role,))
         for module, actions in grants.items():
@@ -1403,9 +1408,16 @@ def list_all_users(data_folder):
     return [{'username': r['username'], 'role': r['role'], 'created_at': r['created_at']} for r in rows]
 
 def set_user_role(data_folder, username, role):
-    """修改用户角色"""
+    """修改用户角色(内置 + 自定义角色均允许)"""
+    # 校验: 内置角色或 role_permissions 表中已存在的自定义角色
     if role not in ROLE_LEVELS:
-        raise ValueError(f'未知角色: {role}')
+        conn = get_conn(data_folder)
+        try:
+            exists = conn.execute("SELECT 1 FROM role_permissions WHERE role=? LIMIT 1", (role,)).fetchone()
+        finally:
+            conn.close()
+        if not exists:
+            raise ValueError(f'未知角色: {role}')
     conn = get_conn(data_folder)
     conn.execute("UPDATE admin_users SET role=? WHERE username=?", (role, username))
     conn.commit()

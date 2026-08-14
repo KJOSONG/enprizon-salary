@@ -200,7 +200,7 @@ def update_user_role():
     data = request.get_json(silent=True) or {}
     username = data.get('username', '').strip()
     role = data.get('role', '').strip()
-    if not username or role not in ROLE_LEVELS:
+    if not username or not role:
         return jsonify({'ok': False, 'error': '无效参数'}), 400
     try:
         set_user_role(app.config['DATA_FOLDER'], username, role)
@@ -311,20 +311,32 @@ def api_permissions_users():
 @app.route('/api/permissions/roles', methods=['GET'])
 @super_admin_required
 def api_permissions_roles():
-    """P18b: 角色权限列表(role × module × action,含继承展开后效果 + 来源标记 + 元数据)
+    """P18b+P18D: 角色权限列表(含继承展开 + 来源标记 + 元数据 + 角色 CRUD 元信息)
 
     query: ?role=X 只返回该角色(含继承展开 effective + source_role)
     """
     from core.database import (get_conn, ROLE_LEVELS, ROLE_HIERARCHY,
                                ROLE_DEFAULT_PERMISSIONS, PERMISSION_CATALOG,
-                               get_role_permissions)
+                               get_role_permissions, BUILTIN_ROLES)
     conn = get_conn(app.config['DATA_FOLDER'])
     try:
         rows = conn.execute(
             "SELECT role, module, action, allow FROM role_permissions ORDER BY role, module, action"
         ).fetchall()
+        # 权限项计数(allow=1)
+        perm_counts = {}
+        for r in rows:
+            if r['allow'] == 1:
+                perm_counts[r['role']] = perm_counts.get(r['role'], 0) + 1
+        # 用户分配计数
+        user_counts = {}
+        for r in conn.execute("SELECT role, COUNT(*) c FROM admin_users GROUP BY role").fetchall():
+            user_counts[r['role']] = r['c']
     finally:
         conn.close()
+
+    table_roles = set(perm_counts.keys())
+    all_roles = sorted(set(table_roles) | set(ROLE_LEVELS.keys()))
 
     def _inherit_chain(r):
         chain = [r]
@@ -345,7 +357,7 @@ def api_permissions_roles():
 
     role_filter = request.args.get('role', '').strip()
     inherited = {}
-    for r in ROLE_LEVELS:
+    for r in all_roles:
         perms = get_role_permissions(app.config['DATA_FOLDER'], r)
         inherited[r] = [
             {'module': m, 'action': a,
@@ -354,7 +366,9 @@ def api_permissions_roles():
         ]
     resp = {
         'ok': True,
-        'roles': [{'name': r, 'level': ROLE_LEVELS[r]} for r in ROLE_LEVELS],
+        'roles': [{'role': r, 'builtin': (r in BUILTIN_ROLES or r == 'super_admin'),
+                   'permission_count': perm_counts.get(r, 0), 'user_count': user_counts.get(r, 0)}
+                  for r in all_roles],
         'hierarchy': ROLE_HIERARCHY,
         'catalog': PERMISSION_CATALOG,
         'defaults': ROLE_DEFAULT_PERMISSIONS,
@@ -362,11 +376,88 @@ def api_permissions_roles():
         'effective': inherited,
     }
     if role_filter:
-        if role_filter not in ROLE_LEVELS:
+        if role_filter not in all_roles:
             return jsonify({'ok': False, 'error': 'unknown_role'}), 400
         resp['effective'] = {role_filter: inherited[role_filter]}
-        resp['roles'] = [{'name': role_filter, 'level': ROLE_LEVELS[role_filter]}]
+        resp['roles'] = [x for x in resp['roles'] if x['role'] == role_filter]
     return jsonify(resp)
+
+@app.route('/api/permissions/roles', methods=['POST'])
+@super_admin_required
+def api_permissions_roles_create():
+    """P18D: 新增角色 — body {name, permissions:[{module,action,allow}]}"""
+    from core.database import get_conn, ROLE_LEVELS, PERMISSION_CATALOG
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        # 冲突: 内置角色名 / 已存在角色名
+        if name in ROLE_LEVELS:
+            return jsonify({'ok': False, 'error': 'role_name_exists'}), 400
+        exists = conn.execute("SELECT 1 FROM role_permissions WHERE role=? LIMIT 1", (name,)).fetchone()
+        if exists:
+            return jsonify({'ok': False, 'error': 'role_name_exists'}), 400
+        permissions = data.get('permissions') or []
+        for p in permissions:
+            module = (p.get('module') or '').strip()
+            action = (p.get('action') or '').strip()
+            if module and action:
+                conn.execute(
+                    "INSERT OR REPLACE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,?)",
+                    (name, module, action, 1 if int(p.get('allow', 1)) else 0))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/permissions/roles/rename', methods=['PUT'])
+@super_admin_required
+def api_permissions_roles_rename():
+    """P18D: 重命名角色 — body {old, new},同步 role_permissions + admin_users"""
+    from core.database import get_conn, ROLE_LEVELS, BUILTIN_ROLES
+    data = request.get_json(silent=True) or {}
+    old = (data.get('old') or '').strip()
+    new = (data.get('new') or '').strip()
+    if not old or not new:
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        # old 必须存在(内置或自定义)
+        exists_old = conn.execute("SELECT 1 FROM role_permissions WHERE role=? LIMIT 1", (old,)).fetchone()
+        if not exists_old and old not in ROLE_LEVELS:
+            return jsonify({'ok': False, 'error': 'unknown_role'}), 400
+        # new 不能与内置或其他角色冲突
+        if new in ROLE_LEVELS:
+            return jsonify({'ok': False, 'error': 'role_name_exists'}), 400
+        exists_new = conn.execute("SELECT 1 FROM role_permissions WHERE role=? LIMIT 1", (new,)).fetchone()
+        if exists_new:
+            return jsonify({'ok': False, 'error': 'role_name_exists'}), 400
+        conn.execute("UPDATE role_permissions SET role=? WHERE role=?", (new, old))
+        conn.execute("UPDATE admin_users SET role=? WHERE role=?", (new, old))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/permissions/roles/<role>', methods=['DELETE'])
+@super_admin_required
+def api_permissions_roles_delete(role):
+    """P18D: 删除角色 — 内置拒绝,有用户拒绝"""
+    from core.database import get_conn, BUILTIN_ROLES
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        if role in BUILTIN_ROLES or role == 'super_admin':
+            return jsonify({'ok': False, 'error': 'role_builtin_nodel'}), 400
+        cnt = conn.execute("SELECT COUNT(*) c FROM admin_users WHERE role=?", (role,)).fetchone()
+        if cnt and cnt['c'] > 0:
+            return jsonify({'ok': False, 'error': 'role_has_users'}), 400
+        conn.execute("DELETE FROM role_permissions WHERE role=?", (role,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/permissions/roles/reset', methods=['POST'])
 @super_admin_required
