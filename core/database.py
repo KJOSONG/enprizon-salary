@@ -762,6 +762,21 @@ def mark_driver_flag(data_folder, employee_id, date):
     conn.commit()
     conn.close()
 
+def clear_driver_flag(data_folder, employee_id, date):
+    """B1b: 清除某人的某天司机标志（is_driver 置 0），供编辑移除驾驶勾选时清理残留"""
+    conn = get_conn(data_folder)
+    conn.execute("UPDATE attendance_overrides SET is_driver=0 WHERE employee_id=? AND date=?",
+                 (employee_id, date))
+    conn.commit()
+    conn.close()
+
+def clear_driver_flags_for_date(data_folder, date):
+    """B1b: 清除某日期所有井下提交的司机标志残留（is_driver 置 0），供全量重建使用"""
+    conn = get_conn(data_folder)
+    conn.execute("UPDATE attendance_overrides SET is_driver=0 WHERE date=? AND is_driver=1", (date,))
+    conn.commit()
+    conn.close()
+
 # ── 审计日志 ──────────────────────────────────
 
 def log_audit(data_folder, action, employee_id='', detail='{}'):
@@ -2523,8 +2538,8 @@ def insert_collection_submission(data_folder, form_type, submission_date, payloa
     conn.close()
     return sid
 
-def get_collection_submissions(data_folder, form_type=None, month=None):
-    """查询采集提交列表（最新版本），按日期倒序。form_type/month 可过滤"""
+def get_collection_submissions(data_folder, form_type=None, month=None, date=None, operator=None):
+    """查询采集提交列表（最新版本），按日期倒序。form_type/month/date/operator 可过滤"""
     conn = get_conn(data_folder)
     sql = "SELECT * FROM collection_submissions WHERE 1=1"
     params = []
@@ -2534,6 +2549,12 @@ def get_collection_submissions(data_folder, form_type=None, month=None):
     if month:
         sql += " AND month=?"
         params.append(month)
+    if date:
+        sql += " AND submission_date=?"
+        params.append(date)
+    if operator:
+        sql += " AND operator_id=?"
+        params.append(operator)
     sql += " ORDER BY submission_date DESC, updated_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
@@ -2545,8 +2566,9 @@ def get_collection_submission(data_folder, submission_id):
     conn.close()
     return dict(row) if row else None
 
-def update_collection_submission(data_folder, submission_id, payload, operator_id):
-    """再编辑：版本+1，旧 payload 写 collection_history，返回是否成功"""
+def update_collection_submission(data_folder, submission_id, payload, operator_id, date=None):
+    """再编辑：版本+1，旧 payload 写 collection_history，返回是否成功。
+    date 可选：B1 修复——编辑改日期时同步更新 submission_date 与 month"""
     conn = get_conn(data_folder)
     row = conn.execute(
         "SELECT payload, version FROM collection_submissions WHERE id=?", (submission_id,)).fetchone()
@@ -2560,11 +2582,28 @@ def update_collection_submission(data_folder, submission_id, payload, operator_i
         INSERT INTO collection_history (submission_id, version, payload, operator_id)
         VALUES (?,?,?,?)
     """, (submission_id, old_version, old_payload, operator_id))
-    conn.execute("""
-        UPDATE collection_submissions SET payload=?, version=?, operator_id=?,
-            updated_at=datetime('now','localtime')
-        WHERE id=?
-    """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, submission_id))
+    if date:
+        conn.execute("""
+            UPDATE collection_submissions SET payload=?, version=?, operator_id=?, submission_date=?, month=?,
+                updated_at=datetime('now','localtime')
+            WHERE id=?
+        """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, date, (date or '')[:7], submission_id))
+    else:
+        conn.execute("""
+            UPDATE collection_submissions SET payload=?, version=?, operator_id=?,
+                updated_at=datetime('now','localtime')
+            WHERE id=?
+        """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, submission_id))
+    conn.commit()
+    conn.close()
+    return True
+
+def delete_collection_submission(data_folder, submission_id):
+    """B1: 删除一条采集提交（编辑改日期覆盖合并时清理被编辑的旧行）。
+    先删关联 collection_history（外键约束），再删提交行"""
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM collection_history WHERE submission_id=?", (submission_id,))
+    conn.execute("DELETE FROM collection_submissions WHERE id=?", (submission_id,))
     conn.commit()
     conn.close()
     return True

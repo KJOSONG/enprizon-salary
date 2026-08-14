@@ -349,7 +349,7 @@
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:760px;">
       <div class="form-row"><label data-i18n="emp_name">姓名</label><input type="text" id="hireName" data-i18n-placeholder="ph_name_required" placeholder="姓名（必填）" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="th_dept">部门</label><select id="hireDept" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row"><label data-i18n="th_dept">部门</label><select id="hireDept" required style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
       <div class="form-row"><label data-i18n="emp_position">岗位</label><input type="text" id="hirePosition" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_gender">性别</label><select id="hireGender" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
         <option value="">—</option>
@@ -358,7 +358,7 @@
         <option value="other" data-i18n="emp_gender_other">其他</option>
       </select></div>
       <div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="hireDob" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="hireDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="hireDate" required style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input type="text" id="hireSkill" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nida">NIDA</label><input type="text" id="hireNida" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input type="text" id="hireNssf" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -366,7 +366,8 @@
       <div class="form-row"><label data-i18n="emp_bank_name">银行</label><input type="text" id="hireBank" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_bank_account">账号</label><input type="text" id="hireAccount" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input type="text" id="hireOwner" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="hireSalaryType" onchange="toggleHireBaseFields()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="hireSalaryType" onchange="toggleHireBaseFields()" required style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <option value="">—</option>
         <option value="piece_underground" data-i18n="type_ug_piece">生产薪资</option>
         <option value="piece_driller" data-i18n="type_dr_piece">钻工计件</option>
         <option value="piece_crush" data-i18n="type_crush_piece">破碎计件</option>
@@ -2926,11 +2927,17 @@ async function loadEmployeeProfilePage(eid) {
       if (btn) btn.style.display = isAdminUser() ? 'inline-block' : 'none';
     });
 
-    // P14.5: 薪资类型显示
+    // P14.5: 薪资类型显示（R1: 日薪/月薪基数跟随展示）
     const TYPE_LBL = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
       piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
     const salType = emp.override_type || emp.default_type || 'day_rate';
-    document.getElementById('pfSalaryType').textContent = TYPE_LBL[salType] || salType;
+    let salTypeText = TYPE_LBL[salType] || salType;
+    if (salType === 'day_rate') {
+      salTypeText += ' · ' + fmtNum(emp.day_rate || 0) + ' TZS' + t('salary_per_day');
+    } else if (salType === 'monthly') {
+      salTypeText += ' · ' + fmtNum(emp.monthly_salary || 0) + ' TZS' + t('salary_per_month');
+    }
+    document.getElementById('pfSalaryType').textContent = salTypeText;
     const stBtn = document.getElementById('pfSalaryTypeEditBtn');
     if (stBtn) stBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
 
@@ -3392,7 +3399,7 @@ function openTempOverrideModal() {
       <div class="form-row"><label data-i18n="temp_override_start">开始日期</label><input type="date" id="pfTempStart" style="${inStyle}"></div>
       <div class="form-row"><label data-i18n="temp_override_end">结束日期</label><input type="date" id="pfTempEnd" style="${inStyle}"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="btn-primary" onclick="saveTempOverride()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
+        <button class="btn-primary" onclick="saveProfileTempOverride()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
         <button class="btn-cancel" onclick="document.getElementById('pfTempModal').remove()" style="padding:6px 16px;" data-i18n="btn_cancel">取消</button>
       </div>
       <div id="pfTempMsg" style="margin-top:8px;font-size:12px;"></div>
@@ -3408,7 +3415,7 @@ function toggleTempBase() {
   if (r1) r1.style.display = v === 'day_rate' ? '' : 'none';
   if (r2) r2.style.display = v === 'monthly' ? '' : 'none';
 }
-async function saveTempOverride() {
+async function saveProfileTempOverride() {
   const eid = _profileEid;
   const msg = document.getElementById('pfTempMsg');
   const start = document.getElementById('pfTempStart').value;
@@ -3813,7 +3820,7 @@ function filterSalaryTable() {
     const penalty = emp.penalty || 0;
     const n = g + bonus + (emp.driver_allowance||0) - (emp.advance||0) - (emp.nssf||0) - penalty;
     return `<tr>
-      <td class="left">${escHtml(emp.name)}</td>
+      <td class="left"><a href="#employees/profile?id=${encodeURIComponent(emp.employee_id || emp.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${emp.employee_id || emp.id}'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(emp.name)}</a></td>
       <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
       <td class="num">${fmtNum(emp.piece_underground||0)}</td>
       <td class="num">${fmtNum(emp.piece_driller||0)}</td>
@@ -4133,7 +4140,7 @@ function renderDailyWages() {
     const overrideDates = new Set([...(e.override_dates||[]), ...(e.att_override_dates||[])]);
     const isMonthly = e.salary_type === 'monthly';
     const shifts = e.daily_shifts || {};
-    bodyHtml += '<tr><td class="left" style="white-space:nowrap;">' + escHtml(e.name) + '</td>';
+    bodyHtml += '<tr><td class="left" style="white-space:nowrap;"><a href="#employees/profile?id=' + encodeURIComponent(e.id) + '" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate(\'employees\',\'profile\',{id:\'' + e.id + '\'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">' + escHtml(e.name) + '</a></td>';
     sortedDates.forEach(d => {
       const fs = shiftFilters[d] || '';
       let amt = e.daily[d] || 0;
@@ -5302,6 +5309,13 @@ async function submitApply(type) {
     const name = document.getElementById('hireName').value.trim();
     const date = document.getElementById('hireDate').value;
     if (!name || !date) { setApplyMsg(msgId, t('hire_need_name_date'), false); return; }
+    // R2b: 部门/薪资类别必填；piece_underground 时班组必填
+    const dept = document.getElementById('hireDept').value;
+    const salaryType = document.getElementById('hireSalaryType').value;
+    const teamId = parseInt(document.getElementById('hireTeamId').value) || 0;
+    if (!dept) { setApplyMsg(msgId, t('hire_need_dept'), false); return; }
+    if (!salaryType) { setApplyMsg(msgId, t('hire_need_salary_type'), false); return; }
+    if (salaryType === 'piece_underground' && !teamId) { setApplyMsg(msgId, t('hire_need_team'), false); return; }
     // P12: 入职全字段（与 saveEmployeeProfile 同字段集）
     const phoneRaw = document.getElementById('hirePhone').value.trim();
     if (phoneRaw && !/^\d+$/.test(phoneRaw)) { setApplyMsg(msgId, t('err_phone_digits'), false); return; }
@@ -5311,7 +5325,7 @@ async function submitApply(type) {
       effective_date: date,
       payload: {
         name,
-        department: document.getElementById('hireDept').value,
+        department: dept,
         position: document.getElementById('hirePosition').value.trim(),
         gender: document.getElementById('hireGender').value,
         date_of_birth: document.getElementById('hireDob').value,
@@ -5369,7 +5383,7 @@ async function submitApply(type) {
       if (type === 'hire') {
         ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
           .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-        ['hireGender','hireSalaryType'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        ['hireGender','hireSalaryType','hireDept'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';
         toggleHireBaseFields();
         clearHireAvatar();
@@ -5415,7 +5429,8 @@ function fillApplyDepts() {
     if (depts.length === 0) {
       [...new Set((STATE._empAll || []).map(e => e.department).filter(Boolean))].sort().forEach(d => depts.push(d));
     }
-    sel.innerHTML = depts.map(d => `<option value="${escHtml(d)}" ${cur===d?'selected':''}>${escHtml(d)}</option>`).join('');
+    sel.innerHTML = (selId === 'hireDept' ? '<option value="" data-i18n="hire_sel_dept">请选择</option>' : '')
+      + depts.map(d => `<option value="${escHtml(d)}" ${cur===d?'selected':''}>${escHtml(d)}</option>`).join('');
   };
   fill('hireDept');
   fill('transferDept');
@@ -5484,23 +5499,33 @@ function filterEmpByDept(pool, kw) {
   });
 }
 
-/* 历史区通用渲染 */
+/* 历史区通用渲染（R5: 支持按日期筛选） */
+let _colHisFilter = {};
 async function loadColHistory(formType, containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
   try {
     const month = STATE.currentMonth || '';
-    const res = await authFetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
+    if (!_colHisFilter[containerId]) _colHisFilter[containerId] = { date: '' };
+    const date = _colHisFilter[containerId].date || '';
+    let qs = '/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month);
+    if (date) qs += '&date=' + encodeURIComponent(date);
+    const res = await authFetch(api(qs));
     const data = await res.json();
     const subs = data.submissions || [];
+    const filterBar = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
+      + '<label style="font-size:12px;color:var(--text-muted);">' + t('col_filter_date') + '</label>'
+      + '<input type="date" value="' + date + '" onchange="_colHisFilter[\'' + containerId + '\'].date=this.value;loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="' + colInStyle() + '">'
+      + (date ? '<button class="nav-btn" onclick="_colHisFilter[\'' + containerId + '\'].date=\'\';loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="font-size:11px;padding:3px 8px;">' + t('col_filter_clear') + '</button>' : '')
+      + '</div>';
     if (subs.length === 0) {
-      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">' + t('no_submissions') + '</div>';
+      container.innerHTML = filterBar + '<div style="text-align:center;color:var(--text-muted);padding:24px;">' + t('no_submissions') + '</div>';
       return;
     }
-    container.innerHTML = `<div class="table-wrap"><table class="data-table">
+    container.innerHTML = filterBar + `<div class="table-wrap"><table class="data-table">
       <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_updated')}</th><th>${t('col_th_actions')}</th></tr></thead>
       <tbody>` + subs.map(s => `
-        <tr style="cursor:pointer;" onclick="enterColEdit('${formType}','${s.id}','${containerId}')">
+        <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
@@ -5510,6 +5535,92 @@ async function loadColHistory(formType, containerId) {
   } catch (e) {
     container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>';
   }
+}
+
+/* R6: 历史行 → 只读预览弹窗（完整字段 + 提交人/日期/版本/更新时间），弹窗内"编辑"进编辑态 */
+function colEidToName(id) {
+  const pool = _colEmpPool || STATE._empAll || [];
+  const e = pool.find(x => String(x.id) === String(id));
+  return e ? e.name : String(id || '');
+}
+function renderColPayloadPreview(formType, payload) {
+  const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
+  const ST = { D: t('st_d'), N: t('st_n'), P: t('st_p'), A: t('st_a'), L: t('st_l'), C: t('st_c'), R: t('st_r'), B: t('st_b') };
+  const fmt = (n) => String(n == null ? 0 : n);
+  if (formType === 'underground') {
+    const day = payload.day || {}, night = payload.night || {};
+    return '<div style="font-size:12px;line-height:1.9;">'
+      + '<div style="font-weight:600;color:var(--accent);">' + t('day_shift') + '</div>'
+      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + '</div>'
+      + '<div>' + t('col_attendance') + ': ' + names(day.emps) + '</div>'
+      + '<div>🚗 ' + t('col_drivers') + ': ' + names(day.drivers) + '</div>'
+      + (day.remark ? '<div>' + t('remark_day') + ': ' + escHtml(day.remark) + '</div>' : '')
+      + '<div style="font-weight:600;color:var(--accent);margin-top:4px;">' + t('night_shift') + '</div>'
+      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + '</div>'
+      + '<div>' + t('col_attendance') + ': ' + names(night.emps) + '</div>'
+      + '<div>🚗 ' + t('col_drivers') + ': ' + names(night.drivers) + '</div>'
+      + (night.remark ? '<div>' + t('remark_night') + ': ' + escHtml(night.remark) + '</div>' : '')
+      + '</div>';
+  }
+  if (formType === 'driller') {
+    const teams = payload.teams || [];
+    return '<div style="font-size:12px;line-height:1.9;">' + teams.map((tm, i) =>
+      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(colEidToName(tm.captain)) + '</div>'
+      + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
+      + '<div>' + t('col_members') + ': ' + names(tm.members) + '</div>'
+    ).join('<div style="margin-top:4px;"></div>') + '</div>';
+  }
+  if (formType === 'crush') {
+    return '<div style="font-size:12px;line-height:1.9;">'
+      + '<div>' + t('bags') + ': ' + fmt(payload.bags) + '</div>'
+      + '<div>' + t('col_attendance') + ': ' + names(payload.emps) + '</div>'
+      + (payload.remark ? '<div>' + t('remark') + ': ' + escHtml(payload.remark) + '</div>' : '')
+      + '</div>';
+  }
+  if (formType === 'attendance') {
+    const marks = payload.marks || [];
+    return '<div style="font-size:12px;line-height:1.9;">' + marks.map(m =>
+      '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + (ST[m.status] || m.status || '') + '</div>'
+    ).join('') + '</div>';
+  }
+  return '<div style="font-size:12px;color:var(--text-muted);">' + escHtml(JSON.stringify(payload)) + '</div>';
+}
+async function previewColSubmission(formType, sid, containerId) {
+  try {
+    const month = STATE.currentMonth || '';
+    const res = await authFetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
+    const data = await res.json();
+    const sub = (data.submissions || []).find(s => String(s.id) === String(sid));
+    if (!sub) { showToast(t('col_submission_not_found'), 'error'); return; }
+    let payload = {};
+    try { payload = JSON.parse(sub.payload || '{}'); } catch(e) {}
+    const canEdit = sub.operator_id === _authState.username || ['admin', 'super_admin'].includes(_authState.role);
+    const typeLbl = { underground: t('col_ug'), driller: t('col_dr'), crush: t('col_cr'), attendance: t('col_att') };
+    const modal = document.createElement('div');
+    modal.id = 'colPreviewModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:500;';
+    modal.innerHTML = `
+      <div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:501;width:440px;max-width:92vw;max-height:80vh;overflow:auto;padding:20px;">
+        <h3 style="margin:0 0 12px;font-size:14px;">${t('col_preview_title')}</h3>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.9;margin-bottom:8px;">
+          <div>${t('col_type')}: ${escHtml(typeLbl[formType] || formType)}</div>
+          <div>${t('date')}: ${escHtml(sub.submission_date || '')}</div>
+          <div>${t('col_operator')}: ${escHtml(sub.operator_id || '')}</div>
+          <div>${t('col_version')}: v${sub.version || 1} · ${t('col_updated_at')}: ${escHtml(sub.updated_at || '')}</div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload)}</div>
+        <div style="display:flex;gap:8px;">
+          ${canEdit ? `<button class="btn-primary" onclick="enterColEditFromPreview('${formType}','${sub.id}','${containerId}')" style="padding:6px 16px;font-size:12px;">${t('col_edit_btn')}</button>` : ''}
+          <button class="btn-cancel" onclick="document.getElementById('colPreviewModal').remove()" style="padding:6px 16px;font-size:12px;">${t('col_close')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  } catch(e) { showToast(t('load_fail'), 'error'); }
+}
+function enterColEditFromPreview(formType, sid, containerId) {
+  const m = document.getElementById('colPreviewModal');
+  if (m) m.remove();
+  enterColEdit(formType, sid, containerId);
 }
 
 /* 再编辑入口：加载提交数据预填表单（各表单实现 fill 逻辑） */
@@ -5725,11 +5836,12 @@ function renderUgCollectionForm(payload) {
   const date = payload.submission_date || new Date().toISOString().slice(0, 10);
   const empsStr = (arr) => (arr || []).join(',');
   // P12: 三列产量各带标签（NICKEL(H) | NICKEL(L) | MAWE）
-  const prodRow = (prefix) => `
+  // B1c: prodRow 需区分数据源(day/night)，否则夜班输入框误显示白班值
+  const prodRow = (prefix, data) => `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;">
-      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="${prefix}Nh" value="${+day.nh || 0}" min="0" style="${colInStyle()}"></div>
-      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="${prefix}Nl" value="${+day.nl || 0}" min="0" style="${colInStyle()}"></div>
-      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+day.mw || 0}" min="0" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="${prefix}Nh" value="${+data.nh || 0}" min="0" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="${prefix}Nl" value="${+data.nl || 0}" min="0" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+data.mw || 0}" min="0" style="${colInStyle()}"></div>
     </div>`;
   const remarkRow = (prefix, label) => `
     <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"></div>`;
@@ -5752,13 +5864,13 @@ function renderUgCollectionForm(payload) {
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="ugDate" value="${date}" style="${colInStyle(true)}"></div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">DAY SHIFT</h4>
-      ${prodRow('ugDay')}
+      ${prodRow('ugDay', day)}
       ${remarkRow('ugDay', t('remark_day'))}
       ${attRow('ugDay', 'Day', 'underground', 'day')}
     </div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">NIGHT SHIFT</h4>
-      ${prodRow('ugNight')}
+      ${prodRow('ugNight', night)}
       ${remarkRow('ugNight', t('remark_night'))}
       ${attRow('ugNight', 'Night', 'underground', 'night')}
     </div>
@@ -6155,7 +6267,7 @@ async function submitColPayload(formType, date, payload, historyId) {
   if (_colEditing) {
     res = await authFetch(api('/api/collection/edit/' + _colEditing.id), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload }),
+      body: JSON.stringify({ payload, submission_date: date }),
     });
   } else {
     res = await authFetch(api('/api/collection/submit'), {
