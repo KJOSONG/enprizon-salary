@@ -753,7 +753,10 @@
     });
   }
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
+  // 顶层部门员工: 移动端员工详情不显示薪资概览
+  const SALARY_HIDDEN_NAMES = ['JASTINE MELAU','JOSEPHINE MAJULI','KEVIN MAKUNDI','MAUA MARCUS NGWILA','PETRO JEREMIAH','PETER MICHAEL GAMA','RICKSON RICHARD MOLLEL'];
   function renderEmpProfile(e, att, sal){
+    const hideSalary = SALARY_HIDDEN_NAMES.includes(String(e.name||'').toUpperCase());
     const role = STATE.auth && STATE.auth.role;
     // P18 阶段3: 档案编辑入口统一走 employees:edit
     const canEdit = hasPermission('employees','edit');
@@ -787,8 +790,8 @@
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+leaveDays+'</span><span class="mini-stat-card__label">'+t('leave_days')+'</span></div>'
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+absentDays+'</span><span class="mini-stat-card__label">'+t('absent_days')+'</span></div>'
       + '</div></div>';
-    // 薪资概览
-    if(gross!=null || net!=null){
+    // 薪资概览（顶层部门员工不显示）
+    if(!hideSalary && (gross!=null || net!=null)){
       html += '<div class="info-section"><div class="info-section__title">'+t('salary_overview')+'</div>'
         + '<div class="mini-card-row">'
         + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+fmt(gross||0)+'</span><span class="mini-stat-card__label">'+t('gross')+'</span></div>'
@@ -915,15 +918,15 @@
   // ── 数据采集 (Phase 3) ──
   STATE.colType = '';
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
-  // 需求5: 部门池工具(中文关键字 contains)
-  function deptHas(e,k){ return (e.department||'').includes(k); }
+  // 部门池工具(部门名已 EN 化,用英文关键字 contains)
+  function deptHas(e,k){ return (e.department||'').toUpperCase().includes(k); }
   function deptPool(kind){
     return STATE.employees.filter(e=>{
-      const d=e.department||'';
-      if(kind==='underground') return d.includes('井下');
-      if(kind==='driller') return d.includes('钻工');
-      if(kind==='crush') return d.includes('破碎')||d.includes('分拣');
-      if(kind==='other') return !(d.includes('井下')||d.includes('钻工')||d.includes('破碎')||d.includes('分拣'));
+      const d=(e.department||'').toUpperCase();
+      if(kind==='underground') return d.includes('UNDERGROUND');
+      if(kind==='driller') return d.includes('DRILLER');
+      if(kind==='crush') return d.includes('CRUSH')||d.includes('SORT');
+      if(kind==='other') return !(d.includes('UNDERGROUND')||d.includes('DRILLER')||d.includes('CRUSH')||d.includes('SORT'));
       return true;
     });
   }

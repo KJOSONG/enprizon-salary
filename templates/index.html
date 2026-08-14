@@ -5471,14 +5471,15 @@ async function getEmpPool() {
   return _colEmpPool;
 }
 
-/* 按部门关键词过滤员工（井下/钻工/破碎；其余 = 出勤收集对象） */
+/* 按部门关键词过滤员工（井下/钻工/破碎；其余 = 出勤收集对象）
+   部门名已去中文（EN 化），用英文关键字判断 */
 function filterEmpByDept(pool, kw) {
   return pool.filter(e => {
-    const d = e.department || '';
-    if (kw === 'underground') return d.includes('生产组井下');
-    if (kw === 'driller') return d.includes('钻工组');
-    if (kw === 'crush') return d.includes('分拣破碎');
-    if (kw === 'other') return !d.includes('生产组井下') && !d.includes('钻工组') && !d.includes('分拣破碎');
+    const d = (e.department || '').toUpperCase();
+    if (kw === 'underground') return d.includes('UNDERGROUND');
+    if (kw === 'driller') return d.includes('DRILLER');
+    if (kw === 'crush') return d.includes('CRUSH');
+    if (kw === 'other') return !d.includes('UNDERGROUND') && !d.includes('DRILLER') && !d.includes('CRUSH');
     return true;
   });
 }
