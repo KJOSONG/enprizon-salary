@@ -956,11 +956,13 @@ def _run_pipeline(month_filter=None):
                 # 仅永久覆盖（无日期区间）更新 override_type，临时例外不影响基础类型
                 if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                     emp['override_type'] = st
-                # 日薪/月薪基数（临时例外也需要用于 calc_day_salary）
-                if st == 'day_rate' and o.get('day_rate', 0) > 0:
-                    emp['day_rate'] = o['day_rate']
-                if st == 'monthly' and o.get('monthly_salary', 0) > 0:
-                    emp['monthly_salary'] = o['monthly_salary']
+                # R3b: 仅永久覆盖更新基础基数。临时例外由 get_day_rate_for_date 按天读取，
+                # 写入 emp.day_rate 会污染默认字段，导致区间外回退到例外金额
+                if not has_range:
+                    if st == 'day_rate' and o.get('day_rate', 0) > 0:
+                        emp['day_rate'] = o['day_rate']
+                    if st == 'monthly' and o.get('monthly_salary', 0) > 0:
+                        emp['monthly_salary'] = o['monthly_salary']
         # 清零：仅基于永久覆盖类型，临时例外不触发清零
         ot = emp.get('override_type')
         # P14.4: 井下工人（default_type=piece_underground）在 scoring 模式下按月薪轨道，
@@ -1476,13 +1478,15 @@ def api_employee_profile(employee_id):
     for o in all_ovs:
         st = o.get('salary_type', '')
         has_range = bool(o.get('start_date') or o.get('end_date'))
-        # 仅永久覆盖（无日期区间）更新类型；基数任何覆盖均可带入（对齐计算侧）
+        # R3b: 仅永久覆盖（无日期区间）更新类型与基础基数；
+        # 临时例外由 get_day_rate_for_date 按天读取，不污染档案基础展示
         if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
             override_type = st
-        if st == 'day_rate' and o.get('day_rate', 0) > 0:
-            day_rate = o['day_rate']
-        if st == 'monthly' and o.get('monthly_salary', 0) > 0:
-            monthly_salary = o['monthly_salary']
+        if not has_range:
+            if st == 'day_rate' and o.get('day_rate', 0) > 0:
+                day_rate = o['day_rate']
+            if st == 'monthly' and o.get('monthly_salary', 0) > 0:
+                monthly_salary = o['monthly_salary']
     # 清零对齐计算侧（按最终 override_type）
     if override_type == 'day_rate':
         monthly_salary = 0
