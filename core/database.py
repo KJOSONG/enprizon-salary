@@ -2523,8 +2523,8 @@ def insert_collection_submission(data_folder, form_type, submission_date, payloa
     conn.close()
     return sid
 
-def get_collection_submissions(data_folder, form_type=None, month=None):
-    """查询采集提交列表（最新版本），按日期倒序。form_type/month 可过滤"""
+def get_collection_submissions(data_folder, form_type=None, month=None, date=None, operator=None):
+    """查询采集提交列表（最新版本），按日期倒序。form_type/month/date/operator 可过滤"""
     conn = get_conn(data_folder)
     sql = "SELECT * FROM collection_submissions WHERE 1=1"
     params = []
@@ -2534,6 +2534,12 @@ def get_collection_submissions(data_folder, form_type=None, month=None):
     if month:
         sql += " AND month=?"
         params.append(month)
+    if date:
+        sql += " AND submission_date=?"
+        params.append(date)
+    if operator:
+        sql += " AND operator_id=?"
+        params.append(operator)
     sql += " ORDER BY submission_date DESC, updated_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()

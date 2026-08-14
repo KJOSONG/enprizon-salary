@@ -5490,20 +5490,30 @@ function filterEmpByDept(pool, kw) {
   });
 }
 
-/* 历史区通用渲染 */
+/* 历史区通用渲染（R5: 支持按日期筛选） */
+let _colHisFilter = {};
 async function loadColHistory(formType, containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
   try {
     const month = STATE.currentMonth || '';
-    const res = await authFetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
+    if (!_colHisFilter[containerId]) _colHisFilter[containerId] = { date: '' };
+    const date = _colHisFilter[containerId].date || '';
+    let qs = '/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month);
+    if (date) qs += '&date=' + encodeURIComponent(date);
+    const res = await authFetch(api(qs));
     const data = await res.json();
     const subs = data.submissions || [];
+    const filterBar = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
+      + '<label style="font-size:12px;color:var(--text-muted);">' + t('col_filter_date') + '</label>'
+      + '<input type="date" value="' + date + '" onchange="_colHisFilter[\'' + containerId + '\'].date=this.value;loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="' + colInStyle() + '">'
+      + (date ? '<button class="nav-btn" onclick="_colHisFilter[\'' + containerId + '\'].date=\'\';loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="font-size:11px;padding:3px 8px;">' + t('col_filter_clear') + '</button>' : '')
+      + '</div>';
     if (subs.length === 0) {
-      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">' + t('no_submissions') + '</div>';
+      container.innerHTML = filterBar + '<div style="text-align:center;color:var(--text-muted);padding:24px;">' + t('no_submissions') + '</div>';
       return;
     }
-    container.innerHTML = `<div class="table-wrap"><table class="data-table">
+    container.innerHTML = filterBar + `<div class="table-wrap"><table class="data-table">
       <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_updated')}</th><th>${t('col_th_actions')}</th></tr></thead>
       <tbody>` + subs.map(s => `
         <tr style="cursor:pointer;" onclick="enterColEdit('${formType}','${s.id}','${containerId}')">

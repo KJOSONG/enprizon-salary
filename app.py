@@ -2086,11 +2086,18 @@ def collection_submit():
 @editor_required
 @require_permission('production', 'view')
 def collection_history():
-    """P9: 采集提交历史（按 form_type/month 过滤）"""
+    """P9: 采集提交历史（按 form_type/month/date/operator 过滤）
+    R5: 非 admin(editor)强制 operator=当前登录用户名（后端安全，只看本人提交）"""
     from core.database import get_collection_submissions
     form_type = request.args.get('form_type')
     month = request.args.get('month') or APP_STATE.get('month')
-    subs = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type, month=month)
+    date = request.args.get('date')
+    operator = request.args.get('operator')
+    role = session.get('role', '')
+    if role not in ('admin', 'super_admin'):
+        operator = session.get('username', '')
+    subs = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type, month=month,
+                                      date=date, operator=operator)
     return jsonify({'submissions': subs})
 
 @app.route('/api/collection/driller-teams', methods=['GET'])

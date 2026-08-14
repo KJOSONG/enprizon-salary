@@ -978,6 +978,7 @@
       + '<button class="quick-action-btn" onclick="openDismissApply()"><span class="qa-icon">+</span><span>'+t('oa_dismiss')+'</span></button>'
       + '</div>'
       + '<div class="section-title">'+t('col_history')+'</div>'
+      + '<div id="col-his-filter"></div>'
       + '<div class="history-list" id="col-recent"><div class="history-row"><span class="history-row__date">'+t('loading')+'</span></div></div>';
     ['underground','driller','crush','attendance'].forEach(ty=>{
       apiStatus('/api/collection/history?form_type='+ty).then(({status,json})=>{
@@ -993,10 +994,40 @@
         el.innerHTML = html;
       }).catch(()=>{ const el=document.getElementById('col-cnt-'+ty); if(el) el.innerHTML=t('need_editor'); });
     });
-    apiStatus('/api/collection/history').then(({status,json})=>{
+    renderColHisFilter();
+    renderColHistoryList();
+  }
+  // R5: 采集历史筛选状态（日期 + 只看我的；非 admin 强制只看自己，后端亦强制）
+  if(!STATE._colHisFilter){
+    const _r=(STATE.auth||{}).role;
+    STATE._colHisFilter = { date:'', mine: !(_r==='admin'||_r==='super_admin') };
+  }
+  function renderColHisFilter(){
+    const el=document.getElementById('col-his-filter'); if(!el) return;
+    const f=STATE._colHisFilter;
+    const role=(STATE.auth||{}).role;
+    const isAdmin=(role==='admin'||role==='super_admin');
+    const inStyle='flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);font-size:14px;';
+    let html='<div style="display:flex;gap:6px;align-items:center;padding:0 var(--space-md) 8px;">'
+      + '<input type="date" value="'+esc(f.date||'')+'" onchange="STATE._colHisFilter.date=this.value;renderColHisFilter();renderColHistoryList();" style="'+inStyle+'">';
+    if(isAdmin){
+      html += '<button class="btn btn-sm '+(f.mine?'':'btn-primary')+'" onclick="STATE._colHisFilter.mine=false;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_all')+'</button>'
+        + '<button class="btn btn-sm '+(f.mine?'btn-primary':'')+'" onclick="STATE._colHisFilter.mine=true;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_mine')+'</button>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  }
+  function renderColHistoryList(){
+    const el=document.getElementById('col-recent'); if(!el) return;
+    const f=STATE._colHisFilter;
+    let qs='/api/collection/history';
+    const params=[];
+    if(f.date) params.push('date='+encodeURIComponent(f.date));
+    if(f.mine) params.push('operator='+encodeURIComponent((STATE.auth||{}).username||''));
+    if(params.length) qs += '?'+params.join('&');
+    apiStatus(qs).then(({status,json})=>{
       const subs=(json.submissions||[]).slice(0,8);
       STATE._colSubs = json.submissions || [];
-      const el=document.getElementById('col-recent'); if(!el) return;
       if(status===403){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('need_editor')+'</span></div>'; return; }
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
       const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
@@ -1017,7 +1048,7 @@
         }catch(e){}
         return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
-    }).catch(()=>{ const el=document.getElementById('col-recent'); if(el) el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
+    }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
   function openColForm(ty, initPayload){
     // P18 阶段2: 采集/出勤编辑入口按权限(生产/出勤 edit 权限)
