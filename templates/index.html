@@ -1045,6 +1045,17 @@
       <div id="permGrid"></div>
     </div>
   </div>
+  <!-- P18 阶段2: 角色权限编辑(super_admin) -->
+  <div class="card" id="rolePermCard" style="margin-top:16px;display:none;">
+    <h3 style="margin-bottom:12px;font-size:14px;">🔑 <span data-i18n="perm_role_edit">角色权限编辑</span></h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_role_edit_desc">编辑各角色的默认权限(不含超级管理员)。保存后该角色用户重新登录生效。</p>
+    <div id="rolePermGrid" style="overflow-x:auto;"></div>
+    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+      <button class="btn-primary" onclick="saveRolePerms()" data-i18n="perm_save">保存</button>
+      <button class="nav-btn" onclick="resetRolePermsToDefault()" data-i18n="perm_reset_default">恢复默认</button>
+      <span id="rolePermMsg" style="font-size:12px;"></span>
+    </div>
+  </div>
   <!-- P13: 审批人设定（super_admin） -->
   <div class="card" id="approvalRoutesCard" style="margin-top:16px;display:none;">
     <h3 style="margin-bottom:12px;font-size:14px;">🗂 <span data-i18n="routes_title">审批人设定</span></h3>
@@ -6802,6 +6813,8 @@ const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage'];
 async function loadPermissionsPage() {
   const tbody = document.getElementById('permUsersTable');
   if (!tbody) return;
+  // P18 阶段2: 加载角色权限编辑区(super_admin 可见)
+  loadRolePermissions();
   try {
     const res = await authFetch(api('/api/permissions/users'));
     const data = await res.json();
@@ -6834,6 +6847,83 @@ async function loadPermissionsPage() {
     const oldTbody = document.getElementById('userMgmtBody');
     if (oldTbody) oldTbody.innerHTML = tbody.innerHTML;
   } catch(e) {}
+}
+
+// ── P18 阶段2: 角色权限编辑(super_admin) ──
+let _rolePermDirty = {}; // key: role|module|action → allow(1/0)
+
+async function loadRolePermissions() {
+  const card = document.getElementById('rolePermCard');
+  if (!card) return;
+  const grid = document.getElementById('rolePermGrid');
+  if (!grid) return;
+  // 仅 super_admin 可见
+  if (_authState.role !== 'super_admin') { card.style.display = 'none'; return; }
+  card.style.display = '';
+  _rolePermDirty = {};
+  const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = '';
+  try {
+    const res = await authFetch(api('/api/permissions/roles'));
+    const data = await res.json();
+    if (!data.ok) { grid.innerHTML = ''; return; }
+    const perms = data.permissions || [];
+    const map = {};
+    perms.forEach(p => { map[p.role + '|' + p.module + '|' + p.action] = !!p.allow; });
+    const roles = ['admin', 'editor', 'viewer'];
+    const modules = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system'];
+    const actions = ['view', 'edit', 'approve', 'export', 'manage'];
+    let html = '<table style="font-size:11px;"><thead><tr><th style="width:110px;">' + t('perm_module') + '</th><th style="width:70px;">' + t('perm_action') + '</th>';
+    roles.forEach(r => { html += '<th style="width:80px;text-align:center;">' + t('perm_role_' + r) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    modules.forEach(m => {
+      actions.forEach(a => {
+        html += '<tr><td>' + (t(MODULE_NAMES[m]) || m) + '</td><td>' + (t('perm_' + a) || a) + '</td>';
+        roles.forEach(r => {
+          const key = r + '|' + m + '|' + a;
+          const checked = map[key] ? ' checked' : '';
+          html += '<td style="text-align:center;"><input type="checkbox" data-rp="' + key + '"' + checked
+            + ' onchange="onRolePermChange(\'' + key + '\',this.checked)"></td>';
+        });
+        html += '</tr>';
+      });
+    });
+    html += '</tbody></table>';
+    grid.innerHTML = html;
+  } catch(e) { grid.innerHTML = ''; }
+}
+
+function onRolePermChange(key, checked) {
+  _rolePermDirty[key] = checked ? 1 : 0;
+  const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = t('perm_unsaved');
+}
+
+async function saveRolePerms() {
+  const updates = Object.entries(_rolePermDirty).map(([key, allow]) => {
+    const [role, module, action] = key.split('|');
+    return { role, module, action, allow };
+  });
+  if (!updates.length) { const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = t('perm_no_change'); return; }
+  const msg = document.getElementById('rolePermMsg');
+  try {
+    const res = await authFetch(api('/api/permissions/roles'), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (msg) { msg.textContent = t('saved'); msg.style.color = ''; }
+      _rolePermDirty = {};
+      loadRolePermissions();
+    } else {
+      if (msg) msg.textContent = data.error || t('fail');
+    }
+  } catch(e) { if (msg) msg.textContent = t('fail'); }
+}
+
+function resetRolePermsToDefault() {
+  _rolePermDirty = {};
+  loadRolePermissions();
 }
 
 function togglePermPanel(username) {

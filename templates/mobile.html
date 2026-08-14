@@ -384,8 +384,17 @@
   function closeSheet(){ document.getElementById('sheet').classList.remove('show'); }
 
   // ── 认证 ──
+  // P18 阶段2: 权限判断(permissions 数组如 ['dashboard:view'],super_admin 为 ['*:*'])
+  function hasPermission(module, action){
+    const a = STATE.auth || {};
+    if(!a.logged_in) return false;
+    const perms = a.permissions || [];
+    if(perms.indexOf('*:*') !== -1) return true;
+    return perms.indexOf(module + ':' + action) !== -1;
+  }
   function checkAuth(){
     return api('/api/auth/status').then(a=>{
+      if(!a.permissions) a.permissions = [];
       STATE.auth = a;
       if(a.logged_in){ showApp(); return true; }
       showLogin(); return false;
@@ -693,11 +702,11 @@
     document.getElementById('emp-search-wrap').style.display='none';
     document.getElementById('emp-detail').style.display='block';
     document.getElementById('emp-detail').innerHTML='<div class="skeleton-card kpi"></div><div class="skeleton-card chart"></div>';
-    // 并行聚合：档案 + 出勤统计 + 薪资概览
+    // 并行聚合：档案 + 出勤统计 + 薪资概览(P18: 无 salary 权限不拉薪资)
     Promise.all([
       api('/api/employees/'+encodeURIComponent(id)).catch(()=>({employee:null})),
       api('/attendance').catch(()=>null),
-      api('/salary').catch(()=>null),
+      hasPermission('salary','view') ? api('/salary').catch(()=>null) : Promise.resolve(null),
     ]).then(([d, att, sal])=>{
       if(!d.employee){ document.getElementById('emp-detail').innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('emp_load_err')+'</div><button class="state-box__action" onclick="openEmpProfile(\''+esc(id)+'\')">'+t('retry')+'</button></div>'; return; }
       renderEmpProfile(d.employee, att, sal);
@@ -959,7 +968,11 @@
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
     }).catch(()=>{ const el=document.getElementById('col-recent'); if(el) el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
-  function openColForm(ty){ STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
+  function openColForm(ty){
+    // P18 阶段2: 采集/出勤编辑入口按权限(生产/出勤 edit 权限)
+    const needEdit = (ty==='attendance') ? hasPermission('attendance','edit') : hasPermission('production','edit');
+    if(!needEdit){ toast(t('need_editor'),'warning'); return; }
+    STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
     if(ty==='underground') renderUgForm(); else if(ty==='driller') renderDrForm(); else if(ty==='crush') renderCrForm(); else renderAttForm(); }
   function backColHome(){ _pageStack=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
 
@@ -1264,12 +1277,14 @@
   function quickSick(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
-  function openQuickLeave(){ quickLeave(); }
+  // P18 阶段2: OA 申请入口按 oa:view 权限守卫
+  function openQuickLeave(){ if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }
   // ── 三个 OA 申请页(需求 4): Sheet 表单,POST /api/oa/events ──
   function oaFormMsg(ok, msg){ const el=document.getElementById('oaFormMsg'); if(!el) return; el.textContent=msg||''; el.className='form-message visible '+(ok?'success':'error'); }
   function oaFormHTML(html){ const body=document.getElementById('sheet-body'); body.innerHTML=html+'<div class="form-message" id="oaFormMsg"></div>'; }
   // 入职申请(全字段,对齐桌面端 index.html:5128-5155)
   function openHireApply(){
+    if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
     const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
     const role=STATE.auth && STATE.auth.role;
     const isSuper=role==='super_admin';
@@ -1322,6 +1337,7 @@
   }
   // 调岗申请
   function openTransferApply(){
+    if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
     const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
     const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
     const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
@@ -1342,6 +1358,7 @@
   }
   // 离职申请
   function openDismissApply(){
+    if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
     const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
     oaFormHTML(
       '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaDmEid">'+opts+'</select></div>'
