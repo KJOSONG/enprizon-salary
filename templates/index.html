@@ -1040,6 +1040,7 @@
             <tr>
               <th data-i18n="user_mgmt_th_username">用户名</th>
               <th data-i18n="user_mgmt_th_role">角色</th>
+              <th data-i18n="perm_perm_col">权限</th>
               <th data-i18n="perm_user_status">状态</th>
               <th data-i18n="user_mgmt_th_actions">操作</th>
             </tr>
@@ -1089,6 +1090,11 @@
         <button class="btn-primary" onclick="saveUserRole()" style="font-size:12px;" data-i18n="perm_save_role">保存角色</button>
         <span id="userDrawerRoleMsg" style="font-size:12px;align-self:center;"></span>
       </div>
+    </div>
+    <!-- P18E: 权限来源对比(分配角色与单用户覆盖之间) -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;" data-i18n="perm_source_compare">权限来源对比</div>
+      <div id="userDrawerPermSources" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;"></div>
     </div>
     <!-- 单用户权限覆盖 -->
     <div style="margin-bottom:14px;">
@@ -6989,10 +6995,12 @@ async function loadPermissionsPage() {
     _permUsersCache = data.users || [];
     tbody.innerHTML = _permUsersCache.map(u => {
       const isSelf = u.username === _authState.username;
+      const grantCount = (u.grants || []).length;
       return `
       <tr>
         <td>${escHtml(u.username)}${isSelf ? ' <span style="color:var(--accent);font-size:10px;">(You)</span>' : ''}</td>
         <td>${roleLabel(u.role)}</td>
+        <td>${grantCount > 0 ? `<span class="perm-source-tag perm-source-tag--grant">+${grantCount} ${t('perm_override_badge')}</span>` : '<span style="color:var(--text-muted);font-size:11px;">—</span>'}</td>
         <td><span style="font-size:11px;color:#4CAF50;">${t('perm_user_status_ok')}</span></td>
         <td>
           <button class="btn-primary" style="font-size:10px;padding:2px 6px;margin-right:4px;"
@@ -7460,6 +7468,8 @@ async function openUserDrawer(username) {
   renderUserGrants(u ? (u.grants || []) : []);
   // 填充覆盖下拉选项(catalog 权限项)
   fillGrantPermSel();
+  // P18E: 权限来源对比
+  await renderPermSources(u);
   const m = document.getElementById('userDrawerRoleMsg'); if (m) m.textContent = '';
   const gm = document.getElementById('userDrawerGrantMsg'); if (gm) gm.textContent = '';
 }
@@ -7482,6 +7492,49 @@ async function saveUserRole() {
     if (data.ok) { if (m) { m.textContent = t('saved') + ' · ' + t('perm_relogin_hint'); m.style.color = ''; } loadPermissionsPage(); }
     else { if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
   } catch(e) { if (m) { m.textContent = t('fail'); m.style.color = '#F44336'; } }
+}
+
+// P18E: 用户权限来源对比 — 消费 u.permissions summary + u.grants + 角色 effective
+async function renderPermSources(u) {
+  const wrap = document.getElementById('userDrawerPermSources');
+  if (!wrap) return;
+  try {
+    if (!_rpState.catalog || !Object.keys(_rpState.catalog).length) {
+      const res = await authFetch(api('/api/permissions/roles'));
+      const data = await res.json();
+      if (data.ok) _rpState.catalog = data.catalog || {};
+    }
+    // 角色 effective(继承展开),用于 role 来源判定
+    let effSet = null;
+    if (u && u.role) {
+      try {
+        const res = await authFetch(api('/api/permissions/roles?role=' + encodeURIComponent(u.role)));
+        const data = await res.json();
+        if (data.ok && data.effective && data.effective[u.role]) {
+          effSet = new Set(data.effective[u.role].map(p => p.module + ':' + p.action));
+        }
+      } catch(e) {}
+    }
+    const summary = (u && u.permissions) || {};
+    const grants = (u && u.grants) || [];
+    const grantMap = {};
+    grants.forEach(g => { grantMap[g.module + ':' + g.action] = g.grant_type; });
+    const roleName = u ? u.role : '';
+    const tagMap = { role: 'perm-source-tag--role', grant: 'perm-source-tag--grant', deny: 'perm-source-tag--deny', none: 'perm-source-tag--none' };
+    const labelMap = { role: t('perm_source_role') + ' · ' + roleLabel(roleName), grant: t('perm_source_allow'), deny: t('perm_source_deny'), none: t('perm_source_none') };
+    let html = '';
+    Object.entries(_rpState.catalog || {}).forEach(([key, meta]) => {
+      const [module, action] = key.split(':');
+      let src = grantMap[key] || (summary[module] && summary[module][action]) || 'none';
+      // summary 不展开继承,effective 有则视为角色默认
+      if (src === 'none' && effSet && effSet.has(key)) src = 'role';
+      html += `<div class="perm-source-row">
+        <span style="flex:1;font-weight:600;">${t(meta.name) || meta.name}</span>
+        <span class="perm-source-tag ${tagMap[src]}">${labelMap[src]}</span>
+      </div>`;
+    });
+    wrap.innerHTML = html;
+  } catch(e) { wrap.innerHTML = ''; }
 }
 
 function renderUserGrants(grants) {
