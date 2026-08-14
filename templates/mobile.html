@@ -1015,7 +1015,7 @@
       return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+' · '+(day.emps||[]).length+' '+t('emp')+'</div>'
         + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+' · '+(night.emps||[]).length+' '+t('emp')+'</div>';
     }
-    if(ty==='driller'){ const teams=p.teams||[]; return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'+teams.map(t=>'<div class="detail-line">· '+esc(t.captain||'')+': '+(t.members||[]).length+' '+t('emp')+'</div>').join(''); }
+    if(ty==='driller'){ const teams=p.teams||[]; return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'+teams.map(tm=>'<div class="detail-line">· '+esc(tm.captain||'')+': '+(tm.members||[]).length+' '+t('emp')+'</div>').join(''); }
     if(ty==='crush'){ return '<div class="detail-line">'+t('bags')+': '+esc(p.bags||0)+' · '+(p.emps||[]).length+' '+t('emp')+'</div>'+((p.remark)?'<div class="detail-line">'+t('remark')+': '+esc(p.remark)+'</div>':''); }
     if(ty==='attendance'){ return '<div class="detail-line">'+t('col_marks')+': '+(p.marks||[]).length+'</div>'; }
     return '';
@@ -1056,19 +1056,18 @@
     el.className = 'form-message visible '+(ok?'success':'error');
   }
   function clearFormMsg(){ const el=document.getElementById('colFormMsg'); if(el){ el.textContent=''; el.className='form-message'; } }
-  let _colEditing = null;  // {id, ty} 编辑采集提交
   function colSubmit(ty, payload, validate){
     const date=document.getElementById('colDate').value;
     if(!date){ showFormMsg(ty, t('val_date'), false); return; }
     if(validate && !validate(payload)) return;
     const btn = document.getElementById('colSubmitBtn');
     if(btn){ btn.disabled=true; btn.textContent=t('submitting'); }
-    const editing = _colEditing && _colEditing.ty===ty ? _colEditing : null;
+    const editing = STATE._colEditing && STATE._colEditing.ty===ty ? STATE._colEditing : null;
     const req = editing
       ? api('/api/collection/edit/'+editing.id, { method:'POST', body: JSON.stringify({ payload }) })
       : api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) });
     req.then(r=>{
-      if(r.ok){ _colEditing=null; showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }
+      if(r.ok){ STATE._colEditing=null; showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }
       else { showFormMsg(ty, r.error||t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
     }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
   }
@@ -1094,7 +1093,7 @@
       + seg('ugNight', t('night_shift'), 'night', night)
       + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark" value="'+esc(init&&init.remark||'')+'"></div>'
       + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2" value="'+esc(init&&init.remark2||'')+'"></div>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',(day.emps||[]),'ugDay', deptPool('underground'));
     document.getElementById('ugDayDriversBox').innerHTML=(day.emps||[]).length ? empChecklistHTML('ugDayDrivers',(day.drivers||[]),'ugDayDrv', STATE.employees.filter(e=>(day.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
     document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',(night.emps||[]),'ugNight', deptPool('underground'));
@@ -1132,7 +1131,7 @@
   STATE._drSlots=[];
   async function renderDrForm(init){
     const d = (init && init.submission_date) || new Date().toISOString().slice(0,10);
-    const teams = (init && init.teams && init.teams.length) ? init.teams.map(t=>({captain:t.captain||'', nh:t.nh||0, nl:t.nl||0, mw:t.mw||0, members:(t.members||[])})) : [{captain:'',nh:0,nl:0,mw:0,members:[]}];
+    const teams = (init && init.teams && init.teams.length) ? init.teams.map(tm=>({captain:tm.captain||'', nh:tm.nh||0, nl:tm.nl||0, mw:tm.mw||0, members:(tm.members||[])})) : [{captain:'',nh:0,nl:0,mw:0,members:[]}];
     STATE._drSlots = teams;
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
     STATE._drCaps=caps;
@@ -1141,7 +1140,7 @@
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div id="drSlots"></div>'
       + '<button class="btn btn-block" onclick="addDrSlotM()" style="margin:8px 0;">+ '+t('add_team')+'</button>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitDr()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitDr()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderDrSlotsM();
   }
   function capOpts(sel){ return '<option value="">'+t('pick_captain')+'</option>'+(STATE._drCaps||[]).map(c=>'<option value="'+esc(c.employee_id)+'" '+(String(sel)===String(c.employee_id)?'selected':'')+'>'+esc(c.name)+'</option>').join(''); }
@@ -1169,7 +1168,7 @@
       + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="'+((init&&init.bags)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:((init&&init.emps)||[]).length})+'</div><div id="crEmpsBox"></div></div>'
       + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark" value="'+esc((init&&init.remark)||'')+'"></div>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',(init&&init.emps)||[],'crEmps', deptPool('crush'));
     document.getElementById('crEmps').value=((init&&init.emps)||[]).join(',');
   }
@@ -1180,9 +1179,18 @@
     colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
   // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣）(init 为编辑预填 marks)
-  async function renderAttForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10); const pool=deptPool('other');
+  async function renderAttForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10);
+    const pool=deptPool('other');
     STATE._attEditMarks = {};
     (init && init.marks || []).forEach(m=>{ if(m.employee_id) STATE._attEditMarks[String(m.employee_id)] = m.status; });
+    // P1 修复: 编辑模式员工池 = 原 marks 员工(从 STATE.employees 补全,含生产部门)∪ 其他部门,
+    // 避免编辑保存时历史 marks 中的生产部门员工丢失
+    if(init && init.marks && init.marks.length){
+      const ids=new Set(init.marks.map(m=>m.employee_id).filter(Boolean));
+      const have=ids.has.bind(ids);
+      (STATE.employees||[]).forEach(e=>{ if(have(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
+    }
+    STATE._attPool = pool;
     const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
@@ -1191,12 +1199,13 @@
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
-      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(_colEditing?t('col_edit_save'):t('submit'))+'</button>';
+      + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderAttRoster();
   }
   function attRosterEmpIds(){
     const sel=document.getElementById('attDept').value;
-    return deptPool('other').filter(e=>!sel||e.department===sel);
+    const pool = STATE._attPool || deptPool('other');
+    return pool.filter(e=>!sel||e.department===sel);
   }
   function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
