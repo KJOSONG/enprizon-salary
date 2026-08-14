@@ -349,7 +349,7 @@
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:760px;">
       <div class="form-row"><label data-i18n="emp_name">姓名</label><input type="text" id="hireName" data-i18n-placeholder="ph_name_required" placeholder="姓名（必填）" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="th_dept">部门</label><select id="hireDept" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row"><label data-i18n="th_dept">部门</label><select id="hireDept" required style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
       <div class="form-row"><label data-i18n="emp_position">岗位</label><input type="text" id="hirePosition" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_gender">性别</label><select id="hireGender" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
         <option value="">—</option>
@@ -358,7 +358,7 @@
         <option value="other" data-i18n="emp_gender_other">其他</option>
       </select></div>
       <div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="hireDob" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="hireDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="hireDate" required style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input type="text" id="hireSkill" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nida">NIDA</label><input type="text" id="hireNida" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input type="text" id="hireNssf" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -366,7 +366,8 @@
       <div class="form-row"><label data-i18n="emp_bank_name">银行</label><input type="text" id="hireBank" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_bank_account">账号</label><input type="text" id="hireAccount" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input type="text" id="hireOwner" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="hireSalaryType" onchange="toggleHireBaseFields()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+      <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="hireSalaryType" onchange="toggleHireBaseFields()" required style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <option value="">—</option>
         <option value="piece_underground" data-i18n="type_ug_piece">生产薪资</option>
         <option value="piece_driller" data-i18n="type_dr_piece">钻工计件</option>
         <option value="piece_crush" data-i18n="type_crush_piece">破碎计件</option>
@@ -5308,6 +5309,13 @@ async function submitApply(type) {
     const name = document.getElementById('hireName').value.trim();
     const date = document.getElementById('hireDate').value;
     if (!name || !date) { setApplyMsg(msgId, t('hire_need_name_date'), false); return; }
+    // R2b: 部门/薪资类别必填；piece_underground 时班组必填
+    const dept = document.getElementById('hireDept').value;
+    const salaryType = document.getElementById('hireSalaryType').value;
+    const teamId = parseInt(document.getElementById('hireTeamId').value) || 0;
+    if (!dept) { setApplyMsg(msgId, t('hire_need_dept'), false); return; }
+    if (!salaryType) { setApplyMsg(msgId, t('hire_need_salary_type'), false); return; }
+    if (salaryType === 'piece_underground' && !teamId) { setApplyMsg(msgId, t('hire_need_team'), false); return; }
     // P12: 入职全字段（与 saveEmployeeProfile 同字段集）
     const phoneRaw = document.getElementById('hirePhone').value.trim();
     if (phoneRaw && !/^\d+$/.test(phoneRaw)) { setApplyMsg(msgId, t('err_phone_digits'), false); return; }
@@ -5317,7 +5325,7 @@ async function submitApply(type) {
       effective_date: date,
       payload: {
         name,
-        department: document.getElementById('hireDept').value,
+        department: dept,
         position: document.getElementById('hirePosition').value.trim(),
         gender: document.getElementById('hireGender').value,
         date_of_birth: document.getElementById('hireDob').value,
@@ -5375,7 +5383,7 @@ async function submitApply(type) {
       if (type === 'hire') {
         ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
           .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-        ['hireGender','hireSalaryType'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        ['hireGender','hireSalaryType','hireDept'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';
         toggleHireBaseFields();
         clearHireAvatar();
@@ -5421,7 +5429,8 @@ function fillApplyDepts() {
     if (depts.length === 0) {
       [...new Set((STATE._empAll || []).map(e => e.department).filter(Boolean))].sort().forEach(d => depts.push(d));
     }
-    sel.innerHTML = depts.map(d => `<option value="${escHtml(d)}" ${cur===d?'selected':''}>${escHtml(d)}</option>`).join('');
+    sel.innerHTML = (selId === 'hireDept' ? '<option value="" data-i18n="hire_sel_dept">请选择</option>' : '')
+      + depts.map(d => `<option value="${escHtml(d)}" ${cur===d?'selected':''}>${escHtml(d)}</option>`).join('');
   };
   fill('hireDept');
   fill('transferDept');

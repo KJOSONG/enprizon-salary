@@ -1496,7 +1496,7 @@
       + '<div class="field"><label class="field__label">'+t('bank')+'</label><input id="oaHireBank"></div>'
       + '<div class="field"><label class="field__label">'+t('emp_bank_account')+'</label><input id="oaHireAccount"></div>'
       + '<div class="field"><label class="field__label">'+t('emp_bank_owner')+'</label><input id="oaHireOwner"></div>'
-      + '<div class="field"><label class="field__label">'+t('salary_type')+'</label><select id="oaHireSalaryType"><option value="piece_underground">'+t('type_ug_piece')+'</option><option value="piece_driller">'+t('type_dr_piece')+'</option><option value="day_rate">'+t('type_dayrate')+'</option><option value="monthly">'+t('type_monthly')+'</option></select></div>'
+      + '<div class="field"><label class="field__label">'+t('salary_type')+'</label><select id="oaHireSalaryType"><option value="">—</option><option value="piece_underground">'+t('type_ug_piece')+'</option><option value="piece_driller">'+t('type_dr_piece')+'</option><option value="day_rate">'+t('type_dayrate')+'</option><option value="monthly">'+t('type_monthly')+'</option></select></div>'
       + '<div class="field"><label class="field__label">'+t('emp_day_rate')+'</label><input type="number" id="oaHireDayRate" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('emp_monthly_salary')+'</label><input type="number" id="oaHireMonthly" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('team')+'</label><select id="oaHireTeamId">'+gOpts+'</select></div>'
@@ -1507,6 +1507,13 @@
     const name=document.getElementById('oaHireName').value.trim();
     const date=document.getElementById('oaHireDate').value;
     if(!name||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
+    // R2b: 部门/薪资类别必填；piece_underground 时班组必填
+    const dept=document.getElementById('oaHireDept').value;
+    const salaryType=document.getElementById('oaHireSalaryType').value;
+    const teamId=parseInt(document.getElementById('oaHireTeamId').value)||0;
+    if(!dept){ oaFormMsg(false, t('hire_need_dept')); return; }
+    if(!salaryType){ oaFormMsg(false, t('hire_need_salary_type')); return; }
+    if(salaryType==='piece_underground' && !teamId){ oaFormMsg(false, t('hire_need_team')); return; }
     const phoneRaw=document.getElementById('oaHirePhone').value.trim();
     if(phoneRaw && (!/^\d{9,10}$/.test(phoneRaw))){ oaFormMsg(false, t('phone_invalid')); return; }
     const payload={
