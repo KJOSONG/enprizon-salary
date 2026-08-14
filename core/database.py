@@ -165,6 +165,14 @@ def init_db(data_folder):
             FOREIGN KEY (permission_id) REFERENCES permissions(id),
             UNIQUE(username, permission_id)
         );
+        CREATE TABLE IF NOT EXISTS role_permissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            module TEXT NOT NULL,
+            action TEXT NOT NULL,
+            allow INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(role, module, action)
+        );
         CREATE TABLE IF NOT EXISTS employee_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id TEXT NOT NULL,
@@ -1099,9 +1107,12 @@ ROLE_DEFAULT_PERMISSIONS = {
     },
     'viewer': {
         'dashboard': ['view'],
-        'salary': ['view'],
     },
 }
+
+# P18 决策2: viewer 仅保留 dashboard.view(去掉 salary:view)
+# 角色继承链(判定时展开): admin ⊇ editor ⊇ viewer
+ROLE_HIERARCHY = {'admin': ['editor'], 'editor': ['viewer'], 'viewer': []}
 
 ALL_MODULES = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system']
 ALL_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage']
@@ -1120,6 +1131,59 @@ def init_default_permissions(data_folder):
                     pass
     conn.commit()
     conn.close()
+
+def sync_role_permissions(data_folder):
+    """P18: 角色默认权限字典 → role_permissions 表(REPLACE 语义,可重复执行)
+
+    - super_admin 不写表(硬编码全权限)
+    - viewer 只写 dashboard.view(决策2,已从字典去掉 salary:view)
+    - 每角色先清空再按字典写入,保证与字典完全一致
+    """
+    conn = get_conn(data_folder)
+    for role, grants in ROLE_DEFAULT_PERMISSIONS.items():
+        if role == 'super_admin':
+            continue
+        conn.execute("DELETE FROM role_permissions WHERE role=?", (role,))
+        for module, actions in grants.items():
+            if module == '*':
+                continue
+            for action in actions:
+                conn.execute(
+                    "INSERT OR REPLACE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,1)",
+                    (role, module, action))
+    conn.commit()
+    conn.close()
+
+def get_role_permissions(data_folder, role):
+    """P18: 角色有效权限集合(含继承展开)
+
+    super_admin → {'*':{'*'}}(全权限)
+    admin → admin ∪ editor ∪ viewer
+    editor → editor ∪ viewer
+    viewer → 仅自身
+    返回 {module: set(action)}
+    """
+    if role == 'super_admin':
+        return {'*': {'*'}}
+    # 收集自身 + 继承链上的角色
+    roles = [role]
+    queue = list(ROLE_HIERARCHY.get(role, []))
+    while queue:
+        r = queue.pop(0)
+        roles.append(r)
+        queue.extend(ROLE_HIERARCHY.get(r, []))
+    conn = get_conn(data_folder)
+    result = {}
+    try:
+        ph = ', '.join('?' * len(roles))
+        rows = conn.execute(
+            f"SELECT module, action FROM role_permissions WHERE role IN ({ph}) AND allow=1",
+            roles).fetchall()
+        for r in rows:
+            result.setdefault(r['module'], set()).add(r['action'])
+    finally:
+        conn.close()
+    return result
 
 def get_permissions(data_folder):
     """查询全部权限定义"""
@@ -1187,51 +1251,53 @@ def revoke_user_grant_by_action(data_folder, username, module, action):
     conn.close()
 
 def check_permission(data_folder, username, module, action, scope_value=''):
-    """权限检查：角色继承 + 单独授权覆盖"""
+    """P18: 权限检查 — 完全读 DB(role_permissions 继承展开 + user_grants 覆盖)
+
+    判定顺序:
+      1. super_admin → True
+      2. user_grants deny(module/action 匹配) → False
+      3. user_grants allow(module/action 匹配) → True
+      4. role_permissions(含继承展开) allow=1 → True
+      5. 否则 → False
+    """
     conn = get_conn(data_folder)
-    # 查用户角色
-    role_row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
-    if not role_row:
-        conn.close()
-        return False
-    role = role_row['role']
+    try:
+        # 查用户角色
+        role_row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
+        if not role_row:
+            return False
+        role = role_row['role']
 
-    # super_admin 拥有所有权限
-    if role == 'super_admin':
-        conn.close()
-        return True
+        # 1. super_admin 拥有所有权限
+        if role == 'super_admin':
+            return True
 
-    # 1. 查单独授权（deny 优先）
-    deny = conn.execute("""
-        SELECT 1 FROM user_grants g
-        JOIN permissions p ON g.permission_id = p.id
-        WHERE g.username=? AND p.module=? AND p.action=? AND g.grant_type='deny'
-    """, (username, module, action)).fetchone()
-    if deny:
-        conn.close()
-        return False
+        # 2. 单独授权 deny 优先
+        deny = conn.execute("""
+            SELECT 1 FROM user_grants g
+            JOIN permissions p ON g.permission_id = p.id
+            WHERE g.username=? AND p.module=? AND p.action=? AND g.grant_type='deny'
+        """, (username, module, action)).fetchone()
+        if deny:
+            return False
 
-    allow = conn.execute("""
-        SELECT 1 FROM user_grants g
-        JOIN permissions p ON g.permission_id = p.id
-        WHERE g.username=? AND p.module=? AND p.action=? AND g.grant_type='allow'
-    """, (username, module, action)).fetchone()
-    if allow:
-        conn.close()
-        return True
+        # 3. 单独授权 allow
+        allow = conn.execute("""
+            SELECT 1 FROM user_grants g
+            JOIN permissions p ON g.permission_id = p.id
+            WHERE g.username=? AND p.module=? AND p.action=? AND g.grant_type='allow'
+        """, (username, module, action)).fetchone()
+        if allow:
+            return True
 
-    # 2. 角色默认权限
-    grants = ROLE_DEFAULT_PERMISSIONS.get(role, {})
-    # 通配模块 *
-    if '*' in grants and '*' in grants['*']:
+        # 4. 角色默认权限(含继承展开)读 role_permissions 表
+        perms = get_role_permissions(data_folder, role)
+        if '*' in perms and '*' in perms['*']:
+            return True
+        actions = perms.get(module, set())
+        return '*' in actions or action in actions
+    finally:
         conn.close()
-        return True
-    module_grants = grants.get(module, [])
-    if '*' in module_grants:
-        conn.close()
-        return True
-    conn.close()
-    return action in module_grants
 
 def get_user_permissions_summary(data_folder, username):
     """获取某用户的完整权限摘要：{module: {view: 'role'|'grant'|'deny', ...}}"""

@@ -290,14 +290,63 @@ def api_permissions_users():
     return jsonify({'ok': True, 'users': users})
 
 @app.route('/api/permissions/roles', methods=['GET'])
-@login_required
+@super_admin_required
 def api_permissions_roles():
-    from core.database import ROLE_DEFAULT_PERMISSIONS, ROLE_LEVELS
+    """P18: 角色权限列表(role × module × action,含继承展开后效果)"""
+    from core.database import get_conn, ROLE_LEVELS, ROLE_HIERARCHY, get_role_permissions
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        rows = conn.execute(
+            "SELECT role, module, action, allow FROM role_permissions ORDER BY role, module, action"
+        ).fetchall()
+    finally:
+        conn.close()
+    # 继承展开效果: 每个角色实际可用的权限集合
+    inherited = {}
+    for r in ROLE_LEVELS:
+        perms = get_role_permissions(app.config['DATA_FOLDER'], r)
+        inherited[r] = [
+            {'module': m, 'action': a} for m, acts in perms.items()
+            for a in acts if m != '*'
+        ]
     return jsonify({
         'ok': True,
         'roles': [{'name': r, 'level': ROLE_LEVELS[r]} for r in ROLE_LEVELS],
-        'defaults': ROLE_DEFAULT_PERMISSIONS,
+        'hierarchy': ROLE_HIERARCHY,
+        'permissions': [dict(r) for r in rows],
+        'effective': inherited,
     })
+
+@app.route('/api/permissions/roles', methods=['PUT'])
+@super_admin_required
+def api_permissions_roles_put():
+    """P18: 角色权限编辑 — 写 role_permissions(REPLACE)
+
+    body: {role, module, action, allow} 或 {updates:[{role,module,action,allow}, ...]}
+    """
+    from core.database import get_conn
+    data = request.get_json(silent=True) or {}
+    updates = data.get('updates') if isinstance(data.get('updates'), list) else [data]
+    if not updates:
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        for u in updates:
+            role = (u.get('role') or '').strip()
+            module = (u.get('module') or '').strip()
+            action = (u.get('action') or '').strip()
+            if not role or not module or not action:
+                return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+            if role == 'super_admin':
+                return jsonify({'ok': False, 'error': 'super_admin_immutable'}), 400
+            allow = 1 if int(u.get('allow', 1)) else 0
+            conn.execute(
+                "INSERT OR REPLACE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,?)",
+                (role, module, action, allow))
+    finally:
+        conn.commit()
+        conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/permissions/grant', methods=['POST'])
 @super_admin_required
@@ -2411,6 +2460,7 @@ def get_addressbook():
 
 @app.route('/config', methods=['GET'])
 @login_required
+@require_permission('system', 'view')
 def get_config():
     from core.pricing import load_config
     return jsonify(load_config(app.config['DATA_FOLDER']))
@@ -2465,6 +2515,7 @@ def _recalc_internal():
 
 @app.route('/salary', methods=['GET'])
 @login_required
+@require_permission('salary', 'view')
 def get_salary():
     month = request.args.get('month')
     if month and APP_STATE.get('main_data') and APP_STATE.get('employees'):
@@ -2500,6 +2551,7 @@ def get_salary():
 
 @app.route('/salary/verify', methods=['GET'])
 @login_required
+@require_permission('salary', 'view')
 def verify_salary():
     """双路径薪资核对：路径一（产量×单价基准计算）vs 路径二（实际汇总）"""
     from core.verification import verify_salary as do_verify
@@ -2681,6 +2733,7 @@ def get_production_verify():
 
 @app.route('/daily-wages', methods=['GET'])
 @login_required
+@require_permission('salary', 'view')
 def get_daily_wages():
     """返回每个员工的逐日工资"""
     from core.calculator import compute_daily_breakdown
@@ -2901,6 +2954,7 @@ def get_audit_log():
 
 @app.route('/export', methods=['POST'])
 @login_required
+@require_permission('salary', 'export')
 def export_salary():
     result = APP_STATE.get('salary_result')
     if not result:
@@ -3964,8 +4018,9 @@ def _gunicorn_init():
     _app_initialized = True
     from core.database import init_db
     init_db(app.config['DATA_FOLDER'])
-    from core.database import init_default_permissions, seed_default_forms
+    from core.database import init_default_permissions, sync_role_permissions, seed_default_forms
     init_default_permissions(app.config['DATA_FOLDER'])
+    sync_role_permissions(app.config['DATA_FOLDER'])
     seed_default_forms(app.config['DATA_FOLDER'])
     _backup_to_archive()
     seed_new_tables_from_excel()
@@ -3979,10 +4034,11 @@ if __name__ != '__main__':
     _gunicorn_init()
 
 if __name__ == '__main__':
-    from core.database import init_db, init_default_permissions, seed_default_forms
+    from core.database import init_db, init_default_permissions, sync_role_permissions, seed_default_forms
     _app_initialized = True
     init_db(app.config['DATA_FOLDER'])
     init_default_permissions(app.config['DATA_FOLDER'])
+    sync_role_permissions(app.config['DATA_FOLDER'])
     seed_default_forms(app.config['DATA_FOLDER'])
     _backup_to_archive()
     seed_new_tables_from_excel()
