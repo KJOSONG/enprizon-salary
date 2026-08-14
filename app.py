@@ -295,8 +295,13 @@ def api_permissions_users():
 @app.route('/api/permissions/roles', methods=['GET'])
 @super_admin_required
 def api_permissions_roles():
-    """P18: 角色权限列表(role × module × action,含继承展开后效果)"""
-    from core.database import get_conn, ROLE_LEVELS, ROLE_HIERARCHY, get_role_permissions
+    """P18b: 角色权限列表(role × module × action,含继承展开后效果 + 来源标记 + 元数据)
+
+    query: ?role=X 只返回该角色(含继承展开 effective + source_role)
+    """
+    from core.database import (get_conn, ROLE_LEVELS, ROLE_HIERARCHY,
+                               ROLE_DEFAULT_PERMISSIONS, PERMISSION_CATALOG,
+                               get_role_permissions)
     conn = get_conn(app.config['DATA_FOLDER'])
     try:
         rows = conn.execute(
@@ -304,21 +309,73 @@ def api_permissions_roles():
         ).fetchall()
     finally:
         conn.close()
-    # 继承展开效果: 每个角色实际可用的权限集合
+
+    def _inherit_chain(r):
+        chain = [r]
+        q = list(ROLE_HIERARCHY.get(r, []))
+        while q:
+            x = q.pop(0)
+            chain.append(x)
+            q.extend(ROLE_HIERARCHY.get(x, []))
+        return chain
+
+    def _source_of(r, module, action):
+        # 该权限项来自继承链上哪一级(自身或下级角色);表里 allow=1 的第一级
+        for rr in _inherit_chain(r):
+            for row in rows:
+                if row['role'] == rr and row['module'] == module and row['action'] == action and row['allow'] == 1:
+                    return rr
+        return r
+
+    role_filter = request.args.get('role', '').strip()
     inherited = {}
     for r in ROLE_LEVELS:
         perms = get_role_permissions(app.config['DATA_FOLDER'], r)
         inherited[r] = [
-            {'module': m, 'action': a} for m, acts in perms.items()
-            for a in acts if m != '*'
+            {'module': m, 'action': a,
+             'source_role': _source_of(r, m, a) if r != 'super_admin' else 'super_admin'}
+            for m, acts in perms.items() for a in acts if m != '*'
         ]
-    return jsonify({
+    resp = {
         'ok': True,
         'roles': [{'name': r, 'level': ROLE_LEVELS[r]} for r in ROLE_LEVELS],
         'hierarchy': ROLE_HIERARCHY,
+        'catalog': PERMISSION_CATALOG,
+        'defaults': ROLE_DEFAULT_PERMISSIONS,
         'permissions': [dict(r) for r in rows],
         'effective': inherited,
-    })
+    }
+    if role_filter:
+        if role_filter not in ROLE_LEVELS:
+            return jsonify({'ok': False, 'error': 'unknown_role'}), 400
+        resp['effective'] = {role_filter: inherited[role_filter]}
+        resp['roles'] = [{'name': role_filter, 'level': ROLE_LEVELS[role_filter]}]
+    return jsonify(resp)
+
+@app.route('/api/permissions/roles/reset', methods=['POST'])
+@super_admin_required
+def api_permissions_roles_reset():
+    """P18b: 将指定角色 role_permissions 重置为 ROLE_DEFAULT_PERMISSIONS 默认"""
+    from core.database import get_conn, ROLE_DEFAULT_PERMISSIONS
+    data = request.get_json(silent=True) or {}
+    role = (data.get('role') or '').strip()
+    if role not in ROLE_DEFAULT_PERMISSIONS or role == 'super_admin':
+        return jsonify({'ok': False, 'error': 'invalid_role'}), 400
+    conn = get_conn(app.config['DATA_FOLDER'])
+    try:
+        conn.execute("DELETE FROM role_permissions WHERE role=?", (role,))
+        grants = ROLE_DEFAULT_PERMISSIONS[role]
+        for module, actions in grants.items():
+            if module == '*':
+                continue
+            for action in actions:
+                conn.execute(
+                    "INSERT OR REPLACE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,1)",
+                    (role, module, action))
+    finally:
+        conn.commit()
+        conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/permissions/roles', methods=['PUT'])
 @super_admin_required
@@ -1130,6 +1187,7 @@ def remove_override_by_id():
 
 @app.route('/api/employees/<employee_id>/temp-overrides', methods=['GET'])
 @login_required
+@require_permission('employees', 'view')
 def api_employee_temp_overrides(employee_id):
     """P14.6: 返回该员工的所有临时例外（有日期区间的覆盖记录）"""
     from core.database import get_conn
@@ -1262,6 +1320,7 @@ def seed_employees():
 
 @app.route('/api/employees', methods=['GET'])
 @login_required
+@require_permission('employees', 'view')
 def api_employees():
     """员工列表（扩展版，含新字段 + overrides + bonus/penalties）"""
     from core.database import list_employees_extended, load_bonus_penalties as _load_bp
@@ -1284,6 +1343,7 @@ def api_employees():
 
 @app.route('/api/employees/<employee_id>', methods=['GET'])
 @login_required
+@require_permission('employees', 'view')
 def api_employee_profile(employee_id):
     """员工档案详情"""
     from core.database import get_employee_profile
@@ -1294,6 +1354,7 @@ def api_employee_profile(employee_id):
 
 @app.route('/api/employees/<employee_id>/events', methods=['GET'])
 @login_required
+@require_permission('employees', 'view')
 def api_employee_events(employee_id):
     """员工生命周期时间线"""
     from core.database import get_employee_events
@@ -1467,6 +1528,7 @@ def oa_create_event():
 
 @app.route('/api/oa/pending', methods=['GET'])
 @login_required
+@require_permission('oa', 'view')
 def oa_pending():
     """待审批事件列表（P13: 按当前用户为审批人过滤，super_admin 全可见）"""
     from core.database import get_pending_events
@@ -1478,6 +1540,7 @@ def oa_pending():
 
 @app.route('/api/oa/pending/count', methods=['GET'])
 @login_required
+@require_permission('oa', 'view')
 def oa_pending_count():
     """待审批数量（P13: 与列表同一过滤规则）"""
     from core.database import get_pending_events
@@ -1489,6 +1552,7 @@ def oa_pending_count():
 
 @app.route('/api/oa/history', methods=['GET'])
 @login_required
+@require_permission('oa', 'view')
 def oa_history():
     """P8: 已处理事件列表（approved/rejected）"""
     from core.database import get_processed_events
@@ -1891,6 +1955,7 @@ def collection_submit():
 
 @app.route('/api/collection/history', methods=['GET'])
 @editor_required
+@require_permission('production', 'view')
 def collection_history():
     """P9: 采集提交历史（按 form_type/month 过滤）"""
     from core.database import get_collection_submissions
@@ -2167,6 +2232,7 @@ def scoring_submit_card():
 
 @app.route('/api/scoring/entries', methods=['GET'])
 @editor_required
+@require_permission('scoring', 'view')
 def scoring_entries_list():
     """P14.8: 评分原始记录列表（team/week/card/source 组合过滤）"""
     from core.database import get_scoring_card_entries
@@ -2180,6 +2246,7 @@ def scoring_entries_list():
 
 @app.route('/api/scoring/card', methods=['GET'])
 @editor_required
+@require_permission('scoring', 'view')
 def scoring_card_get():
     """P14.8: 查询单卡全部行（9 行明细）"""
     from core.database import get_scoring_card_entries
@@ -2216,6 +2283,7 @@ def scoring_card_delete():
 
 @app.route('/api/scoring/team/<int:team_id>/month/<month>', methods=['GET'])
 @editor_required
+@require_permission('scoring', 'view')
 def scoring_team_month(team_id, month):
     """P10: 班组全员（custom_number 升序，无工号排后）+ 该月已提交评分（按 source 分组，预填回显）"""
     from core.database import get_conn, get_employee_group
@@ -2301,6 +2369,7 @@ def scoring_card_batch():
 
 @app.route('/api/scoring/week/<int:team>/<int:week>', methods=['GET'])
 @login_required
+@require_permission('scoring', 'view')
 def scoring_week_cards(team, week):
     from core.database import get_week_cards
     cards = get_week_cards(app.config['DATA_FOLDER'], team, week)
@@ -2308,6 +2377,7 @@ def scoring_week_cards(team, week):
 
 @app.route('/api/scoring/summary/<int:team>', methods=['GET'])
 @login_required
+@require_permission('scoring', 'view')
 def scoring_summary(team):
     """P15: 评分汇总（与 _get_scoring_bonus 共用共享函数，含去极值 + 三闸 R7 豁免）
     ?month= 缺省用当前月；响应含 pool 块 + individuals[].bonus"""
@@ -2391,6 +2461,7 @@ def objective_monthly(team):
 
 @app.route('/api/scoring/config', methods=['GET'])
 @login_required
+@require_permission('scoring', 'view')
 def scoring_config_get():
     from core.database import get_scoring_config
     config = get_scoring_config(app.config['DATA_FOLDER'])
@@ -2581,6 +2652,7 @@ def verify_salary():
 
 @app.route('/production', methods=['GET'])
 @login_required
+@require_permission('production', 'view')
 def get_production():
     md = APP_STATE.get('main_data', {})
     shift_prod = md.get('shift_production', [])
@@ -2625,6 +2697,7 @@ def get_production():
 
 @app.route('/api/production/dashboard', methods=['GET'])
 @login_required
+@require_permission('production', 'view')
 def get_production_dashboard():
     md = APP_STATE.get('main_data', {})
     shift_prod = md.get('shift_production', [])
@@ -2684,6 +2757,7 @@ def get_production_dashboard():
 
 @app.route('/production-verify', methods=['GET'])
 @login_required
+@require_permission('production', 'view')
 def get_production_verify():
     """返回逐日钻工组产量与井下白班+夜班产量对比"""
     md = APP_STATE.get('main_data', {})
@@ -2795,6 +2869,7 @@ def get_driller_captains():
 
 @app.route('/attendance', methods=['GET'])
 @login_required
+@require_permission('attendance', 'view')
 def get_attendance():
     """返回出勤网格：每人每天的状态。P=出勤 A=旷工 L=请假"""
     import json as _json

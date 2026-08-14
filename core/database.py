@@ -1086,33 +1086,54 @@ ROLE_LEVELS = {'super_admin': 3, 'admin': 2, 'editor': 1, 'viewer': 0}
 
 ROLE_DEFAULT_PERMISSIONS = {
     'super_admin': {'*': ['*']},
-    'admin': {
-        'dashboard': ['view'],
-        'employees': ['view', 'edit', 'export'],
-        'oa': ['view', 'approve'],
-        'attendance': ['view', 'edit', 'export'],
-        'salary': ['view', 'export'],
-        'production': ['view', 'edit'],
-        'scoring': ['view', 'edit'],
-        'system': ['view'],
-    },
-    'editor': {
-        'dashboard': ['view'],
-        'employees': ['view', 'export'],
-        'oa': ['view'],
-        'attendance': ['view', 'edit', 'export'],
-        'salary': ['view'],
-        'production': ['view', 'edit'],
-        'scoring': ['view'],
-    },
+    # P18b 决策1: viewer 查看类全开放(数据台/产量/出勤/员工/OA 只读),不含薪资/评分/编辑/导出
     'viewer': {
         'dashboard': ['view'],
+        'production': ['view'],
+        'attendance': ['view'],
+        'employees': ['view'],
+        'oa': ['view'],
+    },
+    # editor = viewer 全继承(view) + 编辑/评分查看/薪资查看/OA 审批/导出
+    'editor': {
+        'production': ['edit'],
+        'attendance': ['edit', 'export'],
+        'employees': ['edit', 'export'],
+        'oa': ['approve'],
+        'scoring': ['view', 'edit'],
+        'salary': ['view'],
+    },
+    # admin = editor 全继承 + 薪资导出 + 系统配置
+    'admin': {
+        'salary': ['export'],
+        'system': ['view'],
     },
 }
 
 # P18 决策2: viewer 仅保留 dashboard.view(去掉 salary:view)
 # 角色继承链(判定时展开): admin ⊇ editor ⊇ viewer
 ROLE_HIERARCHY = {'admin': ['editor'], 'editor': ['viewer'], 'viewer': []}
+
+# P18b: 权限项元数据(module:action → 名称/功能说明/分组),前端权限编辑器渲染用
+PERMISSION_CATALOG = {
+    'dashboard:view': {'name': '数据台', 'desc': '查看数据台产量看板', 'group': '数据台'},
+    'production:view': {'name': '产量查看', 'desc': '查看井下/钻工/破碎产量数据', 'group': '产量'},
+    'production:edit': {'name': '产量采集', 'desc': '提交井下/钻工/破碎/出勤收集数据', 'group': '产量'},
+    'attendance:view': {'name': '出勤查看', 'desc': '查看出勤网格', 'group': '出勤'},
+    'attendance:edit': {'name': '出勤编辑', 'desc': '标记/批量修改出勤,保存计算', 'group': '出勤'},
+    'attendance:export': {'name': '出勤导出', 'desc': '导出出勤 Excel', 'group': '出勤'},
+    'employees:view': {'name': '员工查看', 'desc': '查看员工列表/档案', 'group': '员工'},
+    'employees:edit': {'name': '员工编辑', 'desc': '编辑员工档案(别名/班组/电话等)', 'group': '员工'},
+    'employees:export': {'name': '员工导出', 'desc': '导出员工花名册', 'group': '员工'},
+    'oa:view': {'name': 'OA 查看', 'desc': '查看 OA 待审/历史,发起申请', 'group': 'OA'},
+    'oa:approve': {'name': 'OA 审批', 'desc': '批准/驳回 OA 事件', 'group': 'OA'},
+    'salary:view': {'name': '薪资查看', 'desc': '查看薪资总表/日工资明细/核对', 'group': '薪资'},
+    'salary:export': {'name': '薪资导出', 'desc': '导出薪资 Excel', 'group': '薪资'},
+    'scoring:view': {'name': '评分查看', 'desc': '查看评分汇总/客观数据', 'group': '评分'},
+    'scoring:edit': {'name': '评分录入', 'desc': '录入/编辑评分卡', 'group': '评分'},
+    'system:view': {'name': '系统配置', 'desc': '查看/修改计薪参数等配置', 'group': '系统'},
+    'system:manage': {'name': '系统管理', 'desc': '用户/权限管理(仅超级管理员有效)', 'group': '系统'},
+}
 
 ALL_MODULES = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system']
 ALL_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage']
