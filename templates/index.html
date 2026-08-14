@@ -3399,7 +3399,7 @@ function openTempOverrideModal() {
       <div class="form-row"><label data-i18n="temp_override_start">开始日期</label><input type="date" id="pfTempStart" style="${inStyle}"></div>
       <div class="form-row"><label data-i18n="temp_override_end">结束日期</label><input type="date" id="pfTempEnd" style="${inStyle}"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="btn-primary" onclick="saveTempOverride()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
+        <button class="btn-primary" onclick="saveProfileTempOverride()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
         <button class="btn-cancel" onclick="document.getElementById('pfTempModal').remove()" style="padding:6px 16px;" data-i18n="btn_cancel">取消</button>
       </div>
       <div id="pfTempMsg" style="margin-top:8px;font-size:12px;"></div>
@@ -3415,7 +3415,7 @@ function toggleTempBase() {
   if (r1) r1.style.display = v === 'day_rate' ? '' : 'none';
   if (r2) r2.style.display = v === 'monthly' ? '' : 'none';
 }
-async function saveTempOverride() {
+async function saveProfileTempOverride() {
   const eid = _profileEid;
   const msg = document.getElementById('pfTempMsg');
   const start = document.getElementById('pfTempStart').value;
