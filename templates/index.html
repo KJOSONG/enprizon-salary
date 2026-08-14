@@ -2819,12 +2819,12 @@ async function loadEmployeeProfilePage(eid) {
     const salType = emp.override_type || emp.default_type || 'day_rate';
     document.getElementById('pfSalaryType').textContent = TYPE_LBL[salType] || salType;
     const stBtn = document.getElementById('pfSalaryTypeEditBtn');
-    if (stBtn) stBtn.style.display = isAdminUser() ? 'inline-block' : 'none';
+    if (stBtn) stBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
 
     // P14.6: 加载临时例外列表
     loadProfileTempOverrides(eid);
     const toBtn = document.getElementById('pfTempOverrideAddBtn');
-    if (toBtn) toBtn.style.display = isAdminUser() ? 'inline-block' : 'none';
+    if (toBtn) toBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
 
     // 时间线
     const EVENT_LABELS = { hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
@@ -6937,7 +6937,7 @@ function togglePermPanel(username) {
   if (detail.style.display === 'none' || detail.getAttribute('data-username') !== username) {
     detail.style.display = '';
     detail.setAttribute('data-username', username);
-    document.getElementById('permDetailTitle').textContent = username + ' - ' + t('user_mgmt_title');
+    document.getElementById('permDetailTitle').textContent = username + ' - ' + t('perm_user_override');
     renderPermissionGrid(username);
   } else {
     detail.style.display = 'none';
@@ -7073,14 +7073,18 @@ async function toggleUserGrant(username, module, action, currentSource) {
         body: JSON.stringify({ username, module, action }),
       });
       showToast(t('perm_revoked').replace('{m}', module + '.' + action));
-    } else if (currentSource === 'none' || currentSource === 'role') {
-      // 授予权限
+    } else if (currentSource === 'none') {
+      // 授予单用户权限
       await authFetch(api('/api/permissions/grant'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, module, action, grant_type: 'allow' }),
       });
       showToast(t('perm_granted').replace('{m}', module + '.' + action));
+    } else if (currentSource === 'role') {
+      // P18 阶段3: 角色默认来源不产生垃圾 allow grant — 引导到角色权限编辑
+      showToast(t('perm_role_hint'), 'warning');
+      return;
     }
     renderPermissionGrid(username);
     // 刷新用户列表
