@@ -808,18 +808,34 @@
   // ── 数据采集 (Phase 3) ──
   STATE.colType = '';
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
-  // 人员多选行（worker-item：checkbox + 姓名 + 工号）
-  function empChecklistHTML(hid, selected, prefix){
+  // 需求5: 部门池工具(中文关键字 contains)
+  function deptHas(e,k){ return (e.department||'').includes(k); }
+  function deptPool(kind){
+    return STATE.employees.filter(e=>{
+      const d=e.department||'';
+      if(kind==='underground') return d.includes('井下');
+      if(kind==='driller') return d.includes('钻工');
+      if(kind==='crush') return d.includes('破碎')||d.includes('分拣');
+      if(kind==='other') return !(d.includes('井下')||d.includes('钻工')||d.includes('破碎')||d.includes('分拣'));
+      return true;
+    });
+  }
+  // 人员多选行（worker-item：checkbox + 姓名 + 工号）。pool 限定可选员工，缺省为全部
+  function empChecklistHTML(hid, selected, prefix, pool){
+    const list = pool || STATE.employees;
     const sel = new Set(selected||[]);
     const p = prefix||'';
     return '<div id="'+hid+'List" style="max-height:36vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px;margin-top:6px;">'
-      + (STATE.employees.length? STATE.employees.map(e=>'<div class="worker-item" onclick="if(event.target.tagName!==\'INPUT\')this.querySelector(\'input\').click()"><input type="checkbox" value="'+esc(e.id)+'" '+(sel.has(e.id)?'checked':'')+' onchange="syncChecklist(\''+hid+'\',\''+p+'\')"> <span class="worker-item__name">'+esc(e.name||'')+'</span> <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></div>').join('') : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('loading')+'</div>')
+      + (list.length? list.map(e=>'<div class="worker-item" onclick="if(event.target.tagName!==\'INPUT\')this.querySelector(\'input\').click()"><input type="checkbox" value="'+esc(e.id)+'" '+(sel.has(e.id)?'checked':'')+' onchange="syncChecklist(\''+hid+'\',\''+p+'\')"> <span class="worker-item__name">'+esc(e.name||'')+'</span> <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></div>').join('') : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('no_emp')+'</div>')
       + '</div>';
   }
   function syncChecklist(hid, prefix){
     const ids=[...document.querySelectorAll('#'+hid+'List input:checked')].map(c=>c.value);
     document.getElementById(hid).value=ids.join(',');
     if(prefix && document.getElementById(prefix+'-count')) document.getElementById(prefix+'-count').textContent = ids.length;
+    // 需求5: 井下出勤人员勾选 → 联动刷新驾驶员候选
+    if(hid==='ugDayEmps') refreshUgDrivers('ugDay');
+    else if(hid==='ugNightEmps') refreshUgDrivers('ugNight');
   }
 
   // ── 采集首页：4 entry 大卡 + 最近提交历史 ──
@@ -924,10 +940,19 @@
       + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark"></div>'
       + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+t('submit')+'</button>';
-    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',[],'ugDay');
-    document.getElementById('ugDayDriversBox').innerHTML=empChecklistHTML('ugDayDrivers',[],'ugDayDrv');
-    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',[],'ugNight');
-    document.getElementById('ugNightDriversBox').innerHTML=empChecklistHTML('ugNightDrivers',[],'ugNightDrv');
+    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',[],'ugDay', deptPool('underground'));
+    document.getElementById('ugDayDriversBox').innerHTML='<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',[],'ugNight', deptPool('underground'));
+    document.getElementById('ugNightDriversBox').innerHTML='<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+  }
+  // 需求5: 驾驶员候选 = 已选中的出勤人员(天然是 emps 子集)
+  function refreshUgDrivers(seg){
+    const empIds = ck(seg+'Emps');
+    const cand = STATE.employees.filter(e=>empIds.includes(e.id));
+    const prev = ck(seg+'Drivers').filter(id=>empIds.includes(id)); // 保留仍合法的已选
+    document.getElementById(seg+'Drivers').value = prev.join(',');
+    const cnt = document.getElementById(seg+'Drv-count'); if(cnt) cnt.textContent = t('col_selected_count',{n:prev.length});
+    document.getElementById(seg+'DriversBox').innerHTML = empChecklistHTML(seg+'Drivers', prev, seg+'Drv', cand);
   }
   function submitUg(){
     const payload={ submission_date:document.getElementById('colDate').value,
@@ -961,7 +986,7 @@
       + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0" inputmode="numeric" pattern="[0-9]*"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0" inputmode="numeric" pattern="[0-9]*"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0" inputmode="numeric" pattern="[0-9]*"></div></div>'
       + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div class="col-count-hint" id="drMem'+i+'-count">'+t('col_selected_count',{n:(s.members||[]).length})+'</div><div id="drMemBox'+i+'"></div></div>'
       + (STATE._drSlots.length>1?'<button class="btn btn-block" onclick="removeDrSlotM('+i+')" style="margin-top:6px;">'+t('remove')+'</button>':'')+'</div>').join('');
-    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[], 'drMem'+i); });
+    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[], 'drMem'+i, deptPool('driller')); });
   }
   function syncDrSlotsFromDom(){ STATE._drSlots.forEach((s,i)=>{ const c=document.getElementById('drCap'+i); if(c) s.captain=c.value; const nh=document.getElementById('drNh'+i); if(nh) s.nh=+nh.value||0; const nl=document.getElementById('drNl'+i); if(nl) s.nl=+nl.value||0; const mw=document.getElementById('drMw'+i); if(mw) s.mw=+mw.value||0; s.members=ck('drMem'+i); }); }
   function addDrSlotM(){ syncDrSlotsFromDom(); STATE._drSlots.push({captain:'',nh:0,nl:0,mw:0,members:[]}); renderDrSlotsM(); }
@@ -980,7 +1005,7 @@
       + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:0})+'</div><div id="crEmpsBox"></div></div>'
       + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+t('submit')+'</button>';
-    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',[],'crEmps');
+    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',[],'crEmps', deptPool('crush'));
   }
   function submitCr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('crush', t('val_date'), false); return; }
     const bags=+document.getElementById('crBags').value||0;
@@ -988,8 +1013,8 @@
     if(!ck('crEmps').length){ showFormMsg('crush', t('val_workers'), false); return; }
     colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
-  // 出勤收集
-  async function renderAttForm(){ const d=new Date().toISOString().slice(0,10); const pool=STATE.employees;
+  // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣）
+  async function renderAttForm(){ const d=new Date().toISOString().slice(0,10); const pool=deptPool('other');
     const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
@@ -1003,7 +1028,7 @@
   }
   function attRosterEmpIds(){
     const sel=document.getElementById('attDept').value;
-    return STATE.employees.filter(e=>!sel||e.department===sel);
+    return deptPool('other').filter(e=>!sel||e.department===sel);
   }
   function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
@@ -1074,7 +1099,8 @@
     const q=(document.getElementById('attSearch').value||'').toLowerCase().trim();
     const dept=document.getElementById('attDept').value;
     const today=new Date().toISOString().slice(0,10);
-    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q)));
+    // 需求4: 与员工列表一致,按姓名排序(localeCompare 中文/英文均可)
+    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     STATE._attAllRows = allRows;
     const grid=document.getElementById('attGrid'); if(!grid) return;
     if(!allRows.length){ grid.innerHTML='<div class="state-box"><div class="state-box__icon">📋</div><div class="state-box__title">'+t('no_att_data')+'</div></div>'; return; }
