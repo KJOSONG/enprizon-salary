@@ -605,7 +605,7 @@
     // 线 = 矿石维度(对齐桌面端);取值 = 班次维度(#dash-shift-seg: all/day/night)
     const oreKeys = STATE.dashOreFilter==='all' ? ['nh','nl','mw'] : [STATE.dashOreFilter];
     const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
-    const colors = { nh:'hsl(28.99 91.75% 61.96%)', nl:'hsl(200 60% 45%)', mw:'hsl(130 50% 45%)' };
+    const colors = { nh:'hsl(30 92% 52%)', nl:'hsl(210 85% 52%)', mw:'hsl(150 70% 38%)' };
     const opts = Object.assign(baseOpts(), {
       plugins:{
         legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
@@ -630,8 +630,8 @@
     newChart('chart-trend', { type:'line', data:{ labels, datasets: oreKeys.map((k,i)=>({
       label:k.toUpperCase(), oreKey:k,
       data: sp.map(s=>s[prefix+k]||0),
-      borderColor:colors[k], backgroundColor:colors[k]+' / 0.08',
-      fill: i===0, tension:0.3, pointRadius:0,
+      borderColor:colors[k], backgroundColor:'transparent',
+      fill: false, tension:0.3, pointRadius:0,
     })) }, options: opts, plugins:[crosshairPlugin] });
     // 修复: zoom 插件精简版(12KB)defaults 无 doubleClick 配置,双击重置不生效。
     // 改手动 dblclick 监听调用 chart.resetZoom()(函数存在且可用),防重复绑定用 canvas 标志。
