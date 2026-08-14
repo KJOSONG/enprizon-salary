@@ -1059,15 +1059,40 @@
   function backColHome(){ _pageStack[activeTab]=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
 
   // ── 采集历史详情 + 可修改 ──
+  function colMobEidName(id){
+    const e=(STATE.employees||[]).find(x=>String(x.id)===String(id));
+    return e? (e.name||id) : String(id||'');
+  }
   function colDetailSummary(ty, p){
+    const names=(ids)=>(ids||[]).map(colMobEidName).join(', ')||'—';
+    const ST={D:t('st_d'),N:t('st_n'),P:t('st_p'),A:t('st_a'),L:t('st_l'),C:t('st_c'),R:t('st_r'),B:t('st_b')};
     if(ty==='underground'){
       const day=p.day||{}, night=p.night||{};
-      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+' · '+(day.emps||[]).length+' '+t('emp')+'</div>'
-        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+' · '+(night.emps||[]).length+' '+t('emp')+'</div>';
+      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+'</div>'
+        + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(day.emps))+'</div>'
+        + '<div class="detail-line">🚗 '+t('col_drivers')+': '+esc(names(day.drivers))+'</div>'
+        + (day.remark?'<div class="detail-line">'+t('remark_day')+': '+esc(day.remark)+'</div>':'')
+        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+'</div>'
+        + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(night.emps))+'</div>'
+        + '<div class="detail-line">🚗 '+t('col_drivers')+': '+esc(names(night.drivers))+'</div>'
+        + (night.remark?'<div class="detail-line">'+t('remark_night')+': '+esc(night.remark)+'</div>':'');
     }
-    if(ty==='driller'){ const teams=p.teams||[]; return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'+teams.map(tm=>'<div class="detail-line">· '+esc(tm.captain||'')+': '+(tm.members||[]).length+' '+t('emp')+'</div>').join(''); }
-    if(ty==='crush'){ return '<div class="detail-line">'+t('bags')+': '+esc(p.bags||0)+' · '+(p.emps||[]).length+' '+t('emp')+'</div>'+((p.remark)?'<div class="detail-line">'+t('remark')+': '+esc(p.remark)+'</div>':''); }
-    if(ty==='attendance'){ return '<div class="detail-line">'+t('col_marks')+': '+(p.marks||[]).length+'</div>'; }
+    if(ty==='driller'){
+      const teams=p.teams||[];
+      return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'
+        + teams.map((tm,i)=>'<div class="detail-line"><b>'+t('col_team')+' '+(i+1)+': '+esc(colMobEidName(tm.captain))+'</b> · NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
+          + '<div class="detail-line">'+t('col_members')+': '+esc(names(tm.members))+'</div>').join('');
+    }
+    if(ty==='crush'){
+      return '<div class="detail-line">'+t('bags')+': '+esc(p.bags||0)+'</div>'
+        + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(p.emps))+'</div>'
+        + ((p.remark)?'<div class="detail-line">'+t('remark')+': '+esc(p.remark)+'</div>':'');
+    }
+    if(ty==='attendance'){
+      const marks=p.marks||[];
+      return '<div class="detail-line">'+t('col_marks')+': '+marks.length+'</div>'
+        + marks.map(m=>'<div class="detail-line">'+esc(colMobEidName(m.employee_id))+': '+(ST[m.status]||m.status||'')+'</div>').join('');
+    }
     return '';
   }
   function openColDetail(id){

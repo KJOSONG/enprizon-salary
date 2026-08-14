@@ -5516,7 +5516,7 @@ async function loadColHistory(formType, containerId) {
     container.innerHTML = filterBar + `<div class="table-wrap"><table class="data-table">
       <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_updated')}</th><th>${t('col_th_actions')}</th></tr></thead>
       <tbody>` + subs.map(s => `
-        <tr style="cursor:pointer;" onclick="enterColEdit('${formType}','${s.id}','${containerId}')">
+        <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
@@ -5526,6 +5526,92 @@ async function loadColHistory(formType, containerId) {
   } catch (e) {
     container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>';
   }
+}
+
+/* R6: 历史行 → 只读预览弹窗（完整字段 + 提交人/日期/版本/更新时间），弹窗内"编辑"进编辑态 */
+function colEidToName(id) {
+  const pool = _colEmpPool || STATE._empAll || [];
+  const e = pool.find(x => String(x.id) === String(id));
+  return e ? e.name : String(id || '');
+}
+function renderColPayloadPreview(formType, payload) {
+  const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
+  const ST = { D: t('st_d'), N: t('st_n'), P: t('st_p'), A: t('st_a'), L: t('st_l'), C: t('st_c'), R: t('st_r'), B: t('st_b') };
+  const fmt = (n) => String(n == null ? 0 : n);
+  if (formType === 'underground') {
+    const day = payload.day || {}, night = payload.night || {};
+    return '<div style="font-size:12px;line-height:1.9;">'
+      + '<div style="font-weight:600;color:var(--accent);">' + t('day_shift') + '</div>'
+      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + '</div>'
+      + '<div>' + t('col_attendance') + ': ' + names(day.emps) + '</div>'
+      + '<div>🚗 ' + t('col_drivers') + ': ' + names(day.drivers) + '</div>'
+      + (day.remark ? '<div>' + t('remark_day') + ': ' + escHtml(day.remark) + '</div>' : '')
+      + '<div style="font-weight:600;color:var(--accent);margin-top:4px;">' + t('night_shift') + '</div>'
+      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + '</div>'
+      + '<div>' + t('col_attendance') + ': ' + names(night.emps) + '</div>'
+      + '<div>🚗 ' + t('col_drivers') + ': ' + names(night.drivers) + '</div>'
+      + (night.remark ? '<div>' + t('remark_night') + ': ' + escHtml(night.remark) + '</div>' : '')
+      + '</div>';
+  }
+  if (formType === 'driller') {
+    const teams = payload.teams || [];
+    return '<div style="font-size:12px;line-height:1.9;">' + teams.map((tm, i) =>
+      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(colEidToName(tm.captain)) + '</div>'
+      + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
+      + '<div>' + t('col_members') + ': ' + names(tm.members) + '</div>'
+    ).join('<div style="margin-top:4px;"></div>') + '</div>';
+  }
+  if (formType === 'crush') {
+    return '<div style="font-size:12px;line-height:1.9;">'
+      + '<div>' + t('bags') + ': ' + fmt(payload.bags) + '</div>'
+      + '<div>' + t('col_attendance') + ': ' + names(payload.emps) + '</div>'
+      + (payload.remark ? '<div>' + t('remark') + ': ' + escHtml(payload.remark) + '</div>' : '')
+      + '</div>';
+  }
+  if (formType === 'attendance') {
+    const marks = payload.marks || [];
+    return '<div style="font-size:12px;line-height:1.9;">' + marks.map(m =>
+      '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + (ST[m.status] || m.status || '') + '</div>'
+    ).join('') + '</div>';
+  }
+  return '<div style="font-size:12px;color:var(--text-muted);">' + escHtml(JSON.stringify(payload)) + '</div>';
+}
+async function previewColSubmission(formType, sid, containerId) {
+  try {
+    const month = STATE.currentMonth || '';
+    const res = await authFetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
+    const data = await res.json();
+    const sub = (data.submissions || []).find(s => String(s.id) === String(sid));
+    if (!sub) { showToast(t('col_submission_not_found'), 'error'); return; }
+    let payload = {};
+    try { payload = JSON.parse(sub.payload || '{}'); } catch(e) {}
+    const canEdit = sub.operator_id === _authState.username || ['admin', 'super_admin'].includes(_authState.role);
+    const typeLbl = { underground: t('col_ug'), driller: t('col_dr'), crush: t('col_cr'), attendance: t('col_att') };
+    const modal = document.createElement('div');
+    modal.id = 'colPreviewModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:500;';
+    modal.innerHTML = `
+      <div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:501;width:440px;max-width:92vw;max-height:80vh;overflow:auto;padding:20px;">
+        <h3 style="margin:0 0 12px;font-size:14px;">${t('col_preview_title')}</h3>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.9;margin-bottom:8px;">
+          <div>${t('col_type')}: ${escHtml(typeLbl[formType] || formType)}</div>
+          <div>${t('date')}: ${escHtml(sub.submission_date || '')}</div>
+          <div>${t('col_operator')}: ${escHtml(sub.operator_id || '')}</div>
+          <div>${t('col_version')}: v${sub.version || 1} · ${t('col_updated_at')}: ${escHtml(sub.updated_at || '')}</div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload)}</div>
+        <div style="display:flex;gap:8px;">
+          ${canEdit ? `<button class="btn-primary" onclick="enterColEditFromPreview('${formType}','${sub.id}','${containerId}')" style="padding:6px 16px;font-size:12px;">${t('col_edit_btn')}</button>` : ''}
+          <button class="btn-cancel" onclick="document.getElementById('colPreviewModal').remove()" style="padding:6px 16px;font-size:12px;">${t('col_close')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  } catch(e) { showToast(t('load_fail'), 'error'); }
+}
+function enterColEditFromPreview(formType, sid, containerId) {
+  const m = document.getElementById('colPreviewModal');
+  if (m) m.remove();
+  enterColEdit(formType, sid, containerId);
 }
 
 /* 再编辑入口：加载提交数据预填表单（各表单实现 fill 逻辑） */
