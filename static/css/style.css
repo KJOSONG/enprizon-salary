@@ -2828,3 +2828,30 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   background: rgba(245,158,11,.10);
   border-color: #F59E0B !important;
 }
+
+/* ═══ P18E: 权限矩阵表 + 来源对比 + 模态框 ═══ */
+.perm-matrix { width: 100%; border-collapse: collapse; font-size: 12px; }
+.perm-matrix th, .perm-matrix td { border: 1px solid var(--border); padding: 6px 8px; text-align: center; }
+.perm-matrix th { background: var(--bg-secondary); font-weight: 600; }
+.perm-matrix .pm-group { text-align: left; font-weight: 700; white-space: nowrap; min-width: 90px; }
+.perm-matrix .pm-count { font-size: 10px; color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+.perm-matrix .pm-cell { cursor: pointer; }
+.perm-matrix .pm-cell--none { color: var(--text-muted); cursor: default; }
+.perm-matrix .pm-cell--owned { background: rgba(76,175,80,.12); box-shadow: inset 3px 0 0 #4CAF50; }
+.perm-matrix .pm-cell--dirty { background: rgba(245,158,11,.16); box-shadow: inset 3px 0 0 #F59E0B; }
+.perm-matrix .pm-cell--inherited { opacity: .55; }
+.perm-matrix .pm-cell input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+.perm-matrix .pm-cell input[type="checkbox"]:disabled { cursor: not-allowed; }
+.pm-dirty-mark { color: #F59E0B; font-weight: 700; margin-right: 2px; }
+.pm-inherit-chip { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--muted); color: var(--text-muted); }
+
+.perm-source-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.perm-source-row:last-child { border-bottom: none; }
+.perm-source-tag { font-size: 10px; padding: 1px 8px; border-radius: 8px; flex-shrink: 0; }
+.perm-source-tag--role { background: #E3F2FD; color: #1565C0; }
+.perm-source-tag--grant { background: #E8F5E9; color: #4CAF50; }
+.perm-source-tag--deny { background: #FDE8E8; color: #F44336; }
+.perm-source-tag--none { background: var(--muted); color: var(--text-muted); }
+
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 940; }
+.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: var(--bg-primary); border-radius: var(--radius); padding: 18px; z-index: 941; box-shadow: 0 8px 30px rgba(0,0,0,.2); max-height: 86vh; overflow-y: auto; }
