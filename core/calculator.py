@@ -426,6 +426,39 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
 #  3. 日薪计算
 # ═══════════════════════════════════════════════════════════
 
+def get_day_rate_for_date(overrides, emp_map, eid, date_str):
+    """R3: 按天取日薪基数（calculate_all / calc_day_salary / compute_daily_breakdown 统一使用）。
+    规则（临时例外优先于永久）:
+      1. 日期区间内匹配的临时例外（start_date/end_date 非空且含该日、day_rate>0）→ 取其金额
+      2. 否则取永久覆盖（无日期区间、day_rate>0）
+      3. 否则回退员工默认 day_rate
+    返回 >0 的基数；无则返回 0。"""
+    ovs = overrides.get(eid) or []
+    # 1. 临时例外：日期区间内匹配（优先级最高）
+    for o in ovs:
+        if o.get('salary_type') != 'day_rate':
+            continue
+        s = o.get('start_date') or ''
+        e = o.get('end_date') or ''
+        if not (s or e):
+            continue
+        if o.get('day_rate', 0) > 0 and (not s or date_str >= s) and (not e or date_str <= e):
+            return o['day_rate']
+    # 2. 永久覆盖
+    for o in ovs:
+        if o.get('salary_type') != 'day_rate':
+            continue
+        s = o.get('start_date') or ''
+        e = o.get('end_date') or ''
+        if s or e:
+            continue
+        if o.get('day_rate', 0) > 0:
+            return o['day_rate']
+    # 3. 回退默认
+    emp = emp_map.get(eid) or {}
+    return emp.get('day_rate', 0) or 0
+
+
 def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shift_data=None, date_range_overrides=None, month_prefix=None):
     """
     计算日薪工资
@@ -469,8 +502,8 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                         return True
         return False
 
-    # 统计每人出勤天数，扣除 A/L
-    day_counts = defaultdict(int)
+    # 统计每人出勤天数，扣除 A/L（R3: 按天收集日期，供逐日取基数）
+    day_dates = defaultdict(set)
     counted_pairs = set()
 
     # 来源1：日薪出勤表
@@ -493,7 +526,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                 if att_overrides[key] in ('A', 'L'):
                     continue
             counted_pairs.add((eid, dt))
-            day_counts[eid] += 1
+            day_dates[eid].add(dt)
 
     # 来源2：产量表（仅对被覆盖为日薪的员工）
     if shift_data:
@@ -510,7 +543,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                         if att_overrides[key] in ('A', 'L'):
                             continue
                     counted_pairs.add((eid, dt))
-                    day_counts[eid] += 1
+                    day_dates[eid].add(dt)
             for e in day.get('night_emps', []):
                 eid = make_employee_id(e)
                 if eid and is_overridden_day_rate(eid, dt):
@@ -522,7 +555,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                         if att_overrides[key] in ('A', 'L'):
                             continue
                     counted_pairs.add((eid, dt))
-                    day_counts[eid] += 1
+                    day_dates[eid].add(dt)
 
     # 来源3：手动 P 覆盖（仅限当月）
     _month_prefixes = set()
@@ -541,29 +574,19 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                 if _effective_prefixes and dt[:7] not in _effective_prefixes:
                     continue
                 if (eid, dt) not in counted_pairs:
-                    day_counts[eid] += 1
+                    day_dates[eid].add(dt)
 
-    # 查找日薪基数
+    # 查找日薪基数（R3: 逐日取基数，临时例外金额按日期区间生效）
     emp_map = {}
     for emp in employees:
         emp_map[emp['id']] = emp
 
-    for eid, days in day_counts.items():
-        # 默认日薪基数 = 0（需手动设置）
-        day_rate = 0
-
-        # 先看覆盖标记
-        if eid in overrides:
-            for o in overrides[eid]:
-                if o.get('salary_type') == 'day_rate' and o.get('day_rate', 0) > 0:
-                    day_rate = o['day_rate']
-
-        # 再看员工信息表
-        if day_rate == 0 and eid in emp_map:
-            day_rate = emp_map[eid].get('day_rate', 0)
-
-        if day_rate > 0:
-            result[eid] = day_rate * days
+    for eid, dates in day_dates.items():
+        total = 0
+        for dt in dates:
+            total += get_day_rate_for_date(overrides, emp_map, eid, dt)
+        if total > 0:
+            result[eid] = total
 
     return dict(result)
 
@@ -800,14 +823,6 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             conn.close()
 
     emp_map = {e['id']: e for e in employees}
-    day_rate_map = {}
-    for eid in emp_map:
-        dr = 0
-        for o in overrides.get(eid, []):
-            if o.get('salary_type') == 'day_rate' and o.get('day_rate', 0) > 0:
-                dr = o['day_rate']
-        if dr == 0: dr = emp_map[eid].get('day_rate', 0)
-        if dr > 0: day_rate_map[eid] = dr
 
     present_dates = defaultdict(set)
     for d in attendance_data:
@@ -884,7 +899,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             elif dtype == 'piece_crush' and not absent:
                 cr_total += crush_daily.get(eid, {}).get(dt, 0)
             elif dtype == 'day_rate' and not absent and dt in present_dates[eid]:
-                dr_total += day_rate_map.get(eid, 0)
+                dr_total += get_day_rate_for_date(overrides, emp_map, eid, dt)
             elif dtype == 'monthly' and not absent and dt in present_dates[eid]:
                 monthly_present_count += 1
 
@@ -1205,15 +1220,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     date_counts[pdt] += 1
             if not date_counts: continue
             for dt, count in sorted(date_counts.items()):
-                dr = 0
-                for o in overrides.get(eid, []):
-                    if o.get('salary_type') == 'day_rate':
-                        s, e = o.get('start_date') or '', o.get('end_date') or ''
-                        if o.get('day_rate', 0) > 0:
-                            if (not s or dt >= s) and (not e or dt <= e):
-                                dr = o['day_rate']; break
-                if dr == 0 and eid in emp_map:
-                    dr = emp_map[eid].get('day_rate', 0)
+                # R3: 逐日取基数（临时例外按日期区间生效）
+                dr = get_day_rate_for_date(overrides, emp_map, eid, dt)
                 if dr > 0: ds_daily[eid][dt] += dr * count
 
         # 补充：仅有手动 P 标记、无 Excel 出勤记录的员工（day_sal 中不存在）
@@ -1225,15 +1233,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if st != 'P' or peid in ds_daily: continue
             if _ym and pdt[:7] != _ym: continue
             if _p_month and pdt[:7] not in _p_month: continue
-            dr = 0
-            for o in overrides.get(peid, []):
-                if o.get('salary_type') == 'day_rate':
-                    s, e = o.get('start_date') or '', o.get('end_date') or ''
-                    if o.get('day_rate', 0) > 0:
-                        if (not s or pdt >= s) and (not e or pdt <= e):
-                            dr = o['day_rate']; break
-            if dr == 0 and peid in emp_map:
-                dr = emp_map[peid].get('day_rate', 0)
+            # R3: 逐日取基数（临时例外按日期区间生效）
+            dr = get_day_rate_for_date(overrides, emp_map, peid, pdt)
             if dr > 0: ds_daily[peid][pdt] += dr
 
         # 月薪逐日分摊
