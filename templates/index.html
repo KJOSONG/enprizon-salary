@@ -1708,7 +1708,7 @@ function navigate(module, subPage, params) {
   // P18 阶段2: 目标模块无权限 → 提示 + 跳回 dashboard
   const _mod = MODULES[module];
   if (_authState.logged_in && _mod && _mod.perm && !hasPermission(_mod.perm.split(':')[0], _mod.perm.split(':')[1])) {
-    toast(t('no_perm'), 'warning');
+    showToast(t('no_perm'), 'warning');
     navigate('dashboard', null);
     return;
   }
@@ -1730,7 +1730,7 @@ function showTargetPage(module, subPage) {
   // P18 阶段2: 权限守卫(直输 hash / 外部调用也拦截)
   const _mod2 = MODULES[module];
   if (_authState.logged_in && _mod2 && _mod2.perm && !hasPermission(_mod2.perm.split(':')[0], _mod2.perm.split(':')[1])) {
-    if (module !== 'dashboard') { toast(t('no_perm'), 'warning'); navigate('dashboard', null); return; }
+    if (module !== 'dashboard') { showToast(t('no_perm'), 'warning'); navigate('dashboard', null); return; }
   }
   const key = subPage ? `${module}/${subPage}` : module;
   const targetId = SUBPAGE_TARGETS[key] || MODULE_TARGETS[module] || module;
