@@ -7557,7 +7557,8 @@ async function renderPermSources(u) {
     const summary = (u && u.permissions) || {};
     const grants = (u && u.grants) || [];
     const grantMap = {};
-    grants.forEach(g => { grantMap[g.module + ':' + g.action] = g.grant_type; });
+    // P1 配套: user_grants.grant_type 为 allow/deny,归一化为 grant/deny 与 summary 契约一致
+    grants.forEach(g => { grantMap[g.module + ':' + g.action] = g.grant_type === 'allow' ? 'grant' : g.grant_type; });
     const roleName = u ? u.role : '';
     const tagMap = { role: 'perm-source-tag--role', grant: 'perm-source-tag--grant', deny: 'perm-source-tag--deny', none: 'perm-source-tag--none' };
     const labelMap = { role: t('perm_source_role') + ' · ' + roleLabel(roleName), grant: t('perm_source_allow'), deny: t('perm_source_deny'), none: t('perm_source_none') };
