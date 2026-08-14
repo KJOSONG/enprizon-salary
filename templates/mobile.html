@@ -1211,7 +1211,7 @@
     const box=document.getElementById('attRoster'); if(!box) return;
     const marks = STATE._attEditMarks || {};
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
-      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','D','N','C','R','B'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
+      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
     const c=document.getElementById('attRosterCount'); if(c) c.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
