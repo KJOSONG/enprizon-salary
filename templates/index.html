@@ -1309,12 +1309,21 @@ function updateThemeIcon(mode) {
 }
 
 /* ── 登录系统 ── */
-let _authState = { logged_in: false, username: '', role: '', has_admin: false };
+let _authState = { logged_in: false, username: '', role: '', has_admin: false, permissions: [] };
+
+// P18 阶段2: 权限判断 — permissions 数组如 ['dashboard:view','salary:view'],super_admin 为 ['*:*']
+function hasPermission(module, action) {
+  if (!_authState || !_authState.logged_in) return false;
+  const perms = _authState.permissions || [];
+  if (perms.indexOf('*:*') !== -1) return true;
+  return perms.indexOf(module + ':' + action) !== -1;
+}
 
 async function checkAuth() {
   try {
     const res = await fetch(api('/api/auth/status'));
     _authState = await res.json();
+    if (!_authState.permissions) _authState.permissions = [];
     updateAuthUI();
     // P10-fix: 登录后补当前月份（P6 删登录前 monthPicker 后未补，period-bar 需在登录后立即可用）
     if (_authState.logged_in && !STATE.currentMonth) {
@@ -1582,15 +1591,15 @@ function switchPage(name) {
 
 /* ════════ P0 导航系统 ════════ */
 
-// 模块/子页配置
+// 模块/子页配置（P18 阶段2: perm 标注所需细粒度权限,无权限不渲染/拦截）
 const MODULES = {
-  dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null },
-  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave'] },
-  attendance: { label: 'nav_attendance',  icon: '📅', children: null },
-  salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'] },
-  collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'] },
-  scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective'] },
-  system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'] },
+  dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null, perm: 'dashboard:view' },
+  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave'], perm: 'employees:view' },
+  attendance: { label: 'nav_attendance',  icon: '📅', children: null, perm: 'attendance:view' },
+  salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'], perm: 'salary:view' },
+  collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'], perm: 'production:view' },
+  scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective'], perm: 'scoring:view' },
+  system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'], perm: 'system:view' },
 };
 
 // 子页→旧页面映射 (P0 复用现有页面)
@@ -1630,6 +1639,8 @@ function renderSidebar() {
   let html = '';
   for (const [key, mod] of Object.entries(MODULES)) {
     if (key !== 'dashboard' && !_authState.logged_in) continue;
+    // P18 阶段2: 已登录后无权限模块不渲染(未登录保持原逻辑,仅 dashboard 显示)
+    if (_authState.logged_in && mod.perm && !hasPermission(mod.perm.split(':')[0], mod.perm.split(':')[1])) continue;
     const hasChildren = mod.children && mod.children.length > 0;
     const isActive = STATE.currentModule === key;
     const isExpanded = isActive;
@@ -1683,6 +1694,13 @@ function navigate(module, subPage, params) {
     openLoginModal();
     return;
   }
+  // P18 阶段2: 目标模块无权限 → 提示 + 跳回 dashboard
+  const _mod = MODULES[module];
+  if (_authState.logged_in && _mod && _mod.perm && !hasPermission(_mod.perm.split(':')[0], _mod.perm.split(':')[1])) {
+    toast(t('no_perm'), 'warning');
+    navigate('dashboard', null);
+    return;
+  }
 
   STATE.currentModule = module;
   STATE.currentSubPage = subPage || null;
@@ -1698,6 +1716,11 @@ function navigate(module, subPage, params) {
 }
 
 function showTargetPage(module, subPage) {
+  // P18 阶段2: 权限守卫(直输 hash / 外部调用也拦截)
+  const _mod2 = MODULES[module];
+  if (_authState.logged_in && _mod2 && _mod2.perm && !hasPermission(_mod2.perm.split(':')[0], _mod2.perm.split(':')[1])) {
+    if (module !== 'dashboard') { toast(t('no_perm'), 'warning'); navigate('dashboard', null); return; }
+  }
   const key = subPage ? `${module}/${subPage}` : module;
   const targetId = SUBPAGE_TARGETS[key] || MODULE_TARGETS[module] || module;
 
@@ -1937,20 +1960,31 @@ async function loadDashboard() {
     await loadDashboard();
     // 同时加载薪资/员工数据供其他页面使用
     try {
-      const sr = await fetch(api('/salary'));
-      const sd = await sr.json();
-      if (sd.result && sd.result.employees) {
-        STATE.salaryResult = sd.result;
-        STATE.currentMonth = sd.result.month || sd.month;
-        updatePeriodBar();
-        const er = await fetch(api('/api/employees'));
-        const ed = await er.json();
-        STATE._empAll = STATE.employees = ed.employees;
-        renderSalaryTable(sd.result);
-        renderEmployeeTable();
-        populateMonthSelect(sd.result);
-        const recalcBtn = document.getElementById('recalcBtn');
-        if (recalcBtn) recalcBtn.disabled = false;
+      // P18 阶段2: 按权限决定是否拉取薪资;无权限不拉、STATE.salaryResult=null
+      if (hasPermission('salary', 'view')) {
+        const sr = await fetch(api('/salary'));
+        const sd = await sr.json();
+        if (sd.result && sd.result.employees) {
+          STATE.salaryResult = sd.result;
+          STATE.currentMonth = sd.result.month || sd.month;
+          updatePeriodBar();
+          const er = await fetch(api('/api/employees'));
+          const ed = await er.json();
+          STATE._empAll = STATE.employees = ed.employees;
+          renderSalaryTable(sd.result);
+          renderEmployeeTable();
+          populateMonthSelect(sd.result);
+          const recalcBtn = document.getElementById('recalcBtn');
+          if (recalcBtn) recalcBtn.disabled = false;
+        }
+      } else {
+        STATE.salaryResult = null;
+        if (hasPermission('employees', 'view')) {
+          const er = await fetch(api('/api/employees'));
+          const ed = await er.json();
+          STATE._empAll = STATE.employees = ed.employees;
+          renderEmployeeTable();
+        }
       }
     } catch(e) {}
   }

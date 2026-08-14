@@ -137,12 +137,15 @@ def api_logout():
 
 @app.route('/api/auth/status', methods=['GET'])
 def auth_status():
-    from core.database import has_admin
+    from core.database import has_admin, get_user_permissions
     return jsonify({
         'logged_in': session.get('logged_in', False),
         'username': session.get('username', ''),
         'role': session.get('role', ''),
         'has_admin': has_admin(app.config['DATA_FOLDER']),
+        # P18 阶段2: 用户有效权限摘要(如 ['dashboard:view','salary:view'])
+        'permissions': get_user_permissions(app.config['DATA_FOLDER'], session.get('username', ''))
+            if session.get('logged_in') else [],
     })
 
 @app.route('/api/admin/setup', methods=['POST'])

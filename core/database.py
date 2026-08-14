@@ -1299,6 +1299,47 @@ def check_permission(data_folder, username, module, action, scope_value=''):
     finally:
         conn.close()
 
+def get_user_permissions(data_folder, username):
+    """P18 阶段2: 返回用户有效权限集合 ['module:action', ...]
+
+    super_admin → ['*:*'];其余按角色继承展开 + user_grants 覆盖
+    (deny 移除对应项,allow 追加对应项)
+    """
+    conn = get_conn(data_folder)
+    try:
+        role_row = conn.execute("SELECT role FROM admin_users WHERE username=?", (username,)).fetchone()
+        if not role_row:
+            return []
+        role = role_row['role']
+        if role == 'super_admin':
+            return ['*:*']
+        perms = get_role_permissions(data_folder, role)
+        result = set()
+        for module, actions in perms.items():
+            if module == '*':
+                result.add('*:*')
+            else:
+                for a in actions:
+                    if a == '*':
+                        result.add(module + ':*')
+                    else:
+                        result.add(module + ':' + a)
+        # user_grants 覆盖
+        grants = conn.execute("""
+            SELECT p.module, p.action, g.grant_type
+            FROM user_grants g JOIN permissions p ON g.permission_id = p.id
+            WHERE g.username=?
+        """, (username,)).fetchall()
+        for g in grants:
+            key = g['module'] + ':' + g['action']
+            if g['grant_type'] == 'deny':
+                result.discard(key)
+            else:
+                result.add(key)
+        return sorted(result)
+    finally:
+        conn.close()
+
 def get_user_permissions_summary(data_folder, username):
     """获取某用户的完整权限摘要：{module: {view: 'role'|'grant'|'deny', ...}}"""
     conn = get_conn(data_folder)
