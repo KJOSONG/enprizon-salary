@@ -1049,12 +1049,19 @@
   <div class="card" id="rolePermCard" style="margin-top:16px;display:none;">
     <h3 style="margin-bottom:12px;font-size:14px;">🔑 <span data-i18n="perm_role_edit">角色权限编辑</span></h3>
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_role_edit_desc">编辑各角色的默认权限(不含超级管理员)。保存后该角色用户重新登录生效。</p>
-    <div id="rolePermGrid" style="overflow-x:auto;"></div>
-    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+    <div id="rolePermSuperNote" style="display:none;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="perm_super_admin_note">超级管理员拥有全部权限,不可修改。</div>
+    <!-- 角色 Tab 行 -->
+    <div id="rolePermTabs" style="display:flex;gap:8px;margin-bottom:14px;"></div>
+    <!-- 功能分组列表 -->
+    <div id="rolePermGroups" style="max-height:480px;overflow-y:auto;"></div>
+    <!-- 底部操作条 -->
+    <div style="position:sticky;bottom:0;margin-top:14px;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span id="rolePermCount" style="font-size:12px;font-weight:600;flex:1;"></span>
       <button class="btn-primary" onclick="saveRolePerms()" data-i18n="perm_save">保存</button>
+      <button class="nav-btn" onclick="discardRolePerms()" data-i18n="perm_discard">撤销修改</button>
       <button class="nav-btn" onclick="resetRolePermsToDefault()" data-i18n="perm_reset_default">恢复默认</button>
-      <span id="rolePermMsg" style="font-size:12px;"></span>
     </div>
+    <div id="rolePermMsg" style="font-size:12px;margin-top:8px;"></div>
   </div>
   <!-- P13: 审批人设定（super_admin） -->
   <div class="card" id="approvalRoutesCard" style="margin-top:16px;display:none;">
@@ -1613,7 +1620,7 @@ const MODULES = {
   employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave'], perm: 'employees:view' },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null, perm: 'attendance:view' },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'], perm: 'salary:view' },
-  collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'], perm: 'production:view' },
+  collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'], perm: 'production:edit' },
   scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective'], perm: 'scoring:view' },
   system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'], perm: 'system:view' },
 };
@@ -6855,58 +6862,107 @@ async function loadPermissionsPage() {
   } catch(e) {}
 }
 
-// ── P18 阶段2: 角色权限编辑(super_admin) ──
-let _rolePermDirty = {}; // key: role|module|action → allow(1/0)
+// ── P18b: 角色权限编辑(角色中心 + 功能分组 + 继承显示 + 强反馈) ──
+let _rpState = { role: 'viewer', catalog: {}, base: {}, dirty: {}, effective: [], defaults: {} };
+let _rpData = null; // 最近一次 /api/permissions/roles 响应
 
-async function loadRolePermissions() {
+function _rpKey(m, a) { return m + ':' + a; }
+
+async function loadRolePermissions(role) {
   const card = document.getElementById('rolePermCard');
   if (!card) return;
-  const grid = document.getElementById('rolePermGrid');
-  if (!grid) return;
-  // 仅 super_admin 可见
   if (_authState.role !== 'super_admin') { card.style.display = 'none'; return; }
   card.style.display = '';
-  _rolePermDirty = {};
   const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = '';
   try {
-    const res = await authFetch(api('/api/permissions/roles'));
+    const r = role || _rpState.role;
+    const res = await authFetch(api('/api/permissions/roles?role=' + encodeURIComponent(r)));
     const data = await res.json();
-    if (!data.ok) { grid.innerHTML = ''; return; }
-    const perms = data.permissions || [];
-    const map = {};
-    perms.forEach(p => { map[p.role + '|' + p.module + '|' + p.action] = !!p.allow; });
-    const roles = ['admin', 'editor', 'viewer'];
-    const modules = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system'];
-    const actions = ['view', 'edit', 'approve', 'export', 'manage'];
-    let html = '<table style="font-size:11px;"><thead><tr><th style="width:110px;">' + t('perm_module') + '</th><th style="width:70px;">' + t('perm_action') + '</th>';
-    roles.forEach(r => { html += '<th style="width:80px;text-align:center;">' + t('perm_role_' + r) + '</th>'; });
-    html += '</tr></thead><tbody>';
-    modules.forEach(m => {
-      actions.forEach(a => {
-        html += '<tr><td>' + (t(MODULE_NAMES[m]) || m) + '</td><td>' + (t('perm_' + a) || a) + '</td>';
-        roles.forEach(r => {
-          const key = r + '|' + m + '|' + a;
-          const checked = map[key] ? ' checked' : '';
-          html += '<td style="text-align:center;"><input type="checkbox" data-rp="' + key + '"' + checked
-            + ' onchange="onRolePermChange(\'' + key + '\',this.checked)"></td>';
-        });
-        html += '</tr>';
-      });
+    if (!data.ok) return;
+    _rpData = data;
+    _rpState.role = r;
+    _rpState.catalog = data.catalog || {};
+    _rpState.defaults = data.defaults || {};
+    const eff = (data.effective && data.effective[r]) || [];
+    _rpState.effective = eff;
+    _rpState.base = {};
+    eff.forEach(p => { _rpState.base[_rpKey(p.module, p.action)] = true; });
+    _rpState.dirty = {};
+    renderRoleTabs();
+    renderRoleGroups();
+    renderRoleBar();
+  } catch(e) {}
+}
+
+function renderRoleTabs() {
+  const tabs = document.getElementById('rolePermTabs');
+  if (!tabs) return;
+  const roles = ['viewer', 'editor', 'admin'];
+  const labels = { viewer: 'perm_role_viewer', editor: 'perm_role_editor', admin: 'perm_role_admin' };
+  tabs.innerHTML = roles.map(r => {
+    const active = r === _rpState.role;
+    return `<button class="${active ? 'btn-primary' : 'nav-btn'}" style="font-size:12px;padding:6px 16px;"
+      onclick="switchRoleTab('${r}')">${t(labels[r])}</button>`;
+  }).join('');
+}
+
+function switchRoleTab(r) { loadRolePermissions(r); }
+
+function renderRoleGroups() {
+  const wrap = document.getElementById('rolePermGroups');
+  if (!wrap) return;
+  // 按 catalog 分组(顺序: 数据台/产量/出勤/员工/OA/薪资/评分/系统)
+  const groupOrder = ['数据台', '产量', '出勤', '员工', 'OA', '薪资', '评分', '系统'];
+  const groups = {};
+  Object.entries(_rpState.catalog).forEach(([key, meta]) => {
+    (groups[meta.group] = groups[meta.group] || []).push([key, meta]);
+  });
+  let html = '';
+  groupOrder.forEach(g => {
+    const items = groups[g] || [];
+    if (!items.length) return;
+    html += `<div style="margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;padding:6px 8px;background:var(--bg-secondary);border-radius:var(--radius-sm);margin-bottom:6px;">${g}</div>`;
+    items.forEach(([key, meta]) => {
+      const effItem = _rpState.effective.find(p => _rpKey(p.module, p.action) === key);
+      const source = effItem ? effItem.source_role : null;
+      const isInherited = source && source !== _rpState.role;
+      const checked = !!_rpState.base[key];
+      const dirty = Object.prototype.hasOwnProperty.call(_rpState.dirty, key);
+      const finalChecked = Object.prototype.hasOwnProperty.call(_rpState.dirty, key) ? !!_rpState.dirty[key] : checked;
+      html += `<label class="perm-item${dirty ? ' perm-item--dirty' : ''}" style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;${isInherited ? 'opacity:0.75;' : ''}">
+        <input type="checkbox" ${finalChecked ? 'checked' : ''} ${isInherited ? 'disabled' : ''}
+          onchange="onRolePermChange('${key}', this.checked)" style="width:18px;height:18px;flex-shrink:0;">
+        <span style="font-size:13px;font-weight:600;flex-shrink:0;">${t(meta.name) || meta.name}</span>
+        <span style="font-size:11px;color:var(--text-muted);flex:1;">${t(meta.desc) || meta.desc}</span>
+        ${isInherited ? `<span style="font-size:10px;padding:2px 8px;background:var(--muted);border-radius:10px;color:var(--text-muted);flex-shrink:0;">${t('perm_inherited_from').replace('{role}', t('perm_role_' + source))}</span>` : ''}
+      </label>`;
     });
-    html += '</tbody></table>';
-    grid.innerHTML = html;
-  } catch(e) { grid.innerHTML = ''; }
+    html += '</div>';
+  });
+  wrap.innerHTML = html;
 }
 
 function onRolePermChange(key, checked) {
-  _rolePermDirty[key] = checked ? 1 : 0;
-  const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = t('perm_unsaved');
+  if (_rpState.base[key]) {
+    _rpState.dirty[key] = checked ? 1 : 0;
+  } else {
+    _rpState.dirty[key] = checked ? 1 : 0;
+  }
+  renderRoleGroups();
+  renderRoleBar();
+}
+
+function renderRoleBar() {
+  const count = Object.keys(_rpState.dirty).length;
+  const el = document.getElementById('rolePermCount');
+  if (el) el.textContent = count ? t('perm_dirty_count').replace('{n}', count) : t('perm_no_change');
 }
 
 async function saveRolePerms() {
-  const updates = Object.entries(_rolePermDirty).map(([key, allow]) => {
-    const [role, module, action] = key.split('|');
-    return { role, module, action, allow };
+  const updates = Object.entries(_rpState.dirty).map(([key, allow]) => {
+    const [module, action] = key.split(':');
+    return { role: _rpState.role, module, action, allow };
   });
   if (!updates.length) { const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = t('perm_no_change'); return; }
   const msg = document.getElementById('rolePermMsg');
@@ -6919,17 +6975,37 @@ async function saveRolePerms() {
     const data = await res.json();
     if (data.ok) {
       if (msg) { msg.textContent = t('saved'); msg.style.color = ''; }
-      _rolePermDirty = {};
-      loadRolePermissions();
+      loadRolePermissions(_rpState.role);
     } else {
-      if (msg) msg.textContent = data.error || t('fail');
+      if (msg) { msg.textContent = data.error || t('fail'); msg.style.color = '#F44336'; }
     }
-  } catch(e) { if (msg) msg.textContent = t('fail'); }
+  } catch(e) { if (msg) { msg.textContent = t('fail'); msg.style.color = '#F44336'; } }
 }
 
-function resetRolePermsToDefault() {
-  _rolePermDirty = {};
-  loadRolePermissions();
+function discardRolePerms() {
+  _rpState.dirty = {};
+  renderRoleGroups();
+  renderRoleBar();
+  const msg = document.getElementById('rolePermMsg'); if (msg) msg.textContent = '';
+}
+
+async function resetRolePermsToDefault() {
+  if (!window.confirm(t('perm_reset_confirm'))) return;
+  const msg = document.getElementById('rolePermMsg');
+  try {
+    const res = await authFetch(api('/api/permissions/roles/reset'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: _rpState.role }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (msg) { msg.textContent = t('saved'); msg.style.color = ''; }
+      loadRolePermissions(_rpState.role);
+    } else {
+      if (msg) { msg.textContent = data.error || t('fail'); msg.style.color = '#F44336'; }
+    }
+  } catch(e) { if (msg) { msg.textContent = t('fail'); msg.style.color = '#F44336'; } }
 }
 
 function togglePermPanel(username) {

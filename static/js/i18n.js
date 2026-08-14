@@ -426,6 +426,11 @@ const I18N_DICT = {
     perm_reset_default: '恢复默认',
     perm_user_override: '单用户权限覆盖(allow/deny)',
     perm_role_hint: '这是角色默认权限,请到上方"角色权限编辑"修改',
+    perm_inherited_from: '来自 {role}',
+    perm_dirty_count: '未保存修改: {n} 项',
+    perm_reset_confirm: '确认恢复该角色默认权限?',
+    perm_super_admin_note: '超级管理员拥有全部权限,不可修改。',
+    perm_discard: '撤销修改',
     /* ── 全局搜索 ── */
     search_placeholder: '搜索员工/部门/月份...',
     search_no_results: '无匹配结果',
@@ -1371,6 +1376,11 @@ const I18N_DICT = {
     perm_reset_default: 'Reset to defaults',
     perm_user_override: 'Per-user permission override (allow/deny)',
     perm_role_hint: 'This is a role default permission. Edit it in "Role Permissions" above.',
+    perm_inherited_from: 'from {role}',
+    perm_dirty_count: 'Unsaved changes: {n}',
+    perm_reset_confirm: 'Reset this role to default permissions?',
+    perm_super_admin_note: 'Super admin has all permissions and cannot be edited.',
+    perm_discard: 'Discard changes',
     /* ── Global Search ── */
     search_placeholder: 'Search employees/dept/month...',
     search_no_results: 'No results',
