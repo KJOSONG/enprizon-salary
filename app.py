@@ -3053,6 +3053,7 @@ def export_salary():
 
 @app.route('/export/employees', methods=['POST'])
 @login_required
+@require_permission('employees', 'export')
 def export_employees():
     """导出员工信息表（薪资类型、日薪基数、月薪基数、预支）"""
     employees = APP_STATE.get('employees', [])
@@ -3117,6 +3118,7 @@ def export_employees():
 
 @app.route('/export/attendance', methods=['GET'])
 @login_required
+@require_permission('attendance', 'export')
 def export_attendance():
     """导出出勤网格为 Excel，含状态颜色标记"""
     from collections import defaultdict

@@ -715,7 +715,8 @@
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
   function renderEmpProfile(e, att, sal){
     const role = STATE.auth && STATE.auth.role;
-    const canEdit = role==='admin' || role==='super_admin';
+    // P18 阶段3: 档案编辑入口统一走 employees:edit
+    const canEdit = hasPermission('employees','edit');
     const isSuper = role==='super_admin';
     // 出勤统计
     let attDays=0, leaveDays=0, absentDays=0;

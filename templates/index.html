@@ -113,7 +113,7 @@
       <button class="lang-toggle-btn active" data-lang="zh" onclick="switchLang('zh')" data-i18n="lang_zh">中文</button>
       <button class="lang-toggle-btn" data-lang="en" onclick="switchLang('en')" data-i18n="lang_en">EN</button>
     </div>
-    <button class="nav-btn" id="exportBtn" onclick="exportAll()" title="导出完整报表" data-i18n="btn_export">📥 导出报表</button>
+    <button class="nav-btn" id="exportBtn" onclick="exportAll()" title="导出完整报表" data-i18n="btn_export" data-perm="salary:export">📥 导出报表</button>
     <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="切换主题" data-i18n-title="theme_toggle">☀️</button>
     <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()" title="通知" style="display:none;" data-i18n-title="notif_title">
       <span class="notif-icon">🔔</span>
@@ -684,7 +684,7 @@
         </select>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
-        <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" style="display:none;">保存并计算</button>
+        <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" data-perm="attendance:edit" style="display:none;">保存并计算</button>
         <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 (P)=月薪默认</span>
       </div>
     </div>
@@ -751,12 +751,12 @@
     </div>
     <!-- P14: 保存按钮（onchange 只标记，显式保存提交） -->
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
-      <button id="cfgSaveBtn" class="btn-primary admin-only" onclick="doSaveConfig()" style="display:none;padding:8px 22px;font-size:13px;font-weight:600;" data-i18n="btn_save">💾 保存</button>
+      <button id="cfgSaveBtn" class="btn-primary admin-only" onclick="doSaveConfig()" style="display:none;padding:8px 22px;font-size:13px;font-weight:600;" data-i18n="btn_save" data-perm="system:view">💾 保存</button>
       <span id="cfgDirtyHint" style="display:none;font-size:12px;color:#F59E0B;" data-i18n="settings_dirty_hint">⚠ 有未保存的修改</span>
-      <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default">↺ 恢复默认</button>
+      <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default" data-perm="system:view">↺ 恢复默认</button>
     </div>
     <!-- P10: 评分班组管理（admin+） -->
-    <div class="card admin-only" style="margin-top:16px;">
+    <div class="card admin-only" style="margin-top:16px;" data-perm="system:view">
       <h3 style="margin-bottom:12px;font-size:14px;">🎖 <span data-i18n="groups_title">评分班组</span></h3>
       <div style="display:flex;gap:8px;margin-bottom:12px;">
         <input type="text" id="newGroupName" data-i18n-placeholder="group_name_ph" placeholder="班组名" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;flex:1;">
@@ -765,7 +765,7 @@
       <div id="groupsAdminList"><div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="loading">加载中...</div></div>
     </div>
     <!-- P12: 钻工队长名单维护（admin+） -->
-    <div class="card admin-only" style="margin-top:16px;">
+    <div class="card admin-only" style="margin-top:16px;" data-perm="system:view">
       <h3 style="margin-bottom:12px;font-size:14px;">👷 <span data-i18n="captains_title">钻工队长名单</span></h3>
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="captains_desc">此处维护的名单将作为钻工采集表单的队长下拉数据源</p>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
@@ -776,7 +776,7 @@
       <div id="captainsAdminList"><div style="color:var(--text-muted);font-size:12px;padding:12px;" data-i18n="loading">加载中...</div></div>
     </div>
     <div class="quick-actions" style="margin-top:16px;">
-      <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default">↺ 恢复默认</button>
+      <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default" data-perm="system:view">↺ 恢复默认</button>
     </div>
   </div>
 
@@ -1377,7 +1377,7 @@ function updateAuthUI() {
 
   // 周期条按钮权限
   const exportBtn = document.getElementById('exportBtn');
-  if (exportBtn) exportBtn.style.display = _authState.logged_in ? '' : 'none';
+  if (exportBtn) exportBtn.style.display = _authState.logged_in && hasPermission('salary', 'export') ? '' : 'none';
   if (_authState.logged_in) { loadNotifCount(); } else { const b = document.getElementById('notifBell'); if (b) b.style.display = 'none'; }
 
   // viewer 用户隐藏所有编辑相关操作
@@ -1394,6 +1394,11 @@ function updateAuthUI() {
   });
   document.querySelectorAll('.editor-only').forEach(el => {
     el.style.display = isEditor ? '' : 'none';
+  });
+  // P18 阶段3: data-perm 元素按细粒度权限覆盖(优先级高于角色级 editor/admin)
+  document.querySelectorAll('[data-perm]').forEach(el => {
+    const _p = el.dataset.perm.split(':');
+    el.style.display = hasPermission(_p[0], _p[1]) ? '' : 'none';
   });
   // 配置页输入框只读
   document.querySelectorAll('.cfg-input').forEach(el => {
@@ -2790,7 +2795,8 @@ async function loadEmployeeProfilePage(eid) {
     const age = emp.date_of_birth ? calcAge(emp.date_of_birth) : null;
     document.getElementById('pfAge').textContent = age !== null ? age : '—';
     const delBtn = document.getElementById('pfAvatarDeleteBtn');
-    if (delBtn) delBtn.style.display = (isAdminUser() && emp.avatar_path) ? 'inline-block' : 'none';
+    // P18 阶段3: 档案编辑类按钮统一走 employees:edit
+    if (delBtn) delBtn.style.display = (hasPermission('employees','edit') && emp.avatar_path) ? 'inline-block' : 'none';
 
     // 加载余额
     try {

@@ -1088,9 +1088,9 @@ ROLE_DEFAULT_PERMISSIONS = {
     'super_admin': {'*': ['*']},
     'admin': {
         'dashboard': ['view'],
-        'employees': ['view', 'edit'],
+        'employees': ['view', 'edit', 'export'],
         'oa': ['view', 'approve'],
-        'attendance': ['view', 'edit'],
+        'attendance': ['view', 'edit', 'export'],
         'salary': ['view', 'export'],
         'production': ['view', 'edit'],
         'scoring': ['view', 'edit'],
@@ -1098,9 +1098,9 @@ ROLE_DEFAULT_PERMISSIONS = {
     },
     'editor': {
         'dashboard': ['view'],
-        'employees': ['view'],
+        'employees': ['view', 'export'],
         'oa': ['view'],
-        'attendance': ['view', 'edit'],
+        'attendance': ['view', 'edit', 'export'],
         'salary': ['view'],
         'production': ['view', 'edit'],
         'scoring': ['view'],
