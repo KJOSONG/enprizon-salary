@@ -780,7 +780,13 @@
       + '</div>';
     // 基本信息
     html += '<div class="info-section"><div class="info-section__title">'+t('basic_info')+'</div>';
-    const info = [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['salary_type',e.override_type||e.default_type||''],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']];
+    // R1: 薪资类别行附日薪/月薪基数
+    const TYPE_LBL = { piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
+    let salTypeVal = e.override_type||e.default_type||'';
+    let salTypeText = TYPE_LBL[salTypeVal] || salTypeVal;
+    if (salTypeVal === 'day_rate') salTypeText += ' · ' + fmt(e.day_rate||0) + ' TZS' + t('salary_per_day');
+    else if (salTypeVal === 'monthly') salTypeText += ' · ' + fmt(e.monthly_salary||0) + ' TZS' + t('salary_per_month');
+    const info = [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['salary_type',salTypeText],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']];
     info.forEach(r=>{ if(r[1]!=null&&r[1]!=='') html+=kv(t(r[0]), r[1]); });
     html += '</div>';
     // 出勤统计 mini 卡

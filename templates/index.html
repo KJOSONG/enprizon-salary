@@ -2926,11 +2926,17 @@ async function loadEmployeeProfilePage(eid) {
       if (btn) btn.style.display = isAdminUser() ? 'inline-block' : 'none';
     });
 
-    // P14.5: 薪资类型显示
+    // P14.5: 薪资类型显示（R1: 日薪/月薪基数跟随展示）
     const TYPE_LBL = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
       piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
     const salType = emp.override_type || emp.default_type || 'day_rate';
-    document.getElementById('pfSalaryType').textContent = TYPE_LBL[salType] || salType;
+    let salTypeText = TYPE_LBL[salType] || salType;
+    if (salType === 'day_rate') {
+      salTypeText += ' · ' + fmtNum(emp.day_rate || 0) + ' TZS' + t('salary_per_day');
+    } else if (salType === 'monthly') {
+      salTypeText += ' · ' + fmtNum(emp.monthly_salary || 0) + ' TZS' + t('salary_per_month');
+    }
+    document.getElementById('pfSalaryType').textContent = salTypeText;
     const stBtn = document.getElementById('pfSalaryTypeEditBtn');
     if (stBtn) stBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
 
