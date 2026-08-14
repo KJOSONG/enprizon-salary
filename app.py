@@ -846,10 +846,10 @@ def _build_db_ab_index(data_folder):
     from core.database import get_conn
     import re as _re
     _conn = get_conn(data_folder)
-    _rows = _conn.execute("SELECT id, name FROM employees").fetchall()
+    _rows = _conn.execute("SELECT id, name, alias FROM employees").fetchall()
     _conn.close()
     # 保留已有索引（通讯录加载的变体），DB 精确姓名覆盖
-    for _eid, _name in _rows:
+    for _eid, _name, _alias in _rows:
         if not _name:
             continue
         _sa = strip_alias(str(_name))
@@ -861,6 +861,12 @@ def _build_db_ab_index(data_folder):
         if len(_words) > 1:
             _short = _re.sub(r'\s+', '', ' '.join(_words[:-1])).upper()
             _AB_INDEX.setdefault(_short, (str(_eid), _sa))
+        # P19: 非空别名也建立索引(setdefault 不覆盖姓名主键)
+        if _alias:
+            _sa_alias = strip_alias(str(_alias))
+            _ak = _re.sub(r'\s+', '', _sa_alias).upper()
+            if _ak:
+                _AB_INDEX.setdefault(_ak, (str(_eid), _sa_alias))
     # 补充通讯录外人员（离职等）
     for _k, _v in _EXTRA_AB_ENTRIES.items():
         _AB_INDEX.setdefault(_k, _v)

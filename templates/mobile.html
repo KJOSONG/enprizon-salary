@@ -17,6 +17,7 @@
 <body>
   <!-- 登录页（未认证时显示） -->
   <div id="login-screen" class="login-wrap" style="display:none;">
+    <button class="icon-btn lang-pill login-lang" id="login-lang-btn" onclick="toggleLang()" title="Language / 语言">中</button>
     <div class="login-logo">
       <h1>ENPRIZON LINDI</h1>
       <p data-i18n="login_sub">薪资与产量管理系统 · 移动端</p>
@@ -316,6 +317,8 @@
     document.querySelectorAll('[data-i18n-placeholder]').forEach(e=>{ const k=e.getAttribute('data-i18n-placeholder'); if(k) e.placeholder=t(k); });
     document.documentElement.lang = STATE.lang;
     const lb=document.getElementById('lang-btn'); if(lb) lb.textContent = STATE.lang==='zh'?'中':'EN';
+    // P19: 登录页语言按钮(未登录时也可切换)
+    const lgb=document.getElementById('login-lang-btn'); if(lgb) lgb.textContent = STATE.lang==='zh'?'中':'EN';
   }
   function toggleLang(){ STATE.lang = STATE.lang==='zh'?'en':'zh'; localStorage.setItem('m_lang', STATE.lang); applyLang(); if(activeTab==='dashboard') renderDashboard(); }
 
@@ -1183,7 +1186,9 @@
     const dept=document.getElementById('attDept').value;
     const today=new Date().toISOString().slice(0,10);
     // 需求4: 与员工列表一致,按姓名排序(localeCompare 中文/英文均可)
-    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    // P19: 支持别名匹配(attendance rows 可能无 alias,从员工缓存关联)
+    const _aliasMap={}; (STATE.employees||[]).forEach(_e=>{ _aliasMap[String(_e.id)]=(_e.alias||'').toLowerCase(); });
+    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q)||((r.alias||_aliasMap[String(r.id)]||'').toLowerCase().includes(q)))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     STATE._attAllRows = allRows;
     const grid=document.getElementById('attGrid'); if(!grid) return;
     if(!allRows.length){ grid.innerHTML='<div class="state-box"><div class="state-box__icon">📋</div><div class="state-box__title">'+t('no_att_data')+'</div></div>'; return; }

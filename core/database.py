@@ -1399,7 +1399,8 @@ def get_user_permissions_summary(data_folder, username):
     """, (username,)).fetchall()
     for g in grants:
         if g['module'] in summary and g['action'] in summary[g['module']]:
-            summary[g['module']][g['action']] = g['grant_type']
+            # 归一化: user_grants.grant_type 为 'allow'/'deny',契约返回 'grant'/'deny'
+            summary[g['module']][g['action']] = 'grant' if g['grant_type'] == 'allow' else 'deny'
     conn.close()
     return summary
 
@@ -2138,8 +2139,8 @@ def search_all(data_folder, query, scope='all'):
     if scope in ('all', 'employees'):
         rows = conn.execute(
             "SELECT id, name, department, default_type FROM employees "
-            "WHERE name LIKE ? OR department LIKE ? OR id LIKE ? LIMIT 20",
-            (q, q, q)).fetchall()
+            "WHERE name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? LIMIT 20",
+            (q, q, q, q)).fetchall()
         for r in rows:
             results.append({
                 'type': 'employee', 'id': r['id'],
