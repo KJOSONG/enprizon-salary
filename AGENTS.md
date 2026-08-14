@@ -438,11 +438,12 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ## 重构状态（2026-08-14 更新）
 
-**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照）。**P16 移动端开发已完成全部 5 个 Phase（feature/mobile-p16 分支，尚未合并部署）**
-**阶段**: **P0-P15 全部完成，P16（移动端）Phase 1-5 全部完成（数据台/员工/采集/出勤/收尾），待合并 `feature/mobile-p16` → `main` 并部署**
+**分支**: `main`（纯采集改造已在 `7896cbb` 落地并合并/部署；原 `refactor` 分支为历史对照；`feature/mobile-p17` 为团队长期工作分支，开发后合并 main）
+**阶段**: **P0-P15 全部完成 + P16 移动端对齐重写 + P17 用户需求迭代 + P18 权限框架重构，全部上线部署（main=0268fec）**
 **纯采集模式**: 已移除 Excel 数据源依赖（`scan_source_files`/`parser.parse_all` 已删）。薪资全部由 P9 采集（井下/钻工/破碎/出勤4类）驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **8月数据**: 已导入本地（employees 130人 / overrides 202条 / collection_submissions 40条 / attendance_overrides 538条 / leave_balances 108 / leave_requests 7），本地验证 gross 20,859,271 TZS
 **部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary）
+**团队**: mobile-p17（designer/dev/qa），复杂工作用团队处理，详见项目记忆 project_team_config.md
 
 ### 重构新增主要功能
 
@@ -466,6 +467,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **P14（已完成）** | **v7 需求对齐迭代**（未登录弹登录 / 登录后首屏自动渲染 / 井下scoring与piecework互斥 / 计薪模式单一开关 / 档案页薪资类型编辑 / 档案页临时例外 / 评分录入页完全重做对齐参考卡 / 评分记录可查 + 档案页4条：删表单模式按钮/班组仅井下/工号自动生成/编辑按钮归位），详见 `docs/P14_USER_FEEDBACK_2026_08_13.md` |
 | **P14.5** | **员工档案增强**：新增 `alias` 别名列（展示+可编辑，档案页头部姓名上方 + 基本信息首行双处显示）；工号标签统一为"工号"（custom_number）；**部门仅超级管理员可直改**，非超管改部门走 OA 调岗审批（后端 `api_employee_update` 守卫 403）；编辑表单字段顺序与档案展示页一致；中英文 i18n 已适配（`emp_alias`/`emp_custom_number`/`dept_superadmin_only`） |
 | **P15（已完成）** | **数据台重构**（纯产量导向多维度交互仪表盘：移除薪资卡片 / 6 张产量 KPI / 趋势图增强白夜班切换 / 白夜班双柱对比 / 钻工组堆叠柱状图下钻 / 矿石环形图联动 / 破碎横向表格），详见 `docs/P15_DASHBOARD_REFACTOR.md` |
+| **P16/P17 移动端（已完成）** | **移动端独立 SPA 对齐重写并上线**：mobile.html 717→1124 行（数据台/员工/采集/出勤 4 页 + 登录），mobile.css token 补齐，设计规范 `docs/P16_MOBILE_DESIGN_ALIGNED.md`；修复 12+ bug（静态资源 404 / API 前缀 404 / i18n window 挂载 / 双击重置等）；用户需求迭代：趋势日期排序 / K 线缩放交互 / 筛选箭头 / 出勤排序 / 采集部门过滤（井下/钻工/破碎/其他）+ 井下驾驶员联动 / 快捷操作迁移 + 2×2 四宫格（入职/调岗/请假/离职）/ 请假类型（事假默认，去年假）/ 出勤工具栏溢出 / 三个 OA 申请页（入职全字段/调岗/离职）/ 顶栏三道杠菜单（登录名/改密/退出）/ 工号自动递增（审批后现有最大+1） |
+| **P18 权限框架（已完成）** | **权限重构（用户反馈"取消薪资权限仍可见"）**：role_permissions 表（角色默认权限 DB 可编辑）+ check_permission DB 判定（super_admin > deny > allow > 角色继承）+ 敏感端点全挂 @require_permission + auth/status 返回权限摘要 + 前端菜单/路由按权限过滤 + 权限编辑器 UI（P18b：角色中心+功能分组+继承显示+强反馈）+ 双 Tab 页面（P18C：用户管理/角色管理，参考 stock 用户组管理信息架构）+ 角色 CRUD（P18D：新增/重命名/删除自定义角色，内置保护）。方案见 `docs/P18_PERMISSION_REFACTOR.md`、`docs/P18B_PERMISSION_UI_REFACTOR.md`、`docs/P18C_PERMISSION_UI_V2.md` |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
 
@@ -485,8 +488,9 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
-1. **P16 移动端**：Phase 1-5 全部完成（数据台/员工/采集/出勤/收尾），已提交 `feature/mobile-p16`；待合并到 `main` 并部署至阿里云（需用户批准 push + 服务器 restart）
-2. **本地验收**：`python3 app.py` 启动后 `/m` 返回 200、iPhone UA 访问 `/` 302 跳 `/m`、4 个 Tab 接口（dashboard/employees/collection/attendance）均验证通过（viewer 可读；采集/出勤编辑需 editor，POST 经 403 鉴权门验证）
-3. **git 清理**：确认 `data/kilwa.db-wal`/`data/kilwa.db-shm` 未被误跟踪（.gitignore 已补防）
-4. **8月数据**：本地导入已完成，服务器部署后按需重新导入
+1. **移动端真机验收**:P17 移动端已上线(main=b8eb6f5 起),iPhone/Android 真机走查采集/出勤/申请流程;权限重构后按角色真实验证菜单/入口
+2. **KEJU 密码**:2026-08-14 因验收被重置为临时值 `Keju2026!`,需用户登录后改回
+3. **P18 遗留优化**（可选 backlog）:角色重命名/删除用原生 prompt/confirm 可美化;自定义角色空权限可创建(前端可提示至少勾选 1 项);`_work/test_permission.py` 可迁移到 `tests/` 进 CI
+4. **git 清理**：确认 `data/kilwa.db-wal`/`data/kilwa.db-shm` 未被误跟踪（.gitignore 已补防）
+5. **8月数据**：本地导入已完成，服务器部署后按需重新导入
 
