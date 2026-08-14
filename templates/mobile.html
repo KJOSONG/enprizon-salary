@@ -17,6 +17,7 @@
 <body>
   <!-- 登录页（未认证时显示） -->
   <div id="login-screen" class="login-wrap" style="display:none;">
+    <button class="icon-btn lang-pill login-lang" id="login-lang-btn" onclick="toggleLang()" title="Language / 语言">中</button>
     <div class="login-logo">
       <h1>ENPRIZON LINDI</h1>
       <p data-i18n="login_sub">薪资与产量管理系统 · 移动端</p>
@@ -316,6 +317,8 @@
     document.querySelectorAll('[data-i18n-placeholder]').forEach(e=>{ const k=e.getAttribute('data-i18n-placeholder'); if(k) e.placeholder=t(k); });
     document.documentElement.lang = STATE.lang;
     const lb=document.getElementById('lang-btn'); if(lb) lb.textContent = STATE.lang==='zh'?'中':'EN';
+    // P19: 登录页语言按钮(未登录时也可切换)
+    const lgb=document.getElementById('login-lang-btn'); if(lgb) lgb.textContent = STATE.lang==='zh'?'中':'EN';
   }
   function toggleLang(){ STATE.lang = STATE.lang==='zh'?'en':'zh'; localStorage.setItem('m_lang', STATE.lang); applyLang(); if(activeTab==='dashboard') renderDashboard(); }
 
