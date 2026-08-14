@@ -601,13 +601,22 @@
   function drawTrend(){
     const sp = STATE.dashboard.shift_production || [];
     if(!sp.length) return;
-    const ore = STATE.dashOreFilter;
     const labels = sp.map(s=>s.date.slice(5));
-    const pick = (s, f)=> ore==='nh'? (s[f+'_nh']||0) : ore==='nl'? (s[f+'_nl']||0) : ore==='mw'? (s[f+'_mw']||0) : (s[f+'_nh']||0)+(s[f+'_nl']||0)+(s[f+'_mw']||0);
+    // 线 = 矿石维度(对齐桌面端);取值 = 班次维度(#dash-shift-seg: all/day/night)
+    const oreKeys = STATE.dashOreFilter==='all' ? ['nh','nl','mw'] : [STATE.dashOreFilter];
+    const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
+    const colors = { nh:'hsl(28.99 91.75% 61.96%)', nl:'hsl(200 60% 45%)', mw:'hsl(130 50% 45%)' };
     const opts = Object.assign(baseOpts(), {
       plugins:{
         legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
-        tooltip:{ mode:'index', intersect:false },
+        tooltip:{ mode:'index', intersect:false, callbacks:{ label:(ctx)=>{
+          // 当前班次值 + 白/夜拆分
+          const k = ctx.dataset.oreKey;
+          const s = sp[ctx.dataIndex];
+          const dayV = s ? (s['day_'+k]||0) : 0;
+          const nightV = s ? (s['night_'+k]||0) : 0;
+          return ' '+k.toUpperCase()+': '+fmt(ctx.parsed.y||0)+'  ('+t('day_shift')+' '+fmt(dayV)+' / '+t('night_shift')+' '+fmt(nightV)+')';
+        } } },
       },
       hover:{ mode:'index', intersect:false },
       onHover: trendHover,
@@ -618,11 +627,12 @@
         zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode:'x' },
       };
     }
-    newChart('chart-trend', { type:'line', data:{ labels, datasets:[
-      { label:t('day'), data:sp.map(s=>pick(s,'day')), borderColor:'hsl(200 60% 45%)', backgroundColor:'hsl(200 60% 45% / 0.08)', fill:true, tension:0.3, pointRadius:0 },
-      { label:t('night'), data:sp.map(s=>pick(s,'night')), borderColor:'hsl(180 50% 40%)', backgroundColor:'hsl(180 50% 40% / 0.08)', fill:false, tension:0.3, pointRadius:0 },
-      { label:t('total'), data:sp.map(s=>pick(s,'total')), borderColor:'hsl(28.99 91.75% 61.96%)', backgroundColor:'transparent', borderWidth:2, tension:0.3, pointRadius:0 },
-    ]}, options: opts, plugins:[crosshairPlugin] });
+    newChart('chart-trend', { type:'line', data:{ labels, datasets: oreKeys.map((k,i)=>({
+      label:k.toUpperCase(), oreKey:k,
+      data: sp.map(s=>s[prefix+k]||0),
+      borderColor:colors[k], backgroundColor:colors[k]+' / 0.08',
+      fill: i===0, tension:0.3, pointRadius:0,
+    })) }, options: opts, plugins:[crosshairPlugin] });
     // 修复: zoom 插件精简版(12KB)defaults 无 doubleClick 配置,双击重置不生效。
     // 改手动 dblclick 监听调用 chart.resetZoom()(函数存在且可用),防重复绑定用 canvas 标志。
     const _trendEl = document.getElementById('chart-trend');
@@ -1211,7 +1221,7 @@
     const box=document.getElementById('attRoster'); if(!box) return;
     const marks = STATE._attEditMarks || {};
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
-      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','D','N','C','R','B'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
+      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
     const c=document.getElementById('attRosterCount'); if(c) c.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
