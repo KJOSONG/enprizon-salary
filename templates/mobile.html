@@ -1205,7 +1205,7 @@
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+'<option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
@@ -1226,7 +1226,15 @@
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
+    // 必须选择部门才能提交(防止误提交全部员工)
+    const deptEl=document.getElementById('attDept');
+    if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
     const marks=attRosterEmpIds().map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
+    // 编辑保数据: 原 marks 员工(即使不在选中部门)按保留状态并入,避免编辑丢人
+    const submitted=new Set(marks.map(m=>String(m.employee_id)));
+    Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
+      if(!submitted.has(String(eid))){ submitted.add(String(eid)); marks.push({employee_id:eid, status:st}); }
+    });
     colSubmit('attendance', { submission_date:date, marks }, null); }
 
   // ── 出勤模块 (Phase 4 / 2e) ──
