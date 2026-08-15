@@ -309,6 +309,7 @@
               <th data-i18n="emp_hire_date">入职日期</th>
               <th data-i18n="emp_nida">NIDA</th>
               <th data-i18n="th_nssf">NSSF</th>
+              <th data-i18n="emp_tin_number">TIN 号码</th>
               <th data-i18n="emp_note">备注</th>
             </tr>
           </thead>
@@ -362,6 +363,7 @@
       <div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input type="text" id="hireSkill" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nida">NIDA</label><input type="text" id="hireNida" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input type="text" id="hireNssf" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_tin_number">TIN 号码</label><input type="text" id="hireTin" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_phone">电话</label><div style="display:flex;align-items:center;"><span style="padding:6px 8px;border:1px solid var(--border);border-right:none;border-radius:var(--radius) 0 0 var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">+255</span><input type="tel" id="hirePhone" placeholder="7xxxxxxxxx" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:0 var(--radius) var(--radius) 0;background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;border-left:none;"></div></div>
       <div class="form-row"><label data-i18n="emp_bank_name">银行</label><input type="text" id="hireBank" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_bank_account">账号</label><input type="text" id="hireAccount" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -508,6 +510,7 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_tin_number">TIN 号码</span><span class="info-value" id="pfTin">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_annual_leave_override">年假资格豁免</span><span class="info-value" id="pfAnnualLeaveOverride">—</span><button class="nav-btn" id="pfAnnualOverrideToggleBtn" onclick="toggleAnnualLeaveOverride()" style="font-size:10px;padding:2px 8px;margin-left:8px;display:none;" data-i18n="btn_toggle_override">切换</button></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_phone">电话</span><span class="info-value" id="pfPhone">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
@@ -687,7 +690,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" data-perm="attendance:edit" style="display:none;">保存并计算</button>
-        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 (P)=月薪默认</span>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 NU=年假(计薪) (P)=月薪默认</span>
       </div>
     </div>
     <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
@@ -2876,11 +2879,12 @@ async function renderEmployeeTable() {
         <td>${e.hire_date||'—'}</td>
         <td>${e.nida_number ? '✓' : '○'}</td>
         <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
+        <td>${e.tin_number ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
       </tr>`).join('');
-    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
   }
 }
 
@@ -2912,6 +2916,7 @@ async function loadEmployeeProfilePage(eid) {
     document.getElementById('pfHireDate').textContent = emp.hire_date;
     document.getElementById('pfNida').textContent = emp.nida_number;
     document.getElementById('pfNssf').textContent = emp.nssf_number;
+    document.getElementById('pfTin').textContent = emp.tin_number || '—';
     // P20: 年假资格豁免状态（OA 审批人可见"切换"按钮,直接点击即开/关）
     const overrideEl = document.getElementById('pfAnnualLeaveOverride');
     if (overrideEl) overrideEl.innerHTML = emp.annual_leave_override
@@ -2978,7 +2983,8 @@ async function loadEmployeeProfilePage(eid) {
 
     // 时间线
     const EVENT_LABELS = { hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
-      salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement' };
+      salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement',
+      annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave' };
     const tl = document.getElementById('profileTimeline');
     if (events.length === 0) {
       tl.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">' + t('no_events') + '</div>';
@@ -2990,7 +2996,7 @@ async function loadEmployeeProfilePage(eid) {
             <div class="timeline-header">
               <span class="timeline-type">${EVENT_LABELS[ev.event_type] ? t(EVENT_LABELS[ev.event_type]) : ev.event_type}</span>
               <span class="timeline-date">${ev.effective_date}</span>
-              <span class="timeline-status ${ev.status}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : '…'}</span>
+              <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
             </div>
           </div>
         </div>`).join('');
@@ -3199,6 +3205,9 @@ async function editEmployeeProfile() {
   form += '<h3 style="margin-bottom:12px;">' + t('emp_edit_title') + ' — ' + g(emp.name) + '</h3>';
   // 别名（置顶，与档案页"姓名上方"位置一致）
   form += `<div class="form-row"><label data-i18n="emp_alias">别名</label><input id="pfEdit_alias" value="${g(emp.alias)}" style="${inStyle}"></div>`;
+  // P21 M5/R6: 改名（旧名自动入别名）
+  form += `<div class="form-row"><label data-i18n="emp_name">姓名</label><input id="pfEdit_name" value="${g(emp.name)}" style="${inStyle}"></div>`;
+  form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('emp_rename_hint')}</div>`;
   // 性别
   form += `<div class="form-row"><label data-i18n="emp_gender">性别</label><select id="pfEdit_gender" style="${inStyle}">` +
     `<option value="" ${!emp.gender?'selected':''}>—</option>` +
@@ -3219,6 +3228,7 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input id="pfEdit_nssf_number" value="${g(emp.nssf_number)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_tin_number">TIN 号码</label><input id="pfEdit_tin_number" value="${g(emp.tin_number)}" style="${inStyle}"></div>`;
   // P20: 年假资格豁免（仅 OA 审批人可切换）
   const canOAApprove = hasPermission('oa', 'approve');
   const overrideDescKey = canOAApprove ? 'emp_annual_leave_override_can_edit' : 'emp_annual_leave_override_no_perm';
@@ -3278,8 +3288,9 @@ async function saveEmployeeProfile(eid) {
   // ── 基础字段 ──
   const isSA = _authState.role === 'super_admin';
   const data = { department: document.getElementById('pfEdit_department').value };
-  ['position','skill_level','hire_date','nida_number','nssf_number',
-   'bank_name','bank_account','bank_owner','gender','date_of_birth','alias']
+  ['position','skill_level','hire_date','nida_number','nssf_number','tin_number',
+   'bank_name','bank_account','bank_owner','gender','date_of_birth','alias',
+   'name']  // P21 M5: tin_number + name（改名，旧名自动入 alias）
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
   // 部门仅超级管理员可直改，非超管兜底移除，防误传/绕过
   if (!isSA) delete data.department;
@@ -4392,6 +4403,7 @@ function renderAttendance() {
     'S': {color: '#F59E0B', label: t('shift_S_label'), desc: t('shift_S_desc')},
     'Y': {color: '#06B6D4', label: t('shift_Y_label'), desc: t('shift_Y_desc')},
     'T': {color: '#A855F7', label: t('shift_T_label'), desc: t('shift_T_desc')},
+    'NU': {color: '#7C3AED', label: t('shift_nu_label'), desc: t('shift_nu_desc')},  // P21 R2: 年假(计薪)，比 T 更深的紫
     'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
     'C': {color: '#F97316', label: t('shift_C_label'), desc: t('shift_C_desc')},
     '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
@@ -4405,7 +4417,7 @@ function renderAttendance() {
         const st = r.days[d] || '';
         const autoVal = r.auto ? r.auto[d] : '';
         const style = statusStyle[st] || statusStyle[''];
-        const isEditable = r.editable && hasPermission('attendance','edit');
+        const isEditable = r.editable && hasPermission('attendance','edit') && st !== 'NU';  // P21 R2: NU 只读
         // 与原始数据不同才显示下划线（包含从空值手动改为P/A/L）
         const isChanged = st !== autoVal && !(autoVal === '' && st === '');
         // 月薪默认 (P) 改为手动时用不同的下划线
@@ -5102,6 +5114,9 @@ async function loadOAPending() {
           <button class="oa-btn" onclick="toggleOaDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
           <button class="oa-btn oa-btn-approve" onclick="oaApprove(${ev.id})"${isSelfSubmit(ev) ? ' disabled title="' + t('oa_cannot_self') + '"' : ''}>${t('oa_approve')}</button>
           <button class="oa-btn oa-btn-reject" onclick="oaShowReject(${ev.id})">${t('oa_reject')}</button>
+          ${(ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') && _authState.logged_in && (ev.operator_id === _authState.username || _authState.role === 'super_admin') ? `
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
         </div>
         <div id="oaDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
         <div id="oaRejectForm${ev.id}" style="display:none;width:100%;"></div>
@@ -5161,6 +5176,54 @@ async function oaReject(eventId) {
   }
 }
 
+/* ── P21 M4: 请假撤销/修改（成功后 recalculate + 刷新 OA/档案/出勤） ── */
+async function revokeLeaveEvent(eventId) {
+  if (!confirm(t('oa_revoke_confirm'))) return;
+  const res = await authFetch(api(`/api/oa/events/${eventId}/revoke`), { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(t('toast_leave_revoke_ok'));
+    await recalculate();
+    loadOAPending();
+    loadOAHistory();
+    loadNotifCount();
+  } else {
+    showToast(data.error || t('op_fail'), 'error');
+  }
+}
+
+async function editLeaveEvent(eventId) {
+  // 取原事件数据预填
+  let ev = null;
+  try {
+    const res = await fetch(api('/api/oa/events/' + eventId));
+    const data = await res.json();
+    ev = data.event || data;
+  } catch (e) { ev = null; }
+  if (!ev || ev.id === undefined) { showToast(t('op_fail'), 'error'); return; }
+  let days = 1, date = ev.effective_date || '';
+  try { days = JSON.parse(ev.payload || '{}').days || 1; } catch (e) {}
+  const newDays = prompt(t('leave_edit_days'), String(days));
+  if (newDays === null) return;
+  const newDate = prompt(t('leave_edit_date'), date);
+  if (newDate === null) return;
+  const res = await authFetch(api(`/api/oa/events/${eventId}/edit`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ effective_date: newDate.trim(), days: parseInt(newDays) || 1 }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(t('leave_edit_ok'));
+    await recalculate();
+    loadOAPending();
+    loadOAHistory();
+    loadNotifCount();
+  } else {
+    showToast(data.error || t('op_fail'), 'error');
+  }
+}
+
 async function loadOAHistory() {
   const container = document.getElementById('oaHistoryList');
   if (!container) return;
@@ -5177,13 +5240,17 @@ async function loadOAHistory() {
         <div class="oa-event-info">
           <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
           <div class="oa-event-meta">
-            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : t('rejected_label')}
+            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
+            ${ev.status === 'revoked' && ev.revoked_by ? ' · ' + t('oa_revoke_by') + ': ' + escHtml(ev.revoked_by) : ''}
             ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
-            · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
+            · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || ev.revoked_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
           </div>
         </div>
         <div class="oa-event-actions">
           <button class="oa-btn" onclick="toggleOaHistDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
+          ${ev.status === 'approved' && (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') && hasPermission('oa', 'approve') ? `
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
         </div>
         <div id="oaHistDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
       </div>`).join('');
@@ -5321,7 +5388,8 @@ async function submitLeave() {
     } else {
       res = await authFetch(api('/api/oa/leave'), {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({employee_id: eid, event_type: type, effective_date: date, days, note}),
+        body: JSON.stringify({employee_id: eid, event_type: type, effective_date: date, days, note,
+                              lang: (typeof getLang === 'function' ? getLang() : 'zh')}),  // P21 M7/R5
       });
       data = await res.json();
     }
@@ -5438,6 +5506,7 @@ async function submitApply(type) {
         skill_level: document.getElementById('hireSkill').value.trim(),
         nida_number: document.getElementById('hireNida').value.trim(),
         nssf_number: document.getElementById('hireNssf').value.trim(),
+        tin_number: document.getElementById('hireTin').value.trim(),
         phone: phoneRaw ? '+255' + phoneRaw : '',
         bank_name: document.getElementById('hireBank').value.trim(),
         bank_account: document.getElementById('hireAccount').value.trim(),
@@ -5487,7 +5556,7 @@ async function submitApply(type) {
       setApplyMsg(msgId, t('apply_submitted'), true);
       // 清空表单
       if (type === 'hire') {
-        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
+        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hireTin','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
           .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         ['hireGender','hireSalaryType','hireDept'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';

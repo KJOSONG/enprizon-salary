@@ -1546,9 +1546,9 @@ def api_employee_annual_leave_override(employee_id):
 @app.route('/api/employees/<employee_id>', methods=['POST'])
 @editor_required
 def api_employee_update(employee_id):
-    """编辑员工基本信息"""
+    """编辑员工基本信息（P21 M5/R6: 支持改名，旧名自动入 alias 并重建索引）"""
     from core.database import update_employee_fields, log_audit, get_conn
-    data = request.get_json()
+    data = request.get_json() or {}
     # 部门仅超级管理员可直改；非超管改不同部门值 → 拒绝（须走 OA 调岗审批）
     if 'department' in data and session.get('role') != 'super_admin':
         conn = get_conn(app.config['DATA_FOLDER'])
@@ -1556,8 +1556,27 @@ def api_employee_update(employee_id):
         conn.close()
         if row and (row['department'] or '') != (data.get('department') or ''):
             return jsonify({'ok': False, 'error': '部门仅超级管理员可修改，或通过OA调岗审批'}), 403
+    # P21 M5/R6: 改名联动——旧名合并进 alias（逗号分隔去重，跳过空），保证旧名反查/搜索仍命中
+    renamed = False
+    if 'name' in data:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        row = conn.execute("SELECT name, alias FROM employees WHERE id=?", (employee_id,)).fetchone()
+        conn.close()
+        if row:
+            old_name = (row['name'] or '').strip()
+            new_name = (data.get('name') or '').strip()
+            if new_name and old_name and old_name != new_name:
+                alias_set = []
+                if row['alias']:
+                    alias_set = [a.strip() for a in str(row['alias']).split(',') if a.strip()]
+                if old_name not in alias_set:
+                    alias_set.append(old_name)
+                data['alias'] = ', '.join(alias_set)
+                renamed = True
     ok = update_employee_fields(app.config['DATA_FOLDER'], employee_id, data)
     if ok:
+        if renamed or 'alias' in data:
+            _build_db_ab_index(app.config['DATA_FOLDER'])  # 改名/别名即时生效（采集/出勤反查）
         log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,
                   json.dumps(data))
     return jsonify({'ok': ok})
@@ -1754,20 +1773,21 @@ def oa_approve_event(event_id):
     # P13: 自审限制——super_admin 例外，可批准自己提交的事件
     if event['operator_id'] == username and session.get('role') != 'super_admin':
         return jsonify({'ok': False, 'error': '不能批准自己提交的事件'}), 400
+    # P21 R1: 先落库（含余额检查），成功后再置 approved——
+    # 请假余额不足时返回 400 且不置 approved（避免出现 approved 但余额未扣/出勤未落的脏状态）
+    try:
+        apply_approved_event(app.config['DATA_FOLDER'], event)
+    except Exception as e:
+        log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
+                  json.dumps({'event_id': event_id, 'event_type': event['event_type'],
+                              'error': str(e)}))
+        return jsonify({'ok': False, 'error': f'批准失败: {str(e)}'}), 400
     ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
-    if ok:
-        # P8: 审批通过后落员工主档（hire/transfer/dismiss/resign），与 overrides 推导叠加
-        try:
-            apply_approved_event(app.config['DATA_FOLDER'], event)
-        except Exception as e:
-            log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
-                      json.dumps({'event_id': event_id, 'event_type': event['event_type'],
-                                  'error': str(e)}))
-            return jsonify({'ok': False,
-                            'error': f'事件已批准但落库失败: {str(e)}'}), 500
-        log_audit(app.config['DATA_FOLDER'], 'oa_approve',
-                  event['employee_id'], json.dumps({'event_id': event_id}))
-    return jsonify({'ok': ok})
+    if not ok:
+        return jsonify({'ok': False, 'error': '事件状态已变化，请刷新后重试'}), 409
+    log_audit(app.config['DATA_FOLDER'], 'oa_approve',
+              event['employee_id'], json.dumps({'event_id': event_id}))
+    return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
 @editor_required
@@ -1787,10 +1807,152 @@ def oa_reject_event(event_id):
                       event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}))
     return jsonify({'ok': ok})
 
+@app.route('/api/oa/events/<int:event_id>', methods=['GET'])
+@login_required
+@require_permission('oa', 'view')
+def oa_event_detail(event_id):
+    """P21 M4: 单个事件详情（前端编辑/撤销预填用）"""
+    from core.database import get_event
+    ev = get_event(app.config['DATA_FOLDER'], event_id)
+    if not ev:
+        return jsonify({'error': '事件不存在'}), 404
+    return jsonify({'event': ev})
+
+@app.route('/api/oa/events/<int:event_id>/revoke', methods=['POST'])
+@editor_required
+def oa_revoke_event(event_id):
+    """P21 M4: 撤销事件（已批需 oa:approve 权限；待审仅申请人本人或 super_admin）"""
+    from core.database import get_event, revoke_event, log_audit, check_permission
+    username = session.get('username', '')
+    event = get_event(app.config['DATA_FOLDER'], event_id)
+    if not event:
+        return jsonify({'ok': False, 'error': '事件不存在'}), 404
+    if event['status'] not in ('approved', 'pending'):
+        return jsonify({'ok': False, 'error': '该事件状态不可撤销'}), 400
+    # 权限分支
+    if event['status'] == 'approved':
+        if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
+            return jsonify({'ok': False, 'error': '无权撤销已批事件（需 OA 审批权限）'}), 403
+    else:
+        if event['operator_id'] != username and session.get('role') != 'super_admin':
+            return jsonify({'ok': False, 'error': '只能撤销自己提交的待审事件'}), 403
+    ok = revoke_event(app.config['DATA_FOLDER'], event_id, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': '撤销失败（事件可能已处理）'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
+              json.dumps({'event_id': event_id, 'event_type': event['event_type']}))
+    return jsonify({'ok': True})
+
+@app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
+@editor_required
+def oa_edit_event(event_id):
+    """P21 M4: 修改请假事件
+    - 待审: update_pending_event（payload.days + effective_date）
+    - 已批: 仅限同月修改（edit_approved_leave_event 事务内撤销重建），跨月 400
+    """
+    from core.database import (get_event, update_pending_event, log_audit, check_permission,
+                               edit_approved_leave_event)
+    data = request.get_json() or {}
+    username = session.get('username', '')
+    event = get_event(app.config['DATA_FOLDER'], event_id)
+    if not event:
+        return jsonify({'ok': False, 'error': '事件不存在'}), 404
+    if event['event_type'] not in ('annual_leave', 'comp_leave'):
+        return jsonify({'ok': False, 'error': '仅请假事件可修改'}), 400
+    # 权限（同 revoke）
+    if event['status'] == 'approved':
+        if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
+            return jsonify({'ok': False, 'error': '无权修改已批事件（需 OA 审批权限）'}), 403
+    else:
+        if event['operator_id'] != username and session.get('role') != 'super_admin':
+            return jsonify({'ok': False, 'error': '只能修改自己提交的待审事件'}), 403
+
+    new_date = (data.get('effective_date') or '').strip()
+    new_days = data.get('days')
+    try:
+        new_days = int(new_days) if new_days is not None else None
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': '无效的天数'}), 400
+    if not new_date:
+        return jsonify({'ok': False, 'error': '缺少生效日期'}), 400
+    if new_days is not None and new_days < 1:
+        return jsonify({'ok': False, 'error': '天数至少为 1'}), 400
+
+    if event['status'] == 'pending':
+        try:
+            payload = json.loads(event['payload'] or '{}')
+        except Exception:
+            payload = {}
+        if new_days is not None:
+            payload['days'] = new_days
+        fields = {'effective_date': new_date, 'payload': json.dumps(payload, ensure_ascii=False)}
+        ok = update_pending_event(app.config['DATA_FOLDER'], event_id, fields)
+        if not ok:
+            return jsonify({'ok': False, 'error': '修改失败（事件可能已处理）'}), 400
+        log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
+                  json.dumps({'event_id': event_id, 'status': 'pending', 'new_date': new_date, 'days': new_days}))
+        return jsonify({'ok': True})
+
+    # 已批：同月修改（事务内撤销重建）
+    if new_days is None:
+        try:
+            new_days = int(json.loads(event['payload'] or '{}').get('days', 1) or 1)
+        except (TypeError, ValueError):
+            new_days = 1
+    ok, msg = edit_approved_leave_event(app.config['DATA_FOLDER'], event_id, new_date, new_days, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': str(msg)}), 400
+    log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
+              json.dumps({'event_id': event_id, 'status': 'approved', 'new_date': new_date,
+                          'days': new_days, 'new_event_id': msg}))
+    return jsonify({'ok': True, 'event_id': event_id, 'new_event_id': msg})
+
 
 # ── P13: 审批人路由（super_admin 后台指定） ─────────────
 
 ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave')
+
+# ── P21 M7/R5: 年假资格错误双语（后端无 i18n 模块，硬编码两套文案） ──
+_LEAVE_ERR_MSG = {
+    'zh': {
+        'no_nssf': '未参加NSSF',
+        'no_nida': 'NIDA证件号为空',
+        'no_tin': 'TIN号码为空',
+        'no_hire_date': '入职日期为空',
+        'invalid_hire_date': '入职日期格式无效',
+        'no_employee': '员工不存在',
+        'under_1year': '入职不满1年({days}天)',
+        'prefix': '年假资格不足: ',
+    },
+    'en': {
+        'no_nssf': 'NSSF not enrolled',
+        'no_nida': 'NIDA number is empty',
+        'no_tin': 'TIN number is empty',
+        'no_hire_date': 'Hire date is empty',
+        'invalid_hire_date': 'Invalid hire date format',
+        'no_employee': 'Employee not found',
+        'under_1year': 'Less than 1 year since hire ({days} days)',
+        'prefix': 'Annual leave eligibility failed: ',
+    },
+}
+
+def _leave_err_msg(codes, reasons, lang):
+    """按 reason codes 拼双语错误串（codes 来自 check_annual_leave_eligible）"""
+    import re
+    lang = 'en' if (lang or '') == 'en' else 'zh'
+    d = _LEAVE_ERR_MSG[lang]
+    parts = []
+    for i, code in enumerate(codes):
+        if code == 'under_1year':
+            days = '?'
+            if reasons and i < len(reasons):
+                _m = re.search(r'\((\d+)', str(reasons[i]))
+                if _m:
+                    days = _m.group(1)
+            parts.append(d['under_1year'].format(days=days))
+        else:
+            parts.append(d.get(code, code))
+    return d['prefix'] + ', '.join(parts)
 
 def _require_super_admin():
     """内部校验 super_admin，返回错误响应或 None"""
@@ -1849,7 +2011,7 @@ def api_approval_routes_delete(route_id):
 @editor_required
 @require_permission('attendance', 'edit')
 def attendance_batch_submit():
-    from core.database import save_attendance_override, log_audit, is_driver, add_driver
+    from core.database import save_attendance_override, log_audit, is_driver, add_driver, get_attendance_status
     data = request.get_json()
     if not data or 'date' not in data or 'marks' not in data:
         return jsonify({'ok': False, 'error': '缺少 date 或 marks'}), 400
@@ -1860,6 +2022,11 @@ def attendance_batch_submit():
         status = m.get('status', '')
         if not eid or not status:
             continue
+        # P21 R2: NU 只读——禁止手动设置或覆盖审批写入的年假状态
+        if status == 'NU':
+            return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
+        if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
+            return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
         save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
         count += 1
         if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
@@ -1886,22 +2053,14 @@ def oa_submit_leave():
     event_type = data['event_type']
     eid = data['employee_id']
     if event_type == 'annual_leave':
+        # P21 R3/M7: 资格检查返回结构化 codes；错误按请求 lang 双语拼装（保留 error 字符串字段）
         chk = check_annual_leave_eligible(app.config['DATA_FOLDER'], eid)
         if not chk['eligible']:
-            return jsonify({'ok': False, 'error': '年假资格不足: ' + ', '.join(chk['reasons'])}), 403
-    if event_type == 'comp_leave':
-        from core.database import deduct_comp_leave
-        import datetime as _dt
-        year = str(_dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3))).year)
-        days = data.get('days', 1)
-        ok = deduct_comp_leave(app.config['DATA_FOLDER'], eid, year, days)
-        if not ok:
-            return jsonify({'ok': False, 'error': '调休余额不足'}), 403
-        from core.database import save_attendance_override
-        save_attendance_override(app.config['DATA_FOLDER'], eid, data['effective_date'], 'T')
-        log_audit(app.config['DATA_FOLDER'], 'leave_comp', eid,
-                  json.dumps({'event_type': event_type, 'days': days, 'date': data['effective_date']}))
-        return jsonify({'ok': True, 'message': '调休已记录，余额已扣减'})
+            lang = (data.get('lang') or 'zh')
+            return jsonify({'ok': False,
+                            'error': _leave_err_msg(chk.get('codes', []), chk.get('reasons', []), lang),
+                            'codes': chk.get('codes', [])}), 403
+    # P21 R1: comp_leave 由「提交即生效」改为「创建 pending 事件」，审批通过才扣余额+落 T
     data['operator_id'] = session.get('username', 'unknown')
     data['payload'] = json.dumps({
         'days': data.get('days', 1),
@@ -2173,6 +2332,13 @@ def collection_submit():
         if dept:
             marks, discarded = _filter_marks_by_department(marks, dept)
             payload['marks'] = marks
+        # P21: NU（年假）由审批管理，采集提交不得覆盖——命中即拒绝整批（防部分写入）
+        from core.database import get_attendance_status
+        for m in marks:
+            eid = m.get('employee_id', '')
+            if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
+                return jsonify({'ok': False,
+                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {date}）'}), 403
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -2294,6 +2460,15 @@ def collection_edit(submission_id):
     if new_date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
 
+    # P21: NU（年假）由审批管理，编辑出勤收集不得覆盖——在任何 DB 修改之前拦截
+    if form_type == 'attendance':
+        from core.database import get_attendance_status
+        for m in (payload.get('marks') or []):
+            eid = m.get('employee_id', '')
+            if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'NU':
+                return jsonify({'ok': False,
+                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {new_date}）'}), 403
+
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
     merged_target = None  # B1b: 覆盖合并的目标行（attendance 分支需清理其旧 marks）
@@ -2332,10 +2507,12 @@ def collection_edit(submission_id):
     elif form_type == 'attendance':
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
+        # P21: 删除时跳过 NU 天（年假由审批管理，不随采集编辑被清掉）
+        from core.database import get_attendance_status as _att_st
         try:
             old_payload = json.loads(sub['payload'] or '{}')
             for m in (old_payload.get('marks') or []):
-                if m.get('employee_id'):
+                if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], old_date) != 'NU':
                     delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], old_date)
         except Exception:
             pass
@@ -2344,7 +2521,7 @@ def collection_edit(submission_id):
             try:
                 target_payload = json.loads(merged_target['payload'] or '{}')
                 for m in (target_payload.get('marks') or []):
-                    if m.get('employee_id'):
+                    if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], new_date) != 'NU':
                         delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
             except Exception:
                 pass
@@ -3336,7 +3513,12 @@ def toggle_attendance():
     date = data.get('date')
     status = data.get('status', 'P')  # 'P', 'A', 'L'
 
-    from core.database import save_attendance_override
+    # P21 R2: NU（年假）状态由审批自动写入，禁止手动设置或修改（只读）
+    from core.database import save_attendance_override, get_attendance_status
+    if status == 'NU':
+        return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
+    if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
+        return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
     save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
     _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status}))
     return jsonify({'ok': True})

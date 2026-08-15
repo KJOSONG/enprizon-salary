@@ -16,6 +16,14 @@ PRICES_UNDERGROUND = {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAWE': 4000
 PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000}
 PRICE_CRUSH = 300  # TZS/bag
 
+# P21 R4: 井下计件目标部门（注意 DB 实际值含空格 + 全角括号，匹配一律经 _norm_dept 规范化）
+PRODUCTION_UG_DEPT = 'Production TEAM （underground）'
+
+def _norm_dept(s):
+    """部门名规范化：去所有空格 + 全角括号归一为半角 + 大写（防历史数据漂移，禁止裸字符串比较）"""
+    import re
+    return re.sub(r'\s+', '', (s or '')).replace('（', '(').replace('）', ')').upper()
+
 # 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
 EAT = timezone(timedelta(hours=3))
 TODAY = datetime.now(EAT).date()
@@ -559,7 +567,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                     counted_pairs.add((eid, dt))
                     day_dates[eid].add(dt)
 
-    # 来源3：手动 P 覆盖（仅限当月）
+    # 来源3：手动 P 覆盖 / P21 R2: NU 年假覆盖（仅限当月，日薪轨道计入出勤天数）
     _month_prefixes = set()
     for d in list(attendance_data) + list(shift_data or []):
         dt = d.get('date', '')
@@ -569,7 +577,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
     if not _effective_prefixes and month_prefix:
         _effective_prefixes = {month_prefix}
     for key, status in att_overrides.items():
-        if status == 'P':
+        if status in ('P', 'NU'):
             parts = key.split('|')
             if len(parts) == 2:
                 eid, dt = parts[0], parts[1]
@@ -646,7 +654,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             db_path = os.path.join(data_folder, 'kilwa.db')
             if os.path.exists(db_path):
                 conn = sqlite3.connect(db_path)
-                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L')").fetchall():
+                # P21 R2: NU（年假）加入计件分配排除，剩余人员平分（总额守恒）
+                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
@@ -758,7 +767,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                if emp.get('default_type') == 'piece_underground':
+                # P21 M6/R4: 双条件——井下计件重定向 monthly 需「类型=piece_underground ∧ 部门=目标井下部门」
+                if emp.get('default_type') == 'piece_underground' \
+                        and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
@@ -785,7 +796,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 # P14.3: 非井下计件类型一律从井下计件排除。
                 # scoring 模式下井下工人已在 per_date_type 准备阶段被一次性改写为 monthly，
                 # 因此无需再按 scoring_employees 运行时逐个判断（该集合仅保留供评分奖金等下游使用）。
-                if dtype != 'piece_underground':
+                # P21 M6/R4: 双条件——部门不在目标井下部门的 piece_underground 同样排除（当前 bug 根修）
+                if dtype != 'piece_underground' \
+                        or _norm_dept(emp.get('department')) != _norm_dept(PRODUCTION_UG_DEPT):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
@@ -860,6 +873,13 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         else:
             present_dates[eid] |= dates
 
+    # P21 R2: NU 天（年假批准自动写入，只读）计入出勤——日薪/月薪轨道按天计薪
+    for (eid, dt), st in att_overrides.items():
+        if st == 'NU':
+            if month_prefix and dt[:7] != month_prefix:
+                continue
+            present_dates[eid].add(dt)
+
     # top department monthly: add 26 working days for full attendance
     if month_prefix:
         _y2, _m2 = int(month_prefix[:4]), int(month_prefix[5:7])
@@ -870,7 +890,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     present_dates[eid].add(f"{_y2}-{_m2:02d}-{d_day:02d}")
 
     final_dates = sorted(set(
-        list(d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date'))
+        list(d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date')) +
+        # P21 R2: 当月 NU 年假天并入迭代范围——保证日明细与薪资页对 day_rate/monthly 员工逐日一致
+        [dt for (_e, dt), st in att_overrides.items() if st == 'NU' and (not month_prefix or dt[:7] == month_prefix)]
     ))
 
     bonus_penalties = bonus_penalties or {}
@@ -892,17 +914,19 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
         for dt in _iter_dates:
             dtype = per_date_type.get(eid, {}).get(dt, eff_type)
-            absent = att_overrides.get((eid, dt)) in ('A', 'L')
+            absent = att_overrides.get((eid, dt)) in ('A', 'L')   # P21 R2: absent 保持不含 NU
+            nu = att_overrides.get((eid, dt)) == 'NU'             # P21 R2: 年假（计薪）
 
-            if dtype == 'piece_underground' and not absent:
+            # P21 R2: NU 天在计件轨道排除（同 L），在日薪/月薪轨道计入出勤天数
+            if dtype == 'piece_underground' and not absent and not nu:
                 pu += ug_daily.get(eid, {}).get(dt, 0)
-            elif dtype == 'piece_driller' and not absent:
+            elif dtype == 'piece_driller' and not absent and not nu:
                 pd_val += driller_daily.get(eid, {}).get(dt, 0)
-            elif dtype == 'piece_crush' and not absent:
+            elif dtype == 'piece_crush' and not absent and not nu:
                 cr_total += crush_daily.get(eid, {}).get(dt, 0)
-            elif dtype == 'day_rate' and not absent and dt in present_dates[eid]:
+            elif dtype == 'day_rate' and not absent and (dt in present_dates[eid] or nu):
                 dr_total += get_day_rate_for_date(overrides, emp_map, eid, dt)
-            elif dtype == 'monthly' and not absent and dt in present_dates[eid]:
+            elif dtype == 'monthly' and not absent and (dt in present_dates[eid] or nu):
                 monthly_present_count += 1
 
         # 月薪：实际出勤 >= 26天封顶为满勤基薪
@@ -1023,7 +1047,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             dbp = os.path.join(data_folder, 'kilwa.db')
             if os.path.exists(dbp):
                 conn = sqlite3.connect(dbp)
-                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L')").fetchall():
+                # P21 R2: NU（年假）加入计件分配排除（与 calculate_all C6 保持一致）
+                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
@@ -1121,7 +1146,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                if emp.get('default_type') == 'piece_underground':
+                # P21 M6/R4: 双条件（与 calculate_all 一致）
+                if emp.get('default_type') == 'piece_underground' \
+                        and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
@@ -1146,7 +1173,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
                 # P14.3: 非井下计件类型一律从井下计件排除（scoring 井下工人已前置改写为 monthly）
-                if dtype != 'piece_underground':
+                # P21 M6/R4: 双条件——部门不符同样排除（与 calculate_all 一致）
+                if dtype != 'piece_underground' \
+                        or _norm_dept(emp.get('department')) != _norm_dept(PRODUCTION_UG_DEPT):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
@@ -1217,7 +1246,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 _dd = _d.get('date', '')
                 if _dd: _p_month.add(_dd[:7])
             for (peid, pdt), st in att_all.items():
-                if peid == eid and st == 'P' and (eid, pdt) not in counted:
+                # P21 R2: NU 年假天计入日薪（与 calc_day_salary 来源3 一致）
+                if peid == eid and st in ('P', 'NU') and (eid, pdt) not in counted:
                     if _p_month and pdt[:7] not in _p_month: continue
                     date_counts[pdt] += 1
             if not date_counts: continue
@@ -1232,7 +1262,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             _dd = _d.get('date', '')
             if _dd: _p_month.add(_dd[:7])
         for (peid, pdt), st in att_all.items():
-            if st != 'P' or peid in ds_daily: continue
+            # P21 R2: NU 年假天同样补充进日薪明细
+            if st not in ('P', 'NU') or peid in ds_daily: continue
             if _ym and pdt[:7] != _ym: continue
             if _p_month and pdt[:7] not in _p_month: continue
             # R3: 逐日取基数（临时例外按日期区间生效）
@@ -1279,7 +1310,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if eid: present[eid].add(dt)
 
         for (peid, pdt), st in att_all.items():
-            if st == 'P' and (not _ym or pdt[:7] == _ym):
+            # P21 R2: NU 年假天计入月薪出勤天数（与 calculate_all present_dates 一致）
+            if st in ('P', 'NU') and (not _ym or pdt[:7] == _ym):
                 present[peid].add(pdt)
 
         # top department monthly: add 26 working days for full attendance
