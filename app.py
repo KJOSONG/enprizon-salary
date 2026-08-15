@@ -1027,6 +1027,27 @@ def _run_pipeline(month_filter=None):
 
     return True, f'已加载 {len(employees)} 名员工，应发 {result["total_gross"]:,} TZS'
 
+
+def _refresh_employees_cache():
+    """P23 R4: 写 DB 后刷新员工缓存 + 重算。
+
+    override_type 推导 + 互斥清零逻辑集中在 _run_pipeline，写操作后全量重建，
+    避免在端点内做副本同步造成逻辑漂移（save_override 旧手动同步即漂移例证）。
+    APP_STATE 未加载时返回 None。
+    """
+    if not APP_STATE.get('parsed'):
+        return None
+    _month = APP_STATE.get('month')
+    return _run_pipeline(month_filter=_month if _month != 'all' else None)
+
+
+def _sync_employee_cache(eid, fields):
+    """P23 R4: 轻量同步单个员工字段（不触发全量重建），用于纯展示字段。"""
+    for _emp in APP_STATE.get('employees', []):
+        if _emp.get('id') == eid:
+            _emp.update(fields)
+            break
+
 # ═══════════════════════════════════════════════════════════
 #  静态页面
 # ═══════════════════════════════════════════════════════════
@@ -1243,18 +1264,9 @@ def save_override():
         if not data.get('effective_from') and not data.get('start_date') and not data.get('end_date'):
             data['effective_from'] = APP_STATE.get('month', '')
         _save(app.config['DATA_FOLDER'], data)
-        # 同步内存状态（临时例外不改变 override_type）
-        for emp in APP_STATE.get('employees', []):
-            if emp['id'] == eid:
-                has_range = bool(data.get('start_date', '') or data.get('end_date', ''))
-                st = data.get('salary_type')
-                if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
-                    emp['override_type'] = st
-                if st == 'day_rate' and data.get('day_rate', 0) > 0:
-                    emp['day_rate'] = data['day_rate']
-                if st == 'monthly' and data.get('monthly_salary', 0) > 0:
-                    emp['monthly_salary'] = data['monthly_salary']
-                break
+        # P23 R4: 全量重建缓存（override_type 推导 + 互斥清零集中在 _run_pipeline，
+        # 不再在端点内手动同步，避免副本漂移）
+        _refresh_employees_cache()
     _audit('override_save', eid, json.dumps({
         'name': next((e['name'] for e in APP_STATE.get('employees',[]) if e['id']==eid), eid),
         'salary_type': data.get('salary_type'),
@@ -1269,6 +1281,7 @@ def remove_override():
     data = request.get_json()
     from core.exceptions import remove_override
     remove_override(app.config['DATA_FOLDER'], data.get('employee_id'), data.get('index'))
+    _refresh_employees_cache()  # P23 R4: 删除永久覆盖后 override_type 需重推导
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-temp-override', methods=['POST'])
@@ -1285,6 +1298,7 @@ def remove_temp_override():
     conn.execute("DELETE FROM overrides WHERE employee_id=? AND (start_date!='' OR end_date!='') AND (type IS NULL OR type != 'exclusion')", (eid,))
     conn.commit()
     conn.close()
+    _refresh_employees_cache()  # P23 R4
     _audit('remove_temp_override', eid)
     return jsonify({'ok': True})
 
@@ -1302,6 +1316,7 @@ def remove_override_by_id():
     conn.execute("DELETE FROM overrides WHERE id=?", (oid,))
     conn.commit()
     conn.close()
+    _refresh_employees_cache()  # P23 R4
     _audit('remove_override_by_id', str(oid))
     return jsonify({'ok': True})
 
@@ -1380,8 +1395,8 @@ def restore_employee_api():
     from core.database import restore_employee as _restore
     _restore(app.config['DATA_FOLDER'], eid)
     _audit('restore_employee', eid)
-    # 重新加载以获取完整员工数据
-    ok, msg = _run_pipeline(month_filter=APP_STATE.get('month') if APP_STATE.get('month') != 'all' else None)
+    # P23 R4: 恢复员工重新进缓存（补 dismiss 过滤的对称逻辑），并重算薪资
+    ok, msg = _refresh_employees_cache() or (None, None)
     return jsonify({'ok': True, 'message': msg})
 
 
@@ -1538,6 +1553,7 @@ def api_employee_annual_leave_override(employee_id):
                  (new_val, employee_id))
     conn.commit()
     conn.close()
+    _sync_employee_cache(employee_id, {'annual_leave_override': new_val})  # P23 R4 轻量同步
     log_audit(app.config['DATA_FOLDER'], 'annual_leave_override_toggle',
               employee_id, json.dumps({'override': new_val,
                   'operator': session.get('username', '')}))
@@ -1579,6 +1595,7 @@ def api_employee_update(employee_id):
             _build_db_ab_index(app.config['DATA_FOLDER'])  # 改名/别名即时生效（采集/出勤反查）
         log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,
                   json.dumps(data))
+    _refresh_employees_cache()  # P23 R4: 基本字段/月薪基数变更后全量重建
     return jsonify({'ok': ok})
 
 @app.route('/api/employees/<employee_id>/salary-type', methods=['POST'])
@@ -1621,6 +1638,7 @@ def api_employee_salary_type(employee_id):
     log_audit(app.config['DATA_FOLDER'], 'employee_salary_type', employee_id,
               json.dumps({'salary_type': st, 'day_rate': day_rate,
                           'monthly_salary': monthly_salary}))
+    _refresh_employees_cache()  # P23 R4: 核心修复点——薪资类型/基数变更后立即重算
     return jsonify({'ok': True})
 
 # ── P7: 员工头像 ─────────────────────────────
@@ -1666,6 +1684,7 @@ def api_employee_avatar_upload():
     file.save(os.path.join(avatar_dir, new_name))
     avatar_path = f'static/avatars/{new_name}'
     update_employee_fields(app.config['DATA_FOLDER'], eid, {'avatar_path': avatar_path})
+    _sync_employee_cache(eid, {'avatar_path': avatar_path})  # P23 R4 纯展示字段轻量同步
     log_audit(app.config['DATA_FOLDER'], 'employee_avatar', eid,
               json.dumps({'avatar_path': avatar_path}))
     return jsonify({'ok': True, 'avatar_path': avatar_path})
@@ -1689,6 +1708,7 @@ def api_employee_avatar_delete():
             if os.path.exists(fpath):
                 os.remove(fpath)
     update_employee_fields(app.config['DATA_FOLDER'], eid, {'avatar_path': ''})
+    _sync_employee_cache(eid, {'avatar_path': ''})  # P23 R4 纯展示字段轻量同步
     log_audit(app.config['DATA_FOLDER'], 'employee_avatar_delete', eid,
               json.dumps({'avatar_path': ''}))
     return jsonify({'ok': True})
@@ -1716,6 +1736,18 @@ def oa_create_event():
     if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
     data['operator_id'] = session.get('username', 'unknown')
+    # P23 R2: 加班事件校验——必填 date/start_time/end_time，起止时间后端重算合法
+    if data.get('event_type') == 'overtime':
+        from core.database import _calc_overtime_hours
+        _pl = data.get('payload') or {}
+        if not (_pl.get('date') and _pl.get('start_time') and _pl.get('end_time')):
+            return jsonify({'ok': False, 'error': '加班申请缺少日期或起止时间'}), 400
+        _h = _calc_overtime_hours(_pl.get('start_time'), _pl.get('end_time'))
+        if _h <= 0:
+            return jsonify({'ok': False, 'error': '加班起止时间无效或超出 12 小时上限'}), 400
+        # 以后端计算为准（防前端伪造），同时保证 hours>0
+        _pl['hours'] = _h
+        data['payload'] = _pl
     # P13: 按事件类型取指定审批人写入（未设定为 ''）
     from core.database import get_approver_for_event
     data['approver'] = get_approver_for_event(app.config['DATA_FOLDER'], data.get('event_type', ''))
@@ -1788,6 +1820,7 @@ def oa_approve_event(event_id):
         return jsonify({'ok': False, 'error': '事件状态已变化，请刷新后重试'}), 409
     log_audit(app.config['DATA_FOLDER'], 'oa_approve',
               event['employee_id'], json.dumps({'event_id': event_id}))
+    _refresh_employees_cache()  # P23 R2/R4: 批准（加班落库/入职/调岗）后薪资缓存即时生效
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
@@ -1842,6 +1875,7 @@ def oa_revoke_event(event_id):
         return jsonify({'ok': False, 'error': '撤销失败（事件可能已处理）'}), 400
     log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
               json.dumps({'event_id': event_id, 'event_type': event['event_type']}))
+    _refresh_employees_cache()  # P23 R2: 撤销加班/请假后薪资缓存即时回退
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
@@ -1911,7 +1945,7 @@ def oa_edit_event(event_id):
 
 # ── P13: 审批人路由（super_admin 后台指定） ─────────────
 
-ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave')
+ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave', 'overtime')
 
 # ── P21 M7/R5: 年假资格错误双语（后端无 i18n 模块，硬编码两套文案） ──
 _LEAVE_ERR_MSG = {

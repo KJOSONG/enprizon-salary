@@ -432,6 +432,31 @@
   </div>
 </div>
 
+<!-- ─── P23: 加班申请（独立子页） ─── -->
+<div class="page" id="page-employees-overtime">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;" data-i18n="nav_employees_overtime">加班申请</h2>
+      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
+      <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="otEmpId" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="otEmpEid"></div>
+      <div id="otPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
+      <div class="form-row"><label data-i18n="overtime_date">加班日期</label><input type="date" id="otDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="overtime_start">开始时间</label><input type="time" id="otStart" onchange="calcOtHours()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="overtime_end">结束时间</label><input type="time" id="otEnd" onchange="calcOtHours()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="overtime_hours">加班小时数</label><input type="text" id="otHours" readonly data-i18n-placeholder="overtime_calc_hint" placeholder="按起止时间自动计算" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="overtime_note">备注</label><input type="text" id="otNote" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;" data-i18n="overtime_cross_day">结束早于开始视为次日</div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn-primary" onclick="submitOvertime()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
+      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+    <div id="otMsg" style="margin-top:8px;font-size:12px;"></div>
+  </div>
+</div>
+
 <!-- ─── P12: 调岗申请（独立子页） ─── -->
 <div class="page" id="page-employees-transfer">
   <div class="card">
@@ -495,7 +520,7 @@
           <h2 style="margin-bottom:0;font-size:14px;" data-i18n="emp_basic_info">基本信息</h2>
         </div>
         <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
-          <img id="pfAvatar" alt="" style="width:96px;height:120px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);">
+          <img id="pfAvatar" alt="" onclick="openAvatarPreview()" data-i18n-title="avatar_preview_title" title="点击放大预览" style="width:96px;height:120px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);cursor:pointer;">
           <div style="display:flex;flex-direction:column;gap:4px;">
             <button class="nav-btn" onclick="document.getElementById('pfAvatarFile').click()" style="font-size:11px;" data-i18n="avatar_upload">📷 上传头像</button>
             <input type="file" id="pfAvatarFile" accept="image/png,image/jpeg" style="display:none;" onchange="uploadEmployeeAvatar()">
@@ -561,6 +586,17 @@
       <button class="btn-primary" onclick="confirmPicker()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
       <button class="btn-cancel" onclick="document.getElementById('empPickerModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ P23 R1: 头像大图预览 ═══ -->
+<div class="modal-overlay" id="avatarPreviewModal" style="display:none;" onclick="if(event.target===this)closeAvatarPreview()">
+  <div class="modal" style="max-width:560px;width:92vw;text-align:center;padding:0;">
+    <div class="modal-header" style="justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;font-size:14px;" id="avatarPreviewName"></h3>
+      <button onclick="closeAvatarPreview()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <img id="avatarPreviewImg" alt="" style="max-width:100%;max-height:72vh;object-fit:contain;display:block;margin:0 auto;background:var(--bg-secondary);">
   </div>
 </div>
 
@@ -760,6 +796,15 @@
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_sick_days">天数/年</label><input type="number" id="cfg_sick_days" class="cfg-input" data-key="sick_leave_days" step="1" onchange="saveConfig()"></div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_sick_desc">新员工病假年额度（默认14），修改后新扣减按新额度</p>
     </div>
+    <!-- P23 R2: 加班费参数 -->
+    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+      <h3 style="margin-bottom:8px;font-size:13px;">🕒 <span data-i18n="settings_overtime_title">加班费参数</span></h3>
+      <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;" data-i18n="settings_overtime_base">加班基数(TZS)</label><input type="number" id="cfg_ot_base" class="cfg-input" step="1" onchange="saveConfig()"></div>
+      <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;" data-i18n="settings_overtime_days">月工作天数</label><input type="number" id="cfg_ot_days" class="cfg-input" step="1" onchange="saveConfig()"></div>
+      <div class="form-row" style="margin-bottom:8px;"><label style="min-width:90px;" data-i18n="settings_overtime_hpd">日工作小时</label><input type="number" id="cfg_ot_hpd" class="cfg-input" step="1" onchange="saveConfig()"></div>
+      <div class="form-row"><label style="min-width:90px;" data-i18n="settings_overtime_rate">加班倍率</label><input type="number" id="cfg_ot_rate" class="cfg-input" step="0.1" onchange="saveConfig()"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">加班费 = 小时数 × 基数 / 月工作天数 / 日工作小时 × 倍率</p>
+    </div>
     <!-- P14: 保存按钮（onchange 只标记，显式保存提交） -->
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
       <button id="cfgSaveBtn" class="btn-primary admin-only" onclick="doSaveConfig()" style="display:none;padding:8px 22px;font-size:13px;font-weight:600;" data-i18n="btn_save" data-perm="system:view">💾 保存</button>
@@ -790,21 +835,7 @@
       <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default" data-perm="system:view">↺ 恢复默认</button>
     </div>
   </div>
-
-  <!-- ═══ 审计日志 ═══ -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="audit_title">审计日志</h2>
-      <button class="nav-btn" onclick="loadAuditLog()" style="font-size:11px;padding:4px 10px;" data-i18n="audit_refresh">↻ 刷新</button>
-    </div>
-    <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
-      <table class="data-table" style="font-size:11px;">
-        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
-        <tbody id="auditLogBody"></tbody>
-      </table>
-    </div>
   </div>
-</div>
 
 <!-- ═══ 用户管理：新增用户弹窗 ═══ -->
 <div class="modal-overlay" id="createUserModal" style="display:none;">
@@ -1081,6 +1112,19 @@
       </div>
     </div>
   </div>
+  <!-- ═══ P23 R3: 审计日志（移入用户权限页，与双 Tab 平级） ═══ -->
+  <div class="card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="audit_title">审计日志</h2>
+      <button class="nav-btn" onclick="loadAuditLog()" style="font-size:11px;padding:4px 10px;" data-i18n="audit_refresh">↻ 刷新</button>
+    </div>
+    <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+      <table class="data-table" style="font-size:11px;">
+        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
+        <tbody id="auditLogBody"></tbody>
+      </table>
+    </div>
+  </div>
   <!-- ══ 用户编辑抽屉 ══ -->
   <div class="drawer-overlay" id="userDrawerOverlay" style="display:none;" onclick="closeUserDrawer()"></div>
   <div class="drawer" id="userDrawer" style="display:none;">
@@ -1174,6 +1218,7 @@
         <option value="transfer" data-i18n="event_transfer">调岗</option>
         <option value="dismiss" data-i18n="event_dismiss">离职</option>
         <option value="leave" data-i18n="event_leave">请假</option>
+        <option value="overtime" data-i18n="event_overtime">加班</option>
       </select>
       <select id="routeApprover" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;min-width:160px;">
         <option value="">—</option>
@@ -1734,7 +1779,7 @@ function switchPage(name) {
 // 模块/子页配置（P18 阶段2: perm 标注所需细粒度权限,无权限不渲染/拦截）
 const MODULES = {
   dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null, perm: 'dashboard:view' },
-  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave'], perm: 'employees:view' },
+  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave','overtime'], perm: 'employees:view' },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null, perm: 'attendance:view' },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'], perm: 'salary:view' },
   collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'], perm: 'production:edit' },
@@ -1751,6 +1796,7 @@ const SUBPAGE_TARGETS = {
   // P13: 档案独立页保留路由（不再出现在侧栏），请假为独立子页
   'employees/profile': 'employees-profile',
   'employees/leave':   'employees-leave',
+  'employees/overtime':'employees-overtime',
   'salary/table':      'salary',
   'salary/daily':      'dailywages',
   'attendance':        'attendance',
@@ -1894,7 +1940,7 @@ function showTargetPage(module, subPage) {
   if (targetId === 'attendance') loadAttendance();
   if (targetId === 'dailywages') loadDailyWages();
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
-  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadUserList(); loadGroupsAdmin(); loadCaptainsAdmin(); }
+  if (targetId === 'settings') { loadConfig(); loadUserList(); loadGroupsAdmin(); loadCaptainsAdmin(); }
   if (targetId === 'employees') {
     renderEmployeeTable();
   }
@@ -1909,9 +1955,11 @@ function showTargetPage(module, subPage) {
   if (targetId === 'employees-transfer') fillApplyDepts();
   // P13: 请假子页进入时确保 typeahead 已绑定
   if (targetId === 'employees-leave') initEmpTypeahead('leaveEmpId', 'leaveEmpEid', 'leavePick');
+  // P23: 加班申请子页进入时确保 typeahead 已绑定
+  if (targetId === 'employees-overtime') initEmpTypeahead('otEmpId', 'otEmpEid', 'otPick');
 
   // P4: 权限管理页面加载
-  if (module === 'system' && subPage === 'users') { loadPermissionsPage(); loadApprovalRoutes(); }
+  if (module === 'system' && subPage === 'users') { loadPermissionsPage(); loadApprovalRoutes(); loadAuditLog(); }  // P23 R3: 审计日志随权限页加载
   // P4: 表单管理页面加载
   if (module === 'system' && subPage === 'forms') loadFormSchemas();
   // P5: 归档页面加载
@@ -3038,6 +3086,56 @@ function calcAge(dob) {
 }
 
 /* ── P7: 头像上传/删除 ── */
+/* P23 R1: 图片压缩（降采样 1024px + JPEG 迭代降质量至 ≤maxBytes）
+   PNG 透明垫白防转 JPEG 黑底；返回 {blob,width,height}，最低档仍超返回 null */
+async function compressImage(file, maxBytes = 2 * 1024 * 1024) {
+  const img = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('decode'));
+      image.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('read'));
+    reader.readAsDataURL(file);
+  });
+  const MAX = 1024;
+  let w = img.width, h = img.height;
+  if (w > MAX || h > MAX) {
+    const ratio = Math.min(MAX / w, MAX / h);
+    w = Math.max(1, Math.round(w * ratio));
+    h = Math.max(1, Math.round(h * ratio));
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  const qualities = [0.85, 0.7, 0.5, 0.3, 0.2];
+  for (const q of qualities) {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', q));
+    if (blob && blob.size <= maxBytes) return { blob, width: w, height: h };
+  }
+  return null;
+}
+
+/* P23 R1: 头像大图预览 */
+function openAvatarPreview() {
+  const img = document.getElementById('pfAvatar');
+  const src = img ? img.getAttribute('src') : '';
+  if (!src) { showToast(t('avatar_no_image'), 'error'); return; }
+  document.getElementById('avatarPreviewImg').src = src;
+  const nameEl = document.getElementById('avatarPreviewName');
+  if (nameEl) nameEl.textContent = (document.getElementById('pfName') || {}).textContent || '';
+  document.getElementById('avatarPreviewModal').style.display = 'flex';
+}
+function closeAvatarPreview() {
+  const m = document.getElementById('avatarPreviewModal');
+  if (m) m.style.display = 'none';
+}
+
 async function uploadEmployeeAvatar() {
   const fileInput = document.getElementById('pfAvatarFile');
   const file = fileInput.files[0];
@@ -3046,8 +3144,16 @@ async function uploadEmployeeAvatar() {
   if (!eid) return;
   const fd = new FormData();
   fd.append('employee_id', eid);
-  fd.append('file', file);
   try {
+    if (file.size > 2 * 1024 * 1024) {
+      // P23 R1: 大图前端压缩（后端 2MB 校验兜底）
+      showToast(t('avatar_compressing'), 'info');
+      const out = await compressImage(file, 2 * 1024 * 1024);
+      if (!out) { showToast(t('avatar_compress_fail'), 'error'); fileInput.value = ''; return; }
+      fd.append('file', out.blob, eid + '.jpg');
+    } else {
+      fd.append('file', file);
+    }
     const res = await authFetch(api('/api/employees/avatar'), { method: 'POST', body: fd });
     const data = await res.json();
     if (data.ok) { showToast(t('avatar_updated')); showEmployeeProfile(eid); }
@@ -3072,7 +3178,7 @@ async function deleteEmployeeAvatar() {
 }
 
 /* ── P13: 入职头像（base64 预览 → hidden 存 dataURL） ── */
-function handleHireAvatar(input) {
+async function handleHireAvatar(input) {
   const file = input.files[0];
   const preview = document.getElementById('hireAvatarPreview');
   const hidden = document.getElementById('hireAvatarData');
@@ -3083,18 +3189,26 @@ function handleHireAvatar(input) {
     input.value = '';
     return;
   }
-  if (file.size > 2 * 1024 * 1024) {
-    showToast(t('err_avatar_size'), 'error');
-    input.value = '';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    hidden.value = e.target.result;
-    if (preview) { preview.src = e.target.result; preview.style.display = 'block'; }
+  const setPreview = (dataUrl) => {
+    hidden.value = dataUrl;
+    if (preview) { preview.src = dataUrl; preview.style.display = 'block'; }
     if (clearBtn) clearBtn.style.display = 'inline-block';
   };
-  reader.readAsDataURL(file);
+  try {
+    // P23 R1: 大图先压缩（base64 比原文件大 ~33%，压到 ≤1.5MB 保证 dataURL ≤2MB）
+    if (file.size > 1.5 * 1024 * 1024) {
+      showToast(t('avatar_compressing'), 'info');
+      const out = await compressImage(file, 1.5 * 1024 * 1024);
+      if (!out) { showToast(t('avatar_compress_fail'), 'error'); input.value = ''; return; }
+      const reader = new FileReader();
+      reader.onload = (e) => setPreview(e.target.result);
+      reader.readAsDataURL(out.blob);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => setPreview(e.target.result);
+      reader.readAsDataURL(file);
+    }
+  } catch(e) { showToast(t('upload_fail'), 'error'); input.value = ''; }
 }
 
 function clearHireAvatar() {
@@ -4809,6 +4923,15 @@ async function loadConfig() {
     if (th) th.value = cfg.scoring_nh_threshold != null ? cfg.scoring_nh_threshold : 600;
     const pr = document.getElementById('cfg_nh_price');
     if (pr) pr.value = cfg.scoring_nh_price != null ? cfg.scoring_nh_price : 20000;
+    // P23 R2: 加班费参数
+    const otBase = document.getElementById('cfg_ot_base');
+    if (otBase) otBase.value = cfg.overtime_base != null ? cfg.overtime_base : 400000;
+    const otDays = document.getElementById('cfg_ot_days');
+    if (otDays) otDays.value = cfg.overtime_work_days != null ? cfg.overtime_work_days : 26;
+    const otHpd = document.getElementById('cfg_ot_hpd');
+    if (otHpd) otHpd.value = cfg.overtime_hours_per_day != null ? cfg.overtime_hours_per_day : 8;
+    const otRate = document.getElementById('cfg_ot_rate');
+    if (otRate) otRate.value = cfg.overtime_rate != null ? cfg.overtime_rate : 1.5;
   } catch(e) {}
 }
 
@@ -4853,6 +4976,11 @@ async function doSaveConfig() {
     // P15: 评分奖金池参数（0 合法，不兜底吞值）
     scoring_nh_threshold: _num('cfg_nh_threshold', 600),
     scoring_nh_price: _num('cfg_nh_price', 20000),
+    // P23 R2: 加班费参数
+    overtime_base: _num('cfg_ot_base', 400000),
+    overtime_work_days: _num('cfg_ot_days', 26),
+    overtime_hours_per_day: _num('cfg_ot_hpd', 8),
+    overtime_rate: _num('cfg_ot_rate', 1.5),
   };
   const res = await authFetch(api('/config'), {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -5042,7 +5170,8 @@ async function loadAuditLog() {
 const EVENT_LABELS_MAP = {
   hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
   salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement',
-  sick_leave: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave'
+  sick_leave: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave',
+  overtime: 'event_overtime'   // P23 R2
 };
 
 /* P13: 审批详情字段中文标签 + 值映射 */
@@ -5054,6 +5183,8 @@ const OA_PAYLOAD_LABELS = {
   monthly_salary: 'oa_field_monthly_salary', team_id: 'oa_field_team_id', custom_number: 'oa_field_custom_number',
   new_department: 'oa_field_new_department', new_position: 'oa_field_new_position', reason: 'oa_field_reason',
   days: 'oa_field_days', note: 'oa_field_note', avatar_data: 'oa_field_avatar_data',
+  date: 'oa_field_overtime_date', start_time: 'oa_field_start_time',   // P23 R2: 加班字段
+  end_time: 'oa_field_end_time', hours: 'oa_field_hours',
 };
 const OA_GENDER_MAP = { male: 'emp_gender_male', female: 'emp_gender_female', other: 'emp_gender_other' };
 const OA_SALARY_TYPE_MAP = {
@@ -5147,6 +5278,7 @@ async function oaApprove(eventId) {
     showToast(t('approved_label'));
     loadOAPending();
     loadNotifCount();
+    recalculate();  // P23 R2: 加班/入职等批准后薪资即时生效（请假撤销 recalc 已有先例）
   } else {
     showToast(data.error || t('op_fail'), 'error');
   }
@@ -5426,6 +5558,56 @@ async function submitLeave() {
     } else {
       msg.textContent = data.error || t('leave_submit_fail');
       msg.style.color = 'var(--danger)';
+    }
+  } catch (e) { msg.textContent = t('err_network_prefix') + e.message; msg.style.color = 'var(--danger)'; }
+}
+
+/* ── P23 R2: 加班申请 ── */
+function calcOtHours() {
+  // 与后端 _calc_overtime_hours 同一套规则：0.5h 向下取整、end<start 跨天、上限 12h
+  const st = document.getElementById('otStart').value;
+  const et = document.getElementById('otEnd').value;
+  const out = document.getElementById('otHours');
+  if (!st || !et) { out.value = ''; return; }
+  const [sh, sm] = st.split(':').map(Number);
+  const [eh, em] = et.split(':').map(Number);
+  let diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff < 0) diff += 24 * 60;  // 跨天
+  const h = diff / 60;
+  if (h <= 0 || h > 12) { out.value = ''; return; }
+  out.value = (Math.floor(h * 2) / 2).toFixed(1);
+}
+
+async function submitOvertime() {
+  const eid = document.getElementById('otEmpEid').value || document.getElementById('otEmpId').value.trim();
+  const date = document.getElementById('otDate').value;
+  const st = document.getElementById('otStart').value;
+  const et = document.getElementById('otEnd').value;
+  const note = document.getElementById('otNote').value.trim();
+  const msg = document.getElementById('otMsg');
+  if (!eid || !date) { msg.textContent = t('leave_pick_emp_date'); msg.style.color = 'var(--danger)'; return; }
+  calcOtHours();
+  const hours = parseFloat(document.getElementById('otHours').value || '0');
+  if (!st || !et || !hours || hours <= 0) { msg.textContent = t('err_overtime_time'); msg.style.color = 'var(--danger)'; return; }
+  if (hours > 12) { msg.textContent = t('err_overtime_hours'); msg.style.color = 'var(--danger)'; return; }
+  try {
+    const res = await authFetch(api('/api/oa/events'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_type: 'overtime', employee_id: eid, effective_date: date,
+                             payload: { date, start_time: st, end_time: et, hours, note } }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msg.textContent = t('leave_submit_ok'); msg.style.color = 'var(--success)';
+      // 成功后跳 OA 待审（仿入职提交）
+      document.getElementById('otEmpId').value = ''; document.getElementById('otEmpEid').value = '';
+      document.getElementById('otPick').innerHTML = ''; document.getElementById('otPick').style.display = 'none';
+      document.getElementById('otDate').value = ''; document.getElementById('otStart').value = '';
+      document.getElementById('otEnd').value = ''; document.getElementById('otHours').value = '';
+      document.getElementById('otNote').value = '';
+      navigate('oa', 'pending');
+    } else {
+      msg.textContent = data.error || t('leave_submit_fail'); msg.style.color = 'var(--danger)';
     }
   } catch (e) { msg.textContent = t('err_network_prefix') + e.message; msg.style.color = 'var(--danger)'; }
 }

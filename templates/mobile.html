@@ -776,7 +776,7 @@
     if(e.custom_number) idTags.push('<span class="profile-tag profile-tag--primary">#'+esc(e.custom_number)+'</span>');
     if(e.alias) idTags.push('<span class="profile-tag">'+esc(e.alias)+'</span>');
 
-    let html = '<div class="profile-header"><div class="profile-avatar">'+(e.avatar_path?('<img src="'+esc(e.avatar_path)+'">'):esc((e.name||'?').slice(0,1)))+'</div>'
+    let html = '<div class="profile-header"><div class="profile-avatar"'+(e.avatar_path?' onclick="openMobileAvatarPreview()"': '')+'>'+(e.avatar_path?('<img src="'+esc(e.avatar_path)+'">'):esc((e.name||'?').slice(0,1)))+'</div>'
       + '<div class="profile-name">'+esc(e.name||'')+'</div>'
       + (idTags.length?'<div class="profile-id-tags">'+idTags.join('')+'</div>':'')
       + '</div>';
@@ -808,6 +808,7 @@
     // 操作
     html += '<div class="profile-actions">'
       + '<button class="btn" onclick="openLeave(\''+esc(e.id)+'\')">'+t('leave_apply')+'</button>'
+      + '<button class="btn" onclick="openOvertime(\''+esc(e.id)+'\')">'+t('event_overtime')+'</button>'
       + (canEdit?'<button class="btn btn-primary" onclick="openEditEmp(\''+esc(e.id)+'\')">'+t('edit_profile')+'</button>':'')
       + '</div>';
     document.getElementById('emp-detail').innerHTML = html;
@@ -872,7 +873,7 @@
     }).catch(()=>{ el.innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('load_fail')+'</div><button class="state-box__action" onclick="loadOA(\''+mode+'\')">'+t('retry')+'</button></div>'; });
   }
   function oaCard(ev, mode){
-    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary') };
+    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), overtime:t('event_overtime') };
     let summary='';
     try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : (p.new_position? t('oa_transfer')+': '+p.new_position : '')); } catch(e){}
     // C3/C4: 点击整张卡片弹出预览（sheet）
@@ -907,11 +908,11 @@
   }
 
   // C3/C4: OA 条目详情预览（pending 可批准/驳回；history 只读）
-  const OA_PREVIEW_FLD = { name:'oa_field_name', department:'oa_field_department', position:'oa_field_position', gender:'oa_field_gender', date_of_birth:'oa_field_date_of_birth', skill_level:'oa_field_skill_level', nida_number:'oa_field_nida_number', nssf_number:'oa_field_nssf_number', phone:'oa_field_phone', bank_name:'oa_field_bank_name', bank_account:'oa_field_bank_account', bank_owner:'oa_field_bank_owner', salary_type:'oa_field_salary_type', day_rate:'oa_field_day_rate', monthly_salary:'oa_field_monthly_salary', team_id:'oa_field_team_id', custom_number:'oa_field_custom_number', new_department:'oa_field_new_department', new_position:'oa_field_new_position', reason:'oa_field_reason', days:'oa_field_days', note:'oa_field_note' };
+  const OA_PREVIEW_FLD = { name:'oa_field_name', department:'oa_field_department', position:'oa_field_position', gender:'oa_field_gender', date_of_birth:'oa_field_date_of_birth', skill_level:'oa_field_skill_level', nida_number:'oa_field_nida_number', nssf_number:'oa_field_nssf_number', phone:'oa_field_phone', bank_name:'oa_field_bank_name', bank_account:'oa_field_bank_account', bank_owner:'oa_field_bank_owner', salary_type:'oa_field_salary_type', day_rate:'oa_field_day_rate', monthly_salary:'oa_field_monthly_salary', team_id:'oa_field_team_id', custom_number:'oa_field_custom_number', new_department:'oa_field_new_department', new_position:'oa_field_new_position', reason:'oa_field_reason', days:'oa_field_days', note:'oa_field_note', date:'oa_field_overtime_date', start_time:'oa_field_start_time', end_time:'oa_field_end_time', hours:'oa_field_hours' };
   function oaPreview(id, mode){
     const ev = (STATE._oaEvents||[]).find(x=>String(x.id)===String(id));
     if(!ev) return;
-    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary') };
+    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), overtime:t('event_overtime') };
     const st = ev.status==='approved';
     let html = '<div class="oa-card" style="margin-bottom:12px;pointer-events:none;"><div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div></div>';
     // 固定区
@@ -948,6 +949,15 @@
   }
 
   // ── 请假 ──
+  // P23 R1: 档案头像点击 → sheet 大图预览
+  function openMobileAvatarPreview(){
+    const img = document.querySelector('#emp-detail .profile-avatar img');
+    if(!img || !img.getAttribute('src')){ toast(t('avatar_no_image'),'warning'); return; }
+    const name = ((document.querySelector('#emp-detail .profile-name')||{}).textContent||'').trim();
+    const body = document.getElementById('sheet-body');
+    body.innerHTML = '<img src="'+esc(img.getAttribute('src'))+'" style="width:100%;border-radius:8px;">';
+    openSheet(name || t('emp_profile'), body);
+  }
   function openLeave(empId){
     const body = document.getElementById('sheet-body');
     body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="casual" selected>'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick_leave">'+t('sick_leave')+'</option></select></div>'
@@ -1026,6 +1036,7 @@
       + '<button class="quick-action-btn" onclick="openTransferApply()"><span class="qa-icon">+</span><span>'+t('oa_transfer')+'</span></button>'
       + '<button class="quick-action-btn" onclick="openQuickLeave()"><span class="qa-icon">+</span><span>'+t('leave_apply')+'</span></button>'
       + '<button class="quick-action-btn" onclick="openDismissApply()"><span class="qa-icon">+</span><span>'+t('oa_dismiss')+'</span></button>'
+      + '<button class="quick-action-btn" onclick="openQuickOvertime()"><span class="qa-icon">+</span><span>'+t('event_overtime')+'</span></button>'
       + '</div>'
       + '<div class="section-title">'+t('col_history')+'</div>'
       + '<div id="col-his-filter"></div>'
@@ -1550,6 +1561,47 @@
   // 采集页快捷操作四宫格入口(需求 1b)
   // P18 阶段2: OA 申请入口按 oa:view 权限守卫
   function openQuickLeave(){ if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }
+  // ── P23 R2: 加班申请（移动端） ──
+  function quickOvertime(){
+    const body=document.getElementById('sheet-body');
+    const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
+    body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qot-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openOvertime(document.getElementById(\'qot-emp\').value)">'+t('next')+'</button>';
+    openSheet(t('overtime_apply'), body);
+  }
+  function openQuickOvertime(){ if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
+  function openOvertime(empId){
+    const body=document.getElementById('sheet-body');
+    body.innerHTML='<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"></div>'
+      + '<div class="field"><label class="field__label">'+t('overtime_start')+'</label><input type="time" id="ot-start" onchange="calcMobOtHours()"></div>'
+      + '<div class="field"><label class="field__label">'+t('overtime_end')+'</label><input type="time" id="ot-end" onchange="calcMobOtHours()"></div>'
+      + '<div class="field"><label class="field__label">'+t('overtime_hours')+'</label><input type="text" id="ot-hours" readonly placeholder="'+t('overtime_calc_hint')+'" style="color:var(--muted-foreground);"></div>'
+      + '<div class="field"><label class="field__label">'+t('overtime_note')+'</label><textarea id="ot-note" rows="2"></textarea></div>'
+      + '<button class="btn btn-primary btn-block" onclick="submitOvertime(\''+esc(empId)+'\')">'+t('submit')+'</button>';
+    openSheet(t('overtime_apply'), body);
+  }
+  function calcMobOtHours(){
+    const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
+    const out=document.getElementById('ot-hours');
+    if(!st||!et){ out.value=''; return; }
+    const [sh,sm]=st.split(':').map(Number), [eh,em]=et.split(':').map(Number);
+    let diff=(eh*60+em)-(sh*60+sm); if(diff<0) diff+=24*60;
+    const h=diff/60;
+    if(h<=0||h>12){ out.value=''; return; }
+    out.value=(Math.floor(h*2)/2).toFixed(1);
+  }
+  function submitOvertime(empId){
+    const date=document.getElementById('ot-date').value;
+    const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
+    const note=(document.getElementById('ot-note').value||'').trim();
+    if(!empId||!date){ toast(t('fill_date'),'warning'); return; }
+    calcMobOtHours();
+    const hours=parseFloat(document.getElementById('ot-hours').value||'0');
+    if(!st||!et||!hours){ toast(t('err_overtime_time'),'warning'); return; }
+    if(hours>12){ toast(t('err_overtime_hours'),'warning'); return; }
+    api('/api/oa/events',{ method:'POST', body:JSON.stringify({event_type:'overtime', employee_id:empId, effective_date:date, payload:{date, start_time:st, end_time:et, hours, note}}) }).then(r=>{
+      if(r.ok){ toast(t('submitted')); closeSheet(); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
+    }).catch(()=>toast(t('fail'),'error'));
+  }
   // ── 三个 OA 申请页(需求 4): Sheet 表单,POST /api/oa/events ──
   function oaFormMsg(ok, msg){ const el=document.getElementById('oaFormMsg'); if(!el) return; el.textContent=msg||''; el.className='form-message visible '+(ok?'success':'error'); }
   function oaFormHTML(html){ const body=document.getElementById('sheet-body'); body.innerHTML=html+'<div class="form-message" id="oaFormMsg"></div>'; }
