@@ -767,7 +767,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                if emp.get('default_type') == 'piece_underground':
+                # P21 M6/R4: 双条件——井下计件重定向 monthly 需「类型=piece_underground ∧ 部门=目标井下部门」
+                if emp.get('default_type') == 'piece_underground' \
+                        and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
@@ -794,7 +796,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 # P14.3: 非井下计件类型一律从井下计件排除。
                 # scoring 模式下井下工人已在 per_date_type 准备阶段被一次性改写为 monthly，
                 # 因此无需再按 scoring_employees 运行时逐个判断（该集合仅保留供评分奖金等下游使用）。
-                if dtype != 'piece_underground':
+                # P21 M6/R4: 双条件——部门不在目标井下部门的 piece_underground 同样排除（当前 bug 根修）
+                if dtype != 'piece_underground' \
+                        or _norm_dept(emp.get('department')) != _norm_dept(PRODUCTION_UG_DEPT):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
@@ -1142,7 +1146,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                if emp.get('default_type') == 'piece_underground':
+                # P21 M6/R4: 双条件（与 calculate_all 一致）
+                if emp.get('default_type') == 'piece_underground' \
+                        and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
@@ -1167,7 +1173,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for dt in all_shift_dates:
                 dtype = per_date_type.get(eid, {}).get(dt, perm_type)
                 # P14.3: 非井下计件类型一律从井下计件排除（scoring 井下工人已前置改写为 monthly）
-                if dtype != 'piece_underground':
+                # P21 M6/R4: 双条件——部门不符同样排除（与 calculate_all 一致）
+                if dtype != 'piece_underground' \
+                        or _norm_dept(emp.get('department')) != _norm_dept(PRODUCTION_UG_DEPT):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
