@@ -1754,20 +1754,21 @@ def oa_approve_event(event_id):
     # P13: 自审限制——super_admin 例外，可批准自己提交的事件
     if event['operator_id'] == username and session.get('role') != 'super_admin':
         return jsonify({'ok': False, 'error': '不能批准自己提交的事件'}), 400
+    # P21 R1: 先落库（含余额检查），成功后再置 approved——
+    # 请假余额不足时返回 400 且不置 approved（避免出现 approved 但余额未扣/出勤未落的脏状态）
+    try:
+        apply_approved_event(app.config['DATA_FOLDER'], event)
+    except Exception as e:
+        log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
+                  json.dumps({'event_id': event_id, 'event_type': event['event_type'],
+                              'error': str(e)}))
+        return jsonify({'ok': False, 'error': f'批准失败: {str(e)}'}), 400
     ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
-    if ok:
-        # P8: 审批通过后落员工主档（hire/transfer/dismiss/resign），与 overrides 推导叠加
-        try:
-            apply_approved_event(app.config['DATA_FOLDER'], event)
-        except Exception as e:
-            log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
-                      json.dumps({'event_id': event_id, 'event_type': event['event_type'],
-                                  'error': str(e)}))
-            return jsonify({'ok': False,
-                            'error': f'事件已批准但落库失败: {str(e)}'}), 500
-        log_audit(app.config['DATA_FOLDER'], 'oa_approve',
-                  event['employee_id'], json.dumps({'event_id': event_id}))
-    return jsonify({'ok': ok})
+    if not ok:
+        return jsonify({'ok': False, 'error': '事件状态已变化，请刷新后重试'}), 409
+    log_audit(app.config['DATA_FOLDER'], 'oa_approve',
+              event['employee_id'], json.dumps({'event_id': event_id}))
+    return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
 @editor_required
@@ -1886,22 +1887,12 @@ def oa_submit_leave():
     event_type = data['event_type']
     eid = data['employee_id']
     if event_type == 'annual_leave':
+        # P21 R3: 资格检查返回结构化 codes（双语文案在 M7 接入，本次保持中文 reasons）
         chk = check_annual_leave_eligible(app.config['DATA_FOLDER'], eid)
         if not chk['eligible']:
-            return jsonify({'ok': False, 'error': '年假资格不足: ' + ', '.join(chk['reasons'])}), 403
-    if event_type == 'comp_leave':
-        from core.database import deduct_comp_leave
-        import datetime as _dt
-        year = str(_dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3))).year)
-        days = data.get('days', 1)
-        ok = deduct_comp_leave(app.config['DATA_FOLDER'], eid, year, days)
-        if not ok:
-            return jsonify({'ok': False, 'error': '调休余额不足'}), 403
-        from core.database import save_attendance_override
-        save_attendance_override(app.config['DATA_FOLDER'], eid, data['effective_date'], 'T')
-        log_audit(app.config['DATA_FOLDER'], 'leave_comp', eid,
-                  json.dumps({'event_type': event_type, 'days': days, 'date': data['effective_date']}))
-        return jsonify({'ok': True, 'message': '调休已记录，余额已扣减'})
+            return jsonify({'ok': False, 'error': '年假资格不足: ' + ', '.join(chk['reasons']),
+                            'codes': chk.get('codes', [])}), 403
+    # P21 R1: comp_leave 由「提交即生效」改为「创建 pending 事件」，审批通过才扣余额+落 T
     data['operator_id'] = session.get('username', 'unknown')
     data['payload'] = json.dumps({
         'days': data.get('days', 1),

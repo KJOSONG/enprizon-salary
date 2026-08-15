@@ -943,6 +943,7 @@ def apply_approved_event(data_folder, event):
     hire    → 创建/补全 employees 记录 + status='active'
     transfer→ 更新 employees.department/position
     dismiss/resign → 写 dismissed_employees + 置 employees.status='dismissed' + dismissed_at
+    annual_leave/comp_leave → 扣对应余额 + 逐日落出勤 NU/T（P21 R1/R2，事务内任一步失败整体回滚）
     """
     eid = event.get('employee_id', '')
     etype = event.get('event_type', '')
@@ -959,7 +960,8 @@ def apply_approved_event(data_folder, event):
                 ('name', 'name'), ('department', 'department'), ('position', 'position'),
                 ('gender', 'gender'), ('date_of_birth', 'date_of_birth'), ('phone', 'phone'),
                 ('skill_level', 'skill_level'), ('nida_number', 'nida_number'),
-                ('nssf_number', 'nssf_number'), ('bank_name', 'bank_name'),
+                ('nssf_number', 'nssf_number'), ('tin_number', 'tin_number'),
+                ('bank_name', 'bank_name'),
                 ('bank_account', 'bank_account'), ('bank_owner', 'bank_owner'),
                 ('salary_type', 'default_type'), ('day_rate', 'day_rate'),
                 ('monthly_salary', 'monthly_salary'), ('team_id', 'team_id'),
@@ -1046,6 +1048,39 @@ def apply_approved_event(data_folder, event):
                 "UPDATE employees SET status='dismissed',"
                 " dismissed_at=COALESCE(NULLIF(?,''), dismissed_at) WHERE id=?",
                 (eff, eid))
+        elif etype in ('annual_leave', 'comp_leave'):
+            # P21 R1/R2: 请假批准落库 — 扣余额 + 逐日落出勤覆盖（NU=年假 / T=调休）
+            # 必须与 deduct_annual_leave/deduct_comp_leave 共享同一事务，任一步失败整体回滚
+            try:
+                days = int(payload.get('days', 1) or 1)
+            except (TypeError, ValueError):
+                days = 1
+            if days < 1:
+                days = 1
+            year = eff[:4] if len(eff) >= 4 else ''
+            if not year:
+                raise RuntimeError('请假事件缺少生效日期，无法批准')
+            if etype == 'annual_leave':
+                ok = deduct_annual_leave(data_folder, eid, year, days, conn=conn)
+                if not ok:
+                    raise RuntimeError('年假余额不足，无法批准')
+                st = 'NU'
+            else:
+                ok = deduct_comp_leave(data_folder, eid, year, days, conn=conn)
+                if not ok:
+                    raise RuntimeError('调休余额不足，无法批准')
+                st = 'T'
+            from datetime import datetime as _dt, timedelta as _td
+            try:
+                d0 = _dt.strptime(eff, '%Y-%m-%d')
+            except (TypeError, ValueError):
+                raise RuntimeError(f'请假事件生效日期格式无效: {eff}')
+            for _i in range(days):
+                _ds = (d0 + _td(days=_i)).strftime('%Y-%m-%d')
+                conn.execute(
+                    "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,0) "
+                    "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=0",
+                    (eid, _ds, st, st))
         conn.commit()
     finally:
         conn.close()
@@ -1655,12 +1690,12 @@ def update_pending_event(data_folder, event_id, fields):
         return False
     vals += [event_id]
     conn = get_conn(data_folder)
-    conn.execute(
+    cur = conn.execute(
         f"UPDATE employee_events SET {', '.join(sets)},"
         " updated_at=datetime('now','+3 hours') WHERE id=? AND status='pending'",
         vals)
+    affected = cur.rowcount
     conn.commit()
-    affected = conn.total_changes
     conn.close()
     return affected > 0
 
@@ -1862,22 +1897,28 @@ def add_leave_balance(data_folder, employee_id, year, annual=0, comp=0):
     conn.commit()
     conn.close()
 
-def deduct_annual_leave(data_folder, employee_id, year, days):
-    conn = get_conn(data_folder)
-    row = conn.execute(
-        "SELECT annual_entitled, annual_used FROM leave_balances WHERE employee_id=? AND year=?",
-        (employee_id, year)).fetchone()
-    if not row or (row['annual_entitled'] - row['annual_used']) < days:
-        conn.close()
-        return False
-    conn.execute("""
-        UPDATE leave_balances SET annual_used=annual_used+?,
-            updated_at=datetime('now','+3 hours')
-        WHERE employee_id=? AND year=?
-    """, (days, employee_id, year))
-    conn.commit()
-    conn.close()
-    return True
+def deduct_annual_leave(data_folder, employee_id, year, days, conn=None):
+    """扣减年假余额；余额不足返回 False。conn 非 None 时共享事务（不 commit/close）"""
+    own = conn is None
+    if own:
+        conn = get_conn(data_folder)
+    try:
+        row = conn.execute(
+            "SELECT annual_entitled, annual_used FROM leave_balances WHERE employee_id=? AND year=?",
+            (employee_id, year)).fetchone()
+        if not row or (row['annual_entitled'] - row['annual_used']) < days:
+            return False
+        conn.execute("""
+            UPDATE leave_balances SET annual_used=annual_used+?,
+                updated_at=datetime('now','+3 hours')
+            WHERE employee_id=? AND year=?
+        """, (days, employee_id, year))
+        if own:
+            conn.commit()
+        return True
+    finally:
+        if own:
+            conn.close()
 
 def restore_annual_leave(data_folder, employee_id, year, days):
     """P21 R1: 撤销年假时反向恢复余额（防负：MAX(annual_used-?,0)）"""
@@ -1890,22 +1931,28 @@ def restore_annual_leave(data_folder, employee_id, year, days):
     conn.commit()
     conn.close()
 
-def deduct_comp_leave(data_folder, employee_id, year, days):
-    conn = get_conn(data_folder)
-    row = conn.execute(
-        "SELECT comp_entitled, comp_used FROM leave_balances WHERE employee_id=? AND year=?",
-        (employee_id, year)).fetchone()
-    if not row or (row['comp_entitled'] - row['comp_used']) < days:
-        conn.close()
-        return False
-    conn.execute("""
-        UPDATE leave_balances SET comp_used=comp_used+?,
-            updated_at=datetime('now','+3 hours')
-        WHERE employee_id=? AND year=?
-    """, (days, employee_id, year))
-    conn.commit()
-    conn.close()
-    return True
+def deduct_comp_leave(data_folder, employee_id, year, days, conn=None):
+    """扣减调休余额；余额不足返回 False。conn 非 None 时共享事务（不 commit/close）"""
+    own = conn is None
+    if own:
+        conn = get_conn(data_folder)
+    try:
+        row = conn.execute(
+            "SELECT comp_entitled, comp_used FROM leave_balances WHERE employee_id=? AND year=?",
+            (employee_id, year)).fetchone()
+        if not row or (row['comp_entitled'] - row['comp_used']) < days:
+            return False
+        conn.execute("""
+            UPDATE leave_balances SET comp_used=comp_used+?,
+                updated_at=datetime('now','+3 hours')
+            WHERE employee_id=? AND year=?
+        """, (days, employee_id, year))
+        if own:
+            conn.commit()
+        return True
+    finally:
+        if own:
+            conn.close()
 
 # ── P8: 病假余额 ─────────────────────────
 
