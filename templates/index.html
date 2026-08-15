@@ -5234,11 +5234,13 @@ async function loadOAHistory() {
   if (!container) return;
   try {
     // P22 R2: 填充类型筛选下拉选项（首次），保持当前选择
+    // 动态 option 加 data-i18n 属性，语言切换时 applyI18n 自动重译
     const sel = document.getElementById('oaHistoryTypeFilter');
     if (sel && sel.options.length <= 1) {
       Object.keys(EVENT_LABELS_MAP).forEach(k => {
         const opt = document.createElement('option');
         opt.value = k;
+        if (EVENT_LABELS_MAP[k]) opt.setAttribute('data-i18n', EVENT_LABELS_MAP[k]);
         opt.textContent = EVENT_LABELS_MAP[k] ? t(EVENT_LABELS_MAP[k]) : k;
         sel.appendChild(opt);
       });
