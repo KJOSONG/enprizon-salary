@@ -4216,8 +4216,8 @@ function renderDailyWages() {
     const cur = shiftFilters[d] || '';
     const btnStyle = 'border:none;border-radius:2px;padding:1px 3px;font-size:9px;cursor:pointer;margin:0 1px;';
     const allCls = !cur ? 'background:var(--accent);color:#fff;' : 'background:transparent;color:var(--text-dim);';
-    const dCls = cur === 'D' ? 'background:var(--accent);color:#fff;' : 'background:transparent;color:var(--text-dim);';
-    const nCls = cur === 'N' ? 'background:var(--cyan);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    const dCls = cur === 'D' ? 'background:var(--st-d);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    const nCls = cur === 'N' ? 'background:var(--st-n);color:#fff;' : 'background:transparent;color:var(--text-dim);';
     headHtml += '<td style="text-align:center;padding:2px;">'
       + '<button onclick="toggleDateShift(\'' + d + '\',\'\')" style="' + btnStyle + allCls + '">' + t('dw_shift_all') + '</button>'
       + '<button onclick="toggleDateShift(\'' + d + '\',\'D\')" style="' + btnStyle + dCls + '">D</button>'
@@ -4399,8 +4399,8 @@ function renderAttendance() {
 
   // 状态颜色：手动改过的用虚线下划线标识
   const statusStyle = {
-    'D': {color: 'var(--accent)', label: t('shift_D_label'), desc: t('shift_D_desc')},
-    'N': {color: 'var(--cyan)', label: t('shift_N_label'), desc: t('shift_N_desc')},
+    'D': {color: 'var(--st-d)', label: t('shift_D_label'), desc: t('shift_D_desc')},   // P22 R4: 高对比蓝
+    'N': {color: 'var(--st-n)', label: t('shift_N_label'), desc: t('shift_N_desc')},   // P22 R4: 高对比青绿
     'B': {color: 'var(--purple)', label: t('shift_B_label'), desc: t('shift_B_desc')},
     'P': {color: 'var(--success)', label: t('shift_P_label'), desc: t('shift_P_desc')},
     'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
@@ -4534,8 +4534,8 @@ function showAttPopup(eid, date, currentStatus, autoVal, empType) {
     options.push({v:'C', label:t('shift_C_label'), color:'#F97316'});
     options.push({v:'P', label:t('shift_P_label'), color:'var(--success)'});
   } else if (isUnderground) {
-    options.push({v:'D', label:t('shift_D_label'), color:'var(--accent)'});
-    options.push({v:'N', label:t('shift_N_label'), color:'var(--cyan)'});
+    options.push({v:'D', label:t('shift_D_label'), color:'var(--st-d)'});
+    options.push({v:'N', label:t('shift_N_label'), color:'var(--st-n)'});
   } else {
     options.push({v:'P', label:t('shift_P_label'), color:'var(--success)'});
   }
