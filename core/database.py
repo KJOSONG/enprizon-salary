@@ -433,6 +433,7 @@ def init_db(data_folder):
             payload TEXT NOT NULL DEFAULT '{}',
             operator_id TEXT NOT NULL,
             month TEXT NOT NULL,
+            department TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             version INTEGER NOT NULL DEFAULT 1
@@ -462,6 +463,11 @@ def init_db(data_folder):
             created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
     """)
+    # 出勤收集留痕按部门×日期: collection_submissions 加 department 列
+    # 旧行 department 留 ''（旧 payload 是混部门合并的，无法准确回填）
+    try:
+        conn.execute("ALTER TABLE collection_submissions ADD COLUMN department TEXT DEFAULT ''")
+    except: pass
     # P10: 种子班组
     conn.execute("INSERT OR IGNORE INTO employee_groups (id, name, description) VALUES (1, 'LAMBA LAMBA', '评分班组 1')")
     conn.execute("INSERT OR IGNORE INTO employee_groups (id, name, description) VALUES (2, 'SAKA SAKA', '评分班组 2')")
@@ -2529,14 +2535,14 @@ def get_archive_salary(data_folder, month):
 
 # ── P9: 数据采集提交 collection ─────────────────────────
 
-def insert_collection_submission(data_folder, form_type, submission_date, payload, operator_id):
+def insert_collection_submission(data_folder, form_type, submission_date, payload, operator_id, department=''):
     """写入一条采集提交，返回 submission_id"""
     month = (submission_date or '')[:7]
     conn = get_conn(data_folder)
     cur = conn.execute("""
-        INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, month, version)
-        VALUES (?,?,?,?,?,1)
-    """, (form_type, submission_date, json.dumps(payload, ensure_ascii=False), operator_id, month))
+        INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, month, department, version)
+        VALUES (?,?,?,?,?,?,1)
+    """, (form_type, submission_date, json.dumps(payload, ensure_ascii=False), operator_id, month, department))
     conn.commit()
     sid = cur.lastrowid
     conn.close()

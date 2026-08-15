@@ -2084,6 +2084,38 @@ def _reapply_driver_flags():
         for _eid in drivers:
             mark_driver_flag(app.config['DATA_FOLDER'], _eid, s.get('submission_date'))
 
+def _filter_marks_by_department(marks, dept):
+    """A5: 出勤收集兜底校验 — 仅保留 department 与提交部门一致的员工（防前端漏过滤）"""
+    if not dept:
+        return marks or [], 0
+    dept_map = {}
+    try:
+        dept_map = {str(e.get('id')): (e.get('department') or '') for e in (APP_STATE.get('employees') or [])}
+    except Exception:
+        pass
+    if not dept_map:
+        from core.database import get_conn
+        conn = None
+        try:
+            conn = get_conn(app.config['DATA_FOLDER'])
+            dept_map = {str(r['id']): (r['department'] or '') for r in conn.execute(
+                "SELECT id, department FROM employees").fetchall()}
+        except Exception:
+            pass
+        finally:
+            if conn:
+                conn.close()
+    kept, discarded = [], 0
+    for m in marks or []:
+        eid = str(m.get('employee_id') or '')
+        # 仅当能查到员工部门且与提交部门不符才丢弃；未知员工（离职/通讯录外）保守保留
+        emp_dept = dept_map.get(eid) if eid else None
+        if emp_dept is not None and emp_dept != dept:
+            discarded += 1
+            continue
+        kept.append(m)
+    return kept, discarded
+
 @app.route('/api/collection/submit', methods=['POST'])
 @editor_required
 def collection_submit():
@@ -2102,10 +2134,16 @@ def collection_submit():
     if date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
     username = session.get('username', 'unknown')
+    dept = (payload.get('department') or '').strip()
 
     # 出勤收集：写 attendance_overrides（batch 语义），collection 仅作留痕
+    discarded = 0
     if form_type == 'attendance':
         marks = payload.get('marks') or []
+        # A5: 后端兜底校验 — payload 带 department 时丢弃部门不符员工（防前端漏过滤）
+        if dept:
+            marks, discarded = _filter_marks_by_department(marks, dept)
+            payload['marks'] = marks
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -2114,14 +2152,19 @@ def collection_submit():
             # P12: 只写 status，驾驶标记改由井下采集的 drivers 处理
             save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
 
-    # upsert collection_submissions by (form_type, date)
+    # upsert collection_submissions by (form_type, date) [attendance 另加 department 维度]
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
-    ex = next((e for e in existing if e['submission_date'] == date), None)
+    if form_type == 'attendance' and dept:
+        ex = next((e for e in existing if e['submission_date'] == date
+                   and (e.get('department') or '') == dept), None)
+    else:
+        ex = next((e for e in existing if e['submission_date'] == date), None)
     if ex:
         update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username)
         sid = ex['id']
     else:
-        sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username)
+        sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username,
+                                           department=dept)
 
     # 合并 main_data + 重算（仅产量类；出勤已直写 attendance_overrides）
     if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
@@ -2131,8 +2174,12 @@ def collection_submit():
         _recalc_internal()
 
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
-              json.dumps({'form_type': form_type, 'date': date, 'sid': sid}))
-    return jsonify({'ok': True, 'submission_id': sid})
+              json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept}))
+    result = {'ok': True, 'submission_id': sid}
+    if discarded:
+        result['discarded'] = discarded
+        result['warning'] = '已忽略 %d 名部门不符的员工' % discarded
+    return jsonify(result)
 
 @app.route('/api/collection/history', methods=['GET'])
 @editor_required
@@ -2221,9 +2268,21 @@ def collection_edit(submission_id):
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
     merged_target = None  # B1b: 覆盖合并的目标行（attendance 分支需清理其旧 marks）
+    sub_dept = ''
+    if form_type == 'attendance':
+        try:
+            sub_dept = (json.loads(sub['payload'] or '{}').get('department') or '').strip()
+        except Exception:
+            sub_dept = ''
     if new_date != old_date:
         existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
-        ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
+        if form_type == 'attendance' and sub_dept:
+            # 出勤留痕按部门×日期：改日期只与同部门的行合并，避免误并到其他部门行
+            ex = next((e for e in existing if e['id'] != submission_id
+                       and e['submission_date'] == new_date
+                       and (e.get('department') or '') == sub_dept), None)
+        else:
+            ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
         if ex:
             ok = update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username, date=new_date)
             delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
