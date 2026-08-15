@@ -1344,7 +1344,7 @@
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
-      + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
+      + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
@@ -1357,10 +1357,21 @@
   }
   function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
+    const sel=document.getElementById('attColDept').value;
+    const countEl=document.getElementById('attRosterCount');
+    const batchRow=document.getElementById('attBatchRow');
+    if(!sel){  // 未选部门 → 隐藏花名册/计数/批量按钮，与桌面一致，防误操作全部员工
+      box.innerHTML=''; box.style.display='none';
+      if(countEl) countEl.textContent='';
+      if(batchRow) batchRow.style.display='none';
+      return;
+    }
+    box.style.display='';
+    if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
       return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
-    const c=document.getElementById('attRosterCount'); if(c) c.textContent=t('col_total_count',{n:list.length});
+    if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
