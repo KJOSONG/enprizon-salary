@@ -309,6 +309,7 @@
               <th data-i18n="emp_hire_date">入职日期</th>
               <th data-i18n="emp_nida">NIDA</th>
               <th data-i18n="th_nssf">NSSF</th>
+              <th data-i18n="emp_tin_number">TIN 号码</th>
               <th data-i18n="emp_note">备注</th>
             </tr>
           </thead>
@@ -2878,11 +2879,12 @@ async function renderEmployeeTable() {
         <td>${e.hire_date||'—'}</td>
         <td>${e.nida_number ? '✓' : '○'}</td>
         <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
+        <td>${e.tin_number ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
       </tr>`).join('');
-    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
   }
 }
 
