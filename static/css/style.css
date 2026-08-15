@@ -1665,6 +1665,28 @@ body {
 }
 .sidebar-module.expanded .module-arrow { transform: rotate(90deg); }
 
+/* C1: 侧边栏待审批红徽章（数字胶囊） */
+.sidebar-badge {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--destructive);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+.sidebar-module.active .sidebar-badge { background: var(--destructive); color: #fff; }
+
 /* ── 子页菜单 ── */
 .sidebar-subpages { display: none; }
 .sidebar-module.expanded + .sidebar-subpages { display: block; }

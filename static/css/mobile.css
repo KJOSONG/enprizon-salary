@@ -247,6 +247,27 @@ a { color: inherit; text-decoration: none; }
 .tab-bar__item svg { width: 24px; height: 24px; }
 .tab-bar__item.active svg { stroke: var(--primary); }
 
+/* C2: 底栏员工 Tab 待审批红徽章（数字胶囊） */
+.tab-bar__badge {
+  position: absolute;
+  top: 2px;
+  right: calc(50% - 22px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--destructive);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: auto;
+  z-index: 2;
+}
+
 /* ── 通用卡片 ── */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-lg); margin-bottom: var(--space-md); }
 .card-title { font-size: var(--text-sm); font-weight: 600; color: var(--muted-foreground); margin-bottom: var(--space-sm); text-transform: uppercase; letter-spacing: 0.05em; }

@@ -211,9 +211,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
         <span data-i18n="tab_dashboard">数据台</span>
       </div>
-      <div class="tab-bar__item" data-tab="employees" onclick="switchTab('employees')">
+      <div class="tab-bar__item" data-tab="employees" onclick="switchTab('employees')" style="position:relative;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
         <span data-i18n="tab_employees">员工</span>
+        <span class="tab-bar__badge" id="oaTabBadge" style="display:none;" onclick="event.stopPropagation();switchTab('employees');setEmpSeg('pending')">0</span>
       </div>
       <div class="tab-bar__item" data-tab="collection" onclick="switchTab('collection')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>
@@ -850,6 +851,9 @@
       const n = d.count||0;
       const badge = document.getElementById('oa-pending-n');
       if(badge){ badge.textContent = n; badge.style.display = n>0? 'inline-flex':'none'; }
+      // C2: 底栏员工 Tab 徽章（数字胶囊，>99 显示 99+）
+      const tb = document.getElementById('oaTabBadge');
+      if(tb){ tb.textContent = n>99? '99+':n; tb.style.display = n>0? 'flex':'none'; }
     }).catch(()=>{});
   }
   function loadOA(mode){
@@ -858,6 +862,7 @@
     const url = mode==='history' ? '/api/oa/history' : '/api/oa/pending';
     api(url).then(d=>{
       const evs = d.events||[];
+      STATE._oaEvents = evs;
       if(mode!=='history'){ const badge=document.getElementById('oa-pending-n'); if(badge){ badge.textContent=evs.length; badge.style.display=evs.length>0?'inline-flex':'none'; } }
       if(!evs.length){
         el.innerHTML='<div class="state-box"><div class="state-box__icon">✅</div><div class="state-box__title">'+(mode==='history'?t('oa_done_desc'):t('no_oa'))+'</div></div>';
@@ -870,20 +875,23 @@
     const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary') };
     let summary='';
     try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : (p.new_position? t('oa_transfer')+': '+p.new_position : '')); } catch(e){}
-    let html = '<div class="oa-card">'
+    // C3/C4: 点击整张卡片弹出预览（sheet）
+    let html = '<div class="oa-card" onclick="oaPreview('+ev.id+',\''+mode+'\')">'
       + '<div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div>'
       + (summary?'<div class="oa-card__desc">'+esc(summary)+'</div>':'')
       + '<div class="oa-card__date">'+esc(ev.effective_date||'')+'</div>';
     if(mode==='pending'){
-      html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn" onclick="openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
+      html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="event.stopPropagation();approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn" onclick="event.stopPropagation();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
     } else {
       const st = ev.status==='approved';
       html += '<div class="oa-card__desc" style="margin-top:6px;"><span class="oa-status-badge '+(st?'approved':'rejected')+'">'+(st?t('approved'):t('rejected'))+'</span>'+(ev.reject_reason?(' <span style="color:var(--muted-foreground);">'+esc(ev.reject_reason)+'</span>'):'')+'</div>';
+      // C5: 审批历史卡片显示审批人 + 审批时间
+      html += '<div class="oa-card__date" style="margin-top:4px;">'+t('oa_approver')+': '+esc(ev.approved_by||ev.rejected_by||'—')+' · '+t('oa_approved_at')+': '+esc(String(ev.updated_at||'').slice(0,16))+'</div>';
     }
     html += '</div>';
     return html;
   }
-  function approveOA(id){ api('/api/oa/events/'+id+'/approve', { method:'POST', body:'{}' }).then(r=>{ if(r.ok){ toast(t('approved')); loadOA('pending'); } else toast(r.error||t('fail'),'error'); }); }
+  function approveOA(id){ api('/api/oa/events/'+id+'/approve', { method:'POST', body:'{}' }).then(r=>{ if(r.ok){ toast(t('approved')); loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error'); }); }
   // 拒绝原因 Modal（非 prompt）
   function openRejectModal(id, empName){
     const body = '<div class="oa-card" style="margin-bottom:12px;"><div class="oa-card__head"><span class="oa-card__type">'+t('reject')+'</span><span class="oa-card__emp">'+esc(empName||'')+'</span></div></div>'
@@ -894,8 +902,49 @@
     const reason = document.getElementById('rj-reason').value.trim();
     if(!reason){ toast(t('reject_hint'),'warning'); return; }
     api('/api/oa/events/'+id+'/reject', { method:'POST', body: JSON.stringify({reject_reason:reason}) }).then(r=>{
-      if(r.ok){ toast(t('rejected')); closeModal(); loadOA('pending'); } else toast(r.error||t('fail'),'error');
+      if(r.ok){ toast(t('rejected')); closeModal(); loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
     }).catch(()=>toast(t('fail'),'error'));
+  }
+
+  // C3/C4: OA 条目详情预览（pending 可批准/驳回；history 只读）
+  const OA_PREVIEW_FLD = { name:'oa_field_name', department:'oa_field_department', position:'oa_field_position', gender:'oa_field_gender', date_of_birth:'oa_field_date_of_birth', skill_level:'oa_field_skill_level', nida_number:'oa_field_nida_number', nssf_number:'oa_field_nssf_number', phone:'oa_field_phone', bank_name:'oa_field_bank_name', bank_account:'oa_field_bank_account', bank_owner:'oa_field_bank_owner', salary_type:'oa_field_salary_type', day_rate:'oa_field_day_rate', monthly_salary:'oa_field_monthly_salary', team_id:'oa_field_team_id', custom_number:'oa_field_custom_number', new_department:'oa_field_new_department', new_position:'oa_field_new_position', reason:'oa_field_reason', days:'oa_field_days', note:'oa_field_note' };
+  function oaPreview(id, mode){
+    const ev = (STATE._oaEvents||[]).find(x=>String(x.id)===String(id));
+    if(!ev) return;
+    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary') };
+    const st = ev.status==='approved';
+    let html = '<div class="oa-card" style="margin-bottom:12px;pointer-events:none;"><div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div></div>';
+    // 固定区
+    html += '<div class="info-row"><span class="info-row__label">'+t('oa_effective_date')+'</span><span class="info-row__value">'+esc(ev.effective_date||'')+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('oa_submitter')+'</span><span class="info-row__value">'+esc(ev.operator_id||'')+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('oa_created_at')+'</span><span class="info-row__value">'+esc(ev.created_at||'')+'</span></div>';
+    // 历史：状态 + 审批人 + 审批时间 + 驳回原因
+    if(mode==='history'){
+      html += '<div class="info-row"><span class="info-row__label">'+t('oa_status')+'</span><span class="info-row__value"><span class="oa-status-badge '+(st?'approved':'rejected')+'">'+(st?t('approved'):t('rejected'))+'</span></span></div>'
+        + '<div class="info-row"><span class="info-row__label">'+t('oa_approver')+'</span><span class="info-row__value">'+esc(ev.approved_by||ev.rejected_by||'—')+'</span></div>'
+        + '<div class="info-row"><span class="info-row__label">'+t('oa_approved_at')+'</span><span class="info-row__value">'+esc(String(ev.updated_at||'').slice(0,16))+'</span></div>'
+        + (ev.reject_reason?'<div class="info-row"><span class="info-row__label">'+t('oa_reject_reason')+'</span><span class="info-row__value">'+esc(ev.reject_reason)+'</span></div>':'');
+    }
+    // 动态区：payload 字段
+    let p = {};
+    try { p = JSON.parse(ev.payload||'{}'); } catch(e){}
+    const salaryMap = { piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
+    for(const k of Object.keys(p)){
+      const v = p[k];
+      if(v===undefined||v===null||v===''||v===0||k==='avatar_data') continue;
+      const label = OA_PREVIEW_FLD[k] ? t(OA_PREVIEW_FLD[k]) : k;
+      let val = String(v);
+      if(k==='salary_type') val = salaryMap[v] || val;
+      html += '<div class="info-row"><span class="info-row__label">'+esc(label)+'</span><span class="info-row__value">'+esc(val)+'</span></div>';
+    }
+    // 操作区
+    if(mode!=='history'){
+      html += '<div style="display:flex;gap:8px;margin-top:14px;"><button class="btn btn-primary" style="flex:1;" onclick="closeSheet();approveOA('+ev.id+')">'+t('approve')+'</button>'
+        + '<button class="btn" style="flex:1;" onclick="closeSheet();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
+    }
+    const body = document.getElementById('sheet-body');
+    body.innerHTML = html;
+    openSheet(mode==='history'? t('oa_history') : t('oa_pending'), body);
   }
 
   // ── 请假 ──

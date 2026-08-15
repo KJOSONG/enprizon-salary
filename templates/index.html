@@ -1780,6 +1780,7 @@ function renderSidebar() {
                <span class="module-icon">${mod.icon}</span>
                <span class="module-label">${t(mod.label)}</span>
                ${hasChildren && !collapsed ? '<span class="module-arrow">▸</span>' : ''}
+               ${key === 'employees' ? '<span class="sidebar-badge" id="oaSideBadge" onclick="event.stopPropagation();goOaPending()" style="display:none;">0</span>' : ''}
              </button>`;
     if (hasChildren && !collapsed) {
       html += `<div class="sidebar-subpages"${isExpanded ? ' style="display:block"' : ''}>`;
@@ -1794,6 +1795,22 @@ function renderSidebar() {
     }
   }
   nav.innerHTML = html;
+  updateOaSideBadge();
+}
+
+/* C1: 侧边栏"员工"待审批红徽章（数字，>99 显示 99+） */
+function updateOaSideBadge() {
+  const b = document.getElementById('oaSideBadge');
+  if (!b) return;
+  const n = _notifEvents.length;
+  b.textContent = n > 99 ? '99+' : n;
+  b.style.display = n > 0 ? 'inline-block' : 'none';
+}
+
+/* C1: 点击侧边栏徽章直达 OA 待审批页 */
+function goOaPending() {
+  navigate('employees', 'oa-pending');
+  switchEmpTab('oa-pending');
 }
 
 function handleModuleClick(module, hasChildren) {
@@ -5100,16 +5117,44 @@ async function loadOAHistory() {
       return;
     }
     container.innerHTML = events.map(ev => `
-      <div class="oa-event-card" style="opacity:0.7;">
+      <div class="oa-event-card" style="opacity:0.7;" id="oaHistCard${ev.id}">
         <div class="oa-event-info">
           <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
           <div class="oa-event-meta">
             ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : t('rejected_label')}
             ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
+            · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
           </div>
         </div>
+        <div class="oa-event-actions">
+          <button class="oa-btn" onclick="toggleOaHistDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
+        </div>
+        <div id="oaHistDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
       </div>`).join('');
+    // 异步渲染详情（班组名需查接口）
+    events.forEach(ev => {
+      const box = document.getElementById('oaHistDetail' + ev.id);
+      if (box) _oaHistDetailHtml(ev).then(h => { box.innerHTML = h; });
+    });
   } catch (e) { container.innerHTML = t('load_fail'); }
+}
+
+function toggleOaHistDetail(eventId) {
+  const box = document.getElementById('oaHistDetail' + eventId);
+  if (!box) return;
+  box.style.display = box.style.display === 'block' ? 'none' : 'block';
+}
+
+/* C4: 审批历史详情预览（只读：状态徽章 + 驳回原因 + 审批人/时间 + 动态字段） */
+async function _oaHistDetailHtml(ev) {
+  const detail = await _oaDetailHtml(ev);
+  const st = ev.status === 'approved';
+  const rows = `
+    <div class="oa-detail-row"><span class="oa-detail-label">${t('oa_status')}</span><span class="oa-detail-value" style="color:${st ? 'var(--success)' : 'var(--danger)'};font-weight:600;">${st ? t('approved_label') : t('rejected_label')}</span></div>
+    ${ev.approved_by || ev.rejected_by ? `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_approver')}</span><span class="oa-detail-value">${escHtml(ev.approved_by || ev.rejected_by || '—')}</span></div>` : ''}
+    ${ev.updated_at ? `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_approved_at')}</span><span class="oa-detail-value">${escHtml(String(ev.updated_at).slice(0, 16))}</span></div>` : ''}
+    ${ev.reject_reason ? `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_reject_reason')}</span><span class="oa-detail-value">${escHtml(ev.reject_reason)}</span></div>` : ''}`;
+  return rows + detail;
 }
 
 /* ── P13: 通知铃铛 / 红点 / 待审批面板 ── */
@@ -5139,7 +5184,8 @@ async function loadNotifCount() {
       badge.style.display = 'none';
       bell.classList.remove('has-notif');
     }
-  } catch (e) { /* 静默失败 */ }
+    updateOaSideBadge();
+  } catch (e) { updateOaSideBadge(); /* 静默失败 */ }
 }
 
 function toggleNotifPanel() {
