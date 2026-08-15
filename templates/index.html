@@ -5573,17 +5573,27 @@ async function loadColHistory(formType, containerId) {
       return;
     }
     container.innerHTML = filterBar + `<div class="table-wrap"><table class="data-table">
-      <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_actions')}</th></tr></thead>
-      <tbody>` + subs.map(s => `
+      <thead><tr><th>${t('col_th_date')}</th><th>${t('col_department')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_actions')}</th></tr></thead>
+      <tbody>` + subs.map(s => {
+        const d = colSubDept(s);
+        const editable = formType !== 'attendance' || !!d;  // 存量混部门记录（department 空）只读
+        return `
         <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}</td>
+          <td>${d ? escHtml(d) : '—'}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
-          <td><span style="color:var(--accent);font-size:11px;">${t('btn_edit_col')}</span></td>
-        </tr>`).join('') + `</tbody></table></div>`;
+          <td>${editable ? `<span style="color:var(--accent);font-size:11px;">${t('btn_edit_col')}</span>` : `<span style="color:var(--text-muted);font-size:11px;">${t('col_readonly')}</span>`}</td>
+        </tr>`; }).join('') + `</tbody></table></div>`;
   } catch (e) {
     container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>';
   }
+}
+
+/* 取采集提交的部门：优先行 department 列，回退 payload.department（存量旧行无列值） */
+function colSubDept(s) {
+  if (s && s.department) return s.department;
+  try { return (JSON.parse((s && s.payload) || '{}').department) || ''; } catch(e) { return ''; }
 }
 
 /* R6: 历史行 → 只读预览弹窗（完整字段 + 提交人/日期/版本/更新时间），弹窗内"编辑"进编辑态 */
@@ -5644,7 +5654,9 @@ async function previewColSubmission(formType, sid, containerId) {
     if (!sub) { showToast(t('col_submission_not_found'), 'error'); return; }
     let payload = {};
     try { payload = JSON.parse(sub.payload || '{}'); } catch(e) {}
-    const canEdit = sub.operator_id === _authState.username || ['admin', 'super_admin'].includes(_authState.role);
+    // A9: 存量混部门记录（department 空）不可再编辑，仅可查看
+    const canEdit = (sub.operator_id === _authState.username || ['admin', 'super_admin'].includes(_authState.role))
+      && (formType !== 'attendance' || !!colSubDept(sub));
     const typeLbl = { underground: t('col_ug'), driller: t('col_dr'), crush: t('col_cr'), attendance: t('col_att') };
     const modal = document.createElement('div');
     modal.id = 'colPreviewModal';
@@ -5655,6 +5667,7 @@ async function previewColSubmission(formType, sid, containerId) {
         <div style="font-size:12px;color:var(--text-muted);line-height:1.9;margin-bottom:8px;">
           <div>${t('col_type')}: ${escHtml(typeLbl[formType] || formType)}</div>
           <div>${t('col_date')}: ${escHtml(sub.submission_date || '')}</div>
+          ${colSubDept(sub) ? `<div>${t('col_department')}: ${escHtml(colSubDept(sub))}</div>` : ''}
           <div>${t('col_created_at')}: ${escHtml(sub.created_at || '')}</div>
           <div>${t('col_updated_at')}: ${escHtml(sub.updated_at || '')}</div>
           <div>${t('col_version')}: v${sub.version || 1}</div>
@@ -5693,6 +5706,12 @@ async function enterColEdit(formType, sid, containerId) {
     }
     let payload = {};
     try { payload = JSON.parse(sub.payload || '{}'); } catch(e) {}
+    // A9: 存量混部门 attendance 记录（department 空）不可再编辑，仅可查看
+    if (formType === 'attendance' && !colSubDept(sub)) {
+      _colEditing = null;
+      showToast(t('col_readonly'), 'error');
+      return;
+    }
     payload.submission_date = sub.submission_date;
     if (formType === 'underground') { renderUgCollectionForm(payload); }
     else if (formType === 'driller') { renderDrCollectionForm(payload); }
@@ -6213,6 +6232,8 @@ async function renderAttCollectionForm(payload) {
   const roster = filterEmpByDept(pool, 'other');
   // P12: 部门下拉（排除井下/钻工/破碎后剩余部门 + 全部）
   const depts = [...new Set(roster.map(e => e.department).filter(Boolean))].sort();
+  // 编辑态预选记录所属部门；新提交不预选（防误提交错误部门）
+  const selDept = payload.department || '';
   // 预填 marks 映射：eid → {status, is_driver}（旧 payload 的 is_driver 忽略）
   const marksMap = {};
   (payload.marks || []).forEach(m => { marksMap[m.employee_id] = m; });
@@ -6230,7 +6251,8 @@ async function renderAttCollectionForm(payload) {
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
       <select id="attDeptSel" onchange="filterAttRoster()" style="${colInStyle(true)}">
-        ${depts.map(d => `<option value="${escHtml(d)}">${escHtml(d)}</option>`).join('')}
+        <option value="">${t('col_select_dept_placeholder')}</option>
+        ${depts.map(d => `<option value="${escHtml(d)}" ${selDept === d ? 'selected' : ''}>${escHtml(d)}</option>`).join('')}
       </select>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
@@ -6242,13 +6264,18 @@ async function renderAttCollectionForm(payload) {
       <button class="btn-cancel" onclick="resetAttStatus()" style="padding:6px 16px;font-size:12px;">${t('att_reset_present')}</button>
       ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'attendance\',\'colAttHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
     </div>`;
+  filterAttRoster();
 }
 
 // P12: 按部门过滤出勤花名册（仅显示，不重绘，保留已选状态）
 function filterAttRoster() {
   const d = document.getElementById('attDeptSel').value;
+  const box = document.getElementById('attRoster');
+  if (!box) return;
+  if (!d) { box.style.display = 'none'; return; }  // 未选部门 → 隐藏花名册，防误提交全部
+  box.style.display = '';
   document.querySelectorAll('#attRoster .att-row').forEach(row => {
-    row.style.display = (!d || row.getAttribute('data-dept') === d) ? '' : 'none';
+    row.style.display = (row.getAttribute('data-dept') === d) ? '' : 'none';
   });
 }
 
@@ -6286,7 +6313,7 @@ async function submitAttCollection() {
       }
     });
   }
-  await submitColPayload('attendance', date, { marks }, 'colAttHistory');
+  await submitColPayload('attendance', date, { marks, department: dept }, 'colAttHistory');
 }
 
 async function submitUgCollection() {
@@ -6329,10 +6356,12 @@ async function submitColPayload(formType, date, payload, historyId) {
   }
   const data = await res.json();
   if (data.ok) {
-    showToast(_colEditing ? t('col_updated') : t('col_submitted'));
+    const wasEditing = !!_colEditing;
     _colEditing = null;
     loadColHistory(formType, historyId);
     refreshAfterCollection();
+    if (data.discarded) showToast(t('col_discarded_some', {n: data.discarded}), 'error');
+    else showToast(wasEditing ? t('col_updated') : t('col_submitted'));
   } else {
     showToast(data.error || t('submit_fail'), 'error');
   }

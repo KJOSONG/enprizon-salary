@@ -337,7 +337,7 @@
     if(name==='employees') return t('emp_profile');
     return t(TAB_TITLES[name]);
   }
-  function switchTab(name){
+  async function switchTab(name){
     activeTab = name;
     document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
     document.getElementById('tab-'+name).classList.add('active');
@@ -356,7 +356,8 @@
     document.getElementById('top-title').textContent = hasSub ? _subPageTitle(name) : t(TAB_TITLES[name]);
     if(name==='dashboard' && !STATE.dashboard) loadDashboard();
     if(name==='employees'){ if(!STATE.employees.length) loadEmployees(); loadOAPendingCount(); }
-    if(name==='collection'){ if(!STATE.employees.length) loadEmployees(); loadCollectionHome(); }
+    // 竞态修复: 采集页依赖员工池(deptPool), 等待员工加载完成再渲染采集首页, 避免部门/花名册为空
+    if(name==='collection'){ if(!STATE.employees.length) await loadEmployees(); loadCollectionHome(); }
     if(name==='attendance') loadAttendance();
   }
   function loadOAPendingCount(){
@@ -1082,10 +1083,11 @@
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
       const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
       el.innerHTML = subs.length? subs.map(s=>{
-        // 解析班次标注
-        let shiftChip='', sub='';
+        // 解析班次标注 + 部门
+        let shiftChip='', sub='', dept='';
         try{
           const p = JSON.parse(s.payload||'{}');
+          dept = s.department || (p.department||'');
           if(s.form_type==='underground'){
             const dayEmps=(p.day&&p.day.emps)||[], nightEmps=(p.night&&p.night.emps)||[];
             if(dayEmps.length && nightEmps.length){ shiftChip='<span class="shift-chip day">D</span><span class="shift-chip night">N</span>'; }
@@ -1096,7 +1098,8 @@
           else if(s.form_type==='crush'){ sub = (p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
           else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
         }catch(e){}
-        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+'</span></div>';
+        const deptChip = dept ? ' · '+esc(dept) : '';
+        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
@@ -1151,11 +1154,15 @@
     let p={}; try{ p=JSON.parse(s.payload||'{}'); }catch(e){}
     const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
     const auth = STATE.auth || {};
-    const canEdit = auth.username===s.operator_id || auth.role==='admin' || auth.role==='super_admin';
+    // A9: 存量混部门 attendance 记录(department 空)只读, 仅可查看
+    const hasDept = s.department || (p.department||'');
+    const canEdit = (auth.username===s.operator_id || auth.role==='admin' || auth.role==='super_admin')
+      && (s.form_type!=='attendance' || !!hasDept);
     const body=document.getElementById('sheet-body');
     body.innerHTML =
       '<div class="info-row"><span class="info-row__label">'+t('col_type')+'</span><span class="info-row__value">'+esc(typeLabel[s.form_type]||s.form_type)+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('col_date')+'</span><span class="info-row__value">'+esc(s.submission_date||'')+'</span></div>'
+      + (hasDept? '<div class="info-row"><span class="info-row__label">'+t('col_department')+'</span><span class="info-row__value">'+esc(hasDept)+'</span></div>' : '')
       + '<div class="info-row"><span class="info-row__label">'+t('col_created_at')+'</span><span class="info-row__value">'+esc(s.created_at||'')+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('col_updated_at')+'</span><span class="info-row__value">'+esc(s.updated_at||'')+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('col_version')+'</span><span class="info-row__value">'+(s.version||1)+'</span></div>'
@@ -1167,9 +1174,12 @@
     openSheet(typeLabel[s.form_type]||'', body);
   }
   function editColDetail(id, ty){
+    const s=(STATE._colSubs||[]).find(x=>x.id===id);
+    let pp={}; try{ pp = s ? JSON.parse(s.payload||'{}') : {}; }catch(e){}
+    // A9: 存量混部门 attendance 记录(department 空)只读
+    if(ty==='attendance' && !(s.department || (pp.department||''))){ toast(t('col_readonly'),'warning'); return; }
     closeSheet();
     STATE._colEditing = { id: Number(id), ty };
-    const s=(STATE._colSubs||[]).find(x=>x.id===id);
     let p={}; try{ p = s ? JSON.parse(s.payload||'{}') : {}; }catch(e){}
     p.submission_date = s ? (s.submission_date || '') : '';
     openColForm(ty, p);
@@ -1194,7 +1204,11 @@
       ? api('/api/collection/edit/'+editing.id, { method:'POST', body: JSON.stringify({ payload, submission_date:date }) })
       : api('/api/collection/submit', { method:'POST', body: JSON.stringify({ form_type:ty, submission_date:date, payload }) });
     req.then(r=>{
-      if(r.ok){ STATE._colEditing=null; showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }
+      if(r.ok){
+        STATE._colEditing=null;
+        if(r.discarded){ showFormMsg(ty, t('col_discarded_some',{n:r.discarded}), false); setTimeout(()=>{ backColHome(); }, 1600); }
+        else { showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }
+      }
       else { showFormMsg(ty, r.error||t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
     }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
   }
@@ -1325,10 +1339,11 @@
     }
     STATE._attPool = pool;
     const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
+    const selDept=(init&&init.department)||'';  // 编辑态预选记录部门; 新提交不预选
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()">'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
@@ -1358,7 +1373,7 @@
     Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
       if(!submitted.has(String(eid))){ submitted.add(String(eid)); marks.push({employee_id:eid, status:st}); }
     });
-    colSubmit('attendance', { submission_date:date, marks }, null); }
+    colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null); }
 
   // ── 出勤模块 (Phase 4 / 2e) ──
   const ATT_STATUS = ['P','A','L','D','N','C','R','B'];
