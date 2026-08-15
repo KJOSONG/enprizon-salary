@@ -5385,7 +5385,8 @@ async function submitLeave() {
     } else {
       res = await authFetch(api('/api/oa/leave'), {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({employee_id: eid, event_type: type, effective_date: date, days, note}),
+        body: JSON.stringify({employee_id: eid, event_type: type, effective_date: date, days, note,
+                              lang: (typeof getLang === 'function' ? getLang() : 'zh')}),  // P21 M7/R5
       });
       data = await res.json();
     }

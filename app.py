@@ -1912,6 +1912,48 @@ def oa_edit_event(event_id):
 
 ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave')
 
+# ── P21 M7/R5: 年假资格错误双语（后端无 i18n 模块，硬编码两套文案） ──
+_LEAVE_ERR_MSG = {
+    'zh': {
+        'no_nssf': '未参加NSSF',
+        'no_nida': 'NIDA证件号为空',
+        'no_tin': 'TIN号码为空',
+        'no_hire_date': '入职日期为空',
+        'invalid_hire_date': '入职日期格式无效',
+        'no_employee': '员工不存在',
+        'under_1year': '入职不满1年({days}天)',
+        'prefix': '年假资格不足: ',
+    },
+    'en': {
+        'no_nssf': 'NSSF not enrolled',
+        'no_nida': 'NIDA number is empty',
+        'no_tin': 'TIN number is empty',
+        'no_hire_date': 'Hire date is empty',
+        'invalid_hire_date': 'Invalid hire date format',
+        'no_employee': 'Employee not found',
+        'under_1year': 'Less than 1 year since hire ({days} days)',
+        'prefix': 'Annual leave eligibility failed: ',
+    },
+}
+
+def _leave_err_msg(codes, reasons, lang):
+    """按 reason codes 拼双语错误串（codes 来自 check_annual_leave_eligible）"""
+    import re
+    lang = 'en' if (lang or '') == 'en' else 'zh'
+    d = _LEAVE_ERR_MSG[lang]
+    parts = []
+    for i, code in enumerate(codes):
+        if code == 'under_1year':
+            days = '?'
+            if reasons and i < len(reasons):
+                _m = re.search(r'\((\d+)', str(reasons[i]))
+                if _m:
+                    days = _m.group(1)
+            parts.append(d['under_1year'].format(days=days))
+        else:
+            parts.append(d.get(code, code))
+    return d['prefix'] + ', '.join(parts)
+
 def _require_super_admin():
     """内部校验 super_admin，返回错误响应或 None"""
     if session.get('role') != 'super_admin':
@@ -2011,10 +2053,12 @@ def oa_submit_leave():
     event_type = data['event_type']
     eid = data['employee_id']
     if event_type == 'annual_leave':
-        # P21 R3: 资格检查返回结构化 codes（双语文案在 M7 接入，本次保持中文 reasons）
+        # P21 R3/M7: 资格检查返回结构化 codes；错误按请求 lang 双语拼装（保留 error 字符串字段）
         chk = check_annual_leave_eligible(app.config['DATA_FOLDER'], eid)
         if not chk['eligible']:
-            return jsonify({'ok': False, 'error': '年假资格不足: ' + ', '.join(chk['reasons']),
+            lang = (data.get('lang') or 'zh')
+            return jsonify({'ok': False,
+                            'error': _leave_err_msg(chk.get('codes', []), chk.get('reasons', []), lang),
                             'codes': chk.get('codes', [])}), 403
     # P21 R1: comp_leave 由「提交即生效」改为「创建 pending 事件」，审批通过才扣余额+落 T
     data['operator_id'] = session.get('username', 'unknown')
