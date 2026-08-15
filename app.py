@@ -2507,10 +2507,12 @@ def collection_edit(submission_id):
     elif form_type == 'attendance':
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
+        # P21: 删除时跳过 NU 天（年假由审批管理，不随采集编辑被清掉）
+        from core.database import get_attendance_status as _att_st
         try:
             old_payload = json.loads(sub['payload'] or '{}')
             for m in (old_payload.get('marks') or []):
-                if m.get('employee_id'):
+                if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], old_date) != 'NU':
                     delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], old_date)
         except Exception:
             pass
@@ -2519,7 +2521,7 @@ def collection_edit(submission_id):
             try:
                 target_payload = json.loads(merged_target['payload'] or '{}')
                 for m in (target_payload.get('marks') or []):
-                    if m.get('employee_id'):
+                    if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], new_date) != 'NU':
                         delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
             except Exception:
                 pass
