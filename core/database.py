@@ -755,6 +755,15 @@ def save_attendance_override(data_folder, employee_id, date, status, is_driver=0
     conn.commit()
     conn.close()
 
+def get_attendance_status(data_folder, employee_id, date):
+    """P21 R2: 查询某人某天的手动出勤状态（无覆盖返回 ''）"""
+    conn = get_conn(data_folder)
+    row = conn.execute(
+        "SELECT status FROM attendance_overrides WHERE employee_id=? AND date=?",
+        (employee_id, date)).fetchone()
+    conn.close()
+    return row['status'] if row else ''
+
 def delete_attendance_override(data_folder, employee_id, date):
     """删除某人的某天手动覆盖记录"""
     conn = get_conn(data_folder)
@@ -2031,7 +2040,7 @@ def check_annual_leave_eligible(data_folder, employee_id):
     """
     conn = get_conn(data_folder)
     emp = conn.execute(
-        "SELECT nssf_enrolled, nssf_number, nida_number, hire_date, annual_leave_override "
+        "SELECT nssf_enrolled, nssf_number, nida_number, hire_date, annual_leave_override, tin_number "
         "FROM employees WHERE id=?", (employee_id,)).fetchone()
     conn.close()
     if not emp:
@@ -2068,7 +2077,7 @@ def check_annual_leave_eligible(data_folder, employee_id):
     if not (emp['nida_number'] or '').strip():
         codes.append('no_nida')
         reasons.append('NIDA证件号为空')
-    if not (emp['tin_number'] if 'tin_number' in emp.keys() else ''):
+    if not (emp['tin_number'] or '').strip():
         codes.append('no_tin')
         reasons.append('TIN号码为空')
     code, reason = _check_hire_date()

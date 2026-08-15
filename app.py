@@ -1850,7 +1850,7 @@ def api_approval_routes_delete(route_id):
 @editor_required
 @require_permission('attendance', 'edit')
 def attendance_batch_submit():
-    from core.database import save_attendance_override, log_audit, is_driver, add_driver
+    from core.database import save_attendance_override, log_audit, is_driver, add_driver, get_attendance_status
     data = request.get_json()
     if not data or 'date' not in data or 'marks' not in data:
         return jsonify({'ok': False, 'error': '缺少 date 或 marks'}), 400
@@ -1861,6 +1861,11 @@ def attendance_batch_submit():
         status = m.get('status', '')
         if not eid or not status:
             continue
+        # P21 R2: NU 只读——禁止手动设置或覆盖审批写入的年假状态
+        if status == 'NU':
+            return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
+        if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
+            return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
         save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
         count += 1
         if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
@@ -3327,7 +3332,12 @@ def toggle_attendance():
     date = data.get('date')
     status = data.get('status', 'P')  # 'P', 'A', 'L'
 
-    from core.database import save_attendance_override
+    # P21 R2: NU（年假）状态由审批自动写入，禁止手动设置或修改（只读）
+    from core.database import save_attendance_override, get_attendance_status
+    if status == 'NU':
+        return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
+    if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
+        return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
     save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
     _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status}))
     return jsonify({'ok': True})
