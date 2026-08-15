@@ -334,6 +334,12 @@
     <div class="card">
       <h2 style="margin-bottom:0;" data-i18n="nav_oa_history">审批历史</h2>
       <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_history_hint">以下为近期已处理的 OA 事件</p>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+        <span style="font-size:13px;color:var(--text-muted);" data-i18n="oa_history_filter">类型</span>
+        <select id="oaHistoryTypeFilter" onchange="loadOAHistory()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+          <option value="" data-i18n="all_types">全部</option>
+        </select>
+      </div>
       <div id="oaHistoryList" style="margin-top:12px;">
         <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
       </div>
@@ -5228,7 +5234,19 @@ async function loadOAHistory() {
   const container = document.getElementById('oaHistoryList');
   if (!container) return;
   try {
-    const res = await fetch(api('/api/oa/history'));
+    // P22 R2: 填充类型筛选下拉选项（首次），保持当前选择
+    const sel = document.getElementById('oaHistoryTypeFilter');
+    if (sel && sel.options.length <= 1) {
+      Object.keys(EVENT_LABELS_MAP).forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = EVENT_LABELS_MAP[k] ? t(EVENT_LABELS_MAP[k]) : k;
+        sel.appendChild(opt);
+      });
+    }
+    const filter = sel ? sel.value : '';
+    const qs = filter ? '?type=' + encodeURIComponent(filter) : '';
+    const res = await fetch(api('/api/oa/history' + qs));
     const data = await res.json();
     const events = data.events || [];
     if (events.length === 0) {
