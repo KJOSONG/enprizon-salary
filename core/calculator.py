@@ -7,7 +7,7 @@
 """
 from collections import defaultdict
 from calendar import monthrange
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 import os
 from .namematch import canonical, make_employee_id, is_driller_leader, DRILLER_LEADERS
 
@@ -16,7 +16,9 @@ PRICES_UNDERGROUND = {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAWE': 4000
 PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000}
 PRICE_CRUSH = 300  # TZS/bag
 
-TODAY = date.today()
+# 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
+EAT = timezone(timedelta(hours=3))
+TODAY = datetime.now(EAT).date()
 CURRENT_MONTH = TODAY.month
 CURRENT_YEAR = TODAY.year
 

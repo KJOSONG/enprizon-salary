@@ -71,7 +71,7 @@ def init_db(data_folder):
         CREATE INDEX IF NOT EXISTS idx_monthly_month ON monthly_data(month);
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            timestamp TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             action TEXT NOT NULL,
             employee_id TEXT DEFAULT '',
             detail TEXT DEFAULT '{}'
@@ -138,14 +138,14 @@ def init_db(data_folder):
         );
         CREATE TABLE IF NOT EXISTS dismissed_employees (
             employee_id TEXT PRIMARY KEY,
-            dismissed_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            dismissed_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             note TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS admin_users (
             username TEXT PRIMARY KEY,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'admin',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
         CREATE TABLE IF NOT EXISTS permissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,7 +160,7 @@ def init_db(data_folder):
             username TEXT NOT NULL,
             permission_id INTEGER NOT NULL,
             grant_type TEXT NOT NULL DEFAULT 'allow',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             FOREIGN KEY (username) REFERENCES admin_users(username),
             FOREIGN KEY (permission_id) REFERENCES permissions(id),
             UNIQUE(username, permission_id)
@@ -186,8 +186,8 @@ def init_db(data_folder):
             rejected_by TEXT DEFAULT '',
             reject_reason TEXT DEFAULT '',
             status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
         CREATE INDEX IF NOT EXISTS idx_events_employee ON employee_events(employee_id, effective_date);
         CREATE INDEX IF NOT EXISTS idx_events_status ON employee_events(status);
@@ -200,7 +200,7 @@ def init_db(data_folder):
             comp_used INTEGER DEFAULT 0,
             sick_entitled INTEGER DEFAULT 14,
             sick_used INTEGER DEFAULT 0,
-            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            updated_at TEXT DEFAULT (datetime('now','+3 hours')),
             PRIMARY KEY (employee_id, year)
         );
         CREATE TABLE IF NOT EXISTS leave_requests (
@@ -217,8 +217,8 @@ def init_db(data_folder):
             approved_by TEXT DEFAULT '',
             rejected_by TEXT DEFAULT '',
             reject_reason TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
         CREATE INDEX IF NOT EXISTS idx_leave_employee ON leave_requests(employee_id);
         CREATE INDEX IF NOT EXISTS idx_leave_status ON leave_requests(status);
@@ -235,7 +235,7 @@ def init_db(data_folder):
             card_no TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT '工友',
             month TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now','localtime')),
+            created_at TEXT DEFAULT (datetime('now','+3 hours')),
             UNIQUE(week, team, card_no, source, month)
         );
         CREATE TABLE IF NOT EXISTS scoring_entries (
@@ -266,7 +266,7 @@ def init_db(data_folder):
             safety INTEGER,
             driving INTEGER,
             operator_id TEXT,
-            submitted_at TEXT DEFAULT (datetime('now','localtime')),
+            submitted_at TEXT DEFAULT (datetime('now','+3 hours')),
             month TEXT DEFAULT '',
             UNIQUE(week, team_id, card_no, source, month, subject_employee_id)
         );
@@ -288,8 +288,8 @@ def init_db(data_folder):
             name TEXT NOT NULL UNIQUE,
             description TEXT DEFAULT '',
             table_name TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
         CREATE TABLE IF NOT EXISTS form_fields (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -361,7 +361,7 @@ def init_db(data_folder):
                     card_no TEXT NOT NULL,
                     source TEXT NOT NULL DEFAULT '工友',
                     month TEXT DEFAULT '',
-                    created_at TEXT DEFAULT (datetime('now','localtime')),
+                    created_at TEXT DEFAULT (datetime('now','+3 hours')),
                     UNIQUE(week, team, card_no, source, month)
                 );
                 INSERT INTO scoring_cards_new (id, week, team, card_no, source, month, created_at)
@@ -400,7 +400,7 @@ def init_db(data_folder):
                     safety INTEGER,
                     driving INTEGER,
                     operator_id TEXT,
-                    submitted_at TEXT DEFAULT (datetime('now','localtime')),
+                    submitted_at TEXT DEFAULT (datetime('now','+3 hours')),
                     month TEXT DEFAULT '',
                     UNIQUE(week, team_id, card_no, source, month, subject_employee_id)
                 );
@@ -433,8 +433,8 @@ def init_db(data_folder):
             payload TEXT NOT NULL DEFAULT '{}',
             operator_id TEXT NOT NULL,
             month TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             version INTEGER NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS idx_cs_month ON collection_submissions(month, form_type);
@@ -445,21 +445,21 @@ def init_db(data_folder):
             version INTEGER NOT NULL,
             payload TEXT NOT NULL,
             operator_id TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
             FOREIGN KEY (submission_id) REFERENCES collection_submissions(id)
         );
         CREATE TABLE IF NOT EXISTS employee_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
             description TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
         CREATE TABLE IF NOT EXISTS driller_captains (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             employee_id TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             sort_order INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
     """)
     # P10: 种子班组
@@ -490,7 +490,7 @@ def init_db(data_folder):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT NOT NULL UNIQUE,
             approver TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
     """)
     conn.commit()
@@ -914,7 +914,7 @@ def dismiss_employee(data_folder, employee_id, note=''):
     """标记员工为离职"""
     conn = get_conn(data_folder)
     conn.execute(
-        "INSERT OR REPLACE INTO dismissed_employees (employee_id, note, dismissed_at) VALUES (?,?,datetime('now','localtime'))",
+        "INSERT OR REPLACE INTO dismissed_employees (employee_id, note, dismissed_at) VALUES (?,?,datetime('now','+3 hours'))",
         (employee_id, note)
     )
     conn.commit()
@@ -1030,7 +1030,7 @@ def apply_approved_event(data_folder, event):
                     (eid, note, eff))
             else:
                 conn.execute(
-                    "INSERT OR REPLACE INTO dismissed_employees (employee_id, note, dismissed_at) VALUES (?,?,datetime('now','localtime'))",
+                    "INSERT OR REPLACE INTO dismissed_employees (employee_id, note, dismissed_at) VALUES (?,?,datetime('now','+3 hours'))",
                     (eid, note))
             conn.execute(
                 "UPDATE employees SET status='dismissed',"
@@ -1588,10 +1588,10 @@ def set_approval_route(data_folder, event_type, approver):
     conn = get_conn(data_folder)
     conn.execute("""
         INSERT INTO approval_routes (event_type, approver, updated_at)
-        VALUES (?,?,datetime('now','localtime'))
+        VALUES (?,?,datetime('now','+3 hours'))
         ON CONFLICT(event_type) DO UPDATE SET
             approver=excluded.approver,
-            updated_at=datetime('now','localtime')
+            updated_at=datetime('now','+3 hours')
     """, (event_type, approver))
     conn.commit()
     conn.close()
@@ -1676,7 +1676,7 @@ def approve_event(data_folder, event_id, approved_by):
     conn = get_conn(data_folder)
     conn.execute("""
         UPDATE employee_events
-        SET status='approved', approved_by=?, updated_at=datetime('now','localtime')
+        SET status='approved', approved_by=?, updated_at=datetime('now','+3 hours')
         WHERE id=? AND status='pending'
     """, (approved_by, event_id))
     conn.commit()
@@ -1690,7 +1690,7 @@ def reject_event(data_folder, event_id, rejected_by, reason):
     conn.execute("""
         UPDATE employee_events
         SET status='rejected', rejected_by=?, reject_reason=?,
-            updated_at=datetime('now','localtime')
+            updated_at=datetime('now','+3 hours')
         WHERE id=? AND status='pending'
     """, (rejected_by, reason, event_id))
     conn.commit()
@@ -1823,7 +1823,7 @@ def add_leave_balance(data_folder, employee_id, year, annual=0, comp=0):
         ON CONFLICT(employee_id, year) DO UPDATE SET
             annual_entitled=annual_entitled+?,
             comp_entitled=comp_entitled+?,
-            updated_at=datetime('now','localtime')
+            updated_at=datetime('now','+3 hours')
     """, (employee_id, year, annual, comp, annual, comp))
     conn.commit()
     conn.close()
@@ -1838,7 +1838,7 @@ def deduct_annual_leave(data_folder, employee_id, year, days):
         return False
     conn.execute("""
         UPDATE leave_balances SET annual_used=annual_used+?,
-            updated_at=datetime('now','localtime')
+            updated_at=datetime('now','+3 hours')
         WHERE employee_id=? AND year=?
     """, (days, employee_id, year))
     conn.commit()
@@ -1855,7 +1855,7 @@ def deduct_comp_leave(data_folder, employee_id, year, days):
         return False
     conn.execute("""
         UPDATE leave_balances SET comp_used=comp_used+?,
-            updated_at=datetime('now','localtime')
+            updated_at=datetime('now','+3 hours')
         WHERE employee_id=? AND year=?
     """, (days, employee_id, year))
     conn.commit()
@@ -1881,7 +1881,7 @@ def deduct_sick_leave(data_folder, employee_id, year, days, default_entitled=14)
         return False
     conn.execute("""
         UPDATE leave_balances SET sick_used=sick_used+?,
-            updated_at=datetime('now','localtime')
+            updated_at=datetime('now','+3 hours')
         WHERE employee_id=? AND year=?
     """, (days, employee_id, year))
     conn.commit()
@@ -1922,7 +1922,7 @@ def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sic
         conn.close()
         return False
     vals += [employee_id, year]
-    conn.execute(f"UPDATE leave_balances SET {', '.join(sets)}, updated_at=datetime('now','localtime') WHERE employee_id=? AND year=?", vals)
+    conn.execute(f"UPDATE leave_balances SET {', '.join(sets)}, updated_at=datetime('now','+3 hours') WHERE employee_id=? AND year=?", vals)
     conn.commit()
     conn.close()
     return True
@@ -1946,9 +1946,11 @@ def check_annual_leave_eligible(data_folder, employee_id):
     if emp['hire_date']:
         import datetime
         try:
-            hd = datetime.datetime.strptime(emp['hire_date'], '%Y-%m-%d')
-            if (datetime.datetime.now() - hd).days < 365:
-                reasons.append('入职不满1年({}天)'.format((datetime.datetime.now() - hd).days))
+            hd = datetime.datetime.strptime(emp['hire_date'], '%Y-%m-%d').replace(
+                tzinfo=datetime.timezone(datetime.timedelta(hours=3)))
+            eat_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+            if (eat_now - hd).days < 365:
+                reasons.append('入职不满1年({}天)'.format((eat_now - hd).days))
         except:
             reasons.append('入职日期格式无效')
     else:
@@ -2257,7 +2259,7 @@ def update_form_schema(data_folder, schema_id, data):
             sets.append(f"{k}=?")
             vals.append(data[k])
     if sets:
-        sets.append("updated_at=datetime('now','localtime')")
+        sets.append("updated_at=datetime('now','+3 hours')")
         vals.append(schema_id)
         conn.execute(f"UPDATE form_schemas SET {', '.join(sets)} WHERE id=?", vals)
     conn.commit()
@@ -2587,13 +2589,13 @@ def update_collection_submission(data_folder, submission_id, payload, operator_i
     if date:
         conn.execute("""
             UPDATE collection_submissions SET payload=?, version=?, operator_id=?, submission_date=?, month=?,
-                updated_at=datetime('now','localtime')
+                updated_at=datetime('now','+3 hours')
             WHERE id=?
         """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, date, (date or '')[:7], submission_id))
     else:
         conn.execute("""
             UPDATE collection_submissions SET payload=?, version=?, operator_id=?,
-                updated_at=datetime('now','localtime')
+                updated_at=datetime('now','+3 hours')
             WHERE id=?
         """, (json.dumps(payload, ensure_ascii=False), new_version, operator_id, submission_id))
     conn.commit()

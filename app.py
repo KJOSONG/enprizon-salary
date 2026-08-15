@@ -2,10 +2,14 @@
 ENPRIZON LINDI PROJECT — Flask 主入口
 """
 import json, os, sys, socket, io, time, secrets, re
+from datetime import datetime, timezone, timedelta
 from flask import Flask, jsonify, request, send_from_directory, render_template, send_file, session, redirect, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from functools import wraps
+
+# 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
+EAT = timezone(timedelta(hours=3))
 
 app = Flask(__name__)
 app.config['PREFERRED_URL_SCHEME'] = 'http'
@@ -1095,7 +1099,7 @@ def get_available_months():
         conn.close()
     except: pass
     # 包含当前月及未来2个月（支持提前记录出勤）
-    now = datetime.now()
+    now = datetime.now(EAT)
     for i in range(3):
         y = now.year + (now.month + i - 1) // 12
         m = (now.month + i - 1) % 12 + 1
@@ -1558,7 +1562,7 @@ def api_employee_salary_type(employee_id):
     create_event(app.config['DATA_FOLDER'], {
         'employee_id': employee_id,
         'event_type': 'salary_change',
-        'effective_date': datetime.now().strftime('%Y-%m-01'),
+        'effective_date': datetime.now(EAT).strftime('%Y-%m-01'),
         'snapshot': '{}',
         'payload': json.dumps({'salary_type': st, 'day_rate': day_rate,
                                'monthly_salary': monthly_salary},
@@ -1859,7 +1863,7 @@ def oa_submit_leave():
     if event_type == 'comp_leave':
         from core.database import deduct_comp_leave
         import datetime as _dt
-        year = str(_dt.datetime.now().year)
+        year = str(_dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3))).year)
         days = data.get('days', 1)
         ok = deduct_comp_leave(app.config['DATA_FOLDER'], eid, year, days)
         if not ok:
@@ -1891,7 +1895,7 @@ def oa_submit_leave():
 @login_required
 def leave_balance(employee_id):
     import datetime as _dt
-    year = request.args.get('year', str(_dt.datetime.now().year))
+    year = request.args.get('year', str(_dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3))).year))
     from core.database import get_leave_balance
     balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year)
     return jsonify({'balance': balance})
@@ -1944,7 +1948,7 @@ def leave_balance_adjust():
     import datetime as _dt
     data = request.get_json() or {}
     eid = data.get('employee_id', '')
-    year = str(data.get('year', _dt.datetime.now().year))
+    year = str(data.get('year', _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3))).year))
     if not eid:
         return jsonify({'ok': False, 'error': '缺少员工ID'}), 400
     ok = adjust_leave_balance(app.config['DATA_FOLDER'], eid, year,
@@ -2095,7 +2099,7 @@ def collection_submit():
         return jsonify({'ok': False, 'error': '无效表单类型'}), 400
     if not date:
         return jsonify({'ok': False, 'error': '缺少日期'}), 400
-    if date > datetime.now().strftime('%Y-%m-%d'):
+    if date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
     username = session.get('username', 'unknown')
 
@@ -2211,7 +2215,7 @@ def collection_edit(submission_id):
     form_type = sub['form_type']
     old_date = sub['submission_date']
     new_date = data.get('submission_date') or old_date
-    if new_date > datetime.now().strftime('%Y-%m-%d'):
+    if new_date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
 
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
@@ -4315,7 +4319,7 @@ def seed_new_tables_from_excel():
 def auto_load_source():
     """纯采集模式：从数据库重建并加载当前月份数据"""
     from datetime import datetime
-    current_month = datetime.now().strftime('%Y-%m')
+    current_month = datetime.now(EAT).strftime('%Y-%m')
     chosen_month = current_month
 
     ok, msg = _run_pipeline(month_filter=chosen_month)
