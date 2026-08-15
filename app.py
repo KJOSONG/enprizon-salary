@@ -1814,6 +1814,7 @@ def api_approval_routes_delete(route_id):
 
 @app.route('/api/attendance/batch', methods=['POST'])
 @editor_required
+@require_permission('attendance', 'edit')
 def attendance_batch_submit():
     from core.database import save_attendance_override, log_audit, is_driver, add_driver
     data = request.get_json()
@@ -3228,6 +3229,7 @@ def get_attendance():
 
 @app.route('/attendance/toggle', methods=['POST'])
 @editor_required
+@require_permission('attendance', 'edit')
 def toggle_attendance():
     """手动标��某人某天的状态：P出勤 A旷工 L请假"""
     import json as _json

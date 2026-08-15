@@ -931,8 +931,9 @@
       const d=(e.department||'').toUpperCase();
       if(kind==='underground') return d.includes('UNDERGROUND');
       if(kind==='driller') return d.includes('DRILLER');
-      if(kind==='crush') return d.includes('CRUSH')||d.includes('SORT');
-      if(kind==='other') return !(d.includes('UNDERGROUND')||d.includes('DRILLER')||d.includes('CRUSH')||d.includes('SORT'));
+      // Sort Crush/Crush Piece Rate(子部门)归破碎计件;Sort Crush(父部门)归出勤收集
+      if(kind==='crush') return d.includes('CRUSH PIECE RATE');
+      if(kind==='other') return !(d.includes('UNDERGROUND')||d.includes('DRILLER')||d.includes('CRUSH PIECE RATE'));
       return true;
     });
   }
@@ -1051,9 +1052,8 @@
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
   function openColForm(ty, initPayload){
-    // P18 阶段2: 采集/出勤编辑入口按权限(生产/出勤 edit 权限)
-    const needEdit = (ty==='attendance') ? hasPermission('attendance','edit') : hasPermission('production','edit');
-    if(!needEdit){ toast(t('need_editor'),'warning'); return; }
+    // P18 阶段2: 采集/出勤编辑入口按权限(生产 edit 权限;出勤收集与出勤网格编辑分离,网格走 attendance:edit)
+    if(!hasPermission('production','edit')){ toast(t('need_editor'),'warning'); return; }
     STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
     if(ty==='underground') renderUgForm(initPayload); else if(ty==='driller') renderDrForm(initPayload); else if(ty==='crush') renderCrForm(initPayload); else renderAttForm(initPayload); }
   function backColHome(){ _pageStack[activeTab]=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
@@ -1246,7 +1246,13 @@
       + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:((init&&init.emps)||[]).length})+'</div><div id="crEmpsBox"></div></div>'
       + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark" value="'+esc((init&&init.remark)||'')+'"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
-    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',(init&&init.emps)||[],'crEmps', deptPool('crush'));
+    // 编辑模式员工池 = 原 emps 员工 ∪ crush 池,避免编辑保存时历史 Sort Crush 父部门员工丢失
+    const pool=deptPool('crush');
+    if(init && init.emps && init.emps.length){
+      const ids=new Set(init.emps.filter(Boolean));
+      (STATE.employees||[]).forEach(e=>{ if(ids.has(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
+    }
+    document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',(init&&init.emps)||[],'crEmps', pool);
     document.getElementById('crEmps').value=((init&&init.emps)||[]).join(',');
   }
   function submitCr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('crush', t('val_date'), false); return; }
@@ -1272,7 +1278,7 @@
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attDept" onchange="renderAttRoster()">'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()">'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
@@ -1280,7 +1286,7 @@
     renderAttRoster();
   }
   function attRosterEmpIds(){
-    const sel=document.getElementById('attDept').value;
+    const sel=document.getElementById('attColDept').value;
     const pool = STATE._attPool || deptPool('other');
     return pool.filter(e=>!sel||e.department===sel);
   }
@@ -1294,7 +1300,7 @@
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
     // 必须选择部门才能提交(防止误提交全部员工)
-    const deptEl=document.getElementById('attDept');
+    const deptEl=document.getElementById('attColDept');
     if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
     const marks=attRosterEmpIds().map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
     // 编辑保数据: 原 marks 员工(即使不在选中部门)按保留状态并入,避免编辑丢人
@@ -1331,7 +1337,7 @@
       + '<input class="att-search" id="attSearch" placeholder="'+t('search')+'" oninput="renderAttGrid()">'
       + '<select id="attDept" onchange="renderAttGrid()"><option value="">'+t('all_depts')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select>'
       + '<button class="icon-btn" onclick="openAttJump()" title="'+t('jump_date')+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></button>'
-      + '<button class="icon-btn" id="attBatchBtn" onclick="toggleAttBatch()">'+t('batch_mark')+'</button>'
+      + (hasPermission('attendance','edit') ? '<button class="icon-btn" id="attBatchBtn" onclick="toggleAttBatch()">'+t('batch_mark')+'</button>' : '')
       + '</div>'
       // Legend 8 色
       + '<div class="legend-strip">'
@@ -1360,6 +1366,7 @@
     const d=STATE.attendance; if(!d) return;
     const q=(document.getElementById('attSearch').value||'').toLowerCase().trim();
     const dept=document.getElementById('attDept').value;
+    const canEditAtt=hasPermission('attendance','edit');
     const today=new Date().toISOString().slice(0,10);
     // 需求4: 与员工列表一致,按姓名排序(localeCompare 中文/英文均可)
     // P19: 支持别名匹配(attendance rows 可能无 alias,从员工缓存关联)
@@ -1373,7 +1380,7 @@
     grid.innerHTML=slice.map(r=>{
       const sel = STATE.attBatch ? '<input type="checkbox" class="att-sel" data-eid="'+esc(r.id)+'" '+(STATE.attBatchSel.has(r.id)?'checked':'')+' onchange="onAttSel(\''+esc(r.id)+'\',this.checked)">' : '';
       const dateCells=d.dates.map(dt=>'<div class="date-cell'+(isWeekend(dt)?' weekend':'')+(dt===today?' att-today':'')+'">'+dt.slice(5).replace('-','/')+'</div>').join('');
-      const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'" onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')">'+(st||'·')+'</div>'; }).join('');
+      const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'"'+(canEditAtt?' onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')"':'')+'>'+(st||'·')+'</div>'; }).join('');
       return '<div class="att-card"><div class="att-card__row">'
         + '<div class="card-left">'+sel+'<div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
         + '<div class="card-right"><div class="date-strip-scroll"><div class="date-strip"><div class="date-row">'+dateCells+'</div><div class="status-row">'+statusCells+'</div></div></div></div>'

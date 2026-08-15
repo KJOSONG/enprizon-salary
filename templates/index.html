@@ -4332,7 +4332,7 @@ function renderAttendance() {
         const st = r.days[d] || '';
         const autoVal = r.auto ? r.auto[d] : '';
         const style = statusStyle[st] || statusStyle[''];
-        const isEditable = r.editable;
+        const isEditable = r.editable && hasPermission('attendance','edit');
         // 与原始数据不同才显示下划线（包含从空值手动改为P/A/L）
         const isChanged = st !== autoVal && !(autoVal === '' && st === '');
         // 月薪默认 (P) 改为手动时用不同的下划线
@@ -5497,8 +5497,8 @@ function filterEmpByDept(pool, kw) {
     const d = (e.department || '').toUpperCase();
     if (kw === 'underground') return d.includes('UNDERGROUND');
     if (kw === 'driller') return d.includes('DRILLER');
-    if (kw === 'crush') return d.includes('CRUSH');
-    if (kw === 'other') return !d.includes('UNDERGROUND') && !d.includes('DRILLER') && !d.includes('CRUSH');
+    if (kw === 'crush') return d.includes('CRUSH PIECE RATE');
+    if (kw === 'other') return !d.includes('UNDERGROUND') && !d.includes('DRILLER') && !d.includes('CRUSH PIECE RATE');
     return true;
   });
 }

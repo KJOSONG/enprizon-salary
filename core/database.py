@@ -1110,18 +1110,20 @@ ROLE_DEFAULT_PERMISSIONS = {
         'oa': ['view'],
     },
     # editor = viewer 全继承(view) + 编辑/评分查看/薪资查看/OA 审批/导出
+    # 2026-08-15: editor 去掉 attendance:edit(出勤网格只读,可通过 user_grants 单独授权覆盖);出勤收集表单走 production:edit
     'editor': {
         'production': ['edit'],
-        'attendance': ['edit', 'export'],
+        'attendance': ['export'],
         'employees': ['edit', 'export'],
         'oa': ['approve'],
         'scoring': ['view', 'edit'],
         'salary': ['view'],
     },
-    # admin = editor 全继承 + 薪资导出 + 系统配置
+    # admin = editor 全继承 + 薪资导出 + 系统配置 + 出勤编辑(editor 已无 edit,admin 显式保留)
     'admin': {
         'salary': ['export'],
         'system': ['view'],
+        'attendance': ['edit'],
     },
 }
 
