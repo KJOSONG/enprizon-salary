@@ -722,6 +722,8 @@ const I18N_DICT = {
     /* P1 OA */
     oa_no_pending: '暂无待审批事项',
     oa_history_hint: '以下为近期已处理的 OA 事件',
+    oa_history_filter: '类型',
+    all_types: '全部',
     oa_approve: '批准',
     oa_reject: '驳回',
     oa_reject_reason: '驳回原因',
@@ -1787,6 +1789,8 @@ const I18N_DICT = {
     /* P1 OA */
     oa_no_pending: 'No pending items',
     oa_history_hint: 'Recently processed OA events',
+    oa_history_filter: 'Type',
+    all_types: 'All',
     oa_approve: 'Approve',
     oa_reject: 'Reject',
     oa_reject_reason: 'Reject reason',

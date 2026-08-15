@@ -755,10 +755,10 @@
     });
   }
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
-  // 顶层部门员工: 移动端员工详情不显示薪资概览
-  const SALARY_HIDDEN_NAMES = ['JASTINE MELAU','JOSEPHINE MAJULI','KEVIN MAKUNDI','MAUA MARCUS NGWILA','PETRO JEREMIAH','PETER MICHAEL GAMA','RICKSON RICHARD MOLLEL'];
   function renderEmpProfile(e, att, sal){
-    const hideSalary = SALARY_HIDDEN_NAMES.includes(String(e.name||'').toUpperCase());
+    // P22 R6/R7: 顶层部门（ENPRIZON LINDI PROJECT）员工不显示薪资概览与薪资类别行（替代原硬编码名单）
+    const isUgDept = ((e.department || '') || '').trim() === 'ENPRIZON LINDI PROJECT';
+    const hideSalary = isUgDept;
     const role = STATE.auth && STATE.auth.role;
     // P18 阶段3: 档案编辑入口统一走 employees:edit
     const canEdit = hasPermission('employees','edit');
@@ -782,13 +782,12 @@
       + '</div>';
     // 基本信息
     html += '<div class="info-section"><div class="info-section__title">'+t('basic_info')+'</div>';
-    // R1: 薪资类别行附日薪/月薪基数
+    // R1: 薪资类别行（P22 R6/R7: 只保留类型名，去掉金额后缀；UG 部门整行不显示）
     const TYPE_LBL = { piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
     let salTypeVal = e.override_type||e.default_type||'';
     let salTypeText = TYPE_LBL[salTypeVal] || salTypeVal;
-    if (salTypeVal === 'day_rate') salTypeText += ' · ' + fmt(e.day_rate||0) + ' TZS' + t('salary_per_day');
-    else if (salTypeVal === 'monthly') salTypeText += ' · ' + fmt(e.monthly_salary||0) + ' TZS' + t('salary_per_month');
-    const info = [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['salary_type',salTypeText],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']];
+    const info = [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']];
+    if(!isUgDept) info.splice(5, 0, ['salary_type', salTypeText]);
     info.forEach(r=>{ if(r[1]!=null&&r[1]!=='') html+=kv(t(r[0]), r[1]); });
     html += '</div>';
     // 出勤统计 mini 卡

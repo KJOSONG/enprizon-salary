@@ -1732,16 +1732,22 @@ def get_pending_events(data_folder, approver='', is_super_admin=False):
     conn.close()
     return [dict(r) for r in rows]
 
-def get_processed_events(data_folder):
-    """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked"""
+def get_processed_events(data_folder, event_type=None):
+    """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked
+    P22 R2: 增加 event_type 可选过滤（None 时不过滤）"""
     conn = get_conn(data_folder)
-    rows = conn.execute("""
+    sql = """
         SELECT e.*, em.name as employee_name
         FROM employee_events e
         LEFT JOIN employees em ON e.employee_id = em.id
         WHERE e.status IN ('approved', 'rejected', 'revoked')
-        ORDER BY e.updated_at DESC, e.created_at DESC
-    """).fetchall()
+    """
+    params = []
+    if event_type:
+        sql += " AND e.event_type=?"
+        params.append(event_type)
+    sql += " ORDER BY e.updated_at DESC, e.created_at DESC"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

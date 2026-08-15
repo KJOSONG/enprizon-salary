@@ -1755,9 +1755,10 @@ def oa_pending_count():
 @login_required
 @require_permission('oa', 'view')
 def oa_history():
-    """P8: 已处理事件列表（approved/rejected）"""
+    """P8: 已处理事件列表（approved/rejected）；P22 R2: 支持 ?type= 按事件类型筛选"""
     from core.database import get_processed_events
-    events = get_processed_events(app.config['DATA_FOLDER'])
+    ev_type = (request.args.get('type') or '').strip() or None
+    events = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type)
     return jsonify({'events': events})
 
 @app.route('/api/oa/events/<int:event_id>/approve', methods=['POST'])

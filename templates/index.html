@@ -334,6 +334,12 @@
     <div class="card">
       <h2 style="margin-bottom:0;" data-i18n="nav_oa_history">审批历史</h2>
       <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_history_hint">以下为近期已处理的 OA 事件</p>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+        <span style="font-size:13px;color:var(--text-muted);" data-i18n="oa_history_filter">类型</span>
+        <select id="oaHistoryTypeFilter" onchange="loadOAHistory()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+          <option value="" data-i18n="all_types">全部</option>
+        </select>
+      </div>
       <div id="oaHistoryList" style="margin-top:12px;">
         <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
       </div>
@@ -474,8 +480,8 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <div style="min-width:0;">
-        <div style="font-size:13px;color:var(--text-muted);margin-bottom:2px;"><span data-i18n="emp_alias">别名</span>：<span id="pfAlias">—</span></div>
         <h2 id="profileName" style="margin-bottom:0;">—</h2>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:2px;"><span data-i18n="emp_alias">别名</span>：<span id="pfAlias">—</span></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="profileStatus" style="font-size:11px;"></span>
@@ -3203,11 +3209,10 @@ async function editEmployeeProfile() {
 
   let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;max-width:440px;width:95vw;max-height:85vh;overflow-y:auto;padding:20px;">';
   form += '<h3 style="margin-bottom:12px;">' + t('emp_edit_title') + ' — ' + g(emp.name) + '</h3>';
-  // 别名（置顶，与档案页"姓名上方"位置一致）
-  form += `<div class="form-row"><label data-i18n="emp_alias">别名</label><input id="pfEdit_alias" value="${g(emp.alias)}" style="${inStyle}"></div>`;
-  // P21 M5/R6: 改名（旧名自动入别名）
+  // P22 R3: 姓名在上、别名在下（与展示页顺序一致）；改名旧名自动入别名
   form += `<div class="form-row"><label data-i18n="emp_name">姓名</label><input id="pfEdit_name" value="${g(emp.name)}" style="${inStyle}"></div>`;
   form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('emp_rename_hint')}</div>`;
+  form += `<div class="form-row"><label data-i18n="emp_alias">别名</label><input id="pfEdit_alias" value="${g(emp.alias)}" style="${inStyle}"></div>`;
   // 性别
   form += `<div class="form-row"><label data-i18n="emp_gender">性别</label><select id="pfEdit_gender" style="${inStyle}">` +
     `<option value="" ${!emp.gender?'selected':''}>—</option>` +
@@ -4211,8 +4216,8 @@ function renderDailyWages() {
     const cur = shiftFilters[d] || '';
     const btnStyle = 'border:none;border-radius:2px;padding:1px 3px;font-size:9px;cursor:pointer;margin:0 1px;';
     const allCls = !cur ? 'background:var(--accent);color:#fff;' : 'background:transparent;color:var(--text-dim);';
-    const dCls = cur === 'D' ? 'background:var(--accent);color:#fff;' : 'background:transparent;color:var(--text-dim);';
-    const nCls = cur === 'N' ? 'background:var(--cyan);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    const dCls = cur === 'D' ? 'background:var(--st-d);color:#fff;' : 'background:transparent;color:var(--text-dim);';
+    const nCls = cur === 'N' ? 'background:var(--st-n);color:#fff;' : 'background:transparent;color:var(--text-dim);';
     headHtml += '<td style="text-align:center;padding:2px;">'
       + '<button onclick="toggleDateShift(\'' + d + '\',\'\')" style="' + btnStyle + allCls + '">' + t('dw_shift_all') + '</button>'
       + '<button onclick="toggleDateShift(\'' + d + '\',\'D\')" style="' + btnStyle + dCls + '">D</button>'
@@ -4394,8 +4399,8 @@ function renderAttendance() {
 
   // 状态颜色：手动改过的用虚线下划线标识
   const statusStyle = {
-    'D': {color: 'var(--accent)', label: t('shift_D_label'), desc: t('shift_D_desc')},
-    'N': {color: 'var(--cyan)', label: t('shift_N_label'), desc: t('shift_N_desc')},
+    'D': {color: 'var(--st-d)', label: t('shift_D_label'), desc: t('shift_D_desc')},   // P22 R4: 高对比蓝
+    'N': {color: 'var(--st-n)', label: t('shift_N_label'), desc: t('shift_N_desc')},   // P22 R4: 高对比青绿
     'B': {color: 'var(--purple)', label: t('shift_B_label'), desc: t('shift_B_desc')},
     'P': {color: 'var(--success)', label: t('shift_P_label'), desc: t('shift_P_desc')},
     'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
@@ -4529,8 +4534,8 @@ function showAttPopup(eid, date, currentStatus, autoVal, empType) {
     options.push({v:'C', label:t('shift_C_label'), color:'#F97316'});
     options.push({v:'P', label:t('shift_P_label'), color:'var(--success)'});
   } else if (isUnderground) {
-    options.push({v:'D', label:t('shift_D_label'), color:'var(--accent)'});
-    options.push({v:'N', label:t('shift_N_label'), color:'var(--cyan)'});
+    options.push({v:'D', label:t('shift_D_label'), color:'var(--st-d)'});
+    options.push({v:'N', label:t('shift_N_label'), color:'var(--st-n)'});
   } else {
     options.push({v:'P', label:t('shift_P_label'), color:'var(--success)'});
   }
@@ -5228,7 +5233,21 @@ async function loadOAHistory() {
   const container = document.getElementById('oaHistoryList');
   if (!container) return;
   try {
-    const res = await fetch(api('/api/oa/history'));
+    // P22 R2: 填充类型筛选下拉选项（首次），保持当前选择
+    // 动态 option 加 data-i18n 属性，语言切换时 applyI18n 自动重译
+    const sel = document.getElementById('oaHistoryTypeFilter');
+    if (sel && sel.options.length <= 1) {
+      Object.keys(EVENT_LABELS_MAP).forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k;
+        if (EVENT_LABELS_MAP[k]) opt.setAttribute('data-i18n', EVENT_LABELS_MAP[k]);
+        opt.textContent = EVENT_LABELS_MAP[k] ? t(EVENT_LABELS_MAP[k]) : k;
+        sel.appendChild(opt);
+      });
+    }
+    const filter = sel ? sel.value : '';
+    const qs = filter ? '?type=' + encodeURIComponent(filter) : '';
+    const res = await fetch(api('/api/oa/history' + qs));
     const data = await res.json();
     const events = data.events || [];
     if (events.length === 0) {

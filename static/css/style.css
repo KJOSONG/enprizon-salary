@@ -76,6 +76,9 @@
   --accent-gradient: none;
   --cyan: var(--chart-1);
   --cyan-glow: transparent;
+  /* P22 R4: 出勤 D/N 高对比色（亮色主题——原 --accent/--cyan 近白不可辨） */
+  --st-d: hsl(200 60% 45%);
+  --st-n: hsl(180 50% 40%);
   --border-light: var(--border);
   --border-glow: transparent;
   --danger: var(--destructive);
@@ -148,6 +151,9 @@
   --accent-gradient: none;
   --cyan: var(--chart-1);
   --cyan-glow: transparent;
+  /* P22 R4: 出勤 D/N 高对比色（暗色主题——更亮变体保证暗底可读） */
+  --st-d: hsl(200 70% 65%);
+  --st-n: hsl(180 60% 60%);
   --border-light: var(--border);
   --border-glow: transparent;
   --danger: var(--destructive);
