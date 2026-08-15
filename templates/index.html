@@ -5527,13 +5527,12 @@ async function loadColHistory(formType, containerId) {
       return;
     }
     container.innerHTML = filterBar + `<div class="table-wrap"><table class="data-table">
-      <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_updated')}</th><th>${t('col_th_actions')}</th></tr></thead>
+      <thead><tr><th>${t('col_th_date')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_actions')}</th></tr></thead>
       <tbody>` + subs.map(s => `
         <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
-          <td style="font-size:11px;color:var(--text-muted);">${s.updated_at}</td>
           <td><span style="color:var(--accent);font-size:11px;">${t('btn_edit_col')}</span></td>
         </tr>`).join('') + `</tbody></table></div>`;
   } catch (e) {
@@ -5609,9 +5608,11 @@ async function previewColSubmission(formType, sid, containerId) {
         <h3 style="margin:0 0 12px;font-size:14px;">${t('col_preview_title')}</h3>
         <div style="font-size:12px;color:var(--text-muted);line-height:1.9;margin-bottom:8px;">
           <div>${t('col_type')}: ${escHtml(typeLbl[formType] || formType)}</div>
-          <div>${t('date')}: ${escHtml(sub.submission_date || '')}</div>
+          <div>${t('col_date')}: ${escHtml(sub.submission_date || '')}</div>
+          <div>${t('col_created_at')}: ${escHtml(sub.created_at || '')}</div>
+          <div>${t('col_updated_at')}: ${escHtml(sub.updated_at || '')}</div>
+          <div>${t('col_version')}: v${sub.version || 1}</div>
           <div>${t('col_operator')}: ${escHtml(sub.operator_id || '')}</div>
-          <div>${t('col_version')}: v${sub.version || 1} · ${t('col_updated_at')}: ${escHtml(sub.updated_at || '')}</div>
         </div>
         <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload)}</div>
         <div style="display:flex;gap:8px;">
@@ -5866,7 +5867,7 @@ function renderUgCollectionForm(payload) {
       <input type="hidden" id="${prefix}DriversVal" value="${empsStr((payload[dataKey]||{}).drivers)}">
     </div>`;
   const html = `
-    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="ugDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="ugDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">DAY SHIFT</h4>
       ${prodRow('ugDay', day)}
@@ -5920,7 +5921,7 @@ function renderDrCollectionForm(payload) {
     captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [],
   }));
   document.getElementById('colDrForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="drDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="drDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div id="drSlots" style="margin-top:10px;"></div>
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="nav-btn" onclick="addDrSlot()" style="font-size:11px;padding:5px 12px;" data-i18n="dr_add_team">+ 添加队伍</button>
@@ -6125,7 +6126,7 @@ function renderCrCollectionForm(payload) {
   const date = payload.submission_date || new Date().toISOString().slice(0, 10);
   const emps = payload.emps || [];
   document.getElementById('colCrForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="crDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="crDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">Bags</label><input type="number" id="crBags" value="${payload.bags || 0}" min="0" step="1" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:10px;align-items:center;">
       <label style="min-width:70px;">${t('col_attendance')}</label>
@@ -6180,7 +6181,7 @@ async function renderAttCollectionForm(payload) {
       </div>`;
   }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
   document.getElementById('colAttForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
       <select id="attDeptSel" onchange="filterAttRoster()" style="${colInStyle(true)}">
         ${depts.map(d => `<option value="${escHtml(d)}">${escHtml(d)}</option>`).join('')}

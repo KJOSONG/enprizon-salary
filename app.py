@@ -2084,6 +2084,7 @@ def _reapply_driver_flags():
 @editor_required
 def collection_submit():
     """P9: 数据采集提交 — 写 collection_submissions + 合并 main_data + 重算"""
+    from datetime import datetime
     from core.database import insert_collection_submission, update_collection_submission, \
         get_collection_submissions, save_attendance_override, mark_driver_flag, log_audit
     data = request.get_json() or {}
@@ -2094,6 +2095,8 @@ def collection_submit():
         return jsonify({'ok': False, 'error': '无效表单类型'}), 400
     if not date:
         return jsonify({'ok': False, 'error': '缺少日期'}), 400
+    if date > datetime.now().strftime('%Y-%m-%d'):
+        return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
     username = session.get('username', 'unknown')
 
     # 出勤收集：写 attendance_overrides（batch 语义），collection 仅作留痕
@@ -2193,6 +2196,7 @@ def collection_driller_teams():
 @editor_required
 def collection_edit(submission_id):
     """P9: 再编辑采集提交（仅本人或 admin+），版本+1 + 旧版写 history + 重新合并 main_data"""
+    from datetime import datetime
     from core.database import get_collection_submission, get_collection_submissions, update_collection_submission, \
         delete_collection_submission, log_audit, delete_attendance_override, save_attendance_override
     username = session.get('username', 'unknown')
@@ -2207,6 +2211,8 @@ def collection_edit(submission_id):
     form_type = sub['form_type']
     old_date = sub['submission_date']
     new_date = data.get('submission_date') or old_date
+    if new_date > datetime.now().strftime('%Y-%m-%d'):
+        return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
 
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）

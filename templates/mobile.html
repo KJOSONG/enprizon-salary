@@ -1106,10 +1106,11 @@
     const body=document.getElementById('sheet-body');
     body.innerHTML =
       '<div class="info-row"><span class="info-row__label">'+t('col_type')+'</span><span class="info-row__value">'+esc(typeLabel[s.form_type]||s.form_type)+'</span></div>'
-      + '<div class="info-row"><span class="info-row__label">'+t('date')+'</span><span class="info-row__value">'+esc(s.submission_date||'')+'</span></div>'
-      + '<div class="info-row"><span class="info-row__label">'+t('col_operator')+'</span><span class="info-row__value">'+esc(s.operator_id||'')+'</span></div>'
-      + '<div class="info-row"><span class="info-row__label">'+t('col_version')+'</span><span class="info-row__value">'+(s.version||1)+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_date')+'</span><span class="info-row__value">'+esc(s.submission_date||'')+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_created_at')+'</span><span class="info-row__value">'+esc(s.created_at||'')+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('col_updated_at')+'</span><span class="info-row__value">'+esc(s.updated_at||'')+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_version')+'</span><span class="info-row__value">'+(s.version||1)+'</span></div>'
+      + '<div class="info-row"><span class="info-row__label">'+t('col_operator')+'</span><span class="info-row__value">'+esc(s.operator_id||'')+'</span></div>'
       + '<div style="margin:10px 0;border-top:1px solid var(--border);"></div>'
       + colDetailSummary(s.form_type, p)
       + (canEdit ? '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="editColDetail('+s.id+',\''+s.form_type+'\')">'+t('col_edit_btn')+'</button>'
@@ -1164,7 +1165,7 @@
       + '</div>';
     document.getElementById('col-form').innerHTML =
       '<div class="form-head"><span class="form-head__title">'+t('col_ug')+'</span></div>'
-      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + seg('ugDay', t('day_shift'), 'day', day)
       + seg('ugNight', t('night_shift'), 'night', night)
@@ -1213,7 +1214,7 @@
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
     STATE._drCaps=caps;
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_dr')+'</span></div>'
-      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div id="drSlots"></div>'
       + '<button class="btn btn-block" onclick="addDrSlotM()" style="margin:8px 0;">+ '+t('add_team')+'</button>'
@@ -1240,7 +1241,7 @@
   // 破碎计件
   function renderCrForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10);
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_cr')+'</span></div>'
-      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="'+((init&&init.bags)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:((init&&init.emps)||[]).length})+'</div><div id="crEmpsBox"></div></div>'
@@ -1276,7 +1277,7 @@
     STATE._attPool = pool;
     const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
-      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()">'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
