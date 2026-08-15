@@ -111,6 +111,8 @@ def init_db(data_folder):
         ('alias', 'TEXT DEFAULT \'\''),
         # P20: 年假资格豁免（开启后绕过 NSSF + NIDA 检查，仅 OA 审批人可改）
         ('annual_leave_override', 'INTEGER DEFAULT 0'),
+        # P21 R3: TIN 号码（年假资格检查要求有值）
+        ('tin_number', 'TEXT DEFAULT \'\''),
     ]
     for col, defn in _emp_new_cols:
         try:
@@ -1640,6 +1642,28 @@ def create_event(data_folder, data):
     conn.close()
     return eid
 
+def update_pending_event(data_folder, event_id, fields):
+    """P21 R1: 修改待审事件（仅限 status='pending'）—— 更新 payload/effective_date/updated_at"""
+    sets, vals = [], []
+    if 'payload' in fields and fields['payload'] is not None:
+        sets.append('payload=?')
+        vals.append(fields['payload'])
+    if 'effective_date' in fields and fields['effective_date'] is not None:
+        sets.append('effective_date=?')
+        vals.append(fields['effective_date'])
+    if not sets:
+        return False
+    vals += [event_id]
+    conn = get_conn(data_folder)
+    conn.execute(
+        f"UPDATE employee_events SET {', '.join(sets)},"
+        " updated_at=datetime('now','+3 hours') WHERE id=? AND status='pending'",
+        vals)
+    conn.commit()
+    affected = conn.total_changes
+    conn.close()
+    return affected > 0
+
 def get_pending_events(data_folder, approver='', is_super_admin=False):
     """获取待审批事件；approver 指定时仅返回该审批人或 super_admin 可见的事件，
     未指定审批人（''）的事件所有人可见"""
@@ -1752,7 +1776,9 @@ def update_employee_fields(data_folder, employee_id, fields):
                'nssf_number', 'bank_name', 'bank_account', 'bank_owner',
                'phone', 'note', 'status', 'dismissed_at', 'custom_fields',
                'gender', 'date_of_birth', 'avatar_path', 'department',
-               'team_id', 'custom_number', 'alias'}
+               'team_id', 'custom_number', 'alias',
+               # P21 R3: TIN 号码（name 白名单见 M5/R6，本次不加）
+               'tin_number'}
     # P14.10: 班组仅井下生产工人——非井下岗位（按数据库当前 default_type）一律 team_id 置 0
     if fields.get('team_id'):
         conn = get_conn(data_folder)
@@ -1853,6 +1879,17 @@ def deduct_annual_leave(data_folder, employee_id, year, days):
     conn.close()
     return True
 
+def restore_annual_leave(data_folder, employee_id, year, days):
+    """P21 R1: 撤销年假时反向恢复余额（防负：MAX(annual_used-?,0)）"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        UPDATE leave_balances SET annual_used=MAX(annual_used-?,0),
+            updated_at=datetime('now','+3 hours')
+        WHERE employee_id=? AND year=?
+    """, (days, employee_id, year))
+    conn.commit()
+    conn.close()
+
 def deduct_comp_leave(data_folder, employee_id, year, days):
     conn = get_conn(data_folder)
     row = conn.execute(
@@ -1939,47 +1976,59 @@ def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sic
 # ── P2: 年假资格校验 ────────────────
 
 def check_annual_leave_eligible(data_folder, employee_id):
+    """P21 R3: 年假资格检查（NSSF 改为查 nssf_number 有值；新增 TIN 检查）
+
+    返回结构化 reason codes（no_nssf/no_nida/no_tin/no_hire_date/invalid_hire_date/under_1year）
+    + 保留中文 reasons 供旧调用方展示。
+    豁免开关（annual_leave_override）跳过 NSSF + NIDA + TIN，但入职日期仍必须。
+    """
     conn = get_conn(data_folder)
     emp = conn.execute(
-        "SELECT nssf_enrolled, nida_number, hire_date, annual_leave_override "
+        "SELECT nssf_enrolled, nssf_number, nida_number, hire_date, annual_leave_override "
         "FROM employees WHERE id=?", (employee_id,)).fetchone()
     conn.close()
     if not emp:
-        return {'eligible': False, 'reasons': ['员工不存在']}
-    # P20: 豁免开关开启后跳过 NSSF + NIDA 检查，但仍保留入职年限检查
-    if emp['annual_leave_override']:
-        reasons = []
+        return {'eligible': False, 'reasons': ['员工不存在'], 'codes': ['no_employee']}
+
+    def _check_hire_date():
+        """入职日期检查：返回 (code, reason)，通过返回 (None, None)"""
         if not emp['hire_date']:
-            reasons.append('入职日期为空')
-        else:
-            import datetime
-            try:
-                hd = datetime.datetime.strptime(emp['hire_date'], '%Y-%m-%d').replace(
-                    tzinfo=datetime.timezone(datetime.timedelta(hours=3)))
-                eat_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
-                if (eat_now - hd).days < 365:
-                    reasons.append('入职不满1年({}天)'.format((eat_now - hd).days))
-            except:
-                reasons.append('入职日期格式无效')
-        return {'eligible': len(reasons) == 0, 'reasons': reasons}
-    reasons = []
-    if not emp['nssf_enrolled']:
-        reasons.append('未参加NSSF')
-    if not emp['nida_number']:
-        reasons.append('NIDA证件号为空')
-    if emp['hire_date']:
+            return 'no_hire_date', '入职日期为空'
         import datetime
         try:
             hd = datetime.datetime.strptime(emp['hire_date'], '%Y-%m-%d').replace(
                 tzinfo=datetime.timezone(datetime.timedelta(hours=3)))
             eat_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
             if (eat_now - hd).days < 365:
-                reasons.append('入职不满1年({}天)'.format((eat_now - hd).days))
-        except:
-            reasons.append('入职日期格式无效')
-    else:
-        reasons.append('入职日期为空')
-    return {'eligible': len(reasons) == 0, 'reasons': reasons}
+                return 'under_1year', '入职不满1年({}天)'.format((eat_now - hd).days)
+        except Exception:
+            return 'invalid_hire_date', '入职日期格式无效'
+        return None, None
+
+    codes, reasons = [], []
+    # P20: 豁免开关开启后跳过 NSSF + NIDA + TIN 检查，但仍保留入职年限检查
+    if emp['annual_leave_override']:
+        code, reason = _check_hire_date()
+        if code:
+            codes.append(code)
+            reasons.append(reason)
+        return {'eligible': len(codes) == 0, 'reasons': reasons, 'codes': codes}
+
+    # P21 R3: NSSF 以 nssf_number 有值为准（nssf_enrolled 布尔可能滞后）
+    if not (emp['nssf_number'] or '').strip():
+        codes.append('no_nssf')
+        reasons.append('未参加NSSF')
+    if not (emp['nida_number'] or '').strip():
+        codes.append('no_nida')
+        reasons.append('NIDA证件号为空')
+    if not (emp['tin_number'] if 'tin_number' in emp.keys() else ''):
+        codes.append('no_tin')
+        reasons.append('TIN号码为空')
+    code, reason = _check_hire_date()
+    if code:
+        codes.append(code)
+        reasons.append(reason)
+    return {'eligible': len(codes) == 0, 'reasons': reasons, 'codes': codes}
 
 
 # ── P2: 司机名单 ────────────────────
