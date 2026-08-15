@@ -495,12 +495,21 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
             for r in rows:
                 att_overrides[f"{r[0]}|{r[1]}"] = r[2]
 
-    # 判断某员工是否被覆盖为日薪（且无日期区间，或日期在区间内）
+    # P22-FIX: 判断某员工是否为日薪——以 override_type 优先，其次 default_type。
+    # 修复 UG 部门 day_rate 员工通过井下采集提交 D/N 出勤后，薪资总表计了日薪、
+    # 但日工资明细缺失的问题（员工 36/52 案例）。
+    # 注意：ENPRIZON LINDI PROJECT 部门员工 default_type=day_rate 但 override_type=monthly，
+    # 必须按 override_type 判定（实际月薪），不能只看 default_type。
+    _emp_by_id = {e['id']: e for e in employees}
     def is_overridden_day_rate(eid, date_str=None):
+        _ee = _emp_by_id.get(eid, {})
+        _eff = _ee.get('override_type') or _ee.get('default_type')
+        if _eff == 'day_rate':
+            return True
         if eid in overrides:
             for o in overrides[eid]:
                 if o.get('salary_type') == 'day_rate':
-                    # 如果有日期区间限制
+                    # 有日期区间的临时覆盖按区间判断；永久 day_rate 覆盖已由 override_type 体现
                     start = o.get('start_date') or ''
                     end = o.get('end_date') or ''
                     if start or end:
@@ -508,8 +517,6 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                             if start and date_str < start: continue
                             if end and date_str > end: continue
                             return True
-                    else:
-                        return True
         return False
 
     # 统计每人出勤天数，扣除 A/L（R3: 按天收集日期，供逐日取基数）
@@ -1225,12 +1232,17 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     counted.add((eid, dt))
                     date_counts[dt] += 1
             def _has_dr_ov(eid, dt):
+                # P22-FIX: 以 override_type 优先判定日薪（ENPRIZON LINDI PROJECT 部门
+                # default_type=day_rate 但 override_type=monthly，不能误判为日薪）
+                _ee = emp_map.get(eid, {})
+                _eff = _ee.get('override_type') or _ee.get('default_type')
+                if _eff == 'day_rate':
+                    return True
                 for o in overrides.get(eid, []):
                     if o.get('salary_type') == 'day_rate':
                         s, e = o.get('start_date') or '', o.get('end_date') or ''
                         if s or e:
                             if (not s or dt >= s) and (not e or dt <= e) and o.get('day_rate', 0) > 0: return True
-                        elif not s and not e: return True
                 return False
             for d in shift_data:
                 dt = d.get('date', '')
