@@ -1152,7 +1152,7 @@
 
   // 井下出渣：白/夜分段卡片展示双段数据（payload 结构不变；init 为编辑预填 payload）
   function renderUgForm(init){
-    const d = (init && init.submission_date) || new Date().toISOString().slice(0,10);
+    const d = (init && init.submission_date) || '';
     const day = (init && init.day) || {}, night = (init && init.night) || {};
     const seg=(p, title, dotClass, s)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
       + '<div style="display:flex;gap:6px;">'
@@ -1208,7 +1208,7 @@
   // 钻工组：多队伍 teams[]（init 为编辑预填 payload）
   STATE._drSlots=[];
   async function renderDrForm(init){
-    const d = (init && init.submission_date) || new Date().toISOString().slice(0,10);
+    const d = (init && init.submission_date) || '';
     const teams = (init && init.teams && init.teams.length) ? init.teams.map(tm=>({captain:tm.captain||'', nh:tm.nh||0, nl:tm.nl||0, mw:tm.mw||0, members:(tm.members||[])})) : [{captain:'',nh:0,nl:0,mw:0,members:[]}];
     STATE._drSlots = teams;
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
@@ -1239,7 +1239,7 @@
     colSubmit('driller', { submission_date:date, teams }, null); }
 
   // 破碎计件
-  function renderCrForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10);
+  function renderCrForm(init){ const d=(init&&init.submission_date)||'';
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_cr')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
@@ -1263,7 +1263,7 @@
     colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
   // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣）(init 为编辑预填 marks)
-  async function renderAttForm(init){ const d=(init&&init.submission_date)||new Date().toISOString().slice(0,10);
+  async function renderAttForm(init){ const d=(init&&init.submission_date)||'';
     const pool=deptPool('other');
     STATE._attEditMarks = {};
     (init && init.marks || []).forEach(m=>{ if(m.employee_id) STATE._attEditMarks[String(m.employee_id)] = m.status; });

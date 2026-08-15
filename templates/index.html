@@ -5839,7 +5839,7 @@ function renderUgCollectionForm(payload) {
   payload = payload || {};
   const day = payload.day || {};
   const night = payload.night || {};
-  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const date = payload.submission_date || '';
   const empsStr = (arr) => (arr || []).join(',');
   // P12: 三列产量各带标签（NICKEL(H) | NICKEL(L) | MAWE）
   // B1c: prodRow 需区分数据源(day/night)，否则夜班输入框误显示白班值
@@ -5915,7 +5915,7 @@ async function ensureDrTeamMap() {
 
 function renderDrCollectionForm(payload) {
   payload = payload || {};
-  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const date = payload.submission_date || '';
   let teams = payload.teams && payload.teams.length ? payload.teams : [{}, {}, {}];
   _drSlots = teams.map(t => ({
     captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [],
@@ -6123,7 +6123,7 @@ async function submitDrCollection() {
 /* ── P9-4 破碎采集表单 ── */
 function renderCrCollectionForm(payload) {
   payload = payload || {};
-  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const date = payload.submission_date || '';
   const emps = payload.emps || [];
   document.getElementById('colCrForm').innerHTML = `
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="crDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
@@ -6162,7 +6162,7 @@ const COL_ATT_STATUS = [
 
 async function renderAttCollectionForm(payload) {
   payload = payload || {};
-  const date = payload.submission_date || new Date().toISOString().slice(0, 10);
+  const date = payload.submission_date || '';
   const pool = await getEmpPool();
   const roster = filterEmpByDept(pool, 'other');
   // P12: 部门下拉（排除井下/钻工/破碎后剩余部门 + 全部）
