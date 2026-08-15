@@ -1736,6 +1736,18 @@ def oa_create_event():
     if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
     data['operator_id'] = session.get('username', 'unknown')
+    # P23 R2: 加班事件校验——必填 date/start_time/end_time，起止时间后端重算合法
+    if data.get('event_type') == 'overtime':
+        from core.database import _calc_overtime_hours
+        _pl = data.get('payload') or {}
+        if not (_pl.get('date') and _pl.get('start_time') and _pl.get('end_time')):
+            return jsonify({'ok': False, 'error': '加班申请缺少日期或起止时间'}), 400
+        _h = _calc_overtime_hours(_pl.get('start_time'), _pl.get('end_time'))
+        if _h <= 0:
+            return jsonify({'ok': False, 'error': '加班起止时间无效或超出 12 小时上限'}), 400
+        # 以后端计算为准（防前端伪造），同时保证 hours>0
+        _pl['hours'] = _h
+        data['payload'] = _pl
     # P13: 按事件类型取指定审批人写入（未设定为 ''）
     from core.database import get_approver_for_event
     data['approver'] = get_approver_for_event(app.config['DATA_FOLDER'], data.get('event_type', ''))
@@ -1808,6 +1820,7 @@ def oa_approve_event(event_id):
         return jsonify({'ok': False, 'error': '事件状态已变化，请刷新后重试'}), 409
     log_audit(app.config['DATA_FOLDER'], 'oa_approve',
               event['employee_id'], json.dumps({'event_id': event_id}))
+    _refresh_employees_cache()  # P23 R2/R4: 批准（加班落库/入职/调岗）后薪资缓存即时生效
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
@@ -1862,6 +1875,7 @@ def oa_revoke_event(event_id):
         return jsonify({'ok': False, 'error': '撤销失败（事件可能已处理）'}), 400
     log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
               json.dumps({'event_id': event_id, 'event_type': event['event_type']}))
+    _refresh_employees_cache()  # P23 R2: 撤销加班/请假后薪资缓存即时回退
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
@@ -1931,7 +1945,7 @@ def oa_edit_event(event_id):
 
 # ── P13: 审批人路由（super_admin 后台指定） ─────────────
 
-ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave')
+ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave', 'overtime')
 
 # ── P21 M7/R5: 年假资格错误双语（后端无 i18n 模块，硬编码两套文案） ──
 _LEAVE_ERR_MSG = {

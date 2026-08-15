@@ -23,6 +23,7 @@ const I18N_DICT = {
     nav_employees_transfer: '调岗申请',
     nav_employees_dismiss: '离职申请',
     nav_employees_leave: '请假申请',
+    nav_employees_overtime: '加班申请',
     btn_back: '← 返回列表',
     nav_oa_pending: '待审批',
     nav_oa_history: '审批历史',
@@ -1070,6 +1071,17 @@ const I18N_DICT = {
     annual_leave: '年假', comp_leave: '调休', sick_leave: '病假', personal_leave: '事假', leave_type: '请假类型',
     start_date: '开始日期', reason: '事由', days: '天', fill_date: '请选择日期', next: '继续',
     all_depts: '全部部门', emp_list_hint: '共 {n} 人',
+    /* P23 R2: 加班 */
+    event_overtime: '加班', overtime_apply: '加班申请',
+    overtime_date: '加班日期', overtime_start: '开始时间', overtime_end: '结束时间',
+    overtime_hours: '加班小时数', overtime_amount: '加班费', overtime_note: '备注',
+    overtime_calc_hint: '按起止时间自动计算（不足半小时不计）',
+    overtime_cross_day: '结束早于开始视为次日',
+    err_overtime_time: '加班起止时间无效', err_overtime_hours: '加班小时数超出上限',
+    oa_field_overtime_date: '加班日期', oa_field_start_time: '开始时间', oa_field_end_time: '结束时间',
+    oa_field_hours: '小时数',
+    settings_overtime_title: '加班费参数', settings_overtime_base: '加班基数(TZS)',
+    settings_overtime_days: '月工作天数', settings_overtime_hpd: '日工作小时', settings_overtime_rate: '加班倍率',
   },
   en: {
     /* ── Navigation ── */
@@ -1090,6 +1102,7 @@ const I18N_DICT = {
     nav_employees_transfer: 'Transfer Application',
     nav_employees_dismiss: 'Dismissal Application',
     nav_employees_leave: 'Leave Application',
+    nav_employees_overtime: 'Overtime Request',
     btn_back: '← Back to List',
     nav_oa_pending: 'Pending',
     nav_oa_history: 'History',
@@ -2137,6 +2150,17 @@ const I18N_DICT = {
     annual_leave: 'Annual', comp_leave: 'Comp', sick_leave: 'Sick', personal_leave: 'Personal Leave', leave_type: 'Leave Type',
     start_date: 'Start', reason: 'Reason', days: 'd', fill_date: 'Pick a date', next: 'Next',
     all_depts: 'All depts', emp_list_hint: '{n} total',
+    /* P23 R2: Overtime */
+    event_overtime: 'Overtime', overtime_apply: 'Overtime Request',
+    overtime_date: 'Overtime Date', overtime_start: 'Start Time', overtime_end: 'End Time',
+    overtime_hours: 'Overtime Hours', overtime_amount: 'Overtime Pay', overtime_note: 'Note',
+    overtime_calc_hint: 'Auto from start/end (under 30min ignored)',
+    overtime_cross_day: 'End earlier than start = next day',
+    err_overtime_time: 'Invalid overtime time range', err_overtime_hours: 'Overtime hours exceed limit',
+    oa_field_overtime_date: 'Overtime Date', oa_field_start_time: 'Start Time', oa_field_end_time: 'End Time',
+    oa_field_hours: 'Hours',
+    settings_overtime_title: 'Overtime Params', settings_overtime_base: 'OT Base (TZS)',
+    settings_overtime_days: 'Workdays/Month', settings_overtime_hpd: 'Hours/Day', settings_overtime_rate: 'OT Rate',
   }
 };
 

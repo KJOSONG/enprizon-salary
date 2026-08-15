@@ -828,6 +828,23 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if dt: month_prefix = dt[:7]; break
     working_days = 26  # 月薪按 26 天均分
 
+    # P23 R2: 读本月加班记录（审批通过后落库 overtime_records）
+    ot_total = defaultdict(float)
+    ot_daily = defaultdict(dict)
+    if data_folder and month_prefix:
+        _dbp = os.path.join(data_folder, 'kilwa.db')
+        if os.path.exists(_dbp):
+            try:
+                _oc = sqlite3.connect(_dbp)
+                for _r in _oc.execute(
+                        "SELECT employee_id, date, amount FROM overtime_records WHERE date LIKE ?",
+                        (month_prefix + '%',)).fetchall():
+                    ot_total[_r[0]] += _r[2]
+                    ot_daily[_r[0]][_r[1]] = _r[2]
+                _oc.close()
+            except Exception:
+                ot_total, ot_daily = defaultdict(float), defaultdict(dict)
+
     # P15: 产量层奖金池（scoring 模式）— 与计件同源 shift_production，month 已过滤
     pool_info = compute_scoring_pool(main_data, pricing)
     if underground_mode == 'scoring':
@@ -943,7 +960,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             ms_total = effective_days * (mb / working_days)
 
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
-        gross = pu + pd_val + dr_total + ms_total + cr_total
+        ot = round(ot_total.get(eid, 0))  # P23 R2: 加班费并入税前（可独立展示）
+        gross = pu + pd_val + dr_total + ms_total + cr_total + ot
         advance = emp.get('advance_total', 0)
         bp = bonus_penalties.get(eid, {})
         bonus = int(bp.get('bonus', 0) or 0)
@@ -1002,6 +1020,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'employee_id': eid, 'name': emp['name'], 'salary_type': eff_type,
             'piece_underground': pu, 'piece_driller': pd_val,
             'piece_crush': cr_total, 'day_rate': dr_total, 'monthly': ms_total,
+            'overtime': ot,  # P23 R2: 加班费（已含于 gross）
             'gross': gross, 'bonus': bonus, 'penalty': penalty,
             'driver_allowance': driver_allowance,
             'advance': round(advance), 'nssf': nssf, 'net': net,
@@ -1011,6 +1030,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     return {
         'employees': result_employees,
         'total_gross': sum(e['gross'] for e in result_employees),
+        'total_overtime': sum(e['overtime'] for e in result_employees),  # P23 R2
         'total_bonus': sum(e['bonus'] for e in result_employees),
         'total_penalty': sum(e['penalty'] for e in result_employees),
         'total_advance': sum(e['advance'] for e in result_employees),
@@ -1203,6 +1223,22 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if _dt:
                     _ym = _dt[:7]
                     break
+
+        # P23 R2: 读本月加班记录（与 calculate_all 同一来源，保证日明细与薪资页一致）
+        ot_daily_br = defaultdict(dict)
+        if data_folder and _ym:
+            _dbp3 = os.path.join(data_folder, 'kilwa.db')
+            if os.path.exists(_dbp3):
+                try:
+                    _oc3 = sqlite3.connect(_dbp3)
+                    for _r3 in _oc3.execute(
+                            "SELECT employee_id, date, amount FROM overtime_records WHERE date LIKE ?",
+                            (_ym + '%',)).fetchall():
+                        ot_daily_br[_r3[0]][_r3[1]] = _r3[2]
+                    _oc3.close()
+                except Exception:
+                    ot_daily_br = defaultdict(dict)
+
 
         day_sal = calc_day_salary(attendance_data, employees, overrides, data_folder, shift_data, month_prefix=_ym)
         month_sal = calc_monthly_salary(employees, overrides, underground_mode=underground_mode)
@@ -1417,6 +1453,10 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 elif dt_eff == 'monthly':
                     amt = ms_daily.get(eid, {}).get(dt, 0)
                     if amt > 0: daily[dt] = round(amt)
+
+            # P23 R2: 加班额叠加到对应日（不进入单轨选型，只加层；ot_daily_br 已按当月过滤）
+            for _odt, _oamt in ot_daily_br.get(eid, {}).items():
+                daily[_odt] = round(daily.get(_odt, 0) + _oamt)
 
             if daily:
                 result[eid] = {

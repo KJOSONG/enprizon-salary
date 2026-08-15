@@ -226,6 +226,19 @@ def init_db(data_folder):
         );
         CREATE INDEX IF NOT EXISTS idx_leave_employee ON leave_requests(employee_id);
         CREATE INDEX IF NOT EXISTS idx_leave_status ON leave_requests(status);
+        CREATE TABLE IF NOT EXISTS overtime_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            employee_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            start_time TEXT NOT NULL DEFAULT '',
+            end_time TEXT NOT NULL DEFAULT '',
+            hours REAL NOT NULL DEFAULT 0,
+            amount REAL NOT NULL DEFAULT 0,
+            note TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_overtime_emp ON overtime_records(employee_id, date);
         CREATE TABLE IF NOT EXISTS driver_roster (
             employee_id TEXT PRIMARY KEY,
             allowance_per_day INTEGER DEFAULT 5000,
@@ -714,6 +727,11 @@ def load_config(data_folder):
         # P15: 新键兜底（旧库 config 无此键时补默认，.get() 双保险）
         cfg.setdefault('scoring_nh_threshold', 600)
         cfg.setdefault('scoring_nh_price', 20000)
+        # P23 R2: 加班费参数兜底（旧库 config 无此键时补默认）
+        cfg.setdefault('overtime_base', 400000)            # 加班基数 TZS
+        cfg.setdefault('overtime_work_days', 26)           # 月工作天数
+        cfg.setdefault('overtime_hours_per_day', 8)        # 日工作小时
+        cfg.setdefault('overtime_rate', 1.5)               # 加班倍率
         return cfg
     # 返回默认值
     return {
@@ -725,6 +743,10 @@ def load_config(data_folder):
         'sick_leave_days': 14,
         'scoring_nh_threshold': 600,   # P15: 产量层 NICKEL(H) 门槛（车次）
         'scoring_nh_price': 20000,     # P15: 产量层超门槛单价（TZS/车次）
+        'overtime_base': 400000,       # P23 R2: 加班基数 TZS
+        'overtime_work_days': 26,      # P23 R2: 月工作天数
+        'overtime_hours_per_day': 8,   # P23 R2: 日工作小时
+        'overtime_rate': 1.5,          # P23 R2: 加班倍率
     }
 
 def save_config(data_folder, config):
@@ -955,6 +977,36 @@ def restore_employee(data_folder, employee_id):
     conn.commit()
     conn.close()
 
+
+def _calc_overtime_hours(start_time, end_time):
+    """P23 R2: 加班时长计算（纯函数，后端审批权威兜底）。
+
+    规则：
+    - 解析 HH:MM；end < start 视为跨天（次日结束）
+    - 跨天: hours = (24h − start) + end；同天: hours = end − start
+    - 按 0.5h 一档向下取整（不足半小时不计）
+    - hours > 12 视为无效（返回 0）；hours ≤ 0 无效
+    示例: 18:00-22:00→4.0；18:00-22:20→4.0；18:00-22:40→4.5；22:00-02:00→4.0；19:30-21:00→1.5
+    """
+    import math
+    try:
+        def _parse(t):
+            if not t or ':' not in str(t):
+                raise ValueError
+            hh, mm = str(t).strip().split(':')
+            return int(hh) * 60 + int(mm)
+        st_min = _parse(start_time)
+        et_min = _parse(end_time)
+    except (ValueError, TypeError):
+        return 0.0
+    diff = et_min - st_min
+    if diff < 0:
+        diff += 24 * 60  # 跨天
+    hours = diff / 60.0
+    if hours <= 0 or hours > 12:
+        return 0.0
+    return math.floor(hours * 2) / 2.0
+
 def apply_approved_event(data_folder, event):
     """P8: OA 事件审批通过后落员工主档（PRD §5.2 效果列，与 overrides 推导叠加）
 
@@ -1099,6 +1151,26 @@ def apply_approved_event(data_folder, event):
                     "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,0) "
                     "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=0",
                     (eid, _ds, st, st))
+        elif etype == 'overtime':
+            # P23 R2: 加班审批通过 → 后端兜底重算 hours + 按 config 公式落 overtime_records
+            _date = str(payload.get('date') or eff or '')
+            _st = str(payload.get('start_time') or '')
+            _et = str(payload.get('end_time') or '')
+            if not _date:
+                raise RuntimeError('加班事件缺少日期')
+            _hours = _calc_overtime_hours(_st, _et)
+            if _hours <= 0:
+                raise RuntimeError('加班起止时间无效或超出 12 小时上限')
+            _cfg = load_config(data_folder)
+            _amt = _hours * (_cfg.get('overtime_base', 400000)
+                             / _cfg.get('overtime_work_days', 26)
+                             / _cfg.get('overtime_hours_per_day', 8)
+                             * _cfg.get('overtime_rate', 1.5))
+            conn.execute(
+                "INSERT INTO overtime_records (event_id, employee_id, date, start_time, end_time, hours, amount, note)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (event['id'], eid, _date, _st, _et, _hours, round(_amt),
+                 str(payload.get('note') or '')))
         conn.commit()
     finally:
         conn.close()
@@ -1838,6 +1910,9 @@ def revoke_event(data_folder, event_id, revoked_by):
                     conn.execute(
                         "DELETE FROM attendance_overrides WHERE employee_id=? AND date=?",
                         (ev['employee_id'], _ds))
+        elif ev['event_type'] == 'overtime':
+            # P23 R2: 撤销加班 → 删除对应 overtime_records（同事务内，薪资即时回退）
+            conn.execute("DELETE FROM overtime_records WHERE event_id=?", (event_id,))
         conn.commit()
         return True
     finally:
