@@ -824,21 +824,7 @@
       <button class="admin-only" onclick="resetConfig()" data-i18n="settings_reset_default" data-perm="system:view">↺ 恢复默认</button>
     </div>
   </div>
-
-  <!-- ═══ 审计日志 ═══ -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="audit_title">审计日志</h2>
-      <button class="nav-btn" onclick="loadAuditLog()" style="font-size:11px;padding:4px 10px;" data-i18n="audit_refresh">↻ 刷新</button>
-    </div>
-    <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
-      <table class="data-table" style="font-size:11px;">
-        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
-        <tbody id="auditLogBody"></tbody>
-      </table>
-    </div>
   </div>
-</div>
 
 <!-- ═══ 用户管理：新增用户弹窗 ═══ -->
 <div class="modal-overlay" id="createUserModal" style="display:none;">
@@ -1113,6 +1099,19 @@
           <tbody id="permRolesTable"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+  <!-- ═══ P23 R3: 审计日志（移入用户权限页，与双 Tab 平级） ═══ -->
+  <div class="card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="audit_title">审计日志</h2>
+      <button class="nav-btn" onclick="loadAuditLog()" style="font-size:11px;padding:4px 10px;" data-i18n="audit_refresh">↻ 刷新</button>
+    </div>
+    <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+      <table class="data-table" style="font-size:11px;">
+        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
+        <tbody id="auditLogBody"></tbody>
+      </table>
     </div>
   </div>
   <!-- ══ 用户编辑抽屉 ══ -->
@@ -1930,7 +1929,7 @@ function showTargetPage(module, subPage) {
   if (targetId === 'attendance') loadAttendance();
   if (targetId === 'dailywages') loadDailyWages();
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
-  if (targetId === 'settings') { loadConfig(); loadAuditLog(); loadUserList(); loadGroupsAdmin(); loadCaptainsAdmin(); }
+  if (targetId === 'settings') { loadConfig(); loadUserList(); loadGroupsAdmin(); loadCaptainsAdmin(); }
   if (targetId === 'employees') {
     renderEmployeeTable();
   }
@@ -1949,7 +1948,7 @@ function showTargetPage(module, subPage) {
   if (targetId === 'employees-overtime') initEmpTypeahead('otEmpId', 'otEmpEid', 'otPick');
 
   // P4: 权限管理页面加载
-  if (module === 'system' && subPage === 'users') { loadPermissionsPage(); loadApprovalRoutes(); }
+  if (module === 'system' && subPage === 'users') { loadPermissionsPage(); loadApprovalRoutes(); loadAuditLog(); }  // P23 R3: 审计日志随权限页加载
   // P4: 表单管理页面加载
   if (module === 'system' && subPage === 'forms') loadFormSchemas();
   // P5: 归档页面加载
