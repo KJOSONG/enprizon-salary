@@ -2978,7 +2978,8 @@ async function loadEmployeeProfilePage(eid) {
 
     // 时间线
     const EVENT_LABELS = { hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
-      salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement' };
+      salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement',
+      annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave' };
     const tl = document.getElementById('profileTimeline');
     if (events.length === 0) {
       tl.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">' + t('no_events') + '</div>';
@@ -2990,7 +2991,7 @@ async function loadEmployeeProfilePage(eid) {
             <div class="timeline-header">
               <span class="timeline-type">${EVENT_LABELS[ev.event_type] ? t(EVENT_LABELS[ev.event_type]) : ev.event_type}</span>
               <span class="timeline-date">${ev.effective_date}</span>
-              <span class="timeline-status ${ev.status}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : '…'}</span>
+              <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
             </div>
           </div>
         </div>`).join('');
@@ -5102,6 +5103,9 @@ async function loadOAPending() {
           <button class="oa-btn" onclick="toggleOaDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
           <button class="oa-btn oa-btn-approve" onclick="oaApprove(${ev.id})"${isSelfSubmit(ev) ? ' disabled title="' + t('oa_cannot_self') + '"' : ''}>${t('oa_approve')}</button>
           <button class="oa-btn oa-btn-reject" onclick="oaShowReject(${ev.id})">${t('oa_reject')}</button>
+          ${(ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') && _authState.logged_in && (ev.operator_id === _authState.username || _authState.role === 'super_admin') ? `
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
         </div>
         <div id="oaDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
         <div id="oaRejectForm${ev.id}" style="display:none;width:100%;"></div>
@@ -5161,6 +5165,54 @@ async function oaReject(eventId) {
   }
 }
 
+/* ── P21 M4: 请假撤销/修改（成功后 recalculate + 刷新 OA/档案/出勤） ── */
+async function revokeLeaveEvent(eventId) {
+  if (!confirm(t('oa_revoke_confirm'))) return;
+  const res = await authFetch(api(`/api/oa/events/${eventId}/revoke`), { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(t('toast_leave_revoke_ok'));
+    await recalculate();
+    loadOAPending();
+    loadOAHistory();
+    loadNotifCount();
+  } else {
+    showToast(data.error || t('op_fail'), 'error');
+  }
+}
+
+async function editLeaveEvent(eventId) {
+  // 取原事件数据预填
+  let ev = null;
+  try {
+    const res = await fetch(api('/api/oa/events/' + eventId));
+    const data = await res.json();
+    ev = data.event || data;
+  } catch (e) { ev = null; }
+  if (!ev || ev.id === undefined) { showToast(t('op_fail'), 'error'); return; }
+  let days = 1, date = ev.effective_date || '';
+  try { days = JSON.parse(ev.payload || '{}').days || 1; } catch (e) {}
+  const newDays = prompt(t('leave_edit_days'), String(days));
+  if (newDays === null) return;
+  const newDate = prompt(t('leave_edit_date'), date);
+  if (newDate === null) return;
+  const res = await authFetch(api(`/api/oa/events/${eventId}/edit`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ effective_date: newDate.trim(), days: parseInt(newDays) || 1 }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(t('leave_edit_ok'));
+    await recalculate();
+    loadOAPending();
+    loadOAHistory();
+    loadNotifCount();
+  } else {
+    showToast(data.error || t('op_fail'), 'error');
+  }
+}
+
 async function loadOAHistory() {
   const container = document.getElementById('oaHistoryList');
   if (!container) return;
@@ -5177,13 +5229,17 @@ async function loadOAHistory() {
         <div class="oa-event-info">
           <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
           <div class="oa-event-meta">
-            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : t('rejected_label')}
+            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
+            ${ev.status === 'revoked' && ev.revoked_by ? ' · ' + t('oa_revoke_by') + ': ' + escHtml(ev.revoked_by) : ''}
             ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
-            · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
+            · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || ev.revoked_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
           </div>
         </div>
         <div class="oa-event-actions">
           <button class="oa-btn" onclick="toggleOaHistDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
+          ${ev.status === 'approved' && (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') && hasPermission('oa', 'approve') ? `
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
+          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
         </div>
         <div id="oaHistDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
       </div>`).join('');

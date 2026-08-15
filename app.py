@@ -1788,6 +1788,106 @@ def oa_reject_event(event_id):
                       event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}))
     return jsonify({'ok': ok})
 
+@app.route('/api/oa/events/<int:event_id>', methods=['GET'])
+@login_required
+@require_permission('oa', 'view')
+def oa_event_detail(event_id):
+    """P21 M4: 单个事件详情（前端编辑/撤销预填用）"""
+    from core.database import get_event
+    ev = get_event(app.config['DATA_FOLDER'], event_id)
+    if not ev:
+        return jsonify({'error': '事件不存在'}), 404
+    return jsonify({'event': ev})
+
+@app.route('/api/oa/events/<int:event_id>/revoke', methods=['POST'])
+@editor_required
+def oa_revoke_event(event_id):
+    """P21 M4: 撤销事件（已批需 oa:approve 权限；待审仅申请人本人或 super_admin）"""
+    from core.database import get_event, revoke_event, log_audit, check_permission
+    username = session.get('username', '')
+    event = get_event(app.config['DATA_FOLDER'], event_id)
+    if not event:
+        return jsonify({'ok': False, 'error': '事件不存在'}), 404
+    if event['status'] not in ('approved', 'pending'):
+        return jsonify({'ok': False, 'error': '该事件状态不可撤销'}), 400
+    # 权限分支
+    if event['status'] == 'approved':
+        if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
+            return jsonify({'ok': False, 'error': '无权撤销已批事件（需 OA 审批权限）'}), 403
+    else:
+        if event['operator_id'] != username and session.get('role') != 'super_admin':
+            return jsonify({'ok': False, 'error': '只能撤销自己提交的待审事件'}), 403
+    ok = revoke_event(app.config['DATA_FOLDER'], event_id, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': '撤销失败（事件可能已处理）'}), 400
+    log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
+              json.dumps({'event_id': event_id, 'event_type': event['event_type']}))
+    return jsonify({'ok': True})
+
+@app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
+@editor_required
+def oa_edit_event(event_id):
+    """P21 M4: 修改请假事件
+    - 待审: update_pending_event（payload.days + effective_date）
+    - 已批: 仅限同月修改（edit_approved_leave_event 事务内撤销重建），跨月 400
+    """
+    from core.database import (get_event, update_pending_event, log_audit, check_permission,
+                               edit_approved_leave_event)
+    data = request.get_json() or {}
+    username = session.get('username', '')
+    event = get_event(app.config['DATA_FOLDER'], event_id)
+    if not event:
+        return jsonify({'ok': False, 'error': '事件不存在'}), 404
+    if event['event_type'] not in ('annual_leave', 'comp_leave'):
+        return jsonify({'ok': False, 'error': '仅请假事件可修改'}), 400
+    # 权限（同 revoke）
+    if event['status'] == 'approved':
+        if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
+            return jsonify({'ok': False, 'error': '无权修改已批事件（需 OA 审批权限）'}), 403
+    else:
+        if event['operator_id'] != username and session.get('role') != 'super_admin':
+            return jsonify({'ok': False, 'error': '只能修改自己提交的待审事件'}), 403
+
+    new_date = (data.get('effective_date') or '').strip()
+    new_days = data.get('days')
+    try:
+        new_days = int(new_days) if new_days is not None else None
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': '无效的天数'}), 400
+    if not new_date:
+        return jsonify({'ok': False, 'error': '缺少生效日期'}), 400
+    if new_days is not None and new_days < 1:
+        return jsonify({'ok': False, 'error': '天数至少为 1'}), 400
+
+    if event['status'] == 'pending':
+        try:
+            payload = json.loads(event['payload'] or '{}')
+        except Exception:
+            payload = {}
+        if new_days is not None:
+            payload['days'] = new_days
+        fields = {'effective_date': new_date, 'payload': json.dumps(payload, ensure_ascii=False)}
+        ok = update_pending_event(app.config['DATA_FOLDER'], event_id, fields)
+        if not ok:
+            return jsonify({'ok': False, 'error': '修改失败（事件可能已处理）'}), 400
+        log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
+                  json.dumps({'event_id': event_id, 'status': 'pending', 'new_date': new_date, 'days': new_days}))
+        return jsonify({'ok': True})
+
+    # 已批：同月修改（事务内撤销重建）
+    if new_days is None:
+        try:
+            new_days = int(json.loads(event['payload'] or '{}').get('days', 1) or 1)
+        except (TypeError, ValueError):
+            new_days = 1
+    ok, msg = edit_approved_leave_event(app.config['DATA_FOLDER'], event_id, new_date, new_days, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': str(msg)}), 400
+    log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
+              json.dumps({'event_id': event_id, 'status': 'approved', 'new_date': new_date,
+                          'days': new_days, 'new_event_id': msg}))
+    return jsonify({'ok': True, 'event_id': event_id, 'new_event_id': msg})
+
 
 # ── P13: 审批人路由（super_admin 后台指定） ─────────────
 
