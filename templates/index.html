@@ -362,6 +362,7 @@
       <div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input type="text" id="hireSkill" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nida">NIDA</label><input type="text" id="hireNida" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input type="text" id="hireNssf" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="emp_tin_number">TIN 号码</label><input type="text" id="hireTin" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_phone">电话</label><div style="display:flex;align-items:center;"><span style="padding:6px 8px;border:1px solid var(--border);border-right:none;border-radius:var(--radius) 0 0 var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">+255</span><input type="tel" id="hirePhone" placeholder="7xxxxxxxxx" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:0 var(--radius) var(--radius) 0;background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;border-left:none;"></div></div>
       <div class="form-row"><label data-i18n="emp_bank_name">银行</label><input type="text" id="hireBank" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_bank_account">账号</label><input type="text" id="hireAccount" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -508,6 +509,7 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_tin_number">TIN 号码</span><span class="info-value" id="pfTin">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_annual_leave_override">年假资格豁免</span><span class="info-value" id="pfAnnualLeaveOverride">—</span><button class="nav-btn" id="pfAnnualOverrideToggleBtn" onclick="toggleAnnualLeaveOverride()" style="font-size:10px;padding:2px 8px;margin-left:8px;display:none;" data-i18n="btn_toggle_override">切换</button></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_phone">电话</span><span class="info-value" id="pfPhone">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
@@ -2912,6 +2914,7 @@ async function loadEmployeeProfilePage(eid) {
     document.getElementById('pfHireDate').textContent = emp.hire_date;
     document.getElementById('pfNida').textContent = emp.nida_number;
     document.getElementById('pfNssf').textContent = emp.nssf_number;
+    document.getElementById('pfTin').textContent = emp.tin_number || '—';
     // P20: 年假资格豁免状态（OA 审批人可见"切换"按钮,直接点击即开/关）
     const overrideEl = document.getElementById('pfAnnualLeaveOverride');
     if (overrideEl) overrideEl.innerHTML = emp.annual_leave_override
@@ -3200,6 +3203,9 @@ async function editEmployeeProfile() {
   form += '<h3 style="margin-bottom:12px;">' + t('emp_edit_title') + ' — ' + g(emp.name) + '</h3>';
   // 别名（置顶，与档案页"姓名上方"位置一致）
   form += `<div class="form-row"><label data-i18n="emp_alias">别名</label><input id="pfEdit_alias" value="${g(emp.alias)}" style="${inStyle}"></div>`;
+  // P21 M5/R6: 改名（旧名自动入别名）
+  form += `<div class="form-row"><label data-i18n="emp_name">姓名</label><input id="pfEdit_name" value="${g(emp.name)}" style="${inStyle}"></div>`;
+  form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('emp_rename_hint')}</div>`;
   // 性别
   form += `<div class="form-row"><label data-i18n="emp_gender">性别</label><select id="pfEdit_gender" style="${inStyle}">` +
     `<option value="" ${!emp.gender?'selected':''}>—</option>` +
@@ -3220,6 +3226,7 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input id="pfEdit_nssf_number" value="${g(emp.nssf_number)}" style="${inStyle}"></div>`;
+  form += `<div class="form-row"><label data-i18n="emp_tin_number">TIN 号码</label><input id="pfEdit_tin_number" value="${g(emp.tin_number)}" style="${inStyle}"></div>`;
   // P20: 年假资格豁免（仅 OA 审批人可切换）
   const canOAApprove = hasPermission('oa', 'approve');
   const overrideDescKey = canOAApprove ? 'emp_annual_leave_override_can_edit' : 'emp_annual_leave_override_no_perm';
@@ -3279,8 +3286,9 @@ async function saveEmployeeProfile(eid) {
   // ── 基础字段 ──
   const isSA = _authState.role === 'super_admin';
   const data = { department: document.getElementById('pfEdit_department').value };
-  ['position','skill_level','hire_date','nida_number','nssf_number',
-   'bank_name','bank_account','bank_owner','gender','date_of_birth','alias']
+  ['position','skill_level','hire_date','nida_number','nssf_number','tin_number',
+   'bank_name','bank_account','bank_owner','gender','date_of_birth','alias',
+   'name']  // P21 M5: tin_number + name（改名，旧名自动入 alias）
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
   // 部门仅超级管理员可直改，非超管兜底移除，防误传/绕过
   if (!isSA) delete data.department;
@@ -5494,6 +5502,7 @@ async function submitApply(type) {
         skill_level: document.getElementById('hireSkill').value.trim(),
         nida_number: document.getElementById('hireNida').value.trim(),
         nssf_number: document.getElementById('hireNssf').value.trim(),
+        tin_number: document.getElementById('hireTin').value.trim(),
         phone: phoneRaw ? '+255' + phoneRaw : '',
         bank_name: document.getElementById('hireBank').value.trim(),
         bank_account: document.getElementById('hireAccount').value.trim(),
@@ -5543,7 +5552,7 @@ async function submitApply(type) {
       setApplyMsg(msgId, t('apply_submitted'), true);
       // 清空表单
       if (type === 'hire') {
-        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
+        ['hireName','hirePosition','hireDob','hireDate','hireSkill','hireNida','hireNssf','hireTin','hirePhone','hireBank','hireAccount','hireOwner','hireDayRate','hireMonthly']
           .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         ['hireGender','hireSalaryType','hireDept'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';

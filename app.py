@@ -1546,9 +1546,9 @@ def api_employee_annual_leave_override(employee_id):
 @app.route('/api/employees/<employee_id>', methods=['POST'])
 @editor_required
 def api_employee_update(employee_id):
-    """编辑员工基本信息"""
+    """编辑员工基本信息（P21 M5/R6: 支持改名，旧名自动入 alias 并重建索引）"""
     from core.database import update_employee_fields, log_audit, get_conn
-    data = request.get_json()
+    data = request.get_json() or {}
     # 部门仅超级管理员可直改；非超管改不同部门值 → 拒绝（须走 OA 调岗审批）
     if 'department' in data and session.get('role') != 'super_admin':
         conn = get_conn(app.config['DATA_FOLDER'])
@@ -1556,8 +1556,27 @@ def api_employee_update(employee_id):
         conn.close()
         if row and (row['department'] or '') != (data.get('department') or ''):
             return jsonify({'ok': False, 'error': '部门仅超级管理员可修改，或通过OA调岗审批'}), 403
+    # P21 M5/R6: 改名联动——旧名合并进 alias（逗号分隔去重，跳过空），保证旧名反查/搜索仍命中
+    renamed = False
+    if 'name' in data:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        row = conn.execute("SELECT name, alias FROM employees WHERE id=?", (employee_id,)).fetchone()
+        conn.close()
+        if row:
+            old_name = (row['name'] or '').strip()
+            new_name = (data.get('name') or '').strip()
+            if new_name and old_name and old_name != new_name:
+                alias_set = []
+                if row['alias']:
+                    alias_set = [a.strip() for a in str(row['alias']).split(',') if a.strip()]
+                if old_name not in alias_set:
+                    alias_set.append(old_name)
+                data['alias'] = ', '.join(alias_set)
+                renamed = True
     ok = update_employee_fields(app.config['DATA_FOLDER'], employee_id, data)
     if ok:
+        if renamed or 'alias' in data:
+            _build_db_ab_index(app.config['DATA_FOLDER'])  # 改名/别名即时生效（采集/出勤反查）
         log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,
                   json.dumps(data))
     return jsonify({'ok': ok})
