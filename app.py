@@ -2332,6 +2332,13 @@ def collection_submit():
         if dept:
             marks, discarded = _filter_marks_by_department(marks, dept)
             payload['marks'] = marks
+        # P21: NU（年假）由审批管理，采集提交不得覆盖——命中即拒绝整批（防部分写入）
+        from core.database import get_attendance_status
+        for m in marks:
+            eid = m.get('employee_id', '')
+            if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
+                return jsonify({'ok': False,
+                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {date}）'}), 403
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -2452,6 +2459,15 @@ def collection_edit(submission_id):
     new_date = data.get('submission_date') or old_date
     if new_date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
+
+    # P21: NU（年假）由审批管理，编辑出勤收集不得覆盖——在任何 DB 修改之前拦截
+    if form_type == 'attendance':
+        from core.database import get_attendance_status
+        for m in (payload.get('marks') or []):
+            eid = m.get('employee_id', '')
+            if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'NU':
+                return jsonify({'ok': False,
+                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {new_date}）'}), 403
 
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
