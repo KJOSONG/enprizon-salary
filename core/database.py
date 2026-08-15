@@ -109,6 +109,8 @@ def init_db(data_folder):
         ('team_id', 'INTEGER DEFAULT 0'),
         # 档案别名
         ('alias', 'TEXT DEFAULT \'\''),
+        # P20: 年假资格豁免（开启后绕过 NSSF + NIDA 检查，仅 OA 审批人可改）
+        ('annual_leave_override', 'INTEGER DEFAULT 0'),
     ]
     for col, defn in _emp_new_cols:
         try:
@@ -1939,12 +1941,28 @@ def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sic
 def check_annual_leave_eligible(data_folder, employee_id):
     conn = get_conn(data_folder)
     emp = conn.execute(
-        "SELECT nssf_enrolled, nida_number, hire_date FROM employees WHERE id=?",
-        (employee_id,)).fetchone()
+        "SELECT nssf_enrolled, nida_number, hire_date, annual_leave_override "
+        "FROM employees WHERE id=?", (employee_id,)).fetchone()
     conn.close()
-    reasons = []
     if not emp:
         return {'eligible': False, 'reasons': ['员工不存在']}
+    # P20: 豁免开关开启后跳过 NSSF + NIDA 检查，但仍保留入职年限检查
+    if emp['annual_leave_override']:
+        reasons = []
+        if not emp['hire_date']:
+            reasons.append('入职日期为空')
+        else:
+            import datetime
+            try:
+                hd = datetime.datetime.strptime(emp['hire_date'], '%Y-%m-%d').replace(
+                    tzinfo=datetime.timezone(datetime.timedelta(hours=3)))
+                eat_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+                if (eat_now - hd).days < 365:
+                    reasons.append('入职不满1年({}天)'.format((eat_now - hd).days))
+            except:
+                reasons.append('入职日期格式无效')
+        return {'eligible': len(reasons) == 0, 'reasons': reasons}
+    reasons = []
     if not emp['nssf_enrolled']:
         reasons.append('未参加NSSF')
     if not emp['nida_number']:

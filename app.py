@@ -1514,6 +1514,35 @@ def api_employee_events(employee_id):
     events = get_employee_events(app.config['DATA_FOLDER'], employee_id)
     return jsonify({'events': events})
 
+@app.route('/api/employees/<employee_id>/annual-leave-override', methods=['POST'])
+@editor_required
+@require_permission('oa', 'approve')
+def api_employee_annual_leave_override(employee_id):
+    """P20: 切换员工年假资格豁免（仅 OA 审批人）——开启后跳过 NSSF + NIDA 检查"""
+    from core.database import get_conn, log_audit
+    data = request.get_json() or {}
+    v = data.get('override')
+    if v in (True, 'true', '1', 1):
+        new_val = 1
+    elif v in (False, 'false', '0', 0):
+        new_val = 0
+    else:
+        return jsonify({'ok': False, 'error': 'override 必须是 0 或 1'}), 400
+    conn = get_conn(app.config['DATA_FOLDER'])
+    row = conn.execute("SELECT annual_leave_override FROM employees WHERE id=?",
+                       (employee_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    conn.execute("UPDATE employees SET annual_leave_override=? WHERE id=?",
+                 (new_val, employee_id))
+    conn.commit()
+    conn.close()
+    log_audit(app.config['DATA_FOLDER'], 'annual_leave_override_toggle',
+              employee_id, json.dumps({'override': new_val,
+                  'operator': session.get('username', '')}))
+    return jsonify({'ok': True, 'override': new_val})
+
 @app.route('/api/employees/<employee_id>', methods=['POST'])
 @editor_required
 def api_employee_update(employee_id):

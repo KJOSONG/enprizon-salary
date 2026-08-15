@@ -508,6 +508,7 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nssf_number">NSSF</span><span class="info-value" id="pfNssf">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_annual_leave_override">年假资格豁免</span><span class="info-value" id="pfAnnualLeaveOverride">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_phone">电话</span><span class="info-value" id="pfPhone">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_bank_name">银行</span><span class="info-value" id="pfBank">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_bank_account">账号</span><span class="info-value" id="pfAccount">—</span></div>
@@ -2911,6 +2912,11 @@ async function loadEmployeeProfilePage(eid) {
     document.getElementById('pfHireDate').textContent = emp.hire_date;
     document.getElementById('pfNida').textContent = emp.nida_number;
     document.getElementById('pfNssf').textContent = emp.nssf_number;
+    // P20: 年假资格豁免状态
+    const overrideEl = document.getElementById('pfAnnualLeaveOverride');
+    if (overrideEl) overrideEl.innerHTML = emp.annual_leave_override
+      ? '<span style="color:var(--success);">✓</span>'
+      : '<span style="color:var(--text-muted);">○</span>';
     document.getElementById('pfPhone').textContent = emp.phone;
     document.getElementById('pfBank').textContent = emp.bank_name;
     document.getElementById('pfAccount').textContent = emp.bank_account;
@@ -3207,6 +3213,14 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input id="pfEdit_nssf_number" value="${g(emp.nssf_number)}" style="${inStyle}"></div>`;
+  // P20: 年假资格豁免（仅 OA 审批人可切换）
+  const canOAApprove = hasPermission('oa', 'approve');
+  const overrideDescKey = canOAApprove ? 'emp_annual_leave_override_can_edit' : 'emp_annual_leave_override_no_perm';
+  form += `<div class="form-row"><label data-i18n="emp_annual_leave_override">年假资格豁免</label>`
+       + `<label style="display:flex;align-items:center;gap:6px;font-size:13px;">`
+       + `<input type="checkbox" id="pfEdit_annual_leave_override" ${emp.annual_leave_override ? 'checked' : ''} ${canOAApprove ? '' : 'disabled'}>`
+       + `<span style="color:var(--text-muted);font-size:11px;" data-i18n="${overrideDescKey}">${t(overrideDescKey)}</span>`
+       + `</label></div>`;
   form += `<div class="form-row"><label data-i18n="emp_phone">电话</label><div style="display:flex;align-items:center;"><span style="padding:6px 8px;border:1px solid var(--border);border-right:none;border-radius:var(--radius) 0 0 var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">+255</span><input type="tel" id="pfEdit_phone" value="${g(phoneNum)}" placeholder="7xxxxxxxxx" style="${inStyle}border-radius:0 var(--radius) var(--radius) 0;"></div></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_name">银行</label><input id="pfEdit_bank_name" value="${g(emp.bank_name)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_account">账号</label><input id="pfEdit_bank_account" value="${g(emp.bank_account)}" style="${inStyle}"></div>`;
@@ -3285,6 +3299,23 @@ async function saveEmployeeProfile(eid) {
   });
   const r2 = await res2.json();
   if (!r2.ok) { setMsg(t('salary_type_save_failed'), false); return; }
+
+  // P20: 年假资格豁免（独立端点，仅 OA 审批人可改）
+  if (canOAApprove) {
+    const overrideChk = document.getElementById('pfEdit_annual_leave_override');
+    if (overrideChk) {
+      const newVal = overrideChk.checked ? 1 : 0;
+      const oldVal = emp.annual_leave_override ? 1 : 0;
+      if (newVal !== oldVal) {
+        const res3 = await authFetch(api('/api/employees/' + eid + '/annual-leave-override'), {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({override: newVal}),
+        });
+        const r3 = await res3.json();
+        if (!r3.ok) { setMsg(r3.error || t('save_failed'), false); return; }
+      }
+    }
+  }
 
   setMsg(t('save_ok'), true);
   setTimeout(() => {
