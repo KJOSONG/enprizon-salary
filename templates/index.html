@@ -520,7 +520,7 @@
           <h2 style="margin-bottom:0;font-size:14px;" data-i18n="emp_basic_info">基本信息</h2>
         </div>
         <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
-          <img id="pfAvatar" alt="" style="width:96px;height:120px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);">
+          <img id="pfAvatar" alt="" onclick="openAvatarPreview()" data-i18n-title="avatar_preview_title" title="点击放大预览" style="width:96px;height:120px;border-radius:6px;object-fit:cover;background:var(--bg-secondary);border:1px solid var(--border);cursor:pointer;">
           <div style="display:flex;flex-direction:column;gap:4px;">
             <button class="nav-btn" onclick="document.getElementById('pfAvatarFile').click()" style="font-size:11px;" data-i18n="avatar_upload">📷 上传头像</button>
             <input type="file" id="pfAvatarFile" accept="image/png,image/jpeg" style="display:none;" onchange="uploadEmployeeAvatar()">
@@ -586,6 +586,17 @@
       <button class="btn-primary" onclick="confirmPicker()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_confirm">确认</button>
       <button class="btn-cancel" onclick="document.getElementById('empPickerModal').style.display='none'" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ P23 R1: 头像大图预览 ═══ -->
+<div class="modal-overlay" id="avatarPreviewModal" style="display:none;" onclick="if(event.target===this)closeAvatarPreview()">
+  <div class="modal" style="max-width:560px;width:92vw;text-align:center;padding:0;">
+    <div class="modal-header" style="justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;font-size:14px;" id="avatarPreviewName"></h3>
+      <button onclick="closeAvatarPreview()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <img id="avatarPreviewImg" alt="" style="max-width:100%;max-height:72vh;object-fit:contain;display:block;margin:0 auto;background:var(--bg-secondary);">
   </div>
 </div>
 
@@ -3075,6 +3086,56 @@ function calcAge(dob) {
 }
 
 /* ── P7: 头像上传/删除 ── */
+/* P23 R1: 图片压缩（降采样 1024px + JPEG 迭代降质量至 ≤maxBytes）
+   PNG 透明垫白防转 JPEG 黑底；返回 {blob,width,height}，最低档仍超返回 null */
+async function compressImage(file, maxBytes = 2 * 1024 * 1024) {
+  const img = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('decode'));
+      image.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('read'));
+    reader.readAsDataURL(file);
+  });
+  const MAX = 1024;
+  let w = img.width, h = img.height;
+  if (w > MAX || h > MAX) {
+    const ratio = Math.min(MAX / w, MAX / h);
+    w = Math.max(1, Math.round(w * ratio));
+    h = Math.max(1, Math.round(h * ratio));
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  const qualities = [0.85, 0.7, 0.5, 0.3, 0.2];
+  for (const q of qualities) {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', q));
+    if (blob && blob.size <= maxBytes) return { blob, width: w, height: h };
+  }
+  return null;
+}
+
+/* P23 R1: 头像大图预览 */
+function openAvatarPreview() {
+  const img = document.getElementById('pfAvatar');
+  const src = img ? img.getAttribute('src') : '';
+  if (!src) { showToast(t('avatar_no_image'), 'error'); return; }
+  document.getElementById('avatarPreviewImg').src = src;
+  const nameEl = document.getElementById('avatarPreviewName');
+  if (nameEl) nameEl.textContent = (document.getElementById('pfName') || {}).textContent || '';
+  document.getElementById('avatarPreviewModal').style.display = 'flex';
+}
+function closeAvatarPreview() {
+  const m = document.getElementById('avatarPreviewModal');
+  if (m) m.style.display = 'none';
+}
+
 async function uploadEmployeeAvatar() {
   const fileInput = document.getElementById('pfAvatarFile');
   const file = fileInput.files[0];
@@ -3083,8 +3144,16 @@ async function uploadEmployeeAvatar() {
   if (!eid) return;
   const fd = new FormData();
   fd.append('employee_id', eid);
-  fd.append('file', file);
   try {
+    if (file.size > 2 * 1024 * 1024) {
+      // P23 R1: 大图前端压缩（后端 2MB 校验兜底）
+      showToast(t('avatar_compressing'), 'info');
+      const out = await compressImage(file, 2 * 1024 * 1024);
+      if (!out) { showToast(t('avatar_compress_fail'), 'error'); fileInput.value = ''; return; }
+      fd.append('file', out.blob, eid + '.jpg');
+    } else {
+      fd.append('file', file);
+    }
     const res = await authFetch(api('/api/employees/avatar'), { method: 'POST', body: fd });
     const data = await res.json();
     if (data.ok) { showToast(t('avatar_updated')); showEmployeeProfile(eid); }
@@ -3109,7 +3178,7 @@ async function deleteEmployeeAvatar() {
 }
 
 /* ── P13: 入职头像（base64 预览 → hidden 存 dataURL） ── */
-function handleHireAvatar(input) {
+async function handleHireAvatar(input) {
   const file = input.files[0];
   const preview = document.getElementById('hireAvatarPreview');
   const hidden = document.getElementById('hireAvatarData');
@@ -3120,18 +3189,26 @@ function handleHireAvatar(input) {
     input.value = '';
     return;
   }
-  if (file.size > 2 * 1024 * 1024) {
-    showToast(t('err_avatar_size'), 'error');
-    input.value = '';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    hidden.value = e.target.result;
-    if (preview) { preview.src = e.target.result; preview.style.display = 'block'; }
+  const setPreview = (dataUrl) => {
+    hidden.value = dataUrl;
+    if (preview) { preview.src = dataUrl; preview.style.display = 'block'; }
     if (clearBtn) clearBtn.style.display = 'inline-block';
   };
-  reader.readAsDataURL(file);
+  try {
+    // P23 R1: 大图先压缩（base64 比原文件大 ~33%，压到 ≤1.5MB 保证 dataURL ≤2MB）
+    if (file.size > 1.5 * 1024 * 1024) {
+      showToast(t('avatar_compressing'), 'info');
+      const out = await compressImage(file, 1.5 * 1024 * 1024);
+      if (!out) { showToast(t('avatar_compress_fail'), 'error'); input.value = ''; return; }
+      const reader = new FileReader();
+      reader.onload = (e) => setPreview(e.target.result);
+      reader.readAsDataURL(out.blob);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => setPreview(e.target.result);
+      reader.readAsDataURL(file);
+    }
+  } catch(e) { showToast(t('upload_fail'), 'error'); input.value = ''; }
 }
 
 function clearHireAvatar() {

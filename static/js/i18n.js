@@ -1082,6 +1082,9 @@ const I18N_DICT = {
     oa_field_hours: '小时数',
     settings_overtime_title: '加班费参数', settings_overtime_base: '加班基数(TZS)',
     settings_overtime_days: '月工作天数', settings_overtime_hpd: '日工作小时', settings_overtime_rate: '加班倍率',
+    /* P23 R1: 头像预览 / 压缩 */
+    avatar_no_image: '该员工暂无头像', avatar_compressing: '压缩中…', avatar_compress_fail: '图片压缩失败，请更换图片',
+    avatar_preview_title: '点击放大预览',
   },
   en: {
     /* ── Navigation ── */
@@ -2161,6 +2164,9 @@ const I18N_DICT = {
     oa_field_hours: 'Hours',
     settings_overtime_title: 'Overtime Params', settings_overtime_base: 'OT Base (TZS)',
     settings_overtime_days: 'Workdays/Month', settings_overtime_hpd: 'Hours/Day', settings_overtime_rate: 'OT Rate',
+    /* P23 R1: Avatar preview / compress */
+    avatar_no_image: 'No avatar for this employee', avatar_compressing: 'Compressing…', avatar_compress_fail: 'Image compression failed, try another image',
+    avatar_preview_title: 'Click to enlarge',
   }
 };
 

@@ -776,7 +776,7 @@
     if(e.custom_number) idTags.push('<span class="profile-tag profile-tag--primary">#'+esc(e.custom_number)+'</span>');
     if(e.alias) idTags.push('<span class="profile-tag">'+esc(e.alias)+'</span>');
 
-    let html = '<div class="profile-header"><div class="profile-avatar">'+(e.avatar_path?('<img src="'+esc(e.avatar_path)+'">'):esc((e.name||'?').slice(0,1)))+'</div>'
+    let html = '<div class="profile-header"><div class="profile-avatar"'+(e.avatar_path?' onclick="openMobileAvatarPreview()"': '')+'>'+(e.avatar_path?('<img src="'+esc(e.avatar_path)+'">'):esc((e.name||'?').slice(0,1)))+'</div>'
       + '<div class="profile-name">'+esc(e.name||'')+'</div>'
       + (idTags.length?'<div class="profile-id-tags">'+idTags.join('')+'</div>':'')
       + '</div>';
@@ -949,6 +949,15 @@
   }
 
   // ── 请假 ──
+  // P23 R1: 档案头像点击 → sheet 大图预览
+  function openMobileAvatarPreview(){
+    const img = document.querySelector('#emp-detail .profile-avatar img');
+    if(!img || !img.getAttribute('src')){ toast(t('avatar_no_image'),'warning'); return; }
+    const name = ((document.querySelector('#emp-detail .profile-name')||{}).textContent||'').trim();
+    const body = document.getElementById('sheet-body');
+    body.innerHTML = '<img src="'+esc(img.getAttribute('src'))+'" style="width:100%;border-radius:8px;">';
+    openSheet(name || t('emp_profile'), body);
+  }
   function openLeave(empId){
     const body = document.getElementById('sheet-body');
     body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="casual" selected>'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick_leave">'+t('sick_leave')+'</option></select></div>'
