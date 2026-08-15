@@ -690,7 +690,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" data-perm="attendance:edit" style="display:none;">保存并计算</button>
-        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 (P)=月薪默认</span>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 NU=年假(计薪) (P)=月薪默认</span>
       </div>
     </div>
     <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
@@ -4403,6 +4403,7 @@ function renderAttendance() {
     'S': {color: '#F59E0B', label: t('shift_S_label'), desc: t('shift_S_desc')},
     'Y': {color: '#06B6D4', label: t('shift_Y_label'), desc: t('shift_Y_desc')},
     'T': {color: '#A855F7', label: t('shift_T_label'), desc: t('shift_T_desc')},
+    'NU': {color: '#7C3AED', label: t('shift_nu_label'), desc: t('shift_nu_desc')},  // P21 R2: 年假(计薪)，比 T 更深的紫
     'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
     'C': {color: '#F97316', label: t('shift_C_label'), desc: t('shift_C_desc')},
     '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
@@ -4416,7 +4417,7 @@ function renderAttendance() {
         const st = r.days[d] || '';
         const autoVal = r.auto ? r.auto[d] : '';
         const style = statusStyle[st] || statusStyle[''];
-        const isEditable = r.editable && hasPermission('attendance','edit');
+        const isEditable = r.editable && hasPermission('attendance','edit') && st !== 'NU';  // P21 R2: NU 只读
         // 与原始数据不同才显示下划线（包含从空值手动改为P/A/L）
         const isChanged = st !== autoVal && !(autoVal === '' && st === '');
         // 月薪默认 (P) 改为手动时用不同的下划线
