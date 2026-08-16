@@ -527,7 +527,91 @@ def init_db(data_folder):
     """)
     conn.commit()
     _migrate_json(conn, data_folder)
+    _migrate_collection_timestamps(conn)
     conn.close()
+
+def _migrate_collection_timestamps(conn):
+    """P24-FIX: 修复 collection_submissions/collection_history 时间戳时区。
+
+    旧版本建表时 created_at/updated_at DEFAULT 为 datetime('now','localtime')
+    （服务器 CST=UTC+8），而 CREATE TABLE IF NOT EXISTS 不会更新已存在表，
+    导致 INSERT 未显式传时间时写入 UTC+8，比 UTC+3 快 5 小时（audit_log 正确）。
+    检测到 localtime 时重建表：DEFAULT 改为 +3 hours，存量时间戳减 5 小时统一为 UTC+3。
+    幂等：DDL 已含 '+3 hours' 则跳过。
+    """
+    c = conn.cursor()
+
+    def _ddl(name):
+        r = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
+        return r[0] if r else ''
+
+    if 'localtime' not in _ddl('collection_submissions'):
+        return  # 表不存在或已迁移
+
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN")
+        # 1. 重建 collection_submissions
+        conn.execute("""
+            CREATE TABLE collection_submissions_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_type TEXT NOT NULL,
+                submission_date TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                operator_id TEXT NOT NULL,
+                month TEXT NOT NULL,
+                department TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+                version INTEGER NOT NULL DEFAULT 1
+            )
+        """)
+        conn.execute("""
+            INSERT INTO collection_submissions_new
+                (id, form_type, submission_date, payload, operator_id, month, department, created_at, updated_at, version)
+            SELECT id, form_type, submission_date, payload, operator_id, month, department,
+                   COALESCE(datetime(created_at, '-5 hours'), created_at),
+                   COALESCE(datetime(updated_at, '-5 hours'), updated_at), version
+            FROM collection_submissions
+        """)
+        conn.execute("DROP TABLE collection_submissions")
+        conn.execute("ALTER TABLE collection_submissions_new RENAME TO collection_submissions")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_month ON collection_submissions(month, form_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_date ON collection_submissions(submission_date)")
+        # 2. 重建 collection_history（FK 引用 collection_submissions.id，id 保留不受影响）
+        if 'localtime' in _ddl('collection_history'):
+            conn.execute("""
+                CREATE TABLE collection_history_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    submission_id INTEGER NOT NULL,
+                    version INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    operator_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
+                    FOREIGN KEY (submission_id) REFERENCES collection_submissions(id)
+                )
+            """)
+            conn.execute("""
+                INSERT INTO collection_history_new (id, submission_id, version, payload, operator_id, created_at)
+                SELECT id, submission_id, version, payload, operator_id,
+                       COALESCE(datetime(created_at, '-5 hours'), created_at)
+                FROM collection_history
+            """)
+            conn.execute("DROP TABLE collection_history")
+            conn.execute("ALTER TABLE collection_history_new RENAME TO collection_history")
+        conn.execute("COMMIT")
+        print("[migration] collection_submissions/collection_history 时间戳已统一为 UTC+3")
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.execute("PRAGMA foreign_keys=ON")
+        except Exception:
+            pass
 
 def _migrate_json(conn, data_folder):
     """将旧 JSON 文件导入 SQLite（仅首次运行）"""
