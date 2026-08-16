@@ -1170,8 +1170,8 @@ table.data-table td.bold {
 }
 
 @keyframes modal-in {
-  from { opacity: 0; transform: scale(0.95) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .modal h2 {
@@ -1227,7 +1227,8 @@ table.data-table td.bold {
 .toast {
   position: fixed;
   top: 70px;
-  right: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-10px) scale(0.95);
   z-index: 999;
   background: var(--card);
   border: 1px solid var(--border);
@@ -1237,7 +1238,6 @@ table.data-table td.bold {
   color: var(--foreground);
   box-shadow: var(--shadow-sm);
   opacity: 0;
-  transform: translateY(-10px) scale(0.95);
   transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
@@ -1247,7 +1247,7 @@ table.data-table td.bold {
 
 .toast.show {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateX(-50%) translateY(0) scale(1);
 }
 
 .toast.success {
