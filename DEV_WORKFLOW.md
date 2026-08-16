@@ -1,7 +1,7 @@
 # 开发流程约定（DEV_WORKFLOW）
 
-> **定位**：本文与 `REFACTOR_SPEC.md`（PRD）配套。PRD 管"做什么 / 为何 / 怎么验收"（产品视角）；本文管"怎么建 / 怎么协作 / 怎么部署"（工程视角）。两者生命周期不同，分开维护。
-> **最后更新**：2026-08-12
+> **定位**：本文与 `REFACTOR_SPEC.md`（PRD）配套。PRD 管"做什么 / 为何 / 怎么验收"（产品视角）；本文管"怎么建 / 怎么协作 / 怎么部署"（工程视角）。两者生命周期不同，分开维护。**本文是工作流唯一权威**；本地记忆 `feedback_workflow.md` 为变更记录。
+> **最后更新**：2026-08-16
 
 ---
 
@@ -10,18 +10,19 @@
 | 文档 | 管什么 | 变更多久 |
 |------|--------|----------|
 | `REFACTOR_SPEC.md` | 需求、架构、验收标准、用户流程 | 稳，评审后少改 |
-| `DEV_WORKFLOW.md`（本文） | 分支、协作、构建策略、测试、部署 | 随实践持续调整 |
+| `DEV_WORKFLOW.md`（本文） | 分支、协作、团队、构建策略、测试、部署 | 随实践持续调整 |
 
 任何代码改动前，先确认 PRD 对应条目；PRD 没覆盖的需求，先回 PRD 补，再动手。
 
 ---
 
-## 2. 分支模型
+## 2. 分支模型（2026-08-16 更新）
 
-- **`main`**：稳定生产分支，服务器正在跑的就是它。**绝不在 `main` 上直接开发**。
-- **`refactor`**：本次重构工作分支（当前仅本地）。所有重构提交落在此分支。
-- **子分支（可选）**：按阶段拆 `refactor/p1-employee`、`refactor/p2-attendance` 等，便于独立评审；完成后合回 `refactor`。
-- **服务器**：重构完成前始终留在 `main`，不被半成品影响；上线时再切换。
+- **`main`**：稳定生产分支，服务器正在跑的就是它。
+- **小改动**（单文件小改/查询/回答）：**直接在本地 `main` 上做**，不建分支，改完批准后 push。
+- **大改动**（**≥3 个需求**或跨多模块）：**建 `feature/<任务名>` 分支** + **KEJU 团队并行**（designer/dev/qa 同开工，严禁串行），完成后合并 main。
+- **分支纪律**：团队 dev 有多次误在 main commit 的历史 → 每次下发任务强调"在 feature 分支工作，不碰 main"；误提交后 `git cherry-pick` 迁移 + `main reset --hard origin/main`。
+- **回滚预案**：`main` 是稳定点，服务器异常即 `git checkout main`（或 `git pull origin main`）+ 重启回退。
 
 ---
 
@@ -29,8 +30,8 @@
 
 - 全部在本地 Mac 开发，运行 `python3 app.py` 或 `./start.sh`。
 - 本地 `data/`（含 `kilwa.db`）已被 gitignore，与服务器数据库**物理隔离**，互不影响。
-- 用**样例数据**练手，绝不在本地指向/触碰服务器真实库。
-- 重构涉及新表，本地 `init_db()` 用 `CREATE TABLE IF NOT EXISTS` 增量建表，不与现有 11 张表冲突。
+- 用**样例数据**练手，绝不在本地指向/触碰服务器真实库（如需用生产库副本验证，用 `sqlite3.backup` 导出到本地临时目录，验证完清理）。
+- 涉及新表，本地 `init_db()` 用 `CREATE TABLE IF NOT EXISTS` 增量建表，不与现有表冲突。
 
 ---
 
@@ -89,19 +90,21 @@
 
 ## 6. 提交与推送纪律
 
-- **小步提交**：一次一个聚焦改动，信息写清"改了什么 / 对应 PRD 哪条"。
-- **不擅自推送**：推送到远程 / 服务器需明确批准（见协作规则）。本地提交随意。
-- **部署前才推送**：重构全完且本地自测通过，再 `git push`；服务器侧 `git checkout refactor`（或合并回 `main`）后 `systemctl restart`，**绝不半成品上服务器**。
+- **小步提交**：一次一个聚焦改动，信息写清"改了什么 / 对应 PRD 哪条 / 对应 P 阶段"。
+- **不擅自推送**：推送到远程 / 服务器需明确批准（见 AGENTS.md §协作流程）。本地提交随意。
+- **部署前才推送**：改动全完且本地自测通过，再 `git push`；服务器 `git pull && systemctl restart`，**绝不半成品上服务器**。
 - 沿用现有快捷：`save-salary "msg"`（提交+推送+重启）仅在确认上线时用。
+- **团队并行（大改动 ≥3 需求）**：立即 TeamCreate → AskUserQuestion 一次核对粒度 → 并行 spawn designer/dev/qa（一次多个 Agent 调用不等前一个完成）→ dev 实现分 commit 自验证 → qa 验收 → 合并 main。用 SendMessage 续接保留 context。详见记忆 `feedback_workflow.md` / `project_team_config.md`。
 
 ---
 
 ## 7. 测试与验证
 
-- 项目当前**无自动化测试**，重构期建议为**纯逻辑**补轻量校验：计薪引擎、事件驱动推导、请假余额（年假分档/调休×4）、权限 (模块,动作,范围) 判定。可用 `pytest` 或简易脚本，不放进仓库强制框架。
-- **双路径核对**（现有 `verification.py`）必须保持 0 偏差——评分并入后总路径一二仍应吻合。
+- 项目当前**无自动化测试**，纯逻辑（计薪引擎、事件驱动推导、请假余额、权限判定）可补轻量 `pytest` 或脚本，不放进仓库强制框架。
+- **双路径核对**（现有 `verification.py`）必须保持 0 偏差（实际容差 ≤10 舍入）。
+- **日明细=薪资页**：`compute_daily_breakdown` 与 `calculate_all` 逐人逐日一致（总则硬性要求）。
 - 每个切片完成，对照 PRD §13 验收标准逐条过；边界/异常项（§13.2）至少手工走一遍。
-- 本地用样例数据跑通 F0–F12 用户流程（PRD §14）后再进下一阶段。
+- **测试产物 TTL 清理**：测试产物放 `_work/<任务名>/`；新任务开始 `bash cleanup-test-artifacts.sh`（清>3天），部署完成 `bash cleanup-test-artifacts.sh --dir <任务名>`。**`_work/` 目录保留不删**（见记忆 `feedback_test_artifacts.md`）。
 
 ---
 
@@ -143,6 +146,7 @@
 
 ## 10. 部署时机
 
-- **未完成前**：服务器留 `main`，本地 `refactor` 随便折腾。
-- **完成时**：本地自测全过 → 推送 `refactor` → 服务器 `git checkout refactor` + 重启（或合并 `refactor`→`main` 后部署）→ 观察日志与核对面板。
-- **回滚预案**：保留 `main` 为稳定点，异常即 `git checkout main` + 重启回退。
+- **未完成前**：服务器留 `main`，本地随便折腾。
+- **完成时**：本地自测全过 → 合并 main + push → 服务器**手动安全备份**（`sqlite3.backup` → `data/backups/kilwa_before_<版本>_<时间戳>.db`）→ `git pull && systemctl restart` → 验证（HTTP/表结构/日志）→ **清理旧手动备份只留最新**。
+- **备份目录规范**：手动安全备份 → `data/backups/`（只留最新 1 个）；每日自动 → `/root/salary-backup/`（backup.sh 留 7 天）；`data/` 根目录禁止散落 `*.bak*`；`archived_kilwa.db` 归档永久保留（见记忆 `backup_spec.md`）。
+- **回滚预案**：保留 `main` 为稳定点，异常即 `git pull origin main` + 重启回退。
