@@ -715,7 +715,7 @@
   <div class="card">
     <h2 style="margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="att_title">出勤网格</h2>
     <div id="headlessBannerAtt" style="display:none;background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(96,165,250,0.04));border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--accent);" data-i18n="headless_banner_att">📋 预览模式 — 当月暂无源数据，可手动记录出勤（P/A/L）。上传源数据后手动标记不会被覆盖。</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    <div class="att-toolbar" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="text" id="attSearch" data-i18n-placeholder="att_search_ph" placeholder="搜索姓名..." oninput="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <select id="attFilterType" onchange="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
@@ -735,7 +735,7 @@
         <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 NU=年假(计薪) (P)=月薪默认</span>
       </div>
     </div>
-    <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
+    <div class="table-wrap">
       <table class="data-table" id="attTable" style="font-size:12px;" translate="no">
         <thead id="attHead"></thead>
         <tbody id="attBody"></tbody>
@@ -1913,6 +1913,16 @@ function navigate(module, subPage, params) {
   updateBreadcrumb();
   showTargetPage(module, subPage);
   updateHash();
+
+  // 切换页面时重置内容区滚动到顶部（应用壳层布局：避免从上一页滚动位置残留查看）
+  // 需等 DOM 渲染完成后延迟重置（rAF + setTimeout 双保险），否则异步渲染会把滚动位置"粘"回中间
+  const _mainScroller = document.querySelector('.app-main .main');
+  if (_mainScroller) {
+    const _reset = () => { if (_mainScroller) _mainScroller.scrollTop = 0; };
+    _reset();
+    requestAnimationFrame(_reset);
+    setTimeout(_reset, 100);
+  }
 
   // 关闭移动端侧边栏
   document.getElementById('sidebar').classList.remove('open');

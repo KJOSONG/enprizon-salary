@@ -1560,8 +1560,8 @@ td[style*="var(--danger)"] {
 /* ── body 新布局 ── */
 body {
   display: flex;
-  min-height: 100vh;
-  overflow-x: hidden;
+  height: 100vh;
+  overflow: hidden;      /* 锁定视口：滚动交给 .main（应用壳层） */
   overscroll-behavior: contain;
 }
 
@@ -1749,13 +1749,34 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  height: 100vh;
+  overflow: hidden;      /* 壳层不滚动：顶部栏/面包屑固定，内容区 .main 滚动 */
   align-items: stretch;
 }
 .app-main .main {
   flex: 1;
   width: 100%;
   min-width: 0;
+  overflow-y: auto;      /* 唯一滚动容器（内容区） */
+  overscroll-behavior: contain;
+  overflow-anchor: none; /* 禁用浏览器 scroll anchoring：切换页面时 DOM 变化不会把滚动"粘"回中间 */
+}
+/* 固定顶部栏与面包屑（不随内容滚动） */
+.period-bar,
+.breadcrumb {
+  flex-shrink: 0;
+}
+/* 筛选工具条 sticky：在 .main 滚动容器内固定在内容顶部（Apple 风格应用壳层） */
+.filter-bar,
+.att-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--background);
+  padding-top: 8px;
+  padding-bottom: 8px;
+  margin-top: -8px;
+  margin-bottom: 8px;
 }
 
 /* ── 周期上下文条 ── */
@@ -2312,6 +2333,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 @media (max-width: 600px) {
   .mobile-bottom-nav { display: flex; }
   .main { padding-bottom: 64px; } /* 为底部导航留空间 */
+  /* 移动端恢复 body 滚动（壳层固定布局仅桌面；移动端有独立 mobile.html，桌面版兜底可整页滚） */
+  body { height: auto; overflow-y: auto; }
+  .app-main { height: auto; overflow: visible; }
+  .app-main .main { overflow: visible; }
+  .filter-bar, .att-toolbar { position: static; }
 }
 
 /* ═══════════════════════════════════════════════════
