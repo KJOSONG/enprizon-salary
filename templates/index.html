@@ -1698,8 +1698,8 @@ async function submitLogin() {
           if (recalcBtn) recalcBtn.disabled = false;
         }
       } catch(e) {}
-      // 登录成功后回到数据台首页(重置 hash,避免停留在登出前页面)
-      navigate('dashboard', null);
+      // P23-UI: 登录成功后不强制跳回数据台——保留用户当前所在板块（避免打断已点击的侧边栏）
+      // 未登录时仅 dashboard 可访问，登录后自然停留在当前页；用户手动切换板块不受影响
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
     } else {
       errEl.textContent = data.error === 'invalid_credentials' ? t('err_invalid_credentials') :
