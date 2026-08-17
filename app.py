@@ -4569,6 +4569,143 @@ def _do_export_all():
 
 
 # ═══════════════════════════════════════════════════════════
+#  PDF 工资单导出
+# ═══════════════════════════════════════════════════════════
+
+def _build_slip_data(emp, salary_result, employees_db, month):
+    from core.database import get_employee_profile
+    profile = get_employee_profile(app.config['DATA_FOLDER'], emp.get('employee_id', ''))
+    
+    gross = (emp.get('piece_underground', 0) or 0) + (emp.get('piece_driller', 0) or 0) + \
+            (emp.get('piece_crush', 0) or 0) + (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0)
+    
+    type_labels = {
+        'piece_underground': 'Underground', 'piece_driller': 'Driller',
+        'piece_crush': 'Crush', 'day_rate': 'Day Rate', 'monthly': 'Monthly'
+    }
+    
+    return {
+        'employee_id': emp.get('employee_id', ''),
+        'name': emp.get('name', ''),
+        'department': profile.get('department', '') if profile else '',
+        'position': profile.get('position', '') if profile else '',
+        'nssf_number': profile.get('nssf_number', '') if profile else '',
+        'tin_number': profile.get('tin_number', '') if profile else '',
+        'nssf_enrolled': profile.get('nssf_enrolled', False) if profile else False,
+        'month': month,
+        'salary_type_label': type_labels.get(emp.get('salary_type', ''), emp.get('salary_type', '')),
+        'piece_underground': int(emp.get('piece_underground', 0) or 0),
+        'piece_driller': int(emp.get('piece_driller', 0) or 0),
+        'piece_crush': int(emp.get('piece_crush', 0) or 0),
+        'day_rate': int(emp.get('day_rate', 0) or 0),
+        'monthly': int(emp.get('monthly', 0) or 0),
+        'overtime': int(emp.get('overtime', 0) or 0),
+        'bonus': int(emp.get('bonus', 0) or 0),
+        'driver_allowance': int(emp.get('driver_allowance', 0) or 0),
+        'gross': int(gross),
+        'nssf': int(emp.get('nssf', 0) or 0),
+        'paye': int(emp.get('paye', 0) or 0),
+        'advance': int(emp.get('advance', 0) or 0),
+        'penalty': int(emp.get('penalty', 0) or 0),
+        'nssf_rate': 0.10,
+        'total_deductions': int((emp.get('nssf', 0) or 0) + (emp.get('paye', 0) or 0) + \
+                                (emp.get('advance', 0) or 0) + (emp.get('penalty', 0) or 0)),
+        'taxable_income': int(gross - (emp.get('nssf', 0) or 0)),
+        'net': int(emp.get('net', 0) or 0),
+        'attendance_days': 0,
+    }
+
+
+@app.route('/export/payslip/<employee_id>', methods=['GET'])
+@login_required
+@require_permission('salary', 'export')
+def export_payslip_single(employee_id):
+    try:
+        from weasyprint import HTML
+        from flask import render_template
+        import io
+        
+        month = request.args.get('month', APP_STATE.get('month', ''))
+        download = request.args.get('download', '0') == '1'
+        
+        result = APP_STATE.get('salary_result')
+        if not result:
+            return jsonify({'error': 'No salary data. Please recalculate.', 'ok': False}), 400
+        
+        emp = None
+        for e in result.get('employees', []):
+            if str(e.get('employee_id', '')) == str(employee_id):
+                emp = e
+                break
+        
+        if not emp:
+            return jsonify({'error': f'Employee {employee_id} not found', 'ok': False}), 404
+        
+        slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
+        html_content = render_template('payslip.html', slips=[slip_data])
+        pdf_bytes = HTML(string=html_content).write_pdf()
+        
+        buf = io.BytesIO(pdf_bytes)
+        buf.seek(0)
+        
+        filename = f'payslip_{employee_id}_{month}.pdf'
+        return send_file(buf,
+            mimetype='application/pdf',
+            as_attachment=download,
+            download_name=filename if download else None)
+            
+    except Exception as e:
+        import traceback, sys
+        print(f'[PDF EXPORT ERROR] {e}', file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e), 'ok': False}), 500
+
+
+@app.route('/export/payslips-all', methods=['POST'])
+@login_required
+@require_permission('salary', 'export')
+def export_payslips_all():
+    try:
+        from weasyprint import HTML
+        from flask import render_template
+        import io
+        
+        data = request.get_json(silent=True) or {}
+        month = data.get('month', APP_STATE.get('month', ''))
+        
+        result = APP_STATE.get('salary_result')
+        if not result:
+            return jsonify({'error': 'No salary data. Please recalculate.', 'ok': False}), 400
+        
+        employees = result.get('employees', [])
+        if not employees:
+            return jsonify({'error': 'No employees found', 'ok': False}), 404
+        
+        slips = []
+        for emp in employees:
+            slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
+            slips.append(slip_data)
+        
+        html_content = render_template('payslip.html', slips=slips)
+        pdf_bytes = HTML(string=html_content).write_pdf()
+        
+        buf = io.BytesIO(pdf_bytes)
+        buf.seek(0)
+        
+        filename = f'payslips_all_{month}.pdf'
+        return send_file(buf,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename)
+            
+    except Exception as e:
+        import traceback, sys
+        print(f'[PDF BATCH EXPORT ERROR] {e}', file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        return jsonify({'error': str(e), 'ok': False}), 500
+
+
+# ═══════════════════════════════════════════════════════════
 #  自动加载源文件
 # ═══════════════════════════════════════════════════════════
 

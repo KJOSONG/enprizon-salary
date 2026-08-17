@@ -511,6 +511,7 @@
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="profileStatus" style="font-size:11px;"></span>
         <button class="nav-btn" onclick="editEmployeeProfile()" style="font-size:11px;padding:4px 10px;" data-i18n="btn_edit">✎ 编辑</button>
+        <button class="nav-btn" onclick="openPayslipModal()" style="font-size:11px;padding:4px 10px;" data-perm="salary:export">📄 导出工资单</button>
         <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
       </div>
     </div>
@@ -600,6 +601,25 @@
   </div>
 </div>
 
+<!-- ═══ 工资单导出弹窗 ═══ -->
+<div class="modal-overlay" id="payslipModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:360px;width:90vw;">
+    <div class="modal-header">
+      <h3 style="margin:0;">📄 导出工资单</h3>
+      <button onclick="document.getElementById('payslipModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div style="margin-top:16px;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">选择月份</label>
+      <select id="payslipMonthSelect" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;">
+      <button class="btn-primary" onclick="previewPayslip()" style="flex:1;padding:8px;font-size:12px;">👁 预览</button>
+      <button class="btn-primary" onclick="downloadPayslip()" style="flex:1;padding:8px;font-size:12px;background:var(--success);">📥 下载</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── 页面: 薪资 ─── -->
 <div class="page" id="page-salary">
   <div class="card">
@@ -619,6 +639,7 @@
       <select id="salaryFilterDept" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="emp_all_depts">全部部门</option>
       </select>
+      <button class="nav-btn" onclick="exportAllPayslips()" data-perm="salary:export" style="font-size:12px;">📄 导出工资单</button>
     </div>
     <div class="stats-bar" id="salaryStats" style="display:none;"></div>
 
@@ -3403,6 +3424,45 @@ function toggleSalaryBaseFields() {
   if (rowTeam) rowTeam.style.display = (v === 'piece_underground') ? '' : 'none';
 }
 
+function openPayslipModal() {
+  const eid = _profileEid || STATE.currentParams.id;
+  if (!eid) return;
+  _payslipEid = eid;
+  
+  const sel = document.getElementById('payslipMonthSelect');
+  sel.innerHTML = '';
+  
+  fetch(api('/available-months'))
+    .then(r => r.json())
+    .then(months => {
+      months.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        sel.appendChild(opt);
+      });
+      if (STATE.currentMonth) sel.value = STATE.currentMonth;
+    });
+  
+  document.getElementById('payslipModal').style.display = 'flex';
+}
+
+function previewPayslip() {
+  const eid = _payslipEid;
+  const month = document.getElementById('payslipMonthSelect').value;
+  if (!eid || !month) return;
+  window.open(api(`/export/payslip/${eid}?month=${month}&download=0`), '_blank');
+}
+
+function downloadPayslip() {
+  const eid = _payslipEid;
+  const month = document.getElementById('payslipMonthSelect').value;
+  if (!eid || !month) return;
+  window.open(api(`/export/payslip/${eid}?month=${month}&download=1`), '_blank');
+}
+
+let _payslipEid = null;
+
 async function saveEmployeeProfile(eid) {
   const msgEl = document.getElementById('pfEditMsg');
   const setMsg = (text, ok) => { msgEl.textContent = text; msgEl.style.color = ok ? 'var(--success)' : 'var(--danger)'; };
@@ -4428,6 +4488,28 @@ async function exportAll() {
     a.href = url; a.click(); URL.revokeObjectURL(url);
     showToast(t('toast_export_done'));
   } catch(e) { showToast(t('toast_export_fail'), 'error'); }
+}
+
+async function exportAllPayslips() {
+  if (!STATE.salaryResult) { showToast(t('toast_need_calc'), 'error'); return; }
+  if (!confirm('导出全体员工工资单PDF？')) return;
+  showToast('正在生成工资单...');
+  try {
+    const res = await fetch(api('/export/payslips-all'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({month: STATE.currentMonth || ''})
+    });
+    if (!res.ok) throw new Error();
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const disp = decodeURIComponent(res.headers.get('Content-Disposition') || '');
+    const m = disp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    a.download = m ? m[1].replace(/['"]/g,'') : 'payslips.pdf';
+    a.href = url; a.click(); URL.revokeObjectURL(url);
+    showToast('工资单导出完成');
+  } catch(e) { showToast('导出失败: ' + e.message, 'error'); }
 }
 
 // ════════════════════════════════════════════════

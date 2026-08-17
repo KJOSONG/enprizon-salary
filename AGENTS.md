@@ -20,7 +20,7 @@
 - **小改动**（单文件小改/查询/回答）：直接在本地 `main` 上做，不建分支。
 - **大改动**（≥3 需求或跨多模块）：**建 feature 分支 + KEJU 团队并行**（designer/dev/qa 同开工，严禁串行）。团队配置见记忆 `project_team_config.md`，并行规则见记忆 `feedback_workflow.md`。
 - **不擅自推送**：推送到远程/服务器需**用户明确批准**；未完成前绝不半成品上服务器。
-- **服务器快捷别名**：`save-salary "msg"`（git add -A → commit → push → restart 一步完成，仅确认上线时用）。
+- **服务器快捷别名**：`save-salary`（本地 git push 后，服务器自动 git pull 并重启，详见 §命令）。
 - **回滚预案**：`main` 是稳定点，服务器异常即 `git pull origin main` + 重启回退。
 - **agentmemory 整合**：任务开始先 `smart-search` recall 相关记忆，任务完成 `remember` 沉淀（REST localhost:3111，见记忆 `feedback_workflow.md`）。
 
@@ -52,9 +52,20 @@ python3 app.py                    # 前台（自动找空闲端口 ≥8080）
 
 ### 服务器运维
 ```bash
-ssh my-server                     # root@47.236.187.33:22222
-systemctl restart enprizon-salary
-journalctl -u enprizon-salary -f  # 跟踪日志
+# SSH 连接（密钥认证，端口 22222）
+ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33
+
+# 部署流程（本地推送后）
+ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "cd /root/enprizon-salary && git pull && systemctl restart enprizon-salary"
+
+# 一键部署快捷别名（添加到 ~/.zshrc 或 ~/.bashrc）
+alias save-salary='ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "cd /root/enprizon-salary && git pull && systemctl restart enprizon-salary"'
+
+# 查看服务状态
+ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "systemctl status enprizon-salary"
+
+# 跟踪日志
+ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "journalctl -u enprizon-salary -f"
 ```
 
 ### 测试（无自动化测试！）

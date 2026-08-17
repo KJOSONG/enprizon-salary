@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+@page {
+  size: A4 portrait;
+  margin: 10mm 15mm;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 9pt;
+  line-height: 1.4;
+  color: #000;
+}
+.slip {
+  width: 100%;
+  height: 138mm;
+  padding: 0 0 5mm 0;
+  page-break-after: always;
+  position: relative;
+}
+.slip:last-child { page-break-after: avoid; }
+
+/* 页头 */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 2px solid #000;
+  padding-bottom: 3mm;
+  margin-bottom: 3mm;
+}
+.company { font-size: 11pt; font-weight: bold; }
+.month-label { font-size: 9pt; }
+
+/* 员工信息 */
+.emp-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5mm 10mm;
+  margin-bottom: 3mm;
+  font-size: 9pt;
+}
+.emp-info .field { display: flex; gap: 2mm; }
+.emp-info .label { min-width: 28mm; }
+.emp-info .value { font-weight: bold; }
+
+/* 出勤概要 */
+.attendance {
+  border-top: 1px solid #000;
+  border-bottom: 1px solid #000;
+  padding: 1.5mm 0;
+  margin-bottom: 3mm;
+  font-size: 8pt;
+  display: flex;
+  gap: 5mm;
+}
+.attendance span { white-space: nowrap; }
+
+/* 收入/扣款表格 */
+.section-title {
+  font-weight: bold;
+  border-bottom: 1px solid #000;
+  padding-bottom: 1mm;
+  margin-bottom: 2mm;
+  font-size: 9pt;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+table .item { text-align: left; }
+table .amount { text-align: right; font-family: "Courier New", monospace; }
+table .subtotal {
+  font-weight: bold;
+  border-top: 1px solid #000;
+  padding-top: 1.5mm;
+  margin-top: 1.5mm;
+}
+table .subtotal .amount { font-size: 10pt; }
+
+/* 扣款区 */
+.deductions { margin-top: 3mm; }
+.deductions .amount { color: #000; }
+
+/* 汇总区 */
+.summary {
+  margin-top: 3mm;
+  border-top: 2px solid #000;
+  padding-top: 2mm;
+}
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9pt;
+  padding: 1mm 0;
+}
+.summary-row.total {
+  font-weight: bold;
+  font-size: 11pt;
+  border-top: 2px solid #000;
+  padding-top: 2mm;
+  margin-top: 2mm;
+}
+
+/* 签名区 */
+.signature {
+  margin-top: 5mm;
+  display: flex;
+  justify-content: space-between;
+  font-size: 8pt;
+}
+.sig-line {
+  width: 40%;
+  border-top: 1px solid #000;
+  padding-top: 1mm;
+  text-align: center;
+}
+
+/* 分隔线 */
+.divider {
+  border-top: 1px dashed #999;
+  margin: 2mm 0;
+}
+</style>
+</head>
+<body>
+{% for slip in slips %}
+<div class="slip">
+  <!-- 页头 -->
+  <div class="header">
+    <div class="company">ENPRIZON LINDI PROJECT</div>
+    <div class="month-label">{{ slip.month }}</div>
+  </div>
+
+  <!-- 员工信息 -->
+  <div class="emp-info">
+    <div class="field"><span class="label">NAME:</span><span class="value">{{ slip.name }}</span></div>
+    <div class="field"><span class="label">DEPT:</span><span class="value">{{ slip.department }}</span></div>
+    <div class="field"><span class="label">POSITION:</span><span class="value">{{ slip.position }}</span></div>
+    <div class="field"><span class="label">ID:</span><span class="value">{{ slip.employee_id }}</span></div>
+    <div class="field"><span class="label">NSSF NO:</span><span class="value">{{ slip.nssf_number }}</span></div>
+    <div class="field"><span class="label">TIN:</span><span class="value">{{ slip.tin_number }}</span></div>
+  </div>
+
+  <!-- 出勤概要 -->
+  <div class="attendance">
+    <span>NORMAL: {{ slip.attendance_days }}</span>
+    <span>TYPE: {{ slip.salary_type_label }}</span>
+    <span>NSSF: {{ 'YES' if slip.nssf_enrolled else 'NO' }}</span>
+  </div>
+
+  <!-- 收入明细 -->
+  <div class="section-title">EARNINGS (TZS)</div>
+  <table>
+    {% if slip.piece_underground > 0 %}
+    <tr><td class="item">Underground Piece Rate</td><td class="amount">{{ "{:,.0f}".format(slip.piece_underground) }}</td></tr>
+    {% endif %}
+    {% if slip.piece_driller > 0 %}
+    <tr><td class="item">Driller Piece Rate</td><td class="amount">{{ "{:,.0f}".format(slip.piece_driller) }}</td></tr>
+    {% endif %}
+    {% if slip.piece_crush > 0 %}
+    <tr><td class="item">Crush Piece Rate</td><td class="amount">{{ "{:,.0f}".format(slip.piece_crush) }}</td></tr>
+    {% endif %}
+    {% if slip.day_rate > 0 %}
+    <tr><td class="item">Day Rate</td><td class="amount">{{ "{:,.0f}".format(slip.day_rate) }}</td></tr>
+    {% endif %}
+    {% if slip.monthly > 0 %}
+    <tr><td class="item">Monthly Salary</td><td class="amount">{{ "{:,.0f}".format(slip.monthly) }}</td></tr>
+    {% endif %}
+    {% if slip.overtime > 0 %}
+    <tr><td class="item">Overtime</td><td class="amount">{{ "{:,.0f}".format(slip.overtime) }}</td></tr>
+    {% endif %}
+    {% if slip.bonus > 0 %}
+    <tr><td class="item">Bonus</td><td class="amount">{{ "{:,.0f}".format(slip.bonus) }}</td></tr>
+    {% endif %}
+    {% if slip.driver_allowance > 0 %}
+    <tr><td class="item">Driver Allowance</td><td class="amount">{{ "{:,.0f}".format(slip.driver_allowance) }}</td></tr>
+    {% endif %}
+    <tr class="subtotal"><td class="item">GROSS PAY</td><td class="amount">{{ "{:,.0f}".format(slip.gross) }}</td></tr>
+  </table>
+
+  <!-- 扣款明细 -->
+  <div class="deductions">
+    <div class="section-title">DEDUCTIONS (TZS)</div>
+    <table>
+      <tr><td class="item">NSSF ({{ '{:.0f}'.format(slip.nssf_rate * 100) }}%)</td><td class="amount">{{ "{:,.0f}".format(slip.nssf) }}</td></tr>
+      <tr><td class="item">PAYE (Income Tax)</td><td class="amount">{{ "{:,.0f}".format(slip.paye) }}</td></tr>
+      {% if slip.advance > 0 %}
+      <tr><td class="item">Advance</td><td class="amount">{{ "{:,.0f}".format(slip.advance) }}</td></tr>
+      {% endif %}
+      {% if slip.penalty > 0 %}
+      <tr><td class="item">Penalty</td><td class="amount">{{ "{:,.0f}".format(slip.penalty) }}</td></tr>
+      {% endif %}
+      <tr class="subtotal"><td class="item">TOTAL DEDUCTIONS</td><td class="amount">{{ "{:,.0f}".format(slip.total_deductions) }}</td></tr>
+    </table>
+  </div>
+
+  <!-- 汇总 -->
+  <div class="summary">
+    <div class="summary-row"><span>TAXABLE PAY</span><span>{{ "{:,.0f}".format(slip.taxable_income) }}</span></div>
+    <div class="summary-row total"><span>NET PAY</span><span>{{ "{:,.0f}".format(slip.net) }}</span></div>
+  </div>
+
+  <!-- 签名 -->
+  <div class="signature">
+    <div class="sig-line">Employee Signature</div>
+    <div class="sig-line">Authorized Signature</div>
+  </div>
+</div>
+{% endfor %}
+</body>
+</html>
