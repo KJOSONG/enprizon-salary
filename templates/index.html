@@ -511,7 +511,7 @@
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="profileStatus" style="font-size:11px;"></span>
         <button class="nav-btn" onclick="editEmployeeProfile()" style="font-size:11px;padding:4px 10px;" data-i18n="btn_edit">✎ 编辑</button>
-        <button class="nav-btn" onclick="openPayslipModal()" style="font-size:11px;padding:4px 10px;" data-perm="salary:export">📄 导出工资单</button>
+        <button class="nav-btn" onclick="openPayslipModal()" style="font-size:11px;padding:4px 10px;" data-perm="salary:export" data-i18n="btn_export_payslip">📄 导出工资单</button>
         <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
       </div>
     </div>
@@ -608,17 +608,17 @@
 <div class="modal-overlay" id="payslipModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
   <div class="modal" style="max-width:360px;width:90vw;">
     <div class="modal-header">
-      <h3 style="margin:0;">📄 导出工资单</h3>
+      <h3 style="margin:0;" data-i18n="payslip_title">📄 导出工资单</h3>
       <button onclick="document.getElementById('payslipModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
     </div>
     <div style="margin-top:16px;">
-      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">选择月份</label>
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;" data-i18n="payslip_select_month">选择月份</label>
       <select id="payslipMonthSelect" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:20px;">
-      <button class="btn-primary" onclick="previewPayslip()" style="flex:1;padding:8px;font-size:12px;">👁 预览</button>
-      <button class="btn-primary" onclick="downloadPayslip()" style="flex:1;padding:8px;font-size:12px;background:var(--success);">📥 下载</button>
+      <button class="btn-primary" onclick="previewPayslip()" style="flex:1;padding:8px;font-size:12px;" data-i18n="payslip_preview">👁 预览</button>
+      <button class="btn-primary" onclick="downloadPayslip()" style="flex:1;padding:8px;font-size:12px;background:var(--success);" data-i18n="payslip_download">📥 下载</button>
     </div>
   </div>
 </div>
@@ -626,23 +626,23 @@
 <div class="modal-overlay" id="payslipDeptModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
   <div class="modal" style="max-width:360px;width:90vw;">
     <div class="modal-header">
-      <h3 style="margin:0;">📄 导出工资单（按部门）</h3>
+      <h3 style="margin:0;" data-i18n="payslip_dept_title">📄 导出工资单（按部门）</h3>
       <button onclick="document.getElementById('payslipDeptModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
     </div>
     <div style="margin-top:16px;">
-      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">选择部门</label>
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;" data-i18n="payslip_select_dept">选择部门</label>
       <select id="payslipDeptSelect" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
-        <option value="">全部部门</option>
+        <option value="" data-i18n="payslip_all_dept">全部部门</option>
       </select>
     </div>
     <div style="margin-top:12px;">
-      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">选择月份</label>
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;" data-i18n="payslip_select_month">选择月份</label>
       <select id="payslipDeptMonthSelect" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
       </select>
     </div>
     <div style="display:flex;gap:8px;margin-top:20px;">
-      <button class="btn-primary" onclick="exportPayslipsByDept()" style="flex:1;padding:8px;font-size:12px;background:var(--success);">📥 导出</button>
-      <button class="btn-cancel" onclick="document.getElementById('payslipDeptModal').style.display='none'" style="flex:1;padding:8px;font-size:12px;">取消</button>
+      <button class="btn-primary" onclick="exportPayslipsByDept()" style="flex:1;padding:8px;font-size:12px;background:var(--success);" data-i18n="payslip_export">📥 导出</button>
+      <button class="btn-cancel" onclick="document.getElementById('payslipDeptModal').style.display='none'" style="flex:1;padding:8px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
   </div>
 </div>
@@ -699,7 +699,7 @@
       <select id="salaryFilterDept" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="emp_all_depts">全部部门</option>
       </select>
-      <button class="nav-btn" onclick="exportAllPayslips()" data-perm="salary:export" style="font-size:12px;">📄 导出工资单</button>
+      <button class="nav-btn" onclick="exportAllPayslips()" data-perm="salary:export" style="font-size:12px;" data-i18n="btn_export_payslip_dept">📄 导出工资单</button>
     </div>
     <div class="stats-bar" id="salaryStats" style="display:none;"></div>
 
