@@ -178,6 +178,7 @@ const I18N_DICT = {
     th_bonus: '奖金',
     th_penalty: '罚款',
     th_nssf: 'NSSF',
+    th_paye: 'PAYE',
     th_note: '备注',
     th_actions: '操作',
     ph_search: '搜索姓名...',
@@ -201,6 +202,7 @@ const I18N_DICT = {
     salary_stats_penalty: '罚款合计',
     salary_stats_advance: '预支扣除',
     salary_stats_nssf: 'NSSF扣除',
+    salary_stats_paye: 'PAYE扣除',
     salary_stats_driver: '司机津贴',
     salary_stats_net: '实发合计',
 
@@ -1260,6 +1262,7 @@ const I18N_DICT = {
     th_bonus: 'Bonus',
     th_penalty: 'Penalty',
     th_nssf: 'NSSF',
+    th_paye: 'PAYE',
     th_note: 'Note',
     th_actions: 'Actions',
     ph_search: 'Search name...',
@@ -1283,6 +1286,7 @@ const I18N_DICT = {
     salary_stats_penalty: 'Total Penalty',
     salary_stats_advance: 'Advance Deduction',
     salary_stats_nssf: 'NSSF Deduction',
+    salary_stats_paye: 'PAYE Deduction',
     salary_stats_driver: 'Driver Allow.',
     salary_stats_net: 'Net Total',
 

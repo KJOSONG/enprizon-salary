@@ -1046,7 +1046,8 @@
                 <th data-i18n="th_name">姓名</th>
                 <th data-i18n="th_salary_type">类型</th>
                 <th data-i18n="th_gross">应发</th>
-                <th data-i18n="th_nssf">NSSF</th>
+            <th data-i18n="th_nssf">NSSF</th>
+            <th data-i18n="th_paye">PAYE</th>
                 <th data-i18n="th_advance">预支</th>
                 <th data-i18n="th_net">实发</th>
               </tr>
@@ -3978,6 +3979,7 @@ function renderSalaryTable(result) {
     <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_penalty||0)}</div><div class="label">${t('salary_stats_penalty')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div><div class="label">${t('salary_stats_advance')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div><div class="label">${t('salary_stats_nssf')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_paye||0)}</div><div class="label">${t('salary_stats_paye')}</div></div>
     <div class="stat-glass driver-allowance-card">
       <div class="value" style="color:var(--success)">${fmtNum(salaryDa)}</div>
       <div class="label">${t('salary_stats_driver')}</div>
@@ -4033,7 +4035,7 @@ function filterSalaryTable() {
     const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0);
     const bonus = emp.bonus || 0;
     const penalty = emp.penalty || 0;
-    const n = g + bonus + (emp.driver_allowance||0) - (emp.advance||0) - (emp.nssf||0) - penalty;
+    const n = g + bonus + (emp.driver_allowance||0) - (emp.nssf||0) - (emp.paye||0) - (emp.advance||0) - penalty;
     return `<tr>
       <td class="left"><a href="#employees/profile?id=${encodeURIComponent(emp.employee_id || emp.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${emp.employee_id || emp.id}'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(emp.name)}</a></td>
       <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
@@ -4048,6 +4050,7 @@ function filterSalaryTable() {
       <td class="num" style="color:var(--danger)">${penalty ? '-' + fmtNum(penalty) : '—'}</td>
       <td class="num" style="color:var(--danger)">${fmtNum(emp.advance||0)}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.nssf||0)}</td>
+      <td class="num" style="color:var(--warning)">${fmtNum(emp.paye||0)}</td>
       <td class="num bold" style="color:var(--success)">${fmtNum(n)}</td>
       <td style="font-size:10px;color:var(--text-muted);max-width:180px;">
         ${(emp.temp_overrides||[]).map(to => 

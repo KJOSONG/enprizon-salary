@@ -19,6 +19,23 @@ PRICE_CRUSH = 300  # TZS/bag
 # P21 R4: 井下计件目标部门（注意 DB 实际值含空格 + 全角括号，匹配一律经 _norm_dept 规范化）
 PRODUCTION_UG_DEPT = 'Production TEAM （underground）'
 
+def compute_paye(taxable_income):
+    """
+    坦桑尼亚个人所得税（PAYE）累进税率计算
+    taxable_income: 应税收入（总收入 - NSSF）
+    返回: PAYE 金额
+    """
+    if taxable_income <= 270000:
+        return 0
+    elif taxable_income <= 520000:
+        return (taxable_income - 270000) * 0.08
+    elif taxable_income <= 760000:
+        return 20000 + (taxable_income - 520000) * 0.20
+    elif taxable_income <= 1000000:
+        return 68000 + (taxable_income - 760000) * 0.25
+    else:
+        return 128000 + (taxable_income - 1000000) * 0.30
+
 def _norm_dept(s):
     """部门名规范化：去所有空格 + 全角括号归一为半角 + 大写（防历史数据漂移，禁止裸字符串比较）"""
     import re
@@ -996,7 +1013,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         driver_allowance = driver_days * 5000
 
         nssf = round((gross + driver_allowance) * nssf_rate) if emp.get('nssf_enrolled', False) else 0
-        net = gross + bonus + driver_allowance - advance - nssf - penalty
+        taxable_income = gross + driver_allowance - nssf
+        paye = round(compute_paye(taxable_income))
+        net = gross + bonus + driver_allowance - nssf - paye - advance - penalty
 
         temp_exception = ''
         temp_overrides = []
@@ -1027,7 +1046,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'overtime': ot,  # P23 R2: 加班费（已含于 gross）
             'gross': gross, 'bonus': bonus, 'penalty': penalty,
             'driver_allowance': driver_allowance,
-            'advance': round(advance), 'nssf': nssf, 'net': net,
+            'advance': round(advance), 'nssf': nssf, 'paye': paye, 'net': net,
             'temp_exception': temp_exception, 'temp_overrides': temp_overrides,
         })
 
@@ -1039,6 +1058,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         'total_penalty': sum(e['penalty'] for e in result_employees),
         'total_advance': sum(e['advance'] for e in result_employees),
         'total_nssf': sum(e['nssf'] for e in result_employees),
+        'total_paye': sum(e['paye'] for e in result_employees),
         'total_net': sum(e['net'] for e in result_employees),
         'duplications': [],
         'ug_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in ug_daily.items()},

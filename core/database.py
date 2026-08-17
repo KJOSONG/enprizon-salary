@@ -65,6 +65,7 @@ def init_db(data_folder):
             gross REAL DEFAULT 0,
             advance REAL DEFAULT 0,
             nssf REAL DEFAULT 0,
+            paye REAL DEFAULT 0,
             net REAL DEFAULT 0,
             PRIMARY KEY (month, employee_id)
         );
@@ -86,6 +87,10 @@ def init_db(data_folder):
     # 月份隔离：新增 effective_from 列（"YYYY-MM"），空白=全局生效
     try:
         conn.execute("ALTER TABLE overrides ADD COLUMN effective_from TEXT DEFAULT ''")
+    except: pass
+    # PAYE: 新增 paye 列到 monthly_data
+    try:
+        conn.execute("ALTER TABLE monthly_data ADD COLUMN paye REAL DEFAULT 0")
     except: pass
     # P1: employees 扩展列
     _emp_new_cols = [
@@ -1017,13 +1022,13 @@ def save_monthly_result(data_folder, month, result):
         conn.execute(
             """INSERT INTO monthly_data (month, employee_id, salary_type,
                piece_underground, piece_driller, piece_crush, day_rate, monthly,
-               gross, advance, nssf, net) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               gross, advance, nssf, paye, net) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (month, emp.get('employee_id') or emp.get('name',''), emp.get('salary_type',''),
              emp.get('piece_underground',0), emp.get('piece_driller',0),
              emp.get('piece_crush',0),
              emp.get('day_rate',0), emp.get('monthly',0),
              emp.get('gross',0), emp.get('advance',0),
-             emp.get('nssf',0), emp.get('net',0))
+             emp.get('nssf',0), emp.get('paye',0), emp.get('net',0))
         )
     conn.commit()
     conn.close()
