@@ -1014,7 +1014,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
         nssf = round((gross + driver_allowance) * nssf_rate) if emp.get('nssf_enrolled', False) else 0
         taxable_income = gross + driver_allowance - nssf
-        paye = round(compute_paye(taxable_income))
+        tin_number = (emp.get('tin_number') or '').strip()
+        paye = round(compute_paye(taxable_income)) if tin_number else 0
         net = gross + bonus + driver_allowance - nssf - paye - advance - penalty
 
         temp_exception = ''

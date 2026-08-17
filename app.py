@@ -858,7 +858,7 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, phone, team_id, custom_number
+               nssf_enrolled, phone, team_id, custom_number, tin_number
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -883,6 +883,7 @@ def load_employees_from_db(data_folder):
             'nssf_enrolled': bool(r['nssf_enrolled']),
             'team_id': r['team_id'] or 0,   # P15: 评分奖金按班组归属
             'custom_number': r['custom_number'] or '',  # 工号（新入职自动递增生成）
+            'tin_number': r['tin_number'] or '',  # TIN号码（无TIN不扣PAYE）
         })
 
     # 离职过滤
@@ -4623,7 +4624,8 @@ def export_payslip_single(employee_id):
     try:
         from weasyprint import HTML
         from flask import render_template
-        import io
+        import io, os
+        from datetime import datetime
         
         month = request.args.get('month', APP_STATE.get('month', ''))
         download = request.args.get('download', '0') == '1'
@@ -4645,14 +4647,20 @@ def export_payslip_single(employee_id):
         html_content = render_template('payslip.html', slips=[slip_data])
         pdf_bytes = HTML(string=html_content).write_pdf()
         
+        pays_dir = os.path.join(app.config['DATA_FOLDER'], 'payslips')
+        os.makedirs(pays_dir, exist_ok=True)
+        filename = f'payslip_{employee_id}_{month}_{datetime.now().strftime("%Y%m%d%H%M%S")}.pdf'
+        filepath = os.path.join(pays_dir, filename)
+        with open(filepath, 'wb') as f:
+            f.write(pdf_bytes)
+        
         buf = io.BytesIO(pdf_bytes)
         buf.seek(0)
         
-        filename = f'payslip_{employee_id}_{month}.pdf'
         return send_file(buf,
             mimetype='application/pdf',
             as_attachment=download,
-            download_name=filename if download else None)
+            download_name=f'payslip_{employee_id}_{month}.pdf' if download else None)
             
     except Exception as e:
         import traceback, sys
@@ -4668,10 +4676,12 @@ def export_payslips_all():
     try:
         from weasyprint import HTML
         from flask import render_template
-        import io
+        import io, os
+        from datetime import datetime
         
         data = request.get_json(silent=True) or {}
         month = data.get('month', APP_STATE.get('month', ''))
+        department = data.get('department', '')
         
         result = APP_STATE.get('salary_result')
         if not result:
@@ -4681,6 +4691,10 @@ def export_payslips_all():
         if not employees:
             return jsonify({'error': 'No employees found', 'ok': False}), 404
         
+        if department:
+            emp_dept_map = {e.get('id'): e.get('department', '') for e in APP_STATE.get('employees', [])}
+            employees = [e for e in employees if emp_dept_map.get(e.get('employee_id', e.get('id', ''))) == department]
+        
         slips = []
         for emp in employees:
             slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
@@ -4689,14 +4703,21 @@ def export_payslips_all():
         html_content = render_template('payslip.html', slips=slips)
         pdf_bytes = HTML(string=html_content).write_pdf()
         
+        pays_dir = os.path.join(app.config['DATA_FOLDER'], 'payslips')
+        os.makedirs(pays_dir, exist_ok=True)
+        dept_suffix = f'_{department}' if department else ''
+        filename = f'payslips{dept_suffix}_{month}_{datetime.now().strftime("%Y%m%d%H%M%S")}.pdf'
+        filepath = os.path.join(pays_dir, filename)
+        with open(filepath, 'wb') as f:
+            f.write(pdf_bytes)
+        
         buf = io.BytesIO(pdf_bytes)
         buf.seek(0)
         
-        filename = f'payslips_all_{month}.pdf'
         return send_file(buf,
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=filename)
+            download_name=f'payslips{dept_suffix}_{month}.pdf')
             
     except Exception as e:
         import traceback, sys

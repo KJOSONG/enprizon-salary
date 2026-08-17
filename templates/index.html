@@ -620,6 +620,30 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="payslipDeptModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:360px;width:90vw;">
+    <div class="modal-header">
+      <h3 style="margin:0;">📄 导出工资单（按部门）</h3>
+      <button onclick="document.getElementById('payslipDeptModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div style="margin-top:16px;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">选择部门</label>
+      <select id="payslipDeptSelect" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="">全部部门</option>
+      </select>
+    </div>
+    <div style="margin-top:12px;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">选择月份</label>
+      <select id="payslipDeptMonthSelect" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;">
+      <button class="btn-primary" onclick="exportPayslipsByDept()" style="flex:1;padding:8px;font-size:12px;background:var(--success);">📥 导出</button>
+      <button class="btn-cancel" onclick="document.getElementById('payslipDeptModal').style.display='none'" style="flex:1;padding:8px;font-size:12px;">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── 页面: 薪资 ─── -->
 <div class="page" id="page-salary">
   <div class="card">
@@ -684,9 +708,10 @@
             <th data-i18n="th_gross">应发</th>
             <th data-i18n="th_bonus">奖金</th>
             <th data-i18n="th_driver">司机津贴</th>
+            <th data-i18n="th_nssf">NSSF</th>
+            <th data-i18n="th_paye">PAYE</th>
             <th data-i18n="th_penalty">罚款</th>
             <th data-i18n="th_advance">预支</th>
-            <th data-i18n="th_nssf">NSSF</th>
             <th style="min-width:70px;" data-i18n="th_net">实发</th>
             <th style="min-width:100px;color:var(--warning);font-size:10px;" data-i18n="th_temp_exception">临时例外</th>
           </tr>
@@ -4107,10 +4132,10 @@ function filterSalaryTable() {
       <td class="num bold">${fmtNum(g)}</td>
       <td class="num" style="color:var(--success)">${bonus ? '+' + fmtNum(bonus) : '—'}</td>
       <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
-      <td class="num" style="color:var(--danger)">${penalty ? '-' + fmtNum(penalty) : '—'}</td>
-      <td class="num" style="color:var(--danger)">${fmtNum(emp.advance||0)}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.nssf||0)}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.paye||0)}</td>
+      <td class="num" style="color:var(--danger)">${penalty ? '-' + fmtNum(penalty) : '—'}</td>
+      <td class="num" style="color:var(--danger)">${fmtNum(emp.advance||0)}</td>
       <td class="num bold" style="color:var(--success)">${fmtNum(n)}</td>
       <td style="font-size:10px;color:var(--text-muted);max-width:180px;">
         ${(emp.temp_overrides||[]).map(to => 
@@ -4492,13 +4517,42 @@ async function exportAll() {
 
 async function exportAllPayslips() {
   if (!STATE.salaryResult) { showToast(t('toast_need_calc'), 'error'); return; }
-  if (!confirm('导出全体员工工资单PDF？')) return;
+  
+  const deptSel = document.getElementById('payslipDeptSelect');
+  deptSel.innerHTML = '<option value="">全部部门</option>';
+  const depts = new Set();
+  (STATE._empAll || []).forEach(e => { if (e.department) depts.add(e.department); });
+  [...depts].sort().forEach(d => {
+    deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`;
+  });
+  
+  const monthSel = document.getElementById('payslipDeptMonthSelect');
+  monthSel.innerHTML = '';
+  try {
+    const res = await fetch(api('/available-months'));
+    const months = await res.json();
+    months.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      monthSel.appendChild(opt);
+    });
+    if (STATE.currentMonth) monthSel.value = STATE.currentMonth;
+  } catch(e) {}
+  
+  document.getElementById('payslipDeptModal').style.display = 'flex';
+}
+
+async function exportPayslipsByDept() {
+  const dept = document.getElementById('payslipDeptSelect').value;
+  const month = document.getElementById('payslipDeptMonthSelect').value;
+  document.getElementById('payslipDeptModal').style.display = 'none';
+  
   showToast('正在生成工资单...');
   try {
     const res = await fetch(api('/export/payslips-all'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({month: STATE.currentMonth || ''})
+      body: JSON.stringify({month: month, department: dept})
     });
     if (!res.ok) throw new Error();
     const blob = await res.blob();
