@@ -16,6 +16,10 @@ app.config['PREFERRED_URL_SCHEME'] = 'http'
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.secret_key = os.environ.get('KILWA_SECRET_KEY', secrets.token_hex(32))
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB 上传上限
+# 会话 Cookie 安全加固（防 CSRF/劫持：SameSite 严格 + HttpOnly；Secure 仅 HTTPS 时开启）
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('KILWA_HTTPS', '') == '1'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 @app.context_processor
 def inject_static_url():
@@ -113,24 +117,70 @@ def require_permission(module, action):
         return decorated
     return decorator
 
+# ── 登录暴力破解防护（轻量内存限速：失败计数 + 锁定窗口） ──────
+_LOGIN_FAILS = {}          # key: "ip|username" → [fail_count, lock_until_ts]
+_LOGIN_MAX_FAILS = 5       # 5 次失败
+_LOGIN_LOCK_SECONDS = 900  # 锁定 15 分钟
+
+def _login_blocked(key):
+    """返回 True 表示该 key 当前处于锁定窗口内"""
+    entry = _LOGIN_FAILS.get(key)
+    if not entry:
+        return False
+    import time as _t
+    if _t.time() < entry[1]:
+        return True
+    if entry[1] > 0:
+        _LOGIN_FAILS.pop(key, None)
+    return False
+
+def _login_fail_record(key):
+    """记录一次失败；达到阈值则开启锁定窗口，返回剩余锁定秒数"""
+    import time as _t
+    cnt, lock_until = _LOGIN_FAILS.get(key, (0, 0))
+    cnt += 1
+    if cnt >= _LOGIN_MAX_FAILS:
+        lock_until = _t.time() + _LOGIN_LOCK_SECONDS
+        _LOGIN_FAILS[key] = (0, lock_until)
+        return _LOGIN_LOCK_SECONDS
+    _LOGIN_FAILS[key] = (cnt, lock_until)
+    return 0
+
+def _login_success_reset(key):
+    _LOGIN_FAILS.pop(key, None)
+
 @app.route('/api/login', methods=['POST'])
 def api_login():
     from core.database import verify_admin, has_admin, set_admin_password
     data = request.get_json(silent=True) or {}
     username = data.get('username', '').strip()
     password = data.get('password', '')
+    client_ip = request.remote_addr or 'unknown'
+    lock_key = f'{client_ip}|{username}'
+
+    if _login_blocked(lock_key):
+        return jsonify({'ok': False, 'error': 'too_many_attempts', 'need_wait': True}), 429
 
     if not has_admin(app.config['DATA_FOLDER']):
         return jsonify({'ok': False, 'error': 'no_admin', 'need_setup': True})
 
     if verify_admin(app.config['DATA_FOLDER'], username, password):
+        _login_success_reset(lock_key)
+        # 登录前重建会话，防 session fixation（攻击者预置的 cookie 在登录后作废）
+        session.clear()
         session['logged_in'] = True
         session['username'] = username
         from core.database import get_user_role
-        session['role'] = get_user_role(app.config['DATA_FOLDER'], username) or 'admin'
+        # 安全修复：角色查询失败时回退到最低权限 viewer，而非 admin
+        # （原为 or 'admin'，一旦 get_user_role 返回 None 即越权为管理员）
+        session['role'] = get_user_role(app.config['DATA_FOLDER'], username) or 'viewer'
         _audit('login', '', json.dumps({'user': username}))
         return jsonify({'ok': True})
+    wait = _login_fail_record(lock_key)
     _audit('login_fail', '', json.dumps({'user': username}))
+    if wait:
+        return jsonify({'ok': False, 'error': 'too_many_attempts', 'need_wait': True,
+                        'retry_after': wait}), 429
     return jsonify({'ok': False, 'error': 'invalid_credentials'})
 
 @app.route('/api/logout', methods=['POST'])
@@ -1216,10 +1266,14 @@ def get_employees():
     """[DEPRECATED] 旧版员工列表 — 已迁移到 /api/employees"""
     from core.exceptions import load_overrides
     from core.database import load_bonus_penalties as _load_bp_emp
+    import copy as _copy
     month = request.args.get('month') or APP_STATE.get('month')
     overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
     bonus_penalties = _load_bp_emp(app.config['DATA_FOLDER'], month) if month else {}
-    for emp in APP_STATE.get('employees', []):
+    # 深拷贝副本再附加展示字段，绝不原地篡改 APP_STATE 缓存
+    # （原实现直接改 emp，污染 override_type/day_rate/monthly_salary 导致后续计薪错误）
+    employees_copy = _copy.deepcopy(APP_STATE.get('employees', []))
+    for emp in employees_copy:
         eid = emp['id']
         emp['overrides'] = overrides.get(eid, [])
         # 根据 overrides 同步覆盖字段（仅永久覆盖影响 override_type）
@@ -1248,7 +1302,7 @@ def get_employees():
         bp = bonus_penalties.get(eid, {})
         emp['bonus'] = bp.get('bonus', 0)
         emp['penalty'] = bp.get('penalty', 0)
-    return jsonify({'employees': APP_STATE.get('employees', []), 'headless': APP_STATE.get('headless', False)})
+    return jsonify({'employees': employees_copy, 'headless': APP_STATE.get('headless', False)})
 
 @app.route('/employees/override', methods=['POST'])
 @editor_required
@@ -1806,18 +1860,20 @@ def oa_approve_event(event_id):
     # P13: 自审限制——super_admin 例外，可批准自己提交的事件
     if event['operator_id'] == username and session.get('role') != 'super_admin':
         return jsonify({'ok': False, 'error': '不能批准自己提交的事件'}), 400
-    # P21 R1: 先落库（含余额检查），成功后再置 approved——
-    # 请假余额不足时返回 400 且不置 approved（避免出现 approved 但余额未扣/出勤未落的脏状态）
+    # 并发安全：先用 approve_event 原子抢占（pending→approved，WHERE status='pending'），
+    # 抢到的请求才执行副作用；失败回滚状态。防同一事件并发双审批/双扣。
+    ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': '事件状态已变化，请刷新后重试'}), 409
     try:
         apply_approved_event(app.config['DATA_FOLDER'], event)
     except Exception as e:
+        from core.database import unapprove_event
+        unapprove_event(app.config['DATA_FOLDER'], event_id)
         log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
                   json.dumps({'event_id': event_id, 'event_type': event['event_type'],
                               'error': str(e)}))
         return jsonify({'ok': False, 'error': f'批准失败: {str(e)}'}), 400
-    ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
-    if not ok:
-        return jsonify({'ok': False, 'error': '事件状态已变化，请刷新后重试'}), 409
     log_audit(app.config['DATA_FOLDER'], 'oa_approve',
               event['employee_id'], json.dumps({'event_id': event_id}))
     _refresh_employees_cache()  # P23 R2/R4: 批准（加班落库/入职/调岗）后薪资缓存即时生效
@@ -1825,6 +1881,7 @@ def oa_approve_event(event_id):
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
 @editor_required
+@require_permission('oa', 'approve')
 def oa_reject_event(event_id):
     """驳回 OA 事件"""
     from core.database import reject_event, get_event, log_audit

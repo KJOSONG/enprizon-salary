@@ -2,7 +2,7 @@
 SQLite 数据库层 — 统一持久化
 替代所有 JSON 文件
 """
-import json, os, sqlite3, hashlib, secrets
+import json, os, sqlite3, hashlib, hmac, secrets
 
 DB_FILE = 'kilwa.db'
 
@@ -1307,7 +1307,8 @@ def _hash_password(password, salt=None):
 
 def _verify_password(password, stored_hash):
     salt, h = stored_hash.split(':')
-    return hashlib.sha256((salt + password).encode()).hexdigest() == h
+    # 恒时比较，防时序侧信道攻击（原为 ==，字节级短路泄露哈希前缀）
+    return hmac.compare_digest(hashlib.sha256((salt + password).encode()).hexdigest(), h)
 
 def get_user_role(data_folder, username):
     """返回用户的角色: 'super_admin' | 'admin' | 'editor' | 'viewer' | None"""
@@ -1926,6 +1927,19 @@ def approve_event(data_folder, event_id, approved_by):
         SET status='approved', approved_by=?, updated_at=datetime('now','+3 hours')
         WHERE id=? AND status='pending'
     """, (approved_by, event_id))
+    conn.commit()
+    affected = conn.total_changes
+    conn.close()
+    return affected > 0
+
+def unapprove_event(data_folder, event_id):
+    """P24-SEC: 审批事务回滚 — 将 approved 事件置回 pending（apply 副作用失败时撤销抢占锁）"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        UPDATE employee_events
+        SET status='pending', approved_by='', updated_at=datetime('now','+3 hours')
+        WHERE id=? AND status='approved'
+    """, (event_id,))
     conn.commit()
     affected = conn.total_changes
     conn.close()

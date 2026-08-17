@@ -398,11 +398,12 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
         if cap_member and not cap_excluded and cap_norm not in existing_ids:
             all_members.append(cap_member)
 
-        # 统计手动加入钻工组的人数（排除 A/L 缺勤者 + 空出勤者）
+        # 统计手动加入钻工组的人数（排除 A/L 缺勤者 + 空出勤者 + 已在产量成员名单的人）
         driller_add_count = sum(1 for (eid, dt), cp in driller_adds.items()
                                 if dt == date_str and cp == captain and eid != cap_norm
                                 and (eid, date_str) not in combined_exclusions
-                                and (eid, date_str) in driller_attendance)
+                                and (eid, date_str) in driller_attendance
+                                and eid not in existing_ids)
 
         headcount = len(all_members)
         # 分母 = 成员人数 + 队长额外份额(+1, 因队长拿双倍) + 手动加入的人
@@ -422,10 +423,13 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
                 daily[mn_id][date_str] += amt
 
         # 手动加入钻工组的人（排除 A/L 缺勤者 + 空出勤者）
+        # 已存在于 all_members（产量数据）的人跳过——防同一人双份支付
+        # （原实现：产量数据含此人 + overrides 手动名单也含 → 支付两份，分母还虚增）
         for (eid, dt), cp in driller_adds.items():
             if dt == date_str and cp == captain and eid != cap_norm \
                     and (eid, date_str) not in combined_exclusions \
-                    and (eid, date_str) in driller_attendance:
+                    and (eid, date_str) in driller_attendance \
+                    and eid not in existing_ids:
                 amt = per_share * 1
                 result[eid] += amt
                 daily[eid][dt] += amt
@@ -1376,7 +1380,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             monthly_present_dates = []
             for dt in sorted(ms_dates_set):
                 dtype = per_date_type.get(eid, {}).get(dt, emp_map.get(eid, {}).get('override_type') or emp_map.get(eid, {}).get('default_type', ''))
-                if dtype == 'monthly' and dt in present[eid]:
+                # A/L 排除与 calculate_all 对齐（原实现漏排除，日明细与薪资总表月薪不一致）
+                if dtype == 'monthly' and dt in present[eid] \
+                        and att_all.get((eid, dt)) not in ('A', 'L'):
                     monthly_present_dates.append(dt)
             effective_days = min(len(monthly_present_dates), 26)
             per_day = base / 26
