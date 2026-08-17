@@ -1929,6 +1929,10 @@ function renderSidebar() {
 function updateOaSideBadge() {
   const b = document.getElementById('oaSideBadge');
   if (!b) return;
+  if (!hasPermission('oa', 'approve')) {
+    b.style.display = 'none';
+    return;
+  }
   const n = _notifEvents.length;
   b.textContent = n > 99 ? '99+' : n;
   b.style.display = n > 0 ? 'inline-block' : 'none';
@@ -3117,9 +3121,9 @@ async function loadEmployeeProfilePage(eid) {
     if (toBtn) toBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
 
     // 时间线
-    const EVENT_LABELS = { hire: '入职', transfer: '调岗', dismiss: '离职',
-      salary_change: '薪资变更', skill_change: '技能变更', reinstatement: '复职',
-      annual_leave: '年假', comp_leave: '调休', overtime: '加班', note: '备注' };
+    const EVENT_LABELS = { hire: t('event_hire'), transfer: t('event_transfer'), dismiss: t('event_dismiss'),
+      salary_change: t('event_salary_change'), skill_change: t('event_skill_change'), reinstatement: t('event_reinstatement'),
+      annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note') };
     const tl = document.getElementById('profileTimeline');
     if (events.length === 0) {
       tl.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px;">${t('no_events')}</div>`;
@@ -3161,7 +3165,7 @@ async function loadEmployeeProfilePage(eid) {
               <span class="timeline-date">${ev.effective_date}</span>
               <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
               ${canEdit ? `<button onclick="editEvent(${ev.id}, '${ev.event_type}', '${ev.effective_date}', '${btoa(encodeURIComponent(ev.payload||'{}'))}')" style="font-size:10px;padding:1px 6px;margin-left:auto;">✎</button>` : ''}
-              ${canDelete ? `<button onclick="deleteEvent(${ev.id})" style="font-size:10px;padding:1px 6px;color:var(--danger);">🗑</button>` : ''}
+              ${canDelete ? `<button onclick="deleteEvent(${ev.id}, '${eid}')" style="font-size:10px;padding:1px 6px;color:var(--danger);">🗑</button>` : ''}
             </div>
             ${details}
           </div>
@@ -3420,7 +3424,7 @@ async function editEmployeeProfile() {
   const g = v => escHtml(String(v == null ? '' : v));
   const isSA = _authState.role === 'super_admin';
   const inStyle = 'padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;';
-  const selOpts = (arr, cur) => arr.map(d => `<option value="${g(d)}" ${cur===d?'selected':''}>${g(d)}</option>`).join('');
+  const selOpts = (labels, cur) => Object.keys(labels).map(k => `<option value="${g(k)}" ${cur===k?'selected':''}>${labels[k]}</option>`).join('');
   const phoneNum = String(emp.phone || '').replace(/^\+255/, '');
   // 日期字段仅当值为合法 YYYY-MM-DD 才回填（type=date 要求）
   const dateVal = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v||'')) ? String(v) : '';
@@ -3456,6 +3460,10 @@ async function editEmployeeProfile() {
   }
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
+  // 薪资类别 + 基数（与显示页面顺序一致：岗位 → 薪资类别 → 技能等级）
+  form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfEdit_salary_type" onchange="toggleSalaryBaseFields()" style="${inStyle}">${selOpts(Object.keys(typeLabels), curType)}</select></div>`;
+  form += `<div class="form-row" id="pfEdit_row_dayrate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfEdit_day_rate" value="${g(emp.day_rate)}" min="0" style="${inStyle}"></div>`;
+  form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input id="pfEdit_skill_level" value="${g(emp.skill_level)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
@@ -3473,10 +3481,6 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_bank_name">银行</label><input id="pfEdit_bank_name" value="${g(emp.bank_name)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_account">账号</label><input id="pfEdit_bank_account" value="${g(emp.bank_account)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input id="pfEdit_bank_owner" value="${g(emp.bank_owner)}" style="${inStyle}"></div>`;
-  // 薪资类别 + 基数
-  form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfEdit_salary_type" onchange="toggleSalaryBaseFields()" style="${inStyle}">${selOpts(Object.keys(typeLabels), curType)}</select></div>`;
-  form += `<div class="form-row" id="pfEdit_row_dayrate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfEdit_day_rate" value="${g(emp.day_rate)}" min="0" style="${inStyle}"></div>`;
-  form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
   // P10: 班组（P14.10: 仅井下生产工人）
   form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
@@ -3559,7 +3563,6 @@ let _editEventId = null;
 function editEvent(eventId, eventType, effectiveDate, payloadB64) {
   _editEventId = eventId;
   const payload = JSON.parse(decodeURIComponent(atob(payloadB64)));
-  document.getElementById('addEventType').value = eventType;
   document.getElementById('addEventDate').value = effectiveDate;
   document.getElementById('addEventContent').value = payload.content || payload.note || '';
   document.getElementById('addEventModal').style.display = 'flex';
@@ -3594,7 +3597,7 @@ async function saveNewEvent() {
   } catch(e) { showToast('网络错误', 'error'); }
 }
 
-async function deleteEvent(eventId) {
+async function deleteEvent(eventId, empId) {
   if (!confirm(t('event_delete_confirm'))) return;
   try {
     const res = await fetch(api(`/api/oa/events/${eventId}/revoke`), {
@@ -3605,7 +3608,7 @@ async function deleteEvent(eventId) {
     const data = await res.json();
     if (data.ok) {
       showToast(t('event_deleted'));
-      loadEmployeeProfilePage(_addEventEid);
+      loadEmployeeProfilePage(empId);
     } else {
       showToast(data.error || t('event_delete_fail'), 'error');
     }
