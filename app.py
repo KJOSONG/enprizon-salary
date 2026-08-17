@@ -4722,7 +4722,8 @@ def export_payslips_all():
         slips = []
         for emp in employees:
             slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
-            slips.append(slip_data)
+            if slip_data.get('net', 0) > 0:
+                slips.append(slip_data)
         
         html_content = render_template('payslip.html', slips=slips)
         pdf_bytes = HTML(string=html_content).write_pdf()
