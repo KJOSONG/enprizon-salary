@@ -3145,7 +3145,15 @@ async function loadEmployeeProfilePage(eid) {
         } else if (ev.event_type === 'salary_change') {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.old_type||'?'} ${fmtNum(payload.old_salary||0)} → ${payload.new_type||'?'} ${fmtNum(payload.new_salary||0)}</div>`;
         } else if (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.start_date||'?'} ~ ${payload.end_date||'?'} (${payload.days||'?'}天)</div>`;
+          const startDate = payload.start_date || ev.effective_date;
+          const days = payload.days || 1;
+          let endDate = payload.end_date;
+          if (!endDate && startDate) {
+            const d = new Date(startDate);
+            d.setDate(d.getDate() + days - 1);
+            endDate = d.toISOString().split('T')[0];
+          }
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${startDate} ~ ${endDate||'?'} (${days}天)</div>`;
         } else if (ev.event_type === 'overtime') {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.date||'?'} ${payload.start_time||''}-${payload.end_time||''} (${payload.hours||0}h)</div>`;
         } else if (ev.event_type === 'note') {
@@ -3153,6 +3161,7 @@ async function loadEmployeeProfilePage(eid) {
         } else if (payload.note) {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.note}</div>`;
         }
+        const canEdit = ev.event_type === 'note' || (ev.status === 'approved' && ['annual_leave','comp_leave','overtime'].includes(ev.event_type));
         return `
         <div class="timeline-item">
           <div class="timeline-dot ${ev.status}"></div>
@@ -3161,6 +3170,7 @@ async function loadEmployeeProfilePage(eid) {
               <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
               <span class="timeline-date">${ev.effective_date}</span>
               <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? '已撤销' : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
+              ${canEdit ? `<button onclick="editEvent(${ev.id}, '${ev.event_type}', '${ev.effective_date}', '${btoa(encodeURIComponent(ev.payload||'{}'))}')" style="font-size:10px;padding:1px 6px;margin-left:auto;">✎</button>` : ''}
             </div>
             ${details}
           </div>
@@ -3553,8 +3563,22 @@ function openAddEventModal() {
 }
 
 let _addEventEid = null;
+let _editEventId = null;
+
+function editEvent(eventId, eventType, effectiveDate, payloadB64) {
+  _editEventId = eventId;
+  const payload = JSON.parse(decodeURIComponent(atob(payloadB64)));
+  document.getElementById('addEventType').value = eventType;
+  document.getElementById('addEventDate').value = effectiveDate;
+  document.getElementById('addEventContent').value = payload.content || payload.note || '';
+  document.getElementById('addEventModal').style.display = 'flex';
+}
 
 async function saveNewEvent() {
+  if (_editEventId) {
+    await updateEvent();
+    return;
+  }
   const eid = _addEventEid;
   const event_type = document.getElementById('addEventType').value;
   const effective_date = document.getElementById('addEventDate').value;
@@ -3577,6 +3601,34 @@ async function saveNewEvent() {
       loadEmployeeProfilePage(eid);
     } else {
       showToast(data.error || '添加失败', 'error');
+    }
+  } catch(e) { showToast('网络错误', 'error'); }
+}
+
+async function updateEvent() {
+  const eventId = _editEventId;
+  const event_type = document.getElementById('addEventType').value;
+  const effective_date = document.getElementById('addEventDate').value;
+  const content = document.getElementById('addEventContent').value;
+  
+  if (!eventId || !effective_date) { showToast('请填写日期', 'error'); return; }
+  
+  const payload = event_type === 'note' ? { content } : { note: content };
+  
+  try {
+    const res = await fetch(api(`/api/oa/events/${eventId}/edit`), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ effective_date, payload })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('addEventModal').style.display = 'none';
+      _editEventId = null;
+      showToast('事件已更新');
+      loadEmployeeProfilePage(_addEventEid);
+    } else {
+      showToast(data.error || '更新失败', 'error');
     }
   } catch(e) { showToast('网络错误', 'error'); }
 }
