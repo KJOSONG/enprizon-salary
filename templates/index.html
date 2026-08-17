@@ -3125,10 +3125,11 @@ async function loadEmployeeProfilePage(eid) {
       salary_change: t('event_salary_change'), skill_change: t('event_skill_change'), reinstatement: t('event_reinstatement'),
       annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note') };
     const tl = document.getElementById('profileTimeline');
-    if (events.length === 0) {
+    const activeEvents = events.filter(ev => ev.status !== 'revoked');
+    if (activeEvents.length === 0) {
       tl.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px;">${t('no_events')}</div>`;
     } else {
-      tl.innerHTML = events.map(ev => {
+      tl.innerHTML = activeEvents.map(ev => {
         let payload = {};
         try { payload = JSON.parse(ev.payload || '{}'); } catch(e) {}
         let details = '';
@@ -3460,10 +3461,8 @@ async function editEmployeeProfile() {
   }
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
-  // 薪资类别 + 基数（与显示页面顺序一致：岗位 → 薪资类别 → 技能等级）
-  form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfEdit_salary_type" onchange="toggleSalaryBaseFields()" style="${inStyle}">${selOpts(Object.keys(typeLabels), curType)}</select></div>`;
-  form += `<div class="form-row" id="pfEdit_row_dayrate" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfEdit_day_rate" value="${g(emp.day_rate)}" min="0" style="${inStyle}"></div>`;
-  form += `<div class="form-row" id="pfEdit_row_monthly" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfEdit_monthly_salary" value="${g(emp.monthly_salary)}" min="0" style="${inStyle}"></div>`;
+  // 薪资类型不在此处修改（档案页面有独立修改入口）
+  form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><span style="padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">${typeLabels[curType] || curType}</span><span style="font-size:11px;color:var(--text-muted);margin-left:8px;" data-i18n="emp_salary_type_hint">（请在档案页面修改）</span></div>`;
   form += `<div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input id="pfEdit_skill_level" value="${g(emp.skill_level)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
