@@ -857,13 +857,21 @@ h3 { font-size: 1rem; font-weight: 500; line-height: 1.2; letter-spacing: 0.01em
    数据表格
    ════════════════════════════════════════════════ */
 .table-wrap {
-  overflow-x: auto;
+  overflow: auto;
   position: relative;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   transition: border-color var(--transition-fast);
-  /* iOS 平滑惯性滚动 */
   -webkit-overflow-scrolling: touch;
+  max-height: 70vh;
+}
+.table-wrap table.data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.table-wrap table.data-table thead th {
+  background: var(--muted);
 }
 
 /* 首列冻结（产量核验专用） */

@@ -1579,10 +1579,34 @@ def api_employee_profile(employee_id):
 @login_required
 @require_permission('employees', 'view')
 def api_employee_events(employee_id):
-    """员工生命周期时间线"""
     from core.database import get_employee_events
     events = get_employee_events(app.config['DATA_FOLDER'], employee_id)
     return jsonify({'events': events})
+
+@app.route('/api/employees/<employee_id>/events', methods=['POST'])
+@login_required
+@require_permission('employees', 'edit')
+def api_create_employee_event(employee_id):
+    from core.database import get_conn, log_audit
+    import json
+    data = request.get_json() or {}
+    event_type = data.get('event_type', 'note')
+    effective_date = data.get('effective_date', '')
+    payload = data.get('payload', {})
+    operator_id = session.get('username', '')
+    
+    if not effective_date:
+        return jsonify({'ok': False, 'error': 'Date required'}), 400
+    
+    conn = get_conn(app.config['DATA_FOLDER'])
+    conn.execute(
+        "INSERT INTO employee_events (employee_id, event_type, effective_date, snapshot, payload, operator_id, status) VALUES (?,?,?,?,?,?,?)",
+        (employee_id, event_type, effective_date, '{}', json.dumps(payload), operator_id, 'approved')
+    )
+    conn.commit()
+    log_audit(app.config['DATA_FOLDER'], 'create_event', employee_id, json.dumps({'type': event_type, 'date': effective_date}))
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/employees/<employee_id>/annual-leave-override', methods=['POST'])
 @editor_required
@@ -4644,7 +4668,7 @@ def export_payslip_single(employee_id):
             return jsonify({'error': f'Employee {employee_id} not found', 'ok': False}), 404
         
         slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
-        html_content = render_template('payslip.html', slips=[slip_data])
+        html_content = render_template('payslip_single.html', slip=slip_data)
         pdf_bytes = HTML(string=html_content).write_pdf()
         
         pays_dir = os.path.join(app.config['DATA_FOLDER'], 'payslips')

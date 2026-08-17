@@ -10,8 +10,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: "Courier New", Courier, monospace;
-  font-size: 7.5pt;
-  line-height: 1.3;
+  font-size: 7pt;
+  line-height: 1.2;
   color: #000;
 }
 
@@ -19,46 +19,47 @@ body {
   width: 190mm;
   height: 277mm;
   page-break-after: always;
-  display: flex;
-  gap: 4mm;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3mm;
 }
 .page:last-child { page-break-after: avoid; }
 
 .slip {
-  width: 93mm;
-  height: 277mm;
   border: 1px solid #000;
-  padding: 3mm;
-  font-size: 7pt;
+  padding: 2mm;
+  font-size: 6.5pt;
+  overflow: hidden;
 }
 
 .header {
   text-align: center;
-  border-bottom: 2px solid #000;
-  padding-bottom: 2mm;
-  margin-bottom: 2mm;
+  border-bottom: 1px solid #000;
+  padding-bottom: 1mm;
+  margin-bottom: 1.5mm;
 }
-.company { font-size: 9pt; font-weight: bold; }
-.month-label { font-size: 7pt; margin-top: 1mm; }
+.company { font-size: 7pt; font-weight: bold; }
+.month-label { font-size: 5.5pt; margin-top: 0.5mm; }
 
 .emp-info {
-  margin-bottom: 2mm;
-  font-size: 6.5pt;
+  margin-bottom: 1.5mm;
+  font-size: 5.5pt;
 }
 .emp-info .field {
   display: flex;
   gap: 1mm;
-  margin-bottom: 0.5mm;
+  margin-bottom: 0.3mm;
 }
-.emp-info .label { min-width: 18mm; color: #333; }
+.emp-info .label { min-width: 14mm; color: #333; }
 .emp-info .value { font-weight: bold; }
 
 .attendance {
   border-top: 1px solid #000;
   border-bottom: 1px solid #000;
-  padding: 1mm 0;
-  margin-bottom: 2mm;
-  font-size: 6pt;
+  padding: 0.8mm 0;
+  margin-bottom: 1.5mm;
+  font-size: 5pt;
   display: flex;
   gap: 3mm;
 }
@@ -67,64 +68,64 @@ body {
 .section-title {
   font-weight: bold;
   border-bottom: 1px solid #000;
-  padding-bottom: 0.5mm;
-  margin-bottom: 1mm;
-  font-size: 7pt;
+  padding-bottom: 0.3mm;
+  margin-bottom: 0.8mm;
+  font-size: 6pt;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 6.5pt;
+  font-size: 5.5pt;
 }
 table .item { text-align: left; }
 table .amount { text-align: right; font-family: "Courier New", monospace; }
 table .subtotal {
   font-weight: bold;
   border-top: 1px solid #000;
-  padding-top: 1mm;
-  margin-top: 1mm;
+  padding-top: 0.5mm;
+  margin-top: 0.5mm;
 }
 
-.deductions { margin-top: 2mm; }
+.deductions { margin-top: 1.5mm; }
 
 .summary {
-  margin-top: 2mm;
-  border-top: 2px solid #000;
-  padding-top: 1mm;
+  margin-top: 1.5mm;
+  border-top: 1px solid #000;
+  padding-top: 0.8mm;
 }
 .summary-row {
   display: flex;
   justify-content: space-between;
-  font-size: 7pt;
-  padding: 0.5mm 0;
+  font-size: 5.5pt;
+  padding: 0.3mm 0;
 }
 .summary-row.total {
   font-weight: bold;
-  font-size: 8.5pt;
+  font-size: 7pt;
   border-top: 1px solid #000;
-  padding-top: 1mm;
-  margin-top: 1mm;
+  padding-top: 0.5mm;
+  margin-top: 0.5mm;
 }
 
 .signature {
-  margin-top: 3mm;
+  margin-top: 2mm;
   display: flex;
   justify-content: space-between;
-  font-size: 6pt;
+  font-size: 5pt;
 }
 .sig-line {
   width: 45%;
   border-top: 1px solid #000;
-  padding-top: 1mm;
+  padding-top: 0.5mm;
   text-align: center;
 }
 </style>
 </head>
 <body>
-{% for i in range(0, slips|length, 2) %}
+{% for i in range(0, slips|length, 4) %}
 <div class="page">
-  {% for slip in slips[i:i+2] %}
+  {% for slip in slips[i:i+4] %}
   <div class="slip">
     <div class="header">
       <div class="company">ENPRIZON LINDI PROJECT</div>
@@ -134,18 +135,16 @@ table .subtotal {
     <div class="emp-info">
       <div class="field"><span class="label">NAME:</span><span class="value">{{ slip.name }}</span></div>
       <div class="field"><span class="label">DEPT:</span><span class="value">{{ slip.department }}</span></div>
-      <div class="field"><span class="label">POSITION:</span><span class="value">{{ slip.position }}</span></div>
+      <div class="field"><span class="label">POS:</span><span class="value">{{ slip.position }}</span></div>
       <div class="field"><span class="label">ID:</span><span class="value">{{ slip.employee_id }}</span></div>
-      <div class="field"><span class="label">NSSF:</span><span class="value">{{ slip.nssf_number }}</span></div>
-      <div class="field"><span class="label">TIN:</span><span class="value">{{ slip.tin_number }}</span></div>
     </div>
 
     <div class="attendance">
-      <span>TYPE: {{ slip.salary_type_label }}</span>
-      <span>NSSF: {{ 'YES' if slip.nssf_enrolled else 'NO' }}</span>
+      <span>{{ slip.salary_type_label }}</span>
+      <span>NSSF:{{ 'Y' if slip.nssf_enrolled else 'N' }}</span>
     </div>
 
-    <div class="section-title">EARNINGS (TZS)</div>
+    <div class="section-title">EARNINGS</div>
     <table>
       {% if slip.piece_underground > 0 %}
       <tr><td class="item">Underground</td><td class="amount">{{ "{:,.0f}".format(slip.piece_underground) }}</td></tr>
@@ -163,19 +162,19 @@ table .subtotal {
       <tr><td class="item">Monthly</td><td class="amount">{{ "{:,.0f}".format(slip.monthly) }}</td></tr>
       {% endif %}
       {% if slip.overtime > 0 %}
-      <tr><td class="item">Overtime</td><td class="amount">{{ "{:,.0f}".format(slip.overtime) }}</td></tr>
+      <tr><td class="item">OT</td><td class="amount">{{ "{:,.0f}".format(slip.overtime) }}</td></tr>
       {% endif %}
       {% if slip.bonus > 0 %}
       <tr><td class="item">Bonus</td><td class="amount">{{ "{:,.0f}".format(slip.bonus) }}</td></tr>
       {% endif %}
       {% if slip.driver_allowance > 0 %}
-      <tr><td class="item">Driver Allow.</td><td class="amount">{{ "{:,.0f}".format(slip.driver_allowance) }}</td></tr>
+      <tr><td class="item">Driver</td><td class="amount">{{ "{:,.0f}".format(slip.driver_allowance) }}</td></tr>
       {% endif %}
-      <tr class="subtotal"><td class="item">GROSS PAY</td><td class="amount">{{ "{:,.0f}".format(slip.gross) }}</td></tr>
+      <tr class="subtotal"><td class="item">GROSS</td><td class="amount">{{ "{:,.0f}".format(slip.gross) }}</td></tr>
     </table>
 
     <div class="deductions">
-      <div class="section-title">DEDUCTIONS (TZS)</div>
+      <div class="section-title">DEDUCTIONS</div>
       <table>
         <tr><td class="item">NSSF</td><td class="amount">{{ "{:,.0f}".format(slip.nssf) }}</td></tr>
         <tr><td class="item">PAYE</td><td class="amount">{{ "{:,.0f}".format(slip.paye) }}</td></tr>
@@ -185,24 +184,24 @@ table .subtotal {
         {% if slip.penalty > 0 %}
         <tr><td class="item">Penalty</td><td class="amount">{{ "{:,.0f}".format(slip.penalty) }}</td></tr>
         {% endif %}
-        <tr class="subtotal"><td class="item">TOTAL DED.</td><td class="amount">{{ "{:,.0f}".format(slip.total_deductions) }}</td></tr>
+        <tr class="subtotal"><td class="item">TOTAL</td><td class="amount">{{ "{:,.0f}".format(slip.total_deductions) }}</td></tr>
       </table>
     </div>
 
     <div class="summary">
-      <div class="summary-row"><span>TAXABLE PAY</span><span>{{ "{:,.0f}".format(slip.taxable_income) }}</span></div>
+      <div class="summary-row"><span>TAXABLE</span><span>{{ "{:,.0f}".format(slip.taxable_income) }}</span></div>
       <div class="summary-row total"><span>NET PAY</span><span>{{ "{:,.0f}".format(slip.net) }}</span></div>
     </div>
 
     <div class="signature">
       <div class="sig-line">Employee</div>
-      <div class="sig-line">Authorized</div>
+      <div class="sig-line">Auth.</div>
     </div>
   </div>
   {% endfor %}
-  {% if slips[i:i+2]|length == 1 %}
+  {% for _ in range(4 - slips[i:i+4]|length) %}
   <div class="slip" style="border: none;"></div>
-  {% endif %}
+  {% endfor %}
 </div>
 {% endfor %}
 </body>
