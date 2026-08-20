@@ -7676,7 +7676,7 @@ async function loadScoringSummary() {
   }
   if (!inds.length) { tbody.innerHTML = "<tr><td colspan=9 style=color:var(--text-muted)>" + t('no_scores') + "</td></tr>"; return; }
   // V2 模式隐藏奖金列（不发奖金），周视图亦无 bonus
-  const showBonus = !isV2;
+  const showBonus = !isV2 && !week;
   const rowHtml = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td>"+(showBonus?"<td>"+Number(r.bonus||0).toLocaleString()+"</td>":"<td>—</td>")+"</tr>").join("");
   tbody.innerHTML = rowHtml;
   if (isV2 || week) return;
