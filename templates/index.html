@@ -6529,12 +6529,19 @@ function cancelColEdit(formType, historyId) {
 }
 
 /* ── P9-2/P12 井下出渣采集表单 ── */
-function renderUgCollectionForm(payload) {
+async function renderUgCollectionForm(payload) {
   payload = payload || {};
   const day = payload.day || {};
   const night = payload.night || {};
   const date = payload.submission_date || '';
   const empsStr = (arr) => (arr || []).join(',');
+  let ugGroups = [];
+  try {
+    const res = await fetch(api('/api/employee_groups'));
+    ugGroups = (await res.json()).groups || [];
+  } catch(e) { ugGroups = []; }
+  const teamOpts = (sel) => '<option value="">' + t('col_ug_team_placeholder') + '</option>' +
+    ugGroups.map(g => `<option value="${g.id}" ${String(sel)===String(g.id)?'selected':''}>${escHtml(g.name)}</option>`).join('');
   // P12: 三列产量各带标签（NICKEL(H) | NICKEL(L) | MAWE）
   // B1c: prodRow 需区分数据源(day/night)，否则夜班输入框误显示白班值
   const prodRow = (prefix, data) => `
@@ -6564,12 +6571,30 @@ function renderUgCollectionForm(payload) {
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="ugDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">DAY SHIFT</h4>
+      <div class="form-row" style="margin-bottom:6px;align-items:center;gap:8px;">
+        <label style="font-size:12px;min-width:50px;">${t('col_ug_team')}</label>
+        <select id="ugDayTeam" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
+          ${teamOpts(day.team_id)}
+        </select>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
+          <input type="checkbox" id="ugDayExempt" ${day.exempt ? 'checked' : ''}> ${t('col_ug_exempt')}
+        </label>
+      </div>
       ${prodRow('ugDay', day)}
       ${remarkRow('ugDay', t('remark_day'))}
       ${attRow('ugDay', 'Day', 'underground', 'day')}
     </div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
       <h4 style="font-size:12px;margin-bottom:8px;color:var(--accent);">NIGHT SHIFT</h4>
+      <div class="form-row" style="margin-bottom:6px;align-items:center;gap:8px;">
+        <label style="font-size:12px;min-width:50px;">${t('col_ug_team')}</label>
+        <select id="ugNightTeam" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
+          ${teamOpts(night.team_id)}
+        </select>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
+          <input type="checkbox" id="ugNightExempt" ${night.exempt ? 'checked' : ''}> ${t('col_ug_exempt')}
+        </label>
+      </div>
       ${prodRow('ugNight', night)}
       ${remarkRow('ugNight', t('remark_night'))}
       ${attRow('ugNight', 'Night', 'underground', 'night')}
@@ -6948,6 +6973,14 @@ async function submitAttCollection() {
 async function submitUgCollection() {
   const date = document.getElementById('ugDate').value;
   if (!date) { showToast(t('pick_date'), 'error'); return; }
+  const dayTeamEl = document.getElementById('ugDayTeam');
+  const nightTeamEl = document.getElementById('ugNightTeam');
+  const dayTeamId = dayTeamEl ? parseInt(dayTeamEl.value) || 0 : 0;
+  const nightTeamId = nightTeamEl ? parseInt(nightTeamEl.value) || 0 : 0;
+  const dayExemptEl = document.getElementById('ugDayExempt');
+  const nightExemptEl = document.getElementById('ugNightExempt');
+  const dayExempt = dayExemptEl ? dayExemptEl.checked : false;
+  const nightExempt = nightExemptEl ? nightExemptEl.checked : false;
   const payload = {
     day: {
       nh: parseInt(document.getElementById('ugDayNh').value) || 0,
@@ -6956,6 +6989,8 @@ async function submitUgCollection() {
       emps: (document.getElementById('ugDayEmpsVal').value || '').split(',').filter(Boolean),
       drivers: (document.getElementById('ugDayDriversVal').value || '').split(',').filter(Boolean),
       remark: document.getElementById('ugDayRemark').value.trim(),
+      team_id: dayTeamId,
+      exempt: dayExempt,
     },
     night: {
       nh: parseInt(document.getElementById('ugNightNh').value) || 0,
@@ -6964,6 +6999,8 @@ async function submitUgCollection() {
       emps: (document.getElementById('ugNightEmpsVal').value || '').split(',').filter(Boolean),
       drivers: (document.getElementById('ugNightDriversVal').value || '').split(',').filter(Boolean),
       remark: document.getElementById('ugNightRemark').value.trim(),
+      team_id: nightTeamId,
+      exempt: nightExempt,
     },
   };
   await submitColPayload('underground', date, payload, 'colUgHistory');
