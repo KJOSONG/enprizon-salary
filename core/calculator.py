@@ -841,6 +841,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
+        elif underground_mode == 'v2':
+            pass  # V2: no scoring redirect, keep piece_underground type
 
         combined_exclusions = exclusions | att_exclusions | range_exclusions
 
@@ -888,6 +890,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         for dt in main_data.get('dates', []):
             if dt: month_prefix = dt[:7]; break
     working_days = 26  # 月薪按 26 天均分
+
+    # V2 gate: underground_mode == 'v2' AND month >= v2_effective_from
+    v2_effective_from = pricing.get('v2_effective_from', '') or ''
+    v2_active = (underground_mode == 'v2' and (not v2_effective_from or month_prefix >= v2_effective_from))
 
     # P23 R2: 读本月加班记录（审批通过后落库 overtime_records）
     ot_total = defaultdict(float)
@@ -982,6 +988,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
     bonus_penalties = bonus_penalties or {}
     result_employees = []
+    ug_base_raw = {}  # V2: unscaled base per employee (before rounding/scaling)
 
     for emp in employees:
         eid = emp['id']
@@ -1019,6 +1026,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         if mb > 0 and monthly_present_count > 0:
             effective_days = min(monthly_present_count, working_days)
             ms_total = effective_days * (mb / working_days)
+
+        # V2: save unscaled base for piece_underground workers
+        if v2_active and eff_type == 'piece_underground':
+            ug_base_raw[eid] = pu
 
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
         ot = round(ot_total.get(eid, 0))  # P23 R2: 加班费并入税前（可独立展示）
@@ -1091,7 +1102,33 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'temp_exception': temp_exception, 'temp_overrides': temp_overrides,
         })
 
-    return {
+    # V2: apply month-end coefficient and recompute affected employees
+    v2_f_w = {}
+    if v2_active and ug_base_raw:
+        v2_f_w = apply_v2_month_end(ug_base_raw, employees, data_folder, month_prefix, pricing)
+        emp_lookup = {e['id']: e for e in employees}
+        for e in result_employees:
+            eid = e['employee_id']
+            if eid in v2_f_w and e.get('salary_type') == 'piece_underground':
+                base_val = ug_base_raw[eid]
+                pu_final = round(base_val * v2_f_w[eid])
+                _emp = emp_lookup.get(eid, {})
+                e['piece_underground'] = pu_final
+                ot = e['overtime']
+                gross = pu_final + e['piece_driller'] + e['piece_crush'] + e['day_rate'] + e['monthly'] + ot
+                nssf = round((gross + e['driver_allowance']) * nssf_rate) if _emp.get('nssf_enrolled', False) else 0
+                taxable = gross + e['driver_allowance'] - nssf
+                tin = (_emp.get('tin_number') or '').strip()
+                paye = round(compute_paye(taxable)) if tin else 0
+                net = gross + e['bonus'] + e['driver_allowance'] - nssf - paye - e['advance'] - e['penalty']
+                e['gross'] = gross
+                e['nssf'] = nssf
+                e['paye'] = paye
+                e['net'] = net
+                e['ug_base'] = round(base_val)
+                e['ug_coefficient'] = v2_f_w[eid]
+
+    result_dict = {
         'employees': result_employees,
         'total_gross': sum(e['gross'] for e in result_employees),
         'total_overtime': sum(e['overtime'] for e in result_employees),  # P23 R2
@@ -1106,6 +1143,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         'driller_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in driller_daily.items()},
         'crush_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in crush_daily.items()},
     }
+    if v2_f_w:
+        result_dict['ug_coefficient'] = v2_f_w
+        result_dict['ug_base'] = {eid: round(val) for eid, val in ug_base_raw.items()}
+    return result_dict
 
 
 # ═══════════════════════════════════════════════════════════

@@ -336,9 +336,6 @@ class TestV2Integration:
                      'attendance': [], 'crush_production': []}
 
         pricing = _make_pricing()
-        # Simulate E exclusion: W1 has E on this date (excluded from piece calc)
-        # We pass it via the exclusion set that calculate_all builds from DB
-        # For pure-logic test, we'll use a tmpdir with a DB
 
         import tempfile, sqlite3
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -347,14 +344,15 @@ class TestV2Integration:
             conn.execute('''CREATE TABLE attendance_overrides (
                 employee_id TEXT, date TEXT, status TEXT,
                 PRIMARY KEY (employee_id, date))''')
-            # W1 is marked E on 2026-08-01
             conn.execute("INSERT INTO attendance_overrides VALUES (?, ?, ?)",
                          ('W1', '2026-08-01', 'E'))
             conn.commit()
             conn.close()
 
-            result = calculate_all(main_data, employees, overrides={}, pricing=pricing,
-                                   data_folder=tmpdir)
+            with patch('core.database.get_scoring_card_entries', return_value=[]), \
+                 patch('core.database.get_scoring_config', return_value={}):
+                result = calculate_all(main_data, employees, overrides={}, pricing=pricing,
+                                       data_folder=tmpdir)
 
         # Find W1 and W2 in results
         w1 = next(e for e in result['employees'] if e['employee_id'] == 'W1')
@@ -440,8 +438,10 @@ class TestV2Integration:
             conn.commit()
             conn.close()
 
-            result = calculate_all(main_data, employees, overrides={}, pricing=pricing,
-                                   data_folder=tmpdir)
+            with patch('core.database.get_scoring_card_entries', return_value=[]), \
+                 patch('core.database.get_scoring_config', return_value={}):
+                result = calculate_all(main_data, employees, overrides={}, pricing=pricing,
+                                       data_folder=tmpdir)
 
         assert 'ug_coefficient' in result
         assert 'ug_base' in result
