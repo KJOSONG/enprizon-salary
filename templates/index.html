@@ -2316,6 +2316,8 @@ async function loadDashboard() {
       }
     } catch(e) {}
   }
+  // R3: 预加载班组（子部门）数据，供各页面子部门筛选使用
+  await ensureTeamFilterData();
   // P0 导航初始化：解析 hash 路由
   renderSidebar();
   if (window.location.hash && window.location.hash.length > 1) {
@@ -4322,7 +4324,7 @@ async function recalculate() {
 // ════════════════════════════════════════════════
 //  薪资表
 // ════════════════════════════════════════════════
-function renderSalaryTable(result) {
+async function renderSalaryTable(result) {
   STATE._salaryResult = result;
   const tbody = document.querySelector('#salaryTable tbody');
   const salaryDa = (result.employees || []).reduce((s, e) => s + (e.driver_allowance || 0), 0);
