@@ -1,7 +1,0 @@
-accel_target: 40
-accel_prices: {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000}
-accel_w_a: 0.6
-accel_w_b: 0.4
-accel_full_days: 26
-v2_effective_from: ''
-underground_mode: piecework
