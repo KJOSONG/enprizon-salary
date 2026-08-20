@@ -3606,7 +3606,9 @@ async function editEmployeeProfile() {
   // 出生日期
   form += `<div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="pfEdit_date_of_birth" value="${dateVal(emp.date_of_birth)}" style="${inStyle}"></div>`;
   // 部门（仅超管可改）
-  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" ${isSA ? '' : 'disabled'} style="${inStyle}">${selOpts(deptOpts, emp.department)}</select></div>`;
+  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" ${isSA ? '' : 'disabled'} style="${inStyle}">` +
+    deptOpts.map(d => `<option value="${g(d)}" ${emp.department === d ? 'selected' : ''}>${g(d)}</option>`).join('') +
+    `</select></div>`;
   if (!isSA) {
     form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('dept_superadmin_only')}</div>`;
   }
