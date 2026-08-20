@@ -1805,6 +1805,8 @@ async function submitLogin() {
           if (recalcBtn) recalcBtn.disabled = false;
         }
       } catch(e) {}
+      // R3: 登录后强制重拉班组（子部门）数据，供筛选使用
+      await ensureTeamFilterData(true);
       // P23-UI: 登录成功后不强制跳回数据台——保留用户当前所在板块（避免打断已点击的侧边栏）
       // 未登录时仅 dashboard 可访问，登录后自然停留在当前页；用户手动切换板块不受影响
       showToast(_authState.has_admin ? t('login_success') : t('admin_created'));
@@ -2316,8 +2318,8 @@ async function loadDashboard() {
       }
     } catch(e) {}
   }
-  // R3: 预加载班组（子部门）数据，供各页面子部门筛选使用
-  await ensureTeamFilterData();
+  // R3: 预加载班组（子部门）数据，供各页面子部门筛选使用（登录后强制重拉，避免缓存登录前 401 空结果）
+  if (_authState.logged_in) await ensureTeamFilterData(true);
   // P0 导航初始化：解析 hash 路由
   renderSidebar();
   if (window.location.hash && window.location.hash.length > 1) {
@@ -3017,8 +3019,9 @@ async function reloadSource() {
 // ════════════════════════════════════════════════
 //  Team filter utilities (R3)
 // ════════════════════════════════════════════════
+function normDept(s) { return (s || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase(); }
 async function ensureTeamFilterData(force) {
-  if (!force && STATE._teamData) return STATE._teamData;
+  if (!force && STATE._teamData && (STATE._teamData.groups || []).length) return STATE._teamData;
   try {
     const gRes = await fetch(api('/api/employee_groups'));
     const groups = (await gRes.json()).groups || [];
@@ -3083,7 +3086,7 @@ async function renderEmployeeTable() {
     const teamMap = {};
     empGroups.forEach(g => { teamMap[g.id] = g.name; });
     const teamSel = document.getElementById('empFilterTeam');
-    const isUgDept = sel.value === 'Production TEAM (underground)';
+    const isUgDept = normDept(sel.value) === 'PRODUCTIONTEAM(UNDERGROUND)';
     if (teamSel) {
       teamSel.style.display = isUgDept ? '' : 'none';
       if (isUgDept) {
@@ -3107,7 +3110,7 @@ async function renderEmployeeTable() {
 
     tbody.innerHTML = filtered.map(e => {
       const teamName = e.team_id && teamMap[e.team_id] ? escHtml(teamMap[e.team_id]) : '';
-      const isUg = e.department === 'Production TEAM (underground)';
+      const isUg = normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)';
       const deptDisplay = isUg && teamName ? teamName : escHtml(e.department||'—');
       return `
       <tr style="cursor:pointer;" onclick="if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'})">
@@ -4359,7 +4362,7 @@ async function renderSalaryTable(result) {
   // R3: show team filter when UG dept selected
   await ensureTeamFilterData();
   const salaryTeamSel = document.getElementById('salaryFilterTeam');
-  const salaryIsUg = (deptSel && deptSel.value === 'Production TEAM (underground)');
+  const salaryIsUg = (deptSel && normDept(deptSel.value) === 'PRODUCTIONTEAM(UNDERGROUND)');
   if (salaryTeamSel) {
     salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
     if (salaryIsUg) populateTeamFilterSelect(salaryTeamSel);
@@ -4378,7 +4381,7 @@ function filterSalaryTable() {
   const fd = document.getElementById('salaryFilterDept').value;
   // R3: team filter show/hide
   const salaryTeamSel = document.getElementById('salaryFilterTeam');
-  const salaryIsUg = fd === 'Production TEAM (underground)';
+  const salaryIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (salaryTeamSel) {
     salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
     if (salaryIsUg && !salaryTeamSel.options.length) populateTeamFilterSelect(salaryTeamSel);
@@ -4693,7 +4696,7 @@ function renderDailyWages() {
   const fd = document.getElementById('dwFilterDept').value;
   // R3: team filter show/hide
   const dwTeamSel = document.getElementById('dwFilterTeam');
-  const dwIsUg = fd === 'Production TEAM (underground)';
+  const dwIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (dwTeamSel) {
     dwTeamSel.style.display = dwIsUg ? '' : 'none';
     if (dwIsUg && !dwTeamSel.options.length) populateTeamFilterSelect(dwTeamSel);
@@ -4963,7 +4966,7 @@ function renderAttendance() {
   }
   // R3: team filter show/hide
   const attTeamSel = document.getElementById('attFilterTeam');
-  const attIsUg = fd === 'Production TEAM (underground)';
+  const attIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (attTeamSel) {
     attTeamSel.style.display = attIsUg ? '' : 'none';
     if (attIsUg && !attTeamSel.options.length) populateTeamFilterSelect(attTeamSel);
