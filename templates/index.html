@@ -4384,7 +4384,7 @@ function filterSalaryTable() {
   const salaryIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (salaryTeamSel) {
     salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
-    if (salaryIsUg && !salaryTeamSel.options.length) populateTeamFilterSelect(salaryTeamSel);
+    if (salaryIsUg && salaryTeamSel.options.length <= 1) populateTeamFilterSelect(salaryTeamSel);
   }
   const salaryTeamFilter = (salaryTeamSel && salaryIsUg) ? salaryTeamSel.value : '';
   // 从员工列表构建部门映射（缓存数据可能没有 department）
@@ -4699,7 +4699,7 @@ function renderDailyWages() {
   const dwIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (dwTeamSel) {
     dwTeamSel.style.display = dwIsUg ? '' : 'none';
-    if (dwIsUg && !dwTeamSel.options.length) populateTeamFilterSelect(dwTeamSel);
+    if (dwIsUg && dwTeamSel.options.length <= 1) populateTeamFilterSelect(dwTeamSel);
   }
   const dwTeamFilter = (dwTeamSel && dwIsUg) ? dwTeamSel.value : '';
   // 初始化/获取按日期独立的班次筛选状态
@@ -4969,7 +4969,7 @@ function renderAttendance() {
   const attIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (attTeamSel) {
     attTeamSel.style.display = attIsUg ? '' : 'none';
-    if (attIsUg && !attTeamSel.options.length) populateTeamFilterSelect(attTeamSel);
+    if (attIsUg && attTeamSel.options.length <= 1) populateTeamFilterSelect(attTeamSel);
   }
   const attTeamFilter = (attTeamSel && attIsUg) ? attTeamSel.value : '';
 
