@@ -314,7 +314,6 @@
               <th data-i18n="th_nssf">NSSF</th>
               <th data-i18n="emp_tin_number">TIN 号码</th>
               <th data-i18n="emp_note">备注</th>
-              <th id="empThTeam" style="display:none;" data-i18n="emp_team">班组</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -538,6 +537,7 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_dob">出生日期</span><span class="info-value" id="pfDob">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_age">年龄</span><span class="info-value" id="pfAge">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
+          <div class="info-row"><span class="info-label" data-i18n="emp_team">班组</span><span class="info-value" id="pfTeam">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_custom_number">工号</span><span class="info-value" id="pfCustomNumber">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
           <!-- P14.5: 薪资类型（可编辑，置于岗位下方） -->
@@ -691,6 +691,9 @@
       <select id="salaryFilterDept" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="emp_all_depts">全部部门</option>
       </select>
+      <select id="salaryFilterTeam" onchange="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);display:none;">
+        <option value="" data-i18n="all_teams">全部班组</option>
+      </select>
       <button class="nav-btn" onclick="exportAllPayslips()" data-perm="salary:export" style="font-size:12px;" data-i18n="btn_export_payslip_dept">📄 导出工资单</button>
     </div>
     <div class="stats-bar" id="salaryStats" style="display:none;"></div>
@@ -772,6 +775,9 @@
       <select id="dwFilterDept" onchange="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
         <option value="" data-i18n="dw_all_depts">全部部门</option>
       </select>
+      <select id="dwFilterTeam" onchange="renderDailyWages()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);display:none;">
+        <option value="" data-i18n="all_teams">全部班组</option>
+      </select>
     </div>
     <div class="table-wrap" style="overflow-x:auto;">
       <table class="data-table" id="dwTable" style="font-size:11px;">
@@ -804,6 +810,9 @@
         </select>
         <select id="attFilterDept" onchange="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
           <option value="" data-i18n="emp_all_depts">全部部门</option>
+        </select>
+        <select id="attFilterTeam" onchange="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);display:none;">
+          <option value="" data-i18n="all_teams">全部班组</option>
         </select>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
@@ -3004,6 +3013,45 @@ async function reloadSource() {
 }
 
 // ════════════════════════════════════════════════
+//  Team filter utilities (R3)
+// ════════════════════════════════════════════════
+async function ensureTeamFilterData(force) {
+  if (!force && STATE._teamData) return STATE._teamData;
+  try {
+    const gRes = await fetch(api('/api/employee_groups'));
+    const groups = (await gRes.json()).groups || [];
+    const teamNameMap = {};
+    groups.forEach(g => { teamNameMap[g.id] = g.name; });
+    // build empTeamMap from STATE._empAll
+    let empTeamMap = {};
+    if (!STATE._empAll || !STATE._empAll.length) {
+      try {
+        const eRes = await fetch(api('/employees'));
+        const eData = await eRes.json();
+        STATE._empAll = eData.employees || eData;
+      } catch(e) {}
+    }
+    (STATE._empAll || []).forEach(e => { if (e.team_id) empTeamMap[e.id] = e.team_id; });
+    STATE._teamData = { groups, teamNameMap, empTeamMap };
+  } catch(e) { STATE._teamData = { groups: [], teamNameMap: {}, empTeamMap: {} }; }
+  return STATE._teamData;
+}
+function populateTeamFilterSelect(selEl, placeholderKey) {
+  if (!selEl) return;
+  const td = STATE._teamData || {};
+  const groups = td.groups || [];
+  selEl.innerHTML = '<option value="">' + t(placeholderKey || 'all_teams') + '</option>';
+  groups.forEach(g => { selEl.innerHTML += '<option value="' + g.id + '">' + escHtml(g.name) + '</option>'; });
+}
+async function refreshAllTeamFilters() {
+  await ensureTeamFilterData(true);
+  ['empFilterTeam', 'salaryFilterTeam', 'dwFilterTeam', 'attFilterTeam'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel && sel.style.display !== 'none') populateTeamFilterSelect(sel);
+  });
+}
+
+// ════════════════════════════════════════════════
 //  员工管理
 // ════════════════════════════════════════════════
 /* ── P1 员工列表渲染（新） ── */
@@ -3034,8 +3082,6 @@ async function renderEmployeeTable() {
     empGroups.forEach(g => { teamMap[g.id] = g.name; });
     const teamSel = document.getElementById('empFilterTeam');
     const isUgDept = sel.value === 'Production TEAM (underground)';
-    const empThTeam = document.getElementById('empThTeam');
-    if (empThTeam) empThTeam.style.display = isUgDept ? '' : 'none';
     if (teamSel) {
       teamSel.style.display = isUgDept ? '' : 'none';
       if (isUgDept) {
@@ -3059,7 +3105,8 @@ async function renderEmployeeTable() {
 
     tbody.innerHTML = filtered.map(e => {
       const teamName = e.team_id && teamMap[e.team_id] ? escHtml(teamMap[e.team_id]) : '';
-      const teamCell = isUgDept ? `<td style="font-size:11px;color:var(--text-muted);">${teamName || '—'}</td>` : '';
+      const isUg = e.department === 'Production TEAM (underground)';
+      const deptDisplay = isUg && teamName ? teamName : escHtml(e.department||'—');
       return `
       <tr style="cursor:pointer;" onclick="if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'})">
         <td style="color:var(--text-muted);font-size:11px;">${escHtml(e.custom_number || e.id)}</td>
@@ -3067,7 +3114,7 @@ async function renderEmployeeTable() {
           <a href="#employees/profile?id=${encodeURIComponent(e.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'});"
              style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(e.name)}</a>
         </td>
-        <td class="left" style="color:var(--text-muted);">${escHtml(e.department||'—')}</td>
+        <td class="left" style="color:var(--text-muted);">${deptDisplay}</td>
         <td>${escHtml(e.position||'—')}</td>
         <td>${e.gender==='male' ? t('emp_gender_male') : e.gender==='female' ? t('emp_gender_female') : e.gender==='other' ? t('emp_gender_other') : '—'}</td>
         <td>${e.date_of_birth ? calcAge(e.date_of_birth) : '—'}</td>
@@ -3076,11 +3123,10 @@ async function renderEmployeeTable() {
         <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td>${e.tin_number ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
-        ${teamCell}
       </tr>`;
     }).join('');
-    // adjust colspan for team column
-    const colCount = isUgDept ? 12 : 11;
+    // adjust colspan for empty state
+    const colCount = 11;
     if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
@@ -3107,6 +3153,15 @@ async function loadEmployeeProfilePage(eid) {
       ? '<span style="color:var(--success);">' + t('emp_status_active') + '</span>'
       : '<span style="color:var(--danger);">' + t('emp_status_dismissed') + '</span>';
     document.getElementById('pfDept').textContent = emp.department;
+    // 班组 (team) display
+    try {
+      const gRes = await fetch(api('/api/employee_groups'));
+      const gData = (await gRes.json()).groups || [];
+      const gMap = {};
+      gData.forEach(g => { gMap[g.id] = g.name; });
+      const pfTeamEl = document.getElementById('pfTeam');
+      if (pfTeamEl) pfTeamEl.textContent = (emp.team_id && gMap[emp.team_id]) || '—';
+    } catch(e) { const pfTeamEl = document.getElementById('pfTeam'); if (pfTeamEl) pfTeamEl.textContent = '—'; }
     document.getElementById('pfCustomNumber').textContent = emp.custom_number || emp.id;
     document.getElementById('pfAlias').textContent = emp.alias || '—';
     document.getElementById('pfAliasRow').textContent = emp.alias || '—';
@@ -4299,6 +4354,14 @@ function renderSalaryTable(result) {
       deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`;
     });
   }
+  // R3: show team filter when UG dept selected
+  await ensureTeamFilterData();
+  const salaryTeamSel = document.getElementById('salaryFilterTeam');
+  const salaryIsUg = (deptSel && deptSel.value === 'Production TEAM (underground)');
+  if (salaryTeamSel) {
+    salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
+    if (salaryIsUg) populateTeamFilterSelect(salaryTeamSel);
+  }
 
   filterSalaryTable();
   loadSalaryVerification();
@@ -4311,6 +4374,14 @@ function filterSalaryTable() {
   const q = (document.getElementById('salarySearch').value||'').toLowerCase();
   const ft = document.getElementById('salaryFilterType').value;
   const fd = document.getElementById('salaryFilterDept').value;
+  // R3: team filter show/hide
+  const salaryTeamSel = document.getElementById('salaryFilterTeam');
+  const salaryIsUg = fd === 'Production TEAM (underground)';
+  if (salaryTeamSel) {
+    salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
+    if (salaryIsUg && !salaryTeamSel.options.length) populateTeamFilterSelect(salaryTeamSel);
+  }
+  const salaryTeamFilter = (salaryTeamSel && salaryIsUg) ? salaryTeamSel.value : '';
   // 从员工列表构建部门映射（缓存数据可能没有 department）
   let deptMap = {};
   if (fd && STATE._empAll) {
@@ -4326,6 +4397,12 @@ function filterSalaryTable() {
     }
     if (ft && e.salary_type !== ft) return false;
     if (fd && (deptMap[e.employee_id || e.id]||'') !== fd) return false;
+    // R3: team filter
+    if (salaryTeamFilter && STATE._teamData) {
+      const eid = e.employee_id || e.id;
+      const empTeamId = STATE._teamData.empTeamMap[eid];
+      if (String(empTeamId || '') !== salaryTeamFilter) return false;
+    }
     return true;
   });
   // V2: show base/coefficient columns when ug_coefficient data exists
@@ -4592,6 +4669,8 @@ async function loadDailyWages() {
         sel.innerHTML += '<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>';
       });
     }
+    // R3: ensure team filter data
+    await ensureTeamFilterData();
     // 构建薪资应发映射（日工资合计与薪资应发核对用）
     const salaryMap = {};
     if (STATE._salaryResult && STATE._salaryResult.employees) {
@@ -4610,6 +4689,14 @@ function renderDailyWages() {
   const q = (document.getElementById('dwSearch').value||'').toLowerCase();
   const ft = document.getElementById('dwFilterType').value;
   const fd = document.getElementById('dwFilterDept').value;
+  // R3: team filter show/hide
+  const dwTeamSel = document.getElementById('dwFilterTeam');
+  const dwIsUg = fd === 'Production TEAM (underground)';
+  if (dwTeamSel) {
+    dwTeamSel.style.display = dwIsUg ? '' : 'none';
+    if (dwIsUg && !dwTeamSel.options.length) populateTeamFilterSelect(dwTeamSel);
+  }
+  const dwTeamFilter = (dwTeamSel && dwIsUg) ? dwTeamSel.value : '';
   // 初始化/获取按日期独立的班次筛选状态
   if (!STATE._dwShiftFilters) STATE._dwShiftFilters = {};
   const shiftFilters = STATE._dwShiftFilters;
@@ -4627,6 +4714,11 @@ function renderDailyWages() {
     }
     if (ft && e.salary_type !== ft) continue;
     if (fd && e.department !== fd) continue;
+    // R3: team filter
+    if (dwTeamFilter && STATE._teamData) {
+      const empTeamId = STATE._teamData.empTeamMap[eid];
+      if (String(empTeamId || '') !== dwTeamFilter) continue;
+    }
     // 按日期独立的班次筛选：只要员工有 D/N 标识即可匹配，不限薪资类型
     const sfDates = Object.keys(shiftFilters).filter(d => shiftFilters[d]);
     if (sfDates.length > 0) {
@@ -4867,6 +4959,14 @@ function renderAttendance() {
     data.rows.forEach(r => { if (r.department) depts.add(r.department); });
     [...depts].sort().forEach(d => { deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
   }
+  // R3: team filter show/hide
+  const attTeamSel = document.getElementById('attFilterTeam');
+  const attIsUg = fd === 'Production TEAM (underground)';
+  if (attTeamSel) {
+    attTeamSel.style.display = attIsUg ? '' : 'none';
+    if (attIsUg && !attTeamSel.options.length) populateTeamFilterSelect(attTeamSel);
+  }
+  const attTeamFilter = (attTeamSel && attIsUg) ? attTeamSel.value : '';
 
   const filtered = data.rows.filter(r => {
     if (q) {
@@ -4879,6 +4979,12 @@ function renderAttendance() {
     }
     if (ft && r.type !== ft) return false;
     if (fd && (r.department||'') !== fd) return false;
+    // R3: team filter
+    if (attTeamFilter && STATE._teamData) {
+      const rid = r.id || r.employee_id;
+      const empTeamId = STATE._teamData.empTeamMap[rid];
+      if (String(empTeamId || '') !== attTeamFilter) return false;
+    }
     return true;
   });
 
@@ -5467,7 +5573,7 @@ async function addEmployeeGroup() {
     body: JSON.stringify({name}),
   });
   const data = await res.json();
-  if (data.ok) { showToast(t('added')); input.value = ''; loadGroupsAdmin(); }
+  if (data.ok) { showToast(t('added')); input.value = ''; loadGroupsAdmin(); refreshAllTeamFilters(); }
   else showToast(data.error || t('add_fail'), 'error');
 }
 
@@ -5479,7 +5585,7 @@ async function renameEmployeeGroup(gid) {
     body: JSON.stringify({name}),
   });
   const data = await res.json();
-  if (data.ok) { showToast(t('renamed')); loadGroupsAdmin(); }
+  if (data.ok) { showToast(t('renamed')); loadGroupsAdmin(); refreshAllTeamFilters(); }
   else showToast(data.error || t('rename_fail'), 'error');
 }
 
@@ -5487,7 +5593,7 @@ async function deleteEmployeeGroup(gid) {
   if (!confirm(t('group_delete_confirm'))) return;
   const res = await authFetch(api('/api/employee_groups/' + gid), { method: 'DELETE' });
   const data = await res.json();
-  if (data.ok) { showToast(t('deleted')); loadGroupsAdmin(); }
+  if (data.ok) { showToast(t('deleted')); loadGroupsAdmin(); refreshAllTeamFilters(); }
   else showToast(data.error || t('delete_fail'), 'error');
 }
 
@@ -6351,12 +6457,12 @@ function renderColPayloadPreview(formType, payload) {
     const day = payload.day || {}, night = payload.night || {};
     return '<div style="font-size:12px;line-height:1.9;">'
       + '<div style="font-weight:600;color:var(--accent);">' + t('day_shift') + '</div>'
-      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + '</div>'
+      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + (day.exempt ? ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + '</span>' : '') + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(day.emps) + '</div>'
       + '<div>🚗 ' + t('col_drivers') + ': ' + names(day.drivers) + '</div>'
       + (day.remark ? '<div>' + t('remark_day') + ': ' + escHtml(day.remark) + '</div>' : '')
       + '<div style="font-weight:600;color:var(--accent);margin-top:4px;">' + t('night_shift') + '</div>'
-      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + '</div>'
+      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + (night.exempt ? ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + '</span>' : '') + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(night.emps) + '</div>'
       + '<div>🚗 ' + t('col_drivers') + ': ' + names(night.drivers) + '</div>'
       + (night.remark ? '<div>' + t('remark_night') + ': ' + escHtml(night.remark) + '</div>' : '')

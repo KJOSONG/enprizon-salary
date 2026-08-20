@@ -1976,6 +1976,7 @@ body {
 .picker-row:last-child { border-bottom: none; }
 .picker-row:hover { background: var(--accent); }
 .picker-row input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 21px; height: 21px; border: none; outline: none; background: transparent; cursor: pointer; flex-shrink: 0; margin: 0; padding: 0; border-radius: 0; overflow: hidden; }
+.form-row input[type="checkbox"] { appearance: auto; -webkit-appearance: auto; width: 16px; height: 16px; accent-color: var(--accent, #B08A3E); flex-shrink: 0; cursor: pointer; margin: 0; vertical-align: middle; }
 .picker-row input[type="checkbox"]:focus-visible { box-shadow: none; outline: none; }
 .picker-row input[type="checkbox"]::before { content: '☐'; font-size: 21px; color: var(--text-muted); display: block; width: 21px; line-height: 21px; text-align: left; }
 .picker-row input[type="checkbox"]:checked::before { content: '☑'; color: hsl(37.5 15.69% 12%); font-weight: 700; }
