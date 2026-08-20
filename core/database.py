@@ -92,6 +92,13 @@ def init_db(data_folder):
     try:
         conn.execute("ALTER TABLE monthly_data ADD COLUMN paye REAL DEFAULT 0")
     except: pass
+    # V2 piecework: 持久化 unscaled base 和缩放系数
+    try:
+        conn.execute("ALTER TABLE monthly_data ADD COLUMN ug_base REAL DEFAULT 0")
+    except: pass
+    try:
+        conn.execute("ALTER TABLE monthly_data ADD COLUMN ug_coefficient REAL DEFAULT 1.0")
+    except: pass
     # P1: employees 扩展列
     _emp_new_cols = [
         ('position', 'TEXT DEFAULT \'\''),
@@ -1052,13 +1059,15 @@ def save_monthly_result(data_folder, month, result):
         conn.execute(
             """INSERT INTO monthly_data (month, employee_id, salary_type,
                piece_underground, piece_driller, piece_crush, day_rate, monthly,
-               gross, advance, nssf, paye, net) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               gross, advance, nssf, paye, net, ug_base, ug_coefficient)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (month, emp.get('employee_id') or emp.get('name',''), emp.get('salary_type',''),
              emp.get('piece_underground',0), emp.get('piece_driller',0),
              emp.get('piece_crush',0),
              emp.get('day_rate',0), emp.get('monthly',0),
              emp.get('gross',0), emp.get('advance',0),
-             emp.get('nssf',0), emp.get('paye',0), emp.get('net',0))
+             emp.get('nssf',0), emp.get('paye',0), emp.get('net',0),
+             emp.get('ug_base',0), emp.get('ug_coefficient',1.0))
         )
     conn.commit()
     conn.close()
