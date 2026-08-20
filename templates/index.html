@@ -847,12 +847,26 @@
       <h3 style="margin-bottom:8px;font-size:13px;">🔄 <span data-i18n="settings_ug_mode">井下计薪模式</span></h3>
       <div class="form-row">
         <label style="min-width:90px;" data-i18n="settings_ug_mode_label">模式</label>
-        <select id="cfg_ug_mode" class="cfg-input" onchange="saveConfig()" style="flex:1;padding:4px 8px;">
+        <select id="cfg_ug_mode" class="cfg-input" onchange="onUgModeChange()" style="flex:1;padding:4px 8px;">
           <option value="piecework" data-i18n="settings_ug_mode_piecework">⚒ 纯计件</option>
           <option value="scoring" data-i18n="settings_ug_mode_scoring">★ 评分+固定月薪</option>
+          <option value="v2" data-i18n="settings_ug_mode_v2">⚡ 凸性计件 V2</option>
         </select>
       </div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_ug_mode_desc">评分模式: 井下工人走固定月薪+司机津贴+评分奖金; 计件模式保持原有逻辑</p>
+    </div>
+    <!-- V2 凸性参数（仅 v2 模式显示） -->
+    <div id="v2ParamsSection" style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:360px;display:none;">
+      <h3 style="margin-bottom:8px;font-size:13px;">⚡ <span data-i18n="settings_v2_accel">凸性参数</span></h3>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;" data-i18n="settings_v2_accel_target">日车目标</label><input type="number" id="cfg_accel_target" class="cfg-input" step="1" value="40"></div>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;">NICKEL(H)</label><input type="number" id="cfg_accel_nh" class="cfg-input" step="1"></div>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;">NICKEL(L)</label><input type="number" id="cfg_accel_nl" class="cfg-input" step="1"></div>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;">MAWE</label><input type="number" id="cfg_accel_mw" class="cfg-input" step="1"></div>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;" data-i18n="settings_v2_accel_wa">出勤权重(A)</label><input type="number" id="cfg_accel_wa" class="cfg-input" step="0.1" value="0.6"></div>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;" data-i18n="settings_v2_accel_wb">行为权重(B)</label><input type="number" id="cfg_accel_wb" class="cfg-input" step="0.1" value="0.4"></div>
+      <div class="form-row" style="margin-bottom:6px;"><label style="min-width:100px;" data-i18n="settings_v2_accel_full">满勤天数</label><input type="number" id="cfg_accel_full_days" class="cfg-input" step="1" value="26"></div>
+      <div class="form-row"><label style="min-width:100px;" data-i18n="settings_v2_accel_from">生效月份</label><input type="month" id="cfg_accel_effective_from" class="cfg-input" value=""></div>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_ug_mode_v2_desc">V2: 班组日池凸性加速 + 月末出勤/行为系数零和再分配</p>
     </div>
     <!-- P15: 评分奖金池参数（NICKEL(H) 门槛/单价） -->
     <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
@@ -5221,6 +5235,24 @@ async function loadConfig() {
     // P5-b: underground_mode
     const ugMode = document.getElementById('cfg_ug_mode');
     if (ugMode) ugMode.value = cfg.underground_mode || 'piecework';
+    onUgModeChange(cfg.underground_mode || 'piecework');
+    // V2: convex params
+    const at = document.getElementById('cfg_accel_target');
+    if (at) at.value = cfg.accel_target != null ? cfg.accel_target : 40;
+    const aNh = document.getElementById('cfg_accel_nh');
+    if (aNh) aNh.value = cfg.accel_prices ? (cfg.accel_prices['NICKEL（H）'] || 8000) : 8000;
+    const aNl = document.getElementById('cfg_accel_nl');
+    if (aNl) aNl.value = cfg.accel_prices ? (cfg.accel_prices['NICKEL（L）'] || 5000) : 5000;
+    const aMw = document.getElementById('cfg_accel_mw');
+    if (aMw) aMw.value = cfg.accel_prices ? (cfg.accel_prices['MAWE'] || 3000) : 3000;
+    const aWa = document.getElementById('cfg_accel_wa');
+    if (aWa) aWa.value = cfg.accel_w_a != null ? cfg.accel_w_a : 0.6;
+    const aWb = document.getElementById('cfg_accel_wb');
+    if (aWb) aWb.value = cfg.accel_w_b != null ? cfg.accel_w_b : 0.4;
+    const aFull = document.getElementById('cfg_accel_full_days');
+    if (aFull) aFull.value = cfg.accel_full_days != null ? cfg.accel_full_days : 26;
+    const aFrom = document.getElementById('cfg_accel_effective_from');
+    if (aFrom) aFrom.value = cfg.v2_effective_from || '';
     // P15: 评分奖金池参数
     const th = document.getElementById('cfg_nh_threshold');
     if (th) th.value = cfg.scoring_nh_threshold != null ? cfg.scoring_nh_threshold : 600;
@@ -5236,6 +5268,15 @@ async function loadConfig() {
     const otRate = document.getElementById('cfg_ot_rate');
     if (otRate) otRate.value = cfg.overtime_rate != null ? cfg.overtime_rate : 1.5;
   } catch(e) {}
+}
+
+function onUgModeChange(mode) {
+  if (!mode) mode = (document.getElementById('cfg_ug_mode') || {}).value || 'piecework';
+  const sec = document.getElementById('v2ParamsSection');
+  if (sec) sec.style.display = mode === 'v2' ? '' : 'none';
+  _cfgDirty = true;
+  const btn = document.getElementById('cfgSaveBtn');
+  if (btn) { btn.style.display = ''; btn.classList.add('att-save-dirty'); }
 }
 
 // P14: 计薪参数保存（显式按钮触发；onchange 只标记待保存，不自动提交，避免 0 值被默认值吞掉）
@@ -5276,6 +5317,17 @@ async function doSaveConfig() {
     crush_price: _num('cfg_crush_price', 300),
     underground_mode: document.getElementById('cfg_ug_mode').value || 'piecework',
     sick_leave_days: _num('cfg_sick_days', 14),
+    // V2: convex params
+    accel_target: _num('cfg_accel_target', 40),
+    accel_prices: {
+      'NICKEL（H）': _num('cfg_accel_nh', 8000),
+      'NICKEL（L）': _num('cfg_accel_nl', 5000),
+      'MAWE': _num('cfg_accel_mw', 3000),
+    },
+    accel_w_a: _num('cfg_accel_wa', 0.6),
+    accel_w_b: _num('cfg_accel_wb', 0.4),
+    accel_full_days: _num('cfg_accel_full_days', 26),
+    v2_effective_from: (document.getElementById('cfg_accel_effective_from') || {}).value || '',
     // P15: 评分奖金池参数（0 合法，不兜底吞值）
     scoring_nh_threshold: _num('cfg_nh_threshold', 600),
     scoring_nh_price: _num('cfg_nh_price', 20000),
