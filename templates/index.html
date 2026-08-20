@@ -808,7 +808,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" data-perm="attendance:edit" style="display:none;">保存并计算</button>
-        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 NU=年假(计薪) (P)=月薪默认</span>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 E=豁免 NU=年假(计薪) (P)=月薪默认</span>
       </div>
     </div>
     <div class="table-wrap">
@@ -5034,6 +5034,7 @@ function showAttPopup(eid, date, currentStatus, autoVal, empType) {
   options.push({v:'S', label:t('shift_S_label'), color:'#F59E0B'});
   options.push({v:'Y', label:t('shift_Y_label'), color:'#06B6D4'});
   options.push({v:'T', label:t('shift_T_label'), color:'#A855F7'});
+  options.push({v:'E', label:t('shift_E_label'), color:'#8B5CF6'});
   options.push({v:'', label:t('btn_clear'), color:'var(--text-muted)'});
 
   let html = '<div class="modal-overlay" id="attPopupOverlay" style="display:flex;z-index:500;" onclick="closeAttPopup()">';
