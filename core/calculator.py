@@ -1285,6 +1285,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     scoring_employees.add(eid)
                     for dt in all_dates:
                         per_date_type[eid][dt] = 'monthly'
+        elif underground_mode == 'v2':
+            pass  # V2: no scoring redirect
         combined_excl = exclusions | att_exclusions | range_exclusions
 
         all_shift_dates = sorted(set(
@@ -1329,6 +1331,10 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if _dt:
                     _ym = _dt[:7]
                     break
+
+        # V2 gate (mirrors calculate_all)
+        v2_eff = pricing.get('v2_effective_from', '') or ''
+        v2_active_br = (underground_mode == 'v2' and (not v2_eff or _ym >= v2_eff))
 
         # P23 R2: 读本月加班记录（与 calculate_all 同一来源，保证日明细与薪资页一致）
         ot_daily_br = defaultdict(dict)
@@ -1579,6 +1585,24 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         mod.PRICES_UNDERGROUND = old_up
         mod.PRICES_DRILLER = old_dp
         mod.PRICE_CRUSH = old_cr
+
+    # V2: mirror coefficient from calculate_all
+    if v2_active_br:
+        ug_base_br = {}
+        for eid, rec in result.items():
+            if rec.get('salary_type') == 'piece_underground':
+                ug_base_br[eid] = sum(rec['daily'].get(dt, 0) for dt in rec['daily']
+                                       if per_date_type.get(eid, {}).get(dt, '') == 'piece_underground')
+        if ug_base_br:
+            f_w_br = apply_v2_month_end(ug_base_br, employees, data_folder, _ym, pricing)
+            for eid, rec in result.items():
+                if eid in f_w_br and rec.get('salary_type') == 'piece_underground':
+                    for dt in list(rec['daily'].keys()):
+                        dt_eff = per_date_type.get(eid, {}).get(dt, '')
+                        if dt_eff == 'piece_underground':
+                            rec['daily'][dt] = round(rec['daily'][dt] * f_w_br[eid])
+                    rec['total'] = round(sum(rec['daily'].values()))
+
     return result
 
 # ═══════════════════════════════════════════════════════════

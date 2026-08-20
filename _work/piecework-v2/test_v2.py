@@ -491,10 +491,12 @@ class TestDailyBreakdownV2:
             conn.commit()
             conn.close()
 
-            salary_result = calculate_all(main_data, employees, overrides={}, pricing=pricing,
-                                          data_folder=tmpdir)
-            daily_result = compute_daily_breakdown(main_data, employees, overrides={}, pricing=pricing,
-                                                   data_folder=tmpdir)
+            with patch('core.database.get_scoring_card_entries', return_value=[]), \
+                 patch('core.database.get_scoring_config', return_value={}):
+                salary_result = calculate_all(main_data, employees, overrides={}, pricing=pricing,
+                                              data_folder=tmpdir)
+                daily_result = compute_daily_breakdown(main_data, employees, overrides={}, pricing=pricing,
+                                                       data_folder=tmpdir)
 
         # Compare piece_underground totals per employee
         for emp in salary_result['employees']:
