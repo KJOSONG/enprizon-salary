@@ -729,6 +729,8 @@
             <th data-i18n="th_crush_piece">破碎计件</th>
             <th data-i18n="th_dayrate">日薪</th>
             <th data-i18n="th_monthly">月薪</th>
+            <th style="display:none;" data-i18n="th_ug_base">井下基础</th>
+            <th style="display:none;" data-i18n="th_ug_coeff">系数(f)</th>
             <th data-i18n="th_gross">应发</th>
             <th data-i18n="th_bonus">奖金</th>
             <th data-i18n="th_driver">司机津贴</th>
@@ -4273,7 +4275,6 @@ function filterSalaryTable() {
   const filtered = result.employees.filter(e => {
     if (q) {
       const nameHit = (e.name || '').toLowerCase().includes(q);
-      // salary 结果无 alias/custom_number 字段,从员工缓存关联
       const empRec = (STATE._empAll || []).find(x => String(x.id) === String(e.employee_id || e.id));
       const aliasHit = ((empRec && empRec.alias) || e.alias || '').toLowerCase().includes(q);
       const numHit = String((empRec && (empRec.custom_number || empRec.id)) || e.id).toLowerCase().includes(q);
@@ -4283,20 +4284,33 @@ function filterSalaryTable() {
     if (fd && (deptMap[e.employee_id || e.id]||'') !== fd) return false;
     return true;
   });
+  // V2: show base/coefficient columns when ug_coefficient data exists
+  const hasV2 = result.ug_coefficient && Object.keys(result.ug_coefficient).length > 0;
+  const thBase = document.querySelector('#salaryTable thead th[data-i18n="th_ug_base"]');
+  const thCoeff = document.querySelector('#salaryTable thead th[data-i18n="th_ug_coeff"]');
+  if (thBase) thBase.style.display = hasV2 ? '' : 'none';
+  if (thCoeff) thCoeff.style.display = hasV2 ? '' : 'none';
   const tbody = document.querySelector('#salaryTable tbody');
   tbody.innerHTML = filtered.map(emp => {
     const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0);
     const bonus = emp.bonus || 0;
     const penalty = emp.penalty || 0;
     const n = g + bonus + (emp.driver_allowance||0) - (emp.nssf||0) - (emp.paye||0) - (emp.advance||0) - penalty;
+    const eid = emp.employee_id || emp.id;
+    const ugBase = hasV2 && result.ug_base ? (result.ug_base[eid] || 0) : 0;
+    const ugCoeff = hasV2 && result.ug_coefficient ? (result.ug_coefficient[eid] || 1) : 1;
+    const ugBaseTd = hasV2 ? `<td class="num" style="font-size:11px;">${fmtNum(ugBase)}</td>` : '<td style="display:none;"></td>';
+    const ugCoeffTd = hasV2 ? `<td class="num" style="font-size:11px;" title="base×f = final">${ugCoeff.toFixed(4)}</td>` : '<td style="display:none;"></td>';
     return `<tr>
-      <td class="left"><a href="#employees/profile?id=${encodeURIComponent(emp.employee_id || emp.id)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${emp.employee_id || emp.id}'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(emp.name)}</a></td>
+      <td class="left"><a href="#employees/profile?id=${encodeURIComponent(eid)}" onclick="event.preventDefault();event.stopPropagation();if(!window.getSelection().toString())navigate('employees','profile',{id:'${eid}'});" style="color:var(--primary);text-decoration:none;font-weight:600;user-select:text;">${escHtml(emp.name)}</a></td>
       <td>${TYPE_LABELS[emp.salary_type]||emp.salary_type}</td>
       <td class="num">${fmtNum(emp.piece_underground||0)}</td>
       <td class="num">${fmtNum(emp.piece_driller||0)}</td>
       <td class="num">${fmtNum(emp.piece_crush||0)}</td>
       <td class="num">${fmtNum(emp.day_rate||0)}</td>
       <td class="num">${fmtNum(emp.monthly||0)}</td>
+      ${ugBaseTd}
+      ${ugCoeffTd}
       <td class="num bold">${fmtNum(g)}</td>
       <td class="num" style="color:var(--success)">${bonus ? '+' + fmtNum(bonus) : '—'}</td>
       <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
@@ -4842,6 +4856,7 @@ function renderAttendance() {
     'NU': {color: '#7C3AED', label: t('shift_nu_label'), desc: t('shift_nu_desc')},  // P21 R2: 年假(计薪)，比 T 更深的紫
     'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
     'C': {color: '#F97316', label: t('shift_C_label'), desc: t('shift_C_desc')},
+    'E': {color: '#8B5CF6', label: t('shift_E_label'), desc: t('shift_E_desc')},
     '(P)': {color: 'var(--text-dim)', label: t('shift_DP_label'), desc: t('shift_DP_desc')},
     '': {color: 'var(--text-dim)', label: '', desc: ''},
   };
@@ -4900,13 +4915,13 @@ async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
   const isUnderground = empType === 'Underground Piece Rate' || empType === '生产薪资';
   if (autoVal === '' || autoVal === undefined) {
     const cycle = isCrush
-      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''}
+      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'E', 'E':''}
       : isUnderground
-      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''}
-      : {'':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':''};
+      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'E', 'E':''}
+      : {'':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'E', 'E':''};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : (isCrush ? 'C' : isUnderground ? 'D' : 'P');
   } else {
-    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A', 'S':'A'};
+    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A', 'S':'A', 'E':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   }
   // 仅更新本地状态，不持久化
