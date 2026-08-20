@@ -1093,6 +1093,13 @@
     <div id="objMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
 </div>
+<div class="page" id="page-scoring-weekly">
+  <div class="card">
+    <h2>📊 <span data-i18n="weekly_title">V2 周公示看板</span></h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;" data-i18n="settings_ug_mode_v2_desc">V2: 班组日池凸性加速 + 月末出勤/行为系数零和再分配</p>
+    <div id="weeklyContent" style="font-size:13px;color:var(--text-muted);">加载中...</div>
+  </div>
+</div>
 <div class="page" id="page-system-forms">
   <div class="card">
     <h2>📝 <span data-i18n="nav_system_forms">表单自定义</span></h2>
@@ -1870,7 +1877,7 @@ const MODULES = {
   attendance: { label: 'nav_attendance',  icon: '📅', children: null, perm: 'attendance:view' },
   salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'], perm: 'salary:view' },
   collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'], perm: 'production:edit' },
-  scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective'], perm: 'scoring:view' },
+  scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective','weekly'], perm: 'scoring:view' },
   system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'], perm: 'system:view' },
 };
 
@@ -1894,6 +1901,7 @@ const SUBPAGE_TARGETS = {
   'scoring/card':            'scoring-card',
   'scoring/summary':         'scoring-summary',
   'scoring/objective':       'scoring-objective',
+  'scoring/weekly':          'scoring-weekly',
   'system/params':     'settings',
   'system/users':      'system-users',
   'system/forms':      'system-forms',
@@ -2074,6 +2082,7 @@ function showTargetPage(module, subPage) {
   if (targetId === 'scoring-card') loadScoreTeams();
   if (targetId === 'scoring-summary') loadScoreTeams();
   if (targetId === 'scoring-objective') loadScoreTeams();
+  if (targetId === 'scoring-weekly') renderWeeklyDashboard();
 }
 
 function showPlaceholder(module, subPage) {
@@ -7468,6 +7477,75 @@ async function submitObjective() {
   const d = await res.json();
   msg.textContent = d.ok ? t('obj_daily_s') + d.daily_s : (d.error||t('fail'));
   msg.style.color = d.ok ? "var(--success)" : "var(--danger)";
+}
+
+async function renderWeeklyDashboard() {
+  const container = document.getElementById('weeklyContent');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--text-muted);">' + t('loading') + '</div>';
+  try {
+    const res = await fetch(api('/salary'));
+    const data = await res.json();
+    if (!data.ok || !data.employees) {
+      container.innerHTML = '<div style="color:var(--text-muted);">' + t('weekly_no_data') + '</div>';
+      return;
+    }
+    const hasV2 = data.ug_coefficient && Object.keys(data.ug_coefficient).length > 0;
+    const ugEmps = data.employees.filter(e => e.salary_type === 'piece_underground');
+    if (!ugEmps.length) {
+      container.innerHTML = '<div style="color:var(--text-muted);">' + t('weekly_no_data') + '</div>';
+      return;
+    }
+    let empGroups = [];
+    try {
+      const gRes = await fetch(api('/api/employee_groups'));
+      empGroups = (await gRes.json()).groups || [];
+    } catch(e) { empGroups = []; }
+    const teamMap = {};
+    empGroups.forEach(g => { teamMap[g.id] = g.name; });
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;">';
+    const teams = {};
+    ugEmps.forEach(e => {
+      const tid = e.team_id || 0;
+      if (!teams[tid]) teams[tid] = [];
+      teams[tid].push(e);
+    });
+    for (const [tid, emps] of Object.entries(teams)) {
+      const teamName = teamMap[tid] || (tid === '0' ? '未分班' : '班组 ' + tid);
+      html += '<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">';
+      html += '<div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--accent);">' + escHtml(teamName) + '</div>';
+      html += '<table style="width:100%;font-size:12px;border-collapse:collapse;">';
+      html += '<tr style="color:var(--text-muted);border-bottom:1px solid var(--border);">';
+      html += '<th style="text-align:left;padding:4px 0;">' + t('th_name') + '</th>';
+      html += '<th style="text-align:right;padding:4px 0;">' + t('th_ug_piece') + '</th>';
+      if (hasV2) {
+        html += '<th style="text-align:right;padding:4px 0;">' + t('weekly_base') + '</th>';
+        html += '<th style="text-align:right;padding:4px 0;">' + t('weekly_c_coeff') + '</th>';
+        html += '<th style="text-align:right;padding:4px 0;">' + t('weekly_final') + '</th>';
+      }
+      html += '</tr>';
+      emps.forEach(e => {
+        const eid = e.employee_id || e.id;
+        const base = hasV2 && data.ug_base ? (data.ug_base[eid] || 0) : 0;
+        const coeff = hasV2 && data.ug_coefficient ? (data.ug_coefficient[eid] || 1) : 1;
+        const final_ = e.piece_underground || 0;
+        html += '<tr style="border-bottom:1px solid var(--border-light,rgba(0,0,0,0.05));">';
+        html += '<td style="padding:4px 0;">' + escHtml(e.name) + '</td>';
+        html += '<td style="text-align:right;padding:4px 0;">' + fmtNum(final_) + '</td>';
+        if (hasV2) {
+          html += '<td style="text-align:right;padding:4px 0;">' + fmtNum(base) + '</td>';
+          html += '<td style="text-align:right;padding:4px 0;">' + coeff.toFixed(4) + '</td>';
+          html += '<td style="text-align:right;padding:4px 0;font-weight:600;">' + fmtNum(final_) + '</td>';
+        }
+        html += '</tr>';
+      });
+      html += '</table></div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--danger);">Error: ' + escHtml(e.message) + '</div>';
+  }
 }
 
 
