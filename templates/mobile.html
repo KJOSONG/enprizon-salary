@@ -29,8 +29,14 @@
       </div>
       <div class="field">
         <label class="field__label" data-i18n="password">密码</label>
-        <input type="password" id="login-pass" autocomplete="current-password" required>
+        <div style="position:relative;">
+          <input type="password" id="login-pass" autocomplete="current-password" required style="padding-right:40px;">
+          <button type="button" onclick="togglePwd('login-pass', this)" aria-label="切换密码可见" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);padding:4px;line-height:1;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
       </div>
+      <div id="mLoginError" style="display:none;color:#e53e3e;font-size:12px;margin:-4px 0 12px;"></div>
       <button type="submit" class="btn btn-primary btn-block" data-i18n="login">登录</button>
     </form>
   </div>
@@ -472,9 +478,16 @@
       showLogin();
     }).catch(()=>{ document.getElementById('user-menu').style.display='none'; showLogin(); });
   }
+  function togglePwd(inputId, btn){
+    const el=document.getElementById(inputId); if(!el) return;
+    if(el.type==='password'){ el.type='text'; btn.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'; }
+    else { el.type='password'; btn.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'; }
+  }
   function doLogin(e){
     e.preventDefault();
     const u=document.getElementById('login-user').value.trim(), p=document.getElementById('login-pass').value;
+    const errEl=document.getElementById('mLoginError');
+    errEl.style.display='none'; errEl.textContent='';
     api('/api/login', { method:'POST', body: JSON.stringify({ username:u, password:p }) }).then(r=>{
       // P17 修复: /api/login 只返回 {ok:true},先 checkAuth 刷新 STATE.auth(username/role)
       // 否则三道杠菜单用户名显示 '—'(checkAuth 内部会调 showApp)
@@ -483,9 +496,10 @@
         if(r.error==='invalid_credentials') msg='用户名或密码错误';
         else if(r.error==='no_admin') msg='系统未初始化，请联系管理员';
         else if(r.error) msg=r.error;
+        errEl.textContent=msg; errEl.style.display='block';
         toast(msg,'error');
       }
-    }).catch(()=>toast('登录失败','error'));
+    }).catch(()=>{ const m='登录失败，请检查网络'; errEl.textContent=m; errEl.style.display='block'; toast(m,'error'); });
     return false;
   }
 
