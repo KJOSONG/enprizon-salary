@@ -51,15 +51,21 @@ CURRENT_YEAR = TODAY.year
 #  1. 生产薪资计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None):
+def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None, mode=None, pricing=None):
     """
     计算井下工人计件工资
     白班+夜班合并，总金额均分给出勤人员
+    V2 mode: 按班组做凸性加速池（accel_prices + multiplier）
     返回: { employee_id: total_salary }, { employee_id: { date: amount } }
     """
     result = defaultdict(float)
     daily = defaultdict(lambda: defaultdict(float))
     daily_shifts = defaultdict(lambda: defaultdict(set))  # daily_shifts[eid][date] = {'D','N'}
+    v2_warnings = []  # V2: team_id==0 shifts skipped
+
+    v2_active = (mode == 'v2' and pricing is not None)
+    v2_accel_target = int(pricing.get('accel_target', 40) or 40) if v2_active else 40
+    v2_prices = (pricing.get('accel_prices') or {}) if v2_active else {}
 
     # 加载手动加入计件分配（从 overrides 表读取，展开日期区间）
     shift_adds = {}
@@ -100,12 +106,14 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
         night_emps = day.get('night_emps', [])
         day_prod = day.get('day_prod')
         night_prod = day.get('night_prod')
+        day_team = day.get('day_team', 0)
+        night_team = day.get('night_team', 0)
+        day_exempt = day.get('day_exempt', False)
+        night_exempt = day.get('night_exempt', False)
 
         # 白班
         if day_emps and day_prod:
-            total = sum(day_prod[k] * PRICES_UNDERGROUND[k] for k in PRICES_UNDERGROUND)
             valid = _filter_valid(day_emps, exclusions, override_excludes, date_str)
-            # 按 eid 去重：同一人同一天被不同提交者列出多次时只计一次
             seen = set()
             deduped = []
             for e in valid:
@@ -114,7 +122,6 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     seen.add(eid)
                     deduped.append(e)
             valid = deduped
-            # 手动加入白班的人（排除 A/L：请假/旷工人不加入分配，且必须有出勤记录）
             existing_ids = {make_employee_id(e) for e in valid if make_employee_id(e)}
             for (eid, dt), sh in shift_adds.items():
                 if dt == date_str and sh == 'D' and eid not in existing_ids \
@@ -122,20 +129,36 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                         and (eid, date_str) in attendance_pairs:
                     valid.append(eid)
                     existing_ids.add(eid)
-            if valid and total > 0:
-                per = total / len(valid)
-                for e in valid:
-                    eid = make_employee_id(e)
-                    if eid:
-                        result[eid] += per
-                        daily[eid][date_str] += per
-                        daily_shifts[eid][date_str].add('D')
+
+            if valid:
+                if v2_active and day_team == 0:
+                    v2_warnings.append(f"team_id=0 day shift {date_str} skipped")
+                elif v2_active:
+                    prices = v2_prices
+                    total_cars = sum(day_prod.get(k, 0) for k in prices)
+                    multiplier = 1.0 if day_exempt else total_cars / v2_accel_target
+                    pool = sum(day_prod.get(k, 0) * prices.get(k, 0) for k in prices) * multiplier
+                    per = pool / len(valid) if valid else 0
+                    for e in valid:
+                        eid = make_employee_id(e)
+                        if eid:
+                            result[eid] += per
+                            daily[eid][date_str] += per
+                            daily_shifts[eid][date_str].add('D')
+                else:
+                    total = sum(day_prod[k] * PRICES_UNDERGROUND[k] for k in PRICES_UNDERGROUND)
+                    if total > 0:
+                        per = total / len(valid)
+                        for e in valid:
+                            eid = make_employee_id(e)
+                            if eid:
+                                result[eid] += per
+                                daily[eid][date_str] += per
+                                daily_shifts[eid][date_str].add('D')
 
         # 夜班
         if night_emps and night_prod:
-            total = sum(night_prod[k] * PRICES_UNDERGROUND[k] for k in PRICES_UNDERGROUND)
             valid = _filter_valid(night_emps, exclusions, override_excludes, date_str)
-            # 按 eid 去重：同一人同一天被不同提交者列出多次时只计一次
             seen = set()
             deduped = []
             for e in valid:
@@ -144,7 +167,6 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     seen.add(eid)
                     deduped.append(e)
             valid = deduped
-            # 手动加入夜班的人（排除 A/L，且必须有出勤记录）
             existing_ids = {make_employee_id(e) for e in valid if make_employee_id(e)}
             for (eid, dt), sh in shift_adds.items():
                 if dt == date_str and sh == 'N' and eid not in existing_ids \
@@ -152,14 +174,32 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                         and (eid, date_str) in attendance_pairs:
                     valid.append(eid)
                     existing_ids.add(eid)
-            if valid and total > 0:
-                per = total / len(valid)
-                for e in valid:
-                    eid = make_employee_id(e)
-                    if eid:
-                        result[eid] += per
-                        daily[eid][date_str] += per
-                        daily_shifts[eid][date_str].add('N')
+
+            if valid:
+                if v2_active and night_team == 0:
+                    v2_warnings.append(f"team_id=0 night shift {date_str} skipped")
+                elif v2_active:
+                    prices = v2_prices
+                    total_cars = sum(night_prod.get(k, 0) for k in prices)
+                    multiplier = 1.0 if night_exempt else total_cars / v2_accel_target
+                    pool = sum(night_prod.get(k, 0) * prices.get(k, 0) for k in prices) * multiplier
+                    per = pool / len(valid) if valid else 0
+                    for e in valid:
+                        eid = make_employee_id(e)
+                        if eid:
+                            result[eid] += per
+                            daily[eid][date_str] += per
+                            daily_shifts[eid][date_str].add('N')
+                else:
+                    total = sum(night_prod[k] * PRICES_UNDERGROUND[k] for k in PRICES_UNDERGROUND)
+                    if total > 0:
+                        per = total / len(valid)
+                        for e in valid:
+                            eid = make_employee_id(e)
+                            if eid:
+                                result[eid] += per
+                                daily[eid][date_str] += per
+                                daily_shifts[eid][date_str].add('N')
 
     return dict(result), {eid: dict(d) for eid, d in daily.items()}, {eid: {dt: ''.join(sorted(s)) for dt, s in sh.items()} for eid, sh in daily_shifts.items()}
 
@@ -831,7 +871,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
-        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
+        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing)
         driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_exclusions | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         monthly_base = calc_monthly_salary(employees, overrides, underground_mode=underground_mode)
@@ -1232,7 +1272,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
-        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
+        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing)
         dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_excl | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
 
