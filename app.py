@@ -2308,6 +2308,10 @@ def _merge_collection_to_main_data(main_data, form_type, date, payload):
             'night_prod': {'NICKEL（H）': night.get('nh', 0), 'NICKEL（L）': night.get('nl', 0), 'MAWE': night.get('mw', 0)},
             'day_emps': _names(day.get('emps')),
             'night_emps': _names(night.get('emps')),
+            'day_team': int(day.get('team_id', 0) or 0),
+            'night_team': int(night.get('team_id', 0) or 0),
+            'day_exempt': bool(day.get('exempt', False)),
+            'night_exempt': bool(night.get('exempt', False)),
         }
         shift = main_data.setdefault('shift_production', [])
         for i, x in enumerate(shift):
