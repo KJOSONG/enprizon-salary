@@ -294,6 +294,9 @@
         <select id="empFilterDept" onchange="renderEmployeeTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
           <option value="" data-i18n="emp_all_depts">全部部门</option>
         </select>
+        <select id="empFilterTeam" onchange="renderEmployeeTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);display:none;">
+          <option value="" data-i18n="col_ug_team">班组</option>
+        </select>
         <button class="nav-btn" id="toggleDismissedBtn" onclick="toggleDismissedList()" style="font-size:11px;padding:4px 10px;" data-i18n="emp_show_dismissed">已离职</button>
       </div>
       <div class="table-wrap">
@@ -311,6 +314,7 @@
               <th data-i18n="th_nssf">NSSF</th>
               <th data-i18n="emp_tin_number">TIN 号码</th>
               <th data-i18n="emp_note">备注</th>
+              <th id="empThTeam" style="display:none;" data-i18n="emp_team">班组</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -3020,16 +3024,43 @@ async function renderEmployeeTable() {
     deps.forEach(d => { sel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
     if (deps.includes(prevVal)) sel.value = prevVal;
 
+    // T18: team filter for underground department
+    let empGroups = [];
+    try {
+      const gRes = await fetch(api('/api/employee_groups'));
+      empGroups = (await gRes.json()).groups || [];
+    } catch(e) { empGroups = []; }
+    const teamMap = {};
+    empGroups.forEach(g => { teamMap[g.id] = g.name; });
+    const teamSel = document.getElementById('empFilterTeam');
+    const isUgDept = sel.value === 'Production TEAM (underground)';
+    const empThTeam = document.getElementById('empThTeam');
+    if (empThTeam) empThTeam.style.display = isUgDept ? '' : 'none';
+    if (teamSel) {
+      teamSel.style.display = isUgDept ? '' : 'none';
+      if (isUgDept) {
+        const prevTeam = teamSel.value;
+        teamSel.innerHTML = '<option value="">' + t('col_ug_team') + '</option>';
+        empGroups.forEach(g => { teamSel.innerHTML += `<option value="${g.id}">${escHtml(g.name)}</option>`; });
+        if (empGroups.some(g => String(g.id) === prevTeam)) teamSel.value = prevTeam;
+      }
+    }
+
     const q = (document.getElementById('empSearch').value || '').toLowerCase();
     const d = sel.value;
+    const tFilter = (teamSel && isUgDept) ? teamSel.value : '';
     const filtered = emps.filter(e => {
       if (q && !(e.name || '').toLowerCase().includes(q) && !(e.alias || '').toLowerCase().includes(q)
           && !String(e.custom_number || e.id).toLowerCase().includes(q)) return false;
       if (d && e.department !== d) return false;
+      if (tFilter && e.team_id && String(e.team_id) !== tFilter) return false;
       return true;
     });
 
-    tbody.innerHTML = filtered.map(e => `
+    tbody.innerHTML = filtered.map(e => {
+      const teamName = e.team_id && teamMap[e.team_id] ? escHtml(teamMap[e.team_id]) : '';
+      const teamCell = isUgDept ? `<td style="font-size:11px;color:var(--text-muted);">${teamName || '—'}</td>` : '';
+      return `
       <tr style="cursor:pointer;" onclick="if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'})">
         <td style="color:var(--text-muted);font-size:11px;">${escHtml(e.custom_number || e.id)}</td>
         <td class="left">
@@ -3045,8 +3076,12 @@ async function renderEmployeeTable() {
         <td>${e.nssf_enrolled ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td>${e.tin_number ? '<span style="color:var(--success);">✓</span>' : '○'}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(e.note||'')}</td>
-      </tr>`).join('');
-    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
+        ${teamCell}
+      </tr>`;
+    }).join('');
+    // adjust colspan for team column
+    const colCount = isUgDept ? 12 : 11;
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
   }
