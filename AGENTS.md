@@ -1,6 +1,6 @@
 # AGENTS.md — ENPRIZON LINDI (enprizon-salary)
 
-> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=3342f96，服务 active**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
+> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=a871bc0，服务 active（P25 V2 凸性计件已部署）**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
 
 ## 相关文档
 
@@ -10,6 +10,8 @@
 - `DEV_WORKFLOW.md`：工程协作约定（分支模型、纵向切片、提交/推送纪律、部署时机）——**工作流唯一权威**
 - `docs/P0_DATA_MODEL_AND_API.md`：P0 数据模型 + API 契约，新表/新接口的权威来源
 - `docs/P12/P13/P14/P15_*.md`：各阶段详设与实施对照清单（见 §重构状态）
+- `docs/P25_PIECEWORK_V2_SPEC.md`：计件薪资制度 V2 逻辑规格（凸性加速 + 月末零和再分配，业务侧权威）
+- `docs/P25_PIECEWORK_V2_IMPLEMENTATION.md`：V2 实现设计（第三模式、班组对齐、公式、前端清单，工程侧权威）
 
 ## 协作流程
 
@@ -219,7 +221,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 
 ### 出勤状态字母
 
-D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=破碎, P(绿)=日薪/月薪, A(红)=旷工, L(黄)=请假, S=事假, Y=年假, T=调休, NU(紫深)=年假计薪(只读), (P)(灰)=月薪默认
+D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=破碎, P(绿)=日薪/月薪, A(红)=旷工, L(黄)=请假, S=事假, Y=年假, T=调休, **E(浅紫)=豁免**(未出勤不计薪不计 A_W 罚), NU(紫深)=年假计薪(只读), (P)(灰)=月薪默认
 
 点按切换：R/C → A → L → 空 → P（不可回到原始自动值）。**NU 只读**（审批写入，防采集覆盖）。
 
@@ -457,10 +459,10 @@ app.py (Flask 路由 / 认证 / 数据管线)
 - 复杂任务（≥3 需求）用 KEJU 团队并行（designer/dev/qa），简单任务直接做
 - 判断薪资类型用 `override_type or default_type`
 
-## 重构状态（2026-08-16 更新，main=3342f96）
+## 重构状态（2026-08-21 更新，main=a871bc0）
 
 **分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）
-**阶段**: **P0-P23 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局）
+**阶段**: **P0-P25 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速）
 **纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），服务 active
 **团队**: KEJU 团队（designer/dev/qa）并行工作流，复杂任务必用；agentmemory 已整合（开始 recall / 完成 remember）
@@ -476,6 +478,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **P22** | 自助改密/OA历史类型筛选/档案姓名上移/D-N高对比色/移动端档案薪资规则 |
 | **P22-FIX** | 日工资明细 105→107（UG 部门 day_rate 员工计入），override_type 优先判定 |
 | **P23** | 照片放大压缩/加班申请计费(overtime_records+参数可改)/审计日志移权限页/缓存同步bug修复 |
+| **P24** | 安全修复（登录角色回退降级/恒时密码比较/会话Cookie加固/OA审批原子化等）+ 登录体验（密码可见图标/错误提示/取消账户锁定） |
+| **P25** | **计件薪资制度 V2（凸性加速计件）**：第三模式 `underground_mode='v2'` + 班组对齐 employee_groups + 出勤 E 豁免 + 子部门筛选（详见下方 P25 专节） |
 | **UI** | 壳层布局（顶部栏/面包屑/筛选框固定，内容区滚动，切页重置）+ modal Apple 风格动画 + toast 顶部居中 |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
@@ -489,10 +493,23 @@ app.py (Flask 路由 / 认证 / 数据管线)
 7. **计薪参数保存无效**：`cfg_ug_mode` 绑定不存在的 `saveUndergroundMode()` + 单价 `||6000` 吞 0 值 → 改绑 `saveConfig()`
 8. **评分汇总无数据**：`/api/scoring/summary` 读旧表 `scoring_entries` → 改为从新表读 + 旧表回退
 
+## P25 计件薪资制度 V2（凸性加速，已部署）
+
+权威文档：`docs/P25_PIECEWORK_V2_SPEC.md`（业务规格）+ `docs/P25_PIECEWORK_V2_IMPLEMENTATION.md`（实现设计）。
+
+- **模式**：`underground_mode` 增第三值 `'v2'`（piecework/scoring 原样保留可回退）。V2 = 凸性团队计件（日）+ 评分行为系数（月末零和再分配）的统一模式。
+- **开关语义（重要）**：V2 是 DB 配置开关——`underground_mode='v2'` 且 `month_prefix >= v2_effective_from` 才激活；部署本身**不改变任何计薪行为**（服务器当前仍 piecework）。启用方式：计薪参数页选「凸性计件 V2」+ 填 `v2_effective_from`。
+- **日池公式**：`pool = Σ(物料×accel_prices[8000/5000/3000]) × (exempt ? 1.0 : 总车次/accel_target[40])`，按班人头均分；`team_id==0` 班次跳过（采集未选班组）。豁免 = 采集页每班「设备故障豁免」勾选。
+- **月末再分配**：`apply_v2_month_end`：`A_W=出勤/(26−豁免{L,NU,E})`、`B_W=复用评分互评系数(compute_scoring_individuals, 缺省 1.0)`、`C_W=0.6A+0.4B`、`k=F/Σ(base×C)`、`final=base×C×k`（零和守恒，Σfinal==Σbase）。
+- **班组 = 子部门**：井下生产按 `employee_groups`（LAMBA LAMBA/SAKA SAKA）归属，**不新建 teams 表**；采集 payload `day/night` 带 `team_id`+`exempt`。前端员工列表 UG 员工部门列显示班组名；档案页部门下方班组行；员工/薪资/日工资/出勤 4 处筛选框支持班组（子部门）筛选；计薪参数页「添加班组」= 在 UG 部门下加子部门，增删后各筛选自动同步。
+- **出勤 `E`（豁免）**：未出勤不计薪、不计 A_W 罚（区别于 NU 计薪）；已入 att_exclusions/absent/日薪排除与 A_W exempt_days。
+- **数据/核对**：`monthly_data` 增 `ug_base`/`ug_coefficient` 列；`verify_salary` V2 分支 + `coefficient_conservation`（≤10 舍入）字段，逐日对比在 V2 下松弛。
+- **⚠️ 前端陷阱**：DB 部门名是**全角括号** `Production TEAM （underground）`；前端比较一律用 `normDept()`（index.html 内，规范化空格/全角括号/大写）再比 `'PRODUCTIONTEAM(UNDERGROUND)'`，**禁用裸字符串比较**。
+- **测试**：38 个 pytest（凸性池/月末守恒/门控/豁免）曾在 `_work/piecework-v2/`，部署后已按 TTL 清理；纯逻辑改动可重建同款用例。
+
 ### 下一步
 
-1. **服务器 KEJU 密码确认/改回**：临时值 `Keju2026!` 可能已失效（可用 keju_admin 超管验收账户辅助）
-2. **移动端真机验收**：P17 移动端 + P18 权限按角色走查
+1. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）
+2. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 3. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
-4. **8月数据对齐**：服务器(133库/128管线) vs 本地(130)差异确认
-5. **P22-FIX 前端渲染回归**：日明细 107 人逻辑已验，浏览器渲染待走查
+4. **移动端真机验收**：采集班组选择器 + 出勤 E 在真机走查
