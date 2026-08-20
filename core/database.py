@@ -2205,12 +2205,12 @@ def update_employee_fields(data_folder, employee_id, fields):
                'team_id', 'custom_number', 'alias',
                'tin_number',
                'name'}  # P21 M5/R6: TIN + 改名（旧名入 alias 由 app.py 处理）
-    # P14.10: 班组仅井下生产工人——非井下岗位（按数据库当前 default_type）一律 team_id 置 0
+    # P14.10: 班组仅井下生产工人/钻工——非这两类（按数据库当前 default_type）一律 team_id 置 0
     if fields.get('team_id'):
         conn = get_conn(data_folder)
         _row = conn.execute("SELECT default_type FROM employees WHERE id=?", (employee_id,)).fetchone()
         conn.close()
-        if _row and _row['default_type'] != 'piece_underground':
+        if _row and _row['default_type'] not in ('piece_underground', 'piece_driller'):
             fields['team_id'] = 0
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:

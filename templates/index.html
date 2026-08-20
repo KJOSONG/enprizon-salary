@@ -542,7 +542,7 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_dob">出生日期</span><span class="info-value" id="pfDob">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_age">年龄</span><span class="info-value" id="pfAge">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="th_dept">部门</span><span class="info-value" id="pfDept">—</span></div>
-          <div class="info-row"><span class="info-label" data-i18n="emp_team">班组</span><span class="info-value" id="pfTeam">—</span></div>
+          <div class="info-row" id="pfTeamRow"><span class="info-label" data-i18n="emp_team">班组</span><span class="info-value" id="pfTeam">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_custom_number">工号</span><span class="info-value" id="pfCustomNumber">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
           <!-- P14.5: 薪资类型（可编辑，置于岗位下方） -->
@@ -3186,7 +3186,10 @@ async function loadEmployeeProfilePage(eid) {
       ? '<span style="color:var(--success);">' + t('emp_status_active') + '</span>'
       : '<span style="color:var(--danger);">' + t('emp_status_dismissed') + '</span>';
     document.getElementById('pfDept').textContent = emp.department;
-    // 班组 (team) display
+    // 班组 (team) display —— 仅井下生产工人/钻工显示（按 default_type）
+    const showTeamRow = (emp.default_type === 'piece_underground' || emp.default_type === 'piece_driller');
+    const pfTeamRowEl = document.getElementById('pfTeamRow');
+    if (pfTeamRowEl) pfTeamRowEl.style.display = showTeamRow ? '' : 'none';
     try {
       const gRes = await fetch(api('/api/employee_groups'));
       const gData = (await gRes.json()).groups || [];
@@ -3607,10 +3610,14 @@ async function editEmployeeProfile() {
   if (!isSA) {
     form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('dept_superadmin_only')}</div>`;
   }
+  // 班组（展示页顺序：部门→班组→工号→岗位；仅井下生产工人/钻工显示）
+  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
   // 薪资类型不在此处修改（档案页面有独立修改入口）
   form += `<div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><span style="padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">${typeLabels[curType] || curType}</span><span style="font-size:11px;color:var(--text-muted);margin-left:8px;" data-i18n="emp_salary_type_hint">（请在档案页面修改）</span></div>`;
+  // 隐藏薪资类型值：保存/班组显隐依赖它，但编辑入口在档案页独立区块（此处不提供下拉）
+  form += `<input type="hidden" id="pfEdit_salary_type" value="${g(curType)}">`;
   form += `<div class="form-row"><label data-i18n="emp_skill_level">技能等级</label><input id="pfEdit_skill_level" value="${g(emp.skill_level)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_hire_date">入职日期</label><input type="date" id="pfEdit_hire_date" value="${dateVal(emp.hire_date)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
@@ -3628,8 +3635,6 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_bank_name">银行</label><input id="pfEdit_bank_name" value="${g(emp.bank_name)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_account">账号</label><input id="pfEdit_bank_account" value="${g(emp.bank_account)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input id="pfEdit_bank_owner" value="${g(emp.bank_owner)}" style="${inStyle}"></div>`;
-  // P10: 班组（P14.10: 仅井下生产工人）
-  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
   form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
   form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button>';
@@ -3643,7 +3648,7 @@ async function editEmployeeProfile() {
   applyI18n();
 }
 
-/* P7: 按薪资类别显隐基数输入 + P14.10: 班组仅井下生产工人 */
+/* P7: 按薪资类别显隐基数输入 + P10: 班组仅井下生产工人/钻工 */
 function toggleSalaryBaseFields() {
   const sel = document.getElementById('pfEdit_salary_type');
   if (!sel) return;
@@ -3653,7 +3658,7 @@ function toggleSalaryBaseFields() {
   if (rowDr) rowDr.style.display = (v === 'day_rate') ? '' : 'none';
   if (rowMs) rowMs.style.display = (v === 'monthly') ? '' : 'none';
   const rowTeam = document.getElementById('pfEdit_row_team');
-  if (rowTeam) rowTeam.style.display = (v === 'piece_underground') ? '' : 'none';
+  if (rowTeam) rowTeam.style.display = (v === 'piece_underground' || v === 'piece_driller') ? '' : 'none';
 }
 
 function openPayslipModal() {
@@ -3811,9 +3816,9 @@ async function saveEmployeeProfile(eid) {
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
   // 部门仅超级管理员可直改，非超管兜底移除，防误传/绕过
   if (!isSA) delete data.department;
-  // P14.10: 班组仅井下生产工人（非井下置 0）
+  // P14.10: 班组仅井下生产工人/钻工（其他类型置 0）
   const salType = document.getElementById('pfEdit_salary_type').value;
-  data.team_id = (salType === 'piece_underground')
+  data.team_id = (salType === 'piece_underground' || salType === 'piece_driller')
     ? (parseInt(document.getElementById('pfEdit_team_id').value) || 0) : 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
 
@@ -3822,17 +3827,6 @@ async function saveEmployeeProfile(eid) {
   });
   const r = await res.json();
   if (!r.ok) { setMsg(t('save_failed'), false); return; }
-
-  // ── 薪资类别 + 基数 ──
-  const st = document.getElementById('pfEdit_salary_type').value;
-  const dayRate = parseInt(document.getElementById('pfEdit_day_rate').value) || 0;
-  const monthly = parseInt(document.getElementById('pfEdit_monthly_salary').value) || 0;
-  const res2 = await authFetch(api('/api/employees/' + eid + '/salary-type'), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({salary_type: st, day_rate: dayRate, monthly_salary: monthly}),
-  });
-  const r2 = await res2.json();
-  if (!r2.ok) { setMsg(t('salary_type_save_failed'), false); return; }
 
   // P20: 年假资格豁免（独立端点，仅 OA 审批人可改）
   // 注意: canOAApprove/emp 是 editEmployeeProfile 的局部变量,此处须重新计算/读取

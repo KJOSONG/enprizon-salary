@@ -1039,9 +1039,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         bonus = int(bp.get('bonus', 0) or 0)
         penalty = int(bp.get('penalty', 0) or 0)
 
-        # P15: 评分奖金并入（scoring 模式门；piecework 模式绝不发奖金）
+        # P15: 评分奖金并入（scoring 模式门 + 仅井下生产工人；piecework 模式绝不发奖金）
         scoring_bonus = 0
-        if underground_mode == 'scoring':
+        if underground_mode == 'scoring' and eff_type == 'piece_underground':
             scoring_bonus = _get_scoring_bonus(data_folder, eid, month_prefix, pool_info, emp.get('team_id'))
         if scoring_bonus > 0:
             bonus += scoring_bonus
