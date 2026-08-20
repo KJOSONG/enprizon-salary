@@ -1005,10 +1005,14 @@
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
   // 部门池工具(部门名已 EN 化,用英文关键字 contains)
   function deptHas(e,k){ return (e.department||'').toUpperCase().includes(k); }
-  function deptPool(kind){
+  function deptPool(kind, teamId){
     return STATE.employees.filter(e=>{
       const d=(e.department||'').toUpperCase();
-      if(kind==='underground') return d.includes('UNDERGROUND');
+      if(kind==='underground'){
+        if(!d.includes('UNDERGROUND')) return false;
+        if(teamId && String(e.team_id)!==String(teamId)) return false;
+        return true;
+      }
       if(kind==='driller') return d.includes('DRILLER');
       // Sort Crush/Crush Piece Rate(子部门)归破碎计件;Sort Crush(父部门)归出勤收集
       if(kind==='crush') return d.includes('CRUSH PIECE RATE');
@@ -1288,6 +1292,8 @@
     if(document.getElementById('ugDayDrv-count')) document.getElementById('ugDayDrv-count').textContent=t('col_selected_count',{n:(day.drivers||[]).length});
     if(document.getElementById('ugNight-count')) document.getElementById('ugNight-count').textContent=t('col_selected_count',{n:(night.emps||[]).length});
     if(document.getElementById('ugNightDrv-count')) document.getElementById('ugNightDrv-count').textContent=t('col_selected_count',{n:(night.drivers||[]).length});
+    // T16: bind team onchange → filter emp checklist by team
+    ['ugDay','ugNight'].forEach(p=>{const s=document.getElementById(p+'Team');if(s)s.onchange=()=>onUgTeamChange(p);});
   }
   // 需求5: 驾驶员候选 = 已选中的出勤人员(天然是 emps 子集)
   function refreshUgDrivers(seg){
@@ -1297,6 +1303,29 @@
     document.getElementById(seg+'Drivers').value = prev.join(',');
     const cnt = document.getElementById(seg+'Drv-count'); if(cnt) cnt.textContent = t('col_selected_count',{n:prev.length});
     document.getElementById(seg+'DriversBox').innerHTML = empChecklistHTML(seg+'Drivers', prev, seg+'Drv', cand);
+  }
+  function onUgTeamChange(seg){
+    const sel=document.getElementById(seg+'Team');
+    const tid=sel?sel.value:'';
+    const cur=ck(seg+'Emps');
+    if(!tid){
+      // 未选班组 → 显示全部 UG 部门，不清除已选
+      const box=document.getElementById(seg+'EmpsBox');
+      if(box) box.innerHTML=empChecklistHTML(seg+'Emps',cur,seg,deptPool('underground'));
+      return;
+    }
+    // 过滤: 保留仍属于新班组的已选成员
+    const keep=cur.filter(id=>{
+      const emp=STATE.employees.find(e=>String(e.id)===String(id));
+      return emp&&String(emp.team_id)===String(tid);
+    });
+    document.getElementById(seg+'Emps').value=keep.join(',');
+    const pool=deptPool('underground',tid);
+    const box=document.getElementById(seg+'EmpsBox');
+    if(box) box.innerHTML=empChecklistHTML(seg+'Emps',keep,seg,pool);
+    const cnt=document.getElementById(seg+'-count');
+    if(cnt) cnt.textContent=t('col_selected_count',{n:keep.length});
+    refreshUgDrivers(seg);
   }
   function submitUg(){
     const payload={ submission_date:document.getElementById('colDate').value,
@@ -1310,6 +1339,13 @@
       if(p.day.emps.length===0 && p.night.emps.length===0){ showFormMsg('underground', t('val_workers'), false); return false; }
       // T16: validate team selected when any workers present
       if((p.day.emps.length>0 && !p.day.team_id) || (p.night.emps.length>0 && !p.night.team_id)){ showFormMsg('underground', t('col_ug_team_required'), false); return false; }
+      // validate each emp belongs to the selected team
+      const chkTeam=(emps,tid)=>{
+        if(!tid) return true;
+        return emps.every(id=>{const emp=STATE.employees.find(e=>String(e.id)===String(id));return emp&&String(emp.team_id)===String(tid);});
+      };
+      if(!chkTeam(p.day.emps,p.day.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
+      if(!chkTeam(p.night.emps,p.night.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
       return true;
     });
   }

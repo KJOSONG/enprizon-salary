@@ -984,6 +984,8 @@ const I18N_DICT = {
     sum_th_dev: '偏离',
     sum_th_bonus: '奖金(TZS)',
     sum_pick_team_hint: '选择班组查看',
+    sum_week_all: '全月',
+    sum_week_n: '第{week}周',
     pool_title: '奖金池',
     pool_nh: 'NICKEL(H) 车次',
     pool_total: '总池',
@@ -1112,6 +1114,7 @@ const I18N_DICT = {
     /* V2: 井下采集班组 + 豁免 */
     col_ug_team: '班组', col_ug_team_placeholder: '请选择班组', col_ug_exempt: '设备故障豁免',
     col_ug_exempt_hint: '豁免日倍率锁1.0', col_ug_team_required: 'V2模式下请选择班组',
+    col_emp_not_in_team: '所选出勤人员中有不属于该班组的成员',
     /* V2: 配置页 */
     settings_ug_mode_v2: '⚡ 凸性计件 V2',
     settings_ug_mode_v2_desc: 'V2模式: 班组日池凸性加速 + 月末出勤/行为系数零和再分配',
@@ -2111,6 +2114,8 @@ const I18N_DICT = {
     sum_th_dev: 'Deviation',
     sum_th_bonus: 'Bonus (TZS)',
     sum_pick_team_hint: 'Select a team to view',
+    sum_week_all: 'Full Month',
+    sum_week_n: 'Week {week}',
     pool_title: 'Bonus Pool',
     pool_nh: 'NICKEL(H) trips',
     pool_total: 'Total Pool',
@@ -2238,7 +2243,8 @@ const I18N_DICT = {
     avatar_preview_title: 'Click to enlarge',
     /* V2: UG collection team + exempt */
     col_ug_team: 'Team', col_ug_team_placeholder: 'Select team', col_ug_exempt: 'Equipment Fault Exempt',
-    col_ug_exempt_hint: 'Exempt day multiplier locked 1.0', col_ug_team_required: 'Team is required in V2 mode',
+    col_ug_exempt_hint: 'Exempt day multiplier locked 1.0',     col_ug_team_required: 'Team is required in V2 mode',
+    col_emp_not_in_team: 'Some selected workers are not in the selected team',
     /* V2: Config page */
     settings_ug_mode_v2: '⚡ Convex Piecework V2',
     settings_ug_mode_v2_desc: 'V2: Team daily pool convex acceleration + month-end attendance/behavior coefficient zero-sum redistribution',

@@ -1072,9 +1072,17 @@
 <div class="page" id="page-scoring-summary">
   <div class="card">
     <h2 data-i18n="nav_scoring_summary">评分汇总</h2>
-    <div class="filter-bar" style="margin-bottom:12px;">
+    <div class="filter-bar" style="margin-bottom:12px;gap:8px;flex-wrap:wrap;">
       <select id="sumTeam" onchange="loadScoringSummary()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
         <option value="1" data-i18n="team1">班组1</option><option value="2" data-i18n="team2">班组2</option>
+      </select>
+      <select id="sumWeek" onchange="loadScoringSummary()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <option value="" data-i18n="sum_week_all">全月</option>
+        <option value="1" data-week="1">第1周</option>
+        <option value="2" data-week="2">第2周</option>
+        <option value="3" data-week="3">第3周</option>
+        <option value="4" data-week="4">第4周</option>
+        <option value="5" data-week="5">第5周</option>
       </select>
     </div>
     <!-- P15: 奖金池展示卡 -->
@@ -6639,15 +6647,28 @@ function removeDrvChip(hiddenId, displayId, rowId, id) {
 let _pickerKw = '';
 let _pickerTarget = null;
 let _pickerSearch = '';
+let _pickerTeamId = '';
+
+/* 通用人员池过滤：部门 → 班组（可选） */
+async function filterEmpPickerPool(kw, teamId) {
+  const pool = await getEmpPool();
+  let list = filterEmpByDept(pool, kw);
+  if (teamId) {
+    const tid = String(teamId);
+    list = list.filter(e => String(e.team_id || '') === tid);
+  }
+  return list;
+}
 
 async function openEmpPicker(kw, hiddenId, displayId, opts) {
   opts = opts || {};
   _drPickerIndex = null;
-  const pool = await getEmpPool();
-  const list = filterEmpByDept(pool, kw);
+  const teamId = opts.teamId || '';
+  const list = await filterEmpPickerPool(kw, teamId);
   const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
   const curDrivers = opts.driverHiddenId ? (document.getElementById(opts.driverHiddenId).value || '').split(',').filter(Boolean) : [];
   _pickerKw = kw;
+  _pickerTeamId = teamId;
   _pickerTarget = { hiddenId: hiddenId, displayId: displayId, showDriver: !!opts.showDriver, driverHiddenId: opts.driverHiddenId || '', drvDisplayId: opts.drvDisplayId || '', drvRowId: opts.drvRowId || '' };
   _pickerSearch = '';
   const modal = document.getElementById('empPickerModal');
@@ -6685,12 +6706,12 @@ function filterEmpPickerList() {
   _pickerSearch = document.getElementById('empPickerSearch').value.trim();
   const t = _pickerTarget;
   if (!t) return;
-  const pool = _colEmpPool || STATE._empAll || [];
-  const list = filterEmpByDept(pool, _pickerKw);
-  const cur = (document.getElementById(t.hiddenId).value || '').split(',').filter(Boolean);
-  const curDrivers = t.driverHiddenId ? (document.getElementById(t.driverHiddenId).value || '').split(',').filter(Boolean) : [];
-  document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur, curDrivers, !!t.showDriver);
-  updateEmpPickerCountFromDom(!!t.showDriver);
+  filterEmpPickerPool(_pickerKw, _pickerTeamId).then(list => {
+    const cur = (document.getElementById(t.hiddenId).value || '').split(',').filter(Boolean);
+    const curDrivers = t.driverHiddenId ? (document.getElementById(t.driverHiddenId).value || '').split(',').filter(Boolean) : [];
+    document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur, curDrivers, !!t.showDriver);
+    updateEmpPickerCountFromDom(!!t.showDriver);
+  });
 }
 
 /* 出勤 checkbox 变更：仅更新驾驶禁用态 + 计数（不重绘列表，保持勾选状态可见） */
@@ -6800,7 +6821,7 @@ async function renderUgCollectionForm(payload) {
       <label style="font-size:12px;min-width:70px;padding-top:4px;">${label} ${t('col_attendance')}</label>
       <div style="flex:1;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps',{showDriver:true,driverHiddenId:'${prefix}DriversVal',drvDisplayId:'${prefix}Drivers',drvRowId:'${prefix}DrvRow'})" style="font-size:11px;padding:4px 10px;">${t('col_pick_person')}</button>
+          <button class="nav-btn" onclick="openEmpPicker('${kw}','${prefix}EmpsVal','${prefix}Emps',{showDriver:true,driverHiddenId:'${prefix}DriversVal',drvDisplayId:'${prefix}Drivers',drvRowId:'${prefix}DrvRow',teamId:(document.getElementById('${prefix}Team')||{}).value||''})" style="font-size:11px;padding:4px 10px;">${t('col_pick_person')}</button>
           <div id="${prefix}Emps" class="emp-chips" style="line-height:1.5;justify-content:flex-start;">${(payload[dataKey] && payload[dataKey].emps && payload[dataKey].emps.length) ? '' : '<span style="color:var(--text-muted);font-size:12px;">' + t('not_selected') + '</span>'}</div>
         </div>
         <div id="${prefix}DrvRow" style="margin-top:4px;font-size:11px;color:var(--text-muted);display:${payload[dataKey] && payload[dataKey].drivers && payload[dataKey].drivers.length ? '' : 'none'};">
@@ -6859,6 +6880,58 @@ async function renderUgCollectionForm(payload) {
     if (drvEl) drvEl.innerHTML = drvVal ? renderEmpChips(empChipsFromIds(drvVal.split(',')), true, id => "removeDrvChip('" + p + "DriversVal','" + p + "Drivers','" + p + "DrvRow','" + id + "')") : '';
     if (drvRow) drvRow.style.display = drvVal ? 'flex' : 'none';
   });
+  // 班组切换：移除不属于新班组的已选人员
+  ['ugDay', 'ugNight'].forEach(p => {
+    const s = document.getElementById(p + 'Team');
+    if (s) s.onchange = () => onUgTeamChange(p);
+  });
+}
+
+/* 班组切换：移除不属于新班组的已选人员 */
+function onUgTeamChange(prefix) {
+  const teamId = (document.getElementById(prefix + 'Team') || {}).value || '';
+  const pool = _colEmpPool || STATE._empAll || [];
+  const empValEl = document.getElementById(prefix + 'EmpsVal');
+  const emps = (empValEl.value || '').split(',').filter(Boolean);
+  let changed = false;
+  if (teamId) {
+    const tid = String(teamId);
+    const filtered = emps.filter(id => {
+      const emp = pool.find(e => String(e.id) === String(id));
+      return emp && String(emp.team_id || '') === tid;
+    });
+    if (filtered.length !== emps.length) { changed = true; empValEl.value = filtered.join(','); }
+  }
+  // 回填出勤 chips
+  const el = document.getElementById(prefix + 'Emps');
+  const cur = (empValEl.value || '').split(',').filter(Boolean);
+  el.innerHTML = cur.length ? renderEmpChips(empChipsFromIds(cur), false, id => "removeEmpChip('" + prefix + "EmpsVal','" + prefix + "Emps','" + id + "')") : '';
+  // 驾驶员：若被移除且空则隐藏
+  const drvValEl = document.getElementById(prefix + 'DriversVal');
+  const drvEl = document.getElementById(prefix + 'Drivers');
+  const drvRow = document.getElementById(prefix + 'DrvRow');
+  if (drvValEl && teamId) {
+    const drvIds = (drvValEl.value || '').split(',').filter(Boolean);
+    const tid = String(teamId);
+    const drvFiltered = drvIds.filter(id => {
+      const emp = pool.find(e => String(e.id) === String(id));
+      return emp && String(emp.team_id || '') === tid;
+    });
+    if (drvFiltered.length !== drvIds.length) {
+      drvValEl.value = drvFiltered.join(',');
+      if (drvEl) drvEl.innerHTML = drvFiltered.length ? renderEmpChips(empChipsFromIds(drvFiltered), true, id => "removeDrvChip('" + prefix + "DriversVal','" + prefix + "Drivers','" + prefix + "DrvRow','" + id + "')") : '';
+      if (drvRow) drvRow.style.display = drvFiltered.length ? 'flex' : 'none';
+    }
+  }
+  // 若弹窗正开着，同步重绘
+  if (_pickerTarget && _pickerTarget.hiddenId === prefix + 'EmpsVal') {
+    filterEmpPickerPool(_pickerKw, teamId).then(list => {
+      const cur = (empValEl.value || '').split(',').filter(Boolean);
+      const curDrivers = _pickerTarget.driverHiddenId ? (document.getElementById(_pickerTarget.driverHiddenId).value || '').split(',').filter(Boolean) : [];
+      document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur, curDrivers, !!_pickerTarget.showDriver);
+      updateEmpPickerCountFromDom(!!_pickerTarget.showDriver);
+    });
+  }
 }
 
 /* ── P9-3 钻工采集表单 ── */
@@ -7246,6 +7319,23 @@ async function submitUgCollection() {
       exempt: nightExempt,
     },
   };
+  // 校验：出勤人员非空时必须选班组，且人员须属于该班组
+  const pool = _colEmpPool || STATE._empAll || [];
+  for (const shift of [{ label: 'DAY', data: payload.day }, { label: 'NIGHT', data: payload.night }]) {
+    if (shift.data.emps.length && !shift.data.team_id) {
+      showToast(t('col_ug_team_required'), 'error'); return;
+    }
+    if (shift.data.emps.length && shift.data.team_id) {
+      const tid = String(shift.data.team_id);
+      const bad = shift.data.emps.filter(id => {
+        const emp = pool.find(e => String(e.id) === String(id));
+        return !emp || String(emp.team_id || '') !== tid;
+      });
+      if (bad.length) {
+        showToast(t('col_emp_not_in_team') + ' (' + shift.label + ')', 'error'); return;
+      }
+    }
+  }
   await submitColPayload('underground', date, payload, 'colUgHistory');
 }
 
@@ -7304,6 +7394,15 @@ async function loadScoreTeams() {
     const objSel = document.getElementById('objTeam');
     if (objSel) {
       objSel.innerHTML = groups.map(g => `<option value="${g.id}">${escHtml(g.name)}</option>`).join('');
+    }
+    // 汇总页周次下拉文案（t() 不做插值，手动替换 {week}）
+    const sumWeek = document.getElementById('sumWeek');
+    if (sumWeek) {
+      [...sumWeek.options].forEach(o => {
+        if (o.dataset && o.dataset.week) {
+          o.textContent = t('sum_week_n').replace('{week}', o.dataset.week);
+        }
+      });
     }
     // P14.7: 周次/来源变化时重新加载卡列表
     const srcSel = document.getElementById('scoreSourceSel');
@@ -7542,15 +7641,22 @@ async function submitScoreCard() {
 async function loadScoringSummary() {
   const team = document.getElementById("sumTeam").value;
   const month = STATE.currentMonth || '';
+  const weekEl = document.getElementById("sumWeek");
+  const week = weekEl ? weekEl.value : '';
   const tbody = document.querySelector("#sumTable tbody");
   tbody.innerHTML = "<tr><td colspan=9>" + t('loading') + "</td></tr>";
-  const res = await fetch(api("/api/scoring/summary/" + team + (month ? "?month=" + encodeURIComponent(month) : "")));
+  let qs = "/api/scoring/summary/" + team + "?month=" + encodeURIComponent(month);
+  if (week) qs += "&week=" + encodeURIComponent(week);
+  const res = await fetch(api(qs));
   const data = await res.json();
   const inds = data.individuals || [], gates = data.gates || {}, pool = data.pool || {};
-  // P15: 奖金池展示卡
+  const isV2 = data.underground_mode === 'v2';
+  // P25-Q2: V2 模式不发评分奖金 → 隐藏奖金池与三闸；周视图后端不返回 pool/gates 同样隐藏
   const poolCard = document.getElementById("poolCard"), poolBody = document.getElementById("poolCardBody");
-  if (pool && Object.keys(pool).length) {
-    poolCard.style.display = "block";
+  const gatePanel = document.getElementById("gatePanel");
+  if (poolCard) poolCard.style.display = (isV2 || week || !(pool && Object.keys(pool).length)) ? "none" : "block";
+  if (gatePanel) gatePanel.style.display = (isV2 || week) ? "none" : "block";
+  if (!isV2 && !week && pool && Object.keys(pool).length) {
     const fmt = (n) => Number(n || 0).toLocaleString();
     let html = "";
     html += "<div><span style=color:var(--text-muted)>" + t('pool_nh') + ":</span> <b>" + fmt(pool.nh_count) + "</b></div>";
@@ -7567,11 +7673,13 @@ async function loadScoringSummary() {
     html += "<div style=color:" + (pool.conserved ? "var(--success)" : "var(--danger)") + ">" +
             (pool.conserved ? t('pool_conserved') : t('pool_not_conserved')) + "</div>";
     poolBody.innerHTML = html;
-  } else {
-    poolCard.style.display = "none";
   }
   if (!inds.length) { tbody.innerHTML = "<tr><td colspan=9 style=color:var(--text-muted)>" + t('no_scores') + "</td></tr>"; return; }
-  tbody.innerHTML = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td><td>"+Number(r.bonus||0).toLocaleString()+"</td></tr>").join("");
+  // V2 模式隐藏奖金列（不发奖金），周视图亦无 bonus
+  const showBonus = !isV2;
+  const rowHtml = inds.map(r => "<tr><td>"+r.wid+"</td><td>"+escHtml(r.employee_id)+"</td><td>"+r.peer_avg+"</td><td>"+r.peer_behavior+"</td><td>"+(r.mgmt_behavior||"-")+"</td><td style=font-weight:600>"+r.final_behavior+"</td><td>"+r.coefficient+"x</td><td>"+r.deviation+"</td>"+(showBonus?"<td>"+Number(r.bonus||0).toLocaleString()+"</td>":"<td>—</td>")+"</tr>").join("");
+  tbody.innerHTML = rowHtml;
+  if (isV2 || week) return;
   const panel = document.getElementById("gatePanel"); panel.style.display = "block";
   document.getElementById("gate1").innerHTML = t('gate1_pre')+"极差="+gates.variance_range+(gates.zero_variance_triggered?t('gate_abnormal'):"✅");
   document.getElementById("gate1").style.color = gates.zero_variance_triggered?"var(--danger)":"var(--success)";
