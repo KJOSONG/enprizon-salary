@@ -117,55 +117,17 @@ def require_permission(module, action):
         return decorated
     return decorator
 
-# ── 登录暴力破解防护（轻量内存限速：失败计数 + 锁定窗口） ──────
-_LOGIN_FAILS = {}          # key: "ip|username" → [fail_count, lock_until_ts]
-_LOGIN_MAX_FAILS = 5       # 5 次失败
-_LOGIN_LOCK_SECONDS = 900  # 锁定 15 分钟
-
-def _login_blocked(key):
-    """返回 True 表示该 key 当前处于锁定窗口内"""
-    entry = _LOGIN_FAILS.get(key)
-    if not entry:
-        return False
-    import time as _t
-    if _t.time() < entry[1]:
-        return True
-    if entry[1] > 0:
-        _LOGIN_FAILS.pop(key, None)
-    return False
-
-def _login_fail_record(key):
-    """记录一次失败；达到阈值则开启锁定窗口，返回剩余锁定秒数"""
-    import time as _t
-    cnt, lock_until = _LOGIN_FAILS.get(key, (0, 0))
-    cnt += 1
-    if cnt >= _LOGIN_MAX_FAILS:
-        lock_until = _t.time() + _LOGIN_LOCK_SECONDS
-        _LOGIN_FAILS[key] = (0, lock_until)
-        return _LOGIN_LOCK_SECONDS
-    _LOGIN_FAILS[key] = (cnt, lock_until)
-    return 0
-
-def _login_success_reset(key):
-    _LOGIN_FAILS.pop(key, None)
-
 @app.route('/api/login', methods=['POST'])
 def api_login():
     from core.database import verify_admin, has_admin, set_admin_password
     data = request.get_json(silent=True) or {}
     username = data.get('username', '').strip()
     password = data.get('password', '')
-    client_ip = request.remote_addr or 'unknown'
-    lock_key = f'{client_ip}|{username}'
-
-    if _login_blocked(lock_key):
-        return jsonify({'ok': False, 'error': 'too_many_attempts', 'need_wait': True}), 429
 
     if not has_admin(app.config['DATA_FOLDER']):
         return jsonify({'ok': False, 'error': 'no_admin', 'need_setup': True})
 
     if verify_admin(app.config['DATA_FOLDER'], username, password):
-        _login_success_reset(lock_key)
         # 登录前重建会话，防 session fixation（攻击者预置的 cookie 在登录后作废）
         session.clear()
         session['logged_in'] = True
@@ -176,11 +138,7 @@ def api_login():
         session['role'] = get_user_role(app.config['DATA_FOLDER'], username) or 'viewer'
         _audit('login', '', json.dumps({'user': username}))
         return jsonify({'ok': True})
-    wait = _login_fail_record(lock_key)
     _audit('login_fail', '', json.dumps({'user': username}))
-    if wait:
-        return jsonify({'ok': False, 'error': 'too_many_attempts', 'need_wait': True,
-                        'retry_after': wait}), 429
     return jsonify({'ok': False, 'error': 'invalid_credentials'})
 
 @app.route('/api/logout', methods=['POST'])

@@ -478,7 +478,13 @@
     api('/api/login', { method:'POST', body: JSON.stringify({ username:u, password:p }) }).then(r=>{
       // P17 修复: /api/login 只返回 {ok:true},先 checkAuth 刷新 STATE.auth(username/role)
       // 否则三道杠菜单用户名显示 '—'(checkAuth 内部会调 showApp)
-      if(r.ok){ checkAuth(); } else { toast(r.error==='invalid_credentials'?'用户名或密码错误':'登录失败','error'); }
+      if(r.ok){ checkAuth(); } else {
+        let msg = '登录失败';
+        if(r.error==='invalid_credentials') msg='用户名或密码错误';
+        else if(r.error==='no_admin') msg='系统未初始化，请联系管理员';
+        else if(r.error) msg=r.error;
+        toast(msg,'error');
+      }
     }).catch(()=>toast('登录失败','error'));
     return false;
   }
