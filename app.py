@@ -2967,6 +2967,25 @@ def scoring_summary(team):
     from core.pricing import load_config
     data_folder = app.config['DATA_FOLDER']
     month = request.args.get('month', '') or (APP_STATE.get('month') or '')
+    cfg = APP_STATE.get('config') or {}
+    ug_mode = cfg.get('underground_mode') or 'piecework'
+    # P25-Q2: 周视图（week=1-5）→ 单周评分数据（无奖金池/三闸）；缺省/0 → 全月汇总
+    week_arg = request.args.get('week', '')
+    if week_arg not in ('', '0'):
+        try:
+            week = int(week_arg)
+        except (TypeError, ValueError):
+            return jsonify({'error': '无效周次'}), 400
+        if not (1 <= week <= 5):
+            return jsonify({'error': '周次需为 1-5'}), 400
+        from core.calculator import compute_scoring_week
+        indiv = compute_scoring_week(data_folder, team, week, month)
+        result = []
+        for eid, ind in indiv.items():
+            row = dict(ind)
+            row['employee_id'] = eid
+            result.append(row)
+        return jsonify({'individuals': result, 'week': week, 'month': month, 'underground_mode': ug_mode})
     # 产量层：与计薪同源 main_data（month 已过滤）
     pricing = load_config(data_folder)
     main_data = APP_STATE.get('main_data') or {}
@@ -3009,7 +3028,7 @@ def scoring_summary(team):
         'objective_missing': tb['objective_missing'],
         'conserved': tb['conserved'],
     }
-    return jsonify({'individuals': result, 'gates': gates, 'pool': pool_block, 'month': month})
+    return jsonify({'individuals': result, 'gates': gates, 'pool': pool_block, 'month': month, 'underground_mode': ug_mode})
 
 @app.route('/api/objective/entry', methods=['POST'])
 @editor_required

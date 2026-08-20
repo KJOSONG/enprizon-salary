@@ -1693,6 +1693,17 @@ def compute_scoring_individuals(normalized, config):
     return out
 
 
+def compute_scoring_week(data_folder, team_id, week, month=''):
+    """P25-Q2: 单周评分汇总（新表 scoring_card_entries 按周过滤 + 共享系数）。
+    周视图只返回评分数据（无奖金池/客观层/发放比例，与 V2 语义一致）；无数据返回 {}。"""
+    from core.database import get_scoring_card_entries, get_scoring_config
+    entries = get_scoring_card_entries(data_folder, team_id=team_id, week=week, month=month or None)
+    norm = normalize_scoring_entries(entries or [])
+    if not norm:
+        return {}
+    return compute_scoring_individuals(norm, get_scoring_config(data_folder))
+
+
 def compute_team_bonuses(data_folder, team_id, month, pool_info):
     """R3 单班全量奖金：新表优先 + 旧表回退；无客观数据 → 发 0（用户决策）；
     最大余数法保证 Σ个人奖金 == 班实际池。"""
