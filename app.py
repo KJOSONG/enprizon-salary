@@ -3264,7 +3264,9 @@ def verify_salary():
         config = APP_STATE.get('config') or {}
         up = config.get('underground_prices') or PRICES_UNDERGROUND
         dp = config.get('driller_prices') or PRICES_DRILLER
-        result = do_verify(main_data, salary_result, up, dp)
+        result = do_verify(main_data, salary_result, up, dp,
+                           underground_mode=config.get('underground_mode'),
+                           pricing=config)
         return jsonify({'ok': True, 'data': result})
     except Exception as e:
         return jsonify({'error': f'核对失败: {str(e)}'}), 500
@@ -4392,7 +4394,10 @@ def _do_export_all():
         try:
             from core.verification import verify_salary
             from core.calculator import PRICES_UNDERGROUND, PRICES_DRILLER
-            ver = verify_salary(md, result, PRICES_UNDERGROUND, PRICES_DRILLER)
+            _cfg = APP_STATE.get('config') or {}
+            ver = verify_salary(md, result, PRICES_UNDERGROUND, PRICES_DRILLER,
+                                underground_mode=_cfg.get('underground_mode'),
+                                pricing=_cfg)
             d_info = ver.get('driller', {})
             d_p1 = ver.get('path1_details', {}).get('driller', [])
             d_dc = ver.get('daily_comparison', {}).get('driller', [])

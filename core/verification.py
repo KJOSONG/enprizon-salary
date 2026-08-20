@@ -20,7 +20,8 @@ DEFAULT_PRICES_UNDERGROUND = {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAW
 DEFAULT_PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000}
 
 
-def verify_salary(main_data, salary_result, prices_underground=None, prices_driller=None):
+def verify_salary(main_data, salary_result, prices_underground=None, prices_driller=None,
+                  underground_mode=None, pricing=None):
     """
     执行双路径薪资核对
     ──────────────────────────────
@@ -28,6 +29,8 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
         main_data      — 解析后的原始数据（含 shift_production / driller_production）
         salary_result  — 计算引擎产出的薪资结果（含 employees 和 total_xxx）
         prices_*       — 可选覆盖单价，默认使用系统单价
+        underground_mode — 'piecework'|'scoring'|'v2'（V2 凸性计件）
+        pricing        — 完整 config dict（含 accel_prices / accel_target）
 
     返回：
         {
@@ -51,9 +54,13 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
     """
     pu = prices_underground or DEFAULT_PRICES_UNDERGROUND
     pd = prices_driller or DEFAULT_PRICES_DRILLER
+    v2_active = (underground_mode == 'v2')
 
-    # ── 路径一：基准计算 ────────────────────────
-    ug_path1, ug_daily = _path1_underground(main_data.get('shift_production', []), pu)
+    # ── 路径一：基准计算 ────────────────────────────
+    ug_path1, ug_daily = _path1_underground(
+        main_data.get('shift_production', []), pu,
+        underground_mode=underground_mode, pricing=pricing,
+    )
     dr_path1, dr_daily = _path1_driller(main_data.get('driller_production', []), pd)
 
     # ── 路径二：实际汇总 ────────────────────────
@@ -65,12 +72,36 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
     dr_path2_daily = _path2_daily(salary_result, 'driller_daily')
 
     # ── 逐日对比表 ──────────────────────────────
-    ug_daily_comparison = _build_daily_comparison(main_data.get('shift_production', []), ug_path2_daily, pu, 'underground')
-    dr_daily_comparison = _build_daily_comparison(main_data.get('driller_production', []), dr_path2_daily, pd, 'driller')
+    ug_daily_comparison = _build_daily_comparison(
+        main_data.get('shift_production', []), ug_path2_daily, pu, 'underground',
+        v2_active=v2_active,
+    )
+    dr_daily_comparison = _build_daily_comparison(
+        main_data.get('driller_production', []), dr_path2_daily, pd, 'driller',
+    )
 
     # ── 比对 ────────────────────────────────────
     ug_diff = ug_path2 - ug_path1
     dr_diff = dr_path2 - dr_path1
+
+    # ── 系数守恒检查（仅 V2 有意义）─────────────────
+    if v2_active and pricing:
+        base_sum = round(sum((salary_result.get('ug_base') or {}).values()))
+        final_sum = round(sum(
+            e['piece_underground'] for e in salary_result.get('employees', [])
+            if (e.get('piece_underground') or 0) > 0
+        ))
+        diff = final_sum - base_sum
+        coefficient_conservation = {
+            'base_sum': base_sum,
+            'final_sum': final_sum,
+            'diff': diff,
+            'conserved': abs(diff) <= 10,
+        }
+    else:
+        coefficient_conservation = {
+            'base_sum': 0, 'final_sum': 0, 'diff': 0, 'conserved': True,
+        }
 
     return {
         'underground': {
@@ -98,6 +129,7 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
             'underground': ug_daily_comparison,
             'driller': dr_daily_comparison,
         },
+        'coefficient_conservation': coefficient_conservation,
     }
 
 
@@ -105,12 +137,17 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
 #  路径一 内部实现
 # ═══════════════════════════════════════════════════════════
 
-def _path1_underground(shift_production, prices):
+def _path1_underground(shift_production, prices, underground_mode=None, pricing=None):
     """
     路径一 — 井下计件基准计算
     直接从产量数据求和，不涉及人员分配
+    V2 mode: 按 (date, shift) 算 convex pool = Σ(prod×accel_price) × multiplier
     返回: (总金额, 逐日明细)
     """
+    v2_active = (underground_mode == 'v2' and pricing is not None)
+    v2_accel_target = int(pricing.get('accel_target', 40) or 40) if v2_active else 40
+    v2_prices = (pricing.get('accel_prices') or {}) if v2_active else {}
+
     daily = []
     total = 0
 
@@ -121,17 +158,42 @@ def _path1_underground(shift_production, prices):
         day_total = 0
         night_total = 0
 
-        if day_prod:
-            day_total = sum(
-                (day_prod.get(k, 0) or 0) * prices.get(k, 0)
-                for k in prices
-            )
+        if v2_active:
+            # Day shift
+            day_team = day.get('day_team', 0)
+            day_exempt = day.get('day_exempt', False)
+            if day_prod and day_team != 0:
+                base_linear = sum(
+                    (day_prod.get(k, 0) or 0) * v2_prices.get(k, 0)
+                    for k in v2_prices
+                )
+                total_cars = sum(day_prod.get(k, 0) or 0 for k in v2_prices)
+                multiplier = 1.0 if day_exempt else total_cars / v2_accel_target
+                day_total = base_linear * multiplier
 
-        if night_prod:
-            night_total = sum(
-                (night_prod.get(k, 0) or 0) * prices.get(k, 0)
-                for k in prices
-            )
+            # Night shift
+            night_team = day.get('night_team', 0)
+            night_exempt = day.get('night_exempt', False)
+            if night_prod and night_team != 0:
+                base_linear = sum(
+                    (night_prod.get(k, 0) or 0) * v2_prices.get(k, 0)
+                    for k in v2_prices
+                )
+                total_cars = sum(night_prod.get(k, 0) or 0 for k in v2_prices)
+                multiplier = 1.0 if night_exempt else total_cars / v2_accel_target
+                night_total = base_linear * multiplier
+        else:
+            # Linear path (unchanged)
+            if day_prod:
+                day_total = sum(
+                    (day_prod.get(k, 0) or 0) * prices.get(k, 0)
+                    for k in prices
+                )
+            if night_prod:
+                night_total = sum(
+                    (night_prod.get(k, 0) or 0) * prices.get(k, 0)
+                    for k in prices
+                )
 
         combined = day_total + night_total
         total += combined
@@ -245,7 +307,7 @@ def _path2_daily(salary_result, field_key):
     return {dt: round(amt) for dt, amt in result.items()}
 
 
-def _build_daily_comparison(production_data, path2_daily, prices, track):
+def _build_daily_comparison(production_data, path2_daily, prices, track, v2_active=False):
     """
     构建逐日对比表，路径一与路径二对齐
     track: 'underground' | 'driller'
@@ -287,11 +349,14 @@ def _build_daily_comparison(production_data, path2_daily, prices, track):
         diff = p2 - p1
         # 小额差异为浮点舍入（人均分产除不尽），视为一致
         is_rounding = abs(diff) <= 10
-        result.append({
+        entry = {
             'date': dt,
             'path1': p1,
             'path2': p2,
             'diff': 0 if is_rounding else diff,
             'is_rounding': is_rounding,
-        })
+        }
+        if v2_active:
+            entry['relaxed'] = True
+        result.append(entry)
     return result
