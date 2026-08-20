@@ -821,6 +821,13 @@ def load_config(data_folder):
         cfg.setdefault('overtime_work_days', 26)           # 月工作天数
         cfg.setdefault('overtime_hours_per_day', 8)        # 日工作小时
         cfg.setdefault('overtime_rate', 1.5)               # 加班倍率
+        # V2 凸性计件参数兜底
+        cfg.setdefault('accel_target', 40)
+        cfg.setdefault('accel_prices', {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000})
+        cfg.setdefault('accel_w_a', 0.6)
+        cfg.setdefault('accel_w_b', 0.4)
+        cfg.setdefault('accel_full_days', 26)
+        cfg.setdefault('v2_effective_from', '')
         return cfg
     # 返回默认值
     return {
@@ -836,9 +843,32 @@ def load_config(data_folder):
         'overtime_work_days': 26,      # P23 R2: 月工作天数
         'overtime_hours_per_day': 8,   # P23 R2: 日工作小时
         'overtime_rate': 1.5,          # P23 R2: 加班倍率
+        'accel_target': 40,
+        'accel_prices': {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000},
+        'accel_w_a': 0.6,
+        'accel_w_b': 0.4,
+        'accel_full_days': 26,
+        'v2_effective_from': '',
     }
 
 def save_config(data_folder, config):
+    mode = config.get('underground_mode', 'piecework')
+    if mode not in ('piecework', 'scoring', 'v2'):
+        raise ValueError(f"underground_mode must be piecework|scoring|v2, got '{mode}'")
+    if 'accel_target' in config:
+        at = config['accel_target']
+        if not isinstance(at, int) or at <= 0:
+            raise ValueError(f"accel_target must be a positive integer, got {at!r}")
+    wa = config.get('accel_w_a')
+    wb = config.get('accel_w_b')
+    if wa is not None and wb is not None and wa <= wb:
+        raise ValueError(f"accel_w_a ({wa}) must be > accel_w_b ({wb})")
+    if 'accel_prices' in config:
+        ap = config['accel_prices']
+        required_keys = {'NICKEL（H）', 'NICKEL（L）', 'MAWE'}
+        if not required_keys.issubset(ap.keys()):
+            missing = required_keys - set(ap.keys())
+            raise ValueError(f"accel_prices missing keys: {missing}")
     conn = get_conn(data_folder)
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('config', ?) ON CONFLICT(key) DO UPDATE SET value=?",

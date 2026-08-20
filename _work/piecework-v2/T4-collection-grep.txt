@@ -1,0 +1,4 @@
+2311:            'day_team': int(day.get('team_id', 0) or 0),
+2312:            'night_team': int(night.get('team_id', 0) or 0),
+2313:            'day_exempt': bool(day.get('exempt', False)),
+2314:            'night_exempt': bool(night.get('exempt', False)),
