@@ -561,7 +561,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                 if dend and dt > dend: continue
             key = f'{eid}|{dt}'
             if key in att_overrides:
-                if att_overrides[key] in ('A', 'L'):
+                if att_overrides[key] in ('A', 'L', 'E'):
                     continue
             counted_pairs.add((eid, dt))
             day_dates[eid].add(dt)
@@ -578,7 +578,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                         continue
                     key = f'{eid}|{dt}'
                     if key in att_overrides:
-                        if att_overrides[key] in ('A', 'L'):
+                        if att_overrides[key] in ('A', 'L', 'E'):
                             continue
                     counted_pairs.add((eid, dt))
                     day_dates[eid].add(dt)
@@ -590,7 +590,7 @@ def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shi
                         continue
                     key = f'{eid}|{dt}'
                     if key in att_overrides:
-                        if att_overrides[key] in ('A', 'L'):
+                        if att_overrides[key] in ('A', 'L', 'E'):
                             continue
                     counted_pairs.add((eid, dt))
                     day_dates[eid].add(dt)
@@ -683,7 +683,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if os.path.exists(db_path):
                 conn = sqlite3.connect(db_path)
                 # P21 R2: NU（年假）加入计件分配排除，剩余人员平分（总额守恒）
-                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU')").fetchall():
+                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU','E')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
@@ -959,7 +959,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
         for dt in _iter_dates:
             dtype = per_date_type.get(eid, {}).get(dt, eff_type)
-            absent = att_overrides.get((eid, dt)) in ('A', 'L')   # P21 R2: absent 保持不含 NU
+            absent = att_overrides.get((eid, dt)) in ('A', 'L', 'E')   # P21 R2: absent 含 E（豁免不出勤）
             nu = att_overrides.get((eid, dt)) == 'NU'             # P21 R2: 年假（计薪）
 
             # P21 R2: NU 天在计件轨道排除（同 L），在日薪/月薪轨道计入出勤天数
@@ -1100,7 +1100,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if os.path.exists(dbp):
                 conn = sqlite3.connect(dbp)
                 # P21 R2: NU（年假）加入计件分配排除（与 calculate_all C6 保持一致）
-                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU')").fetchall():
+                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU','E')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
@@ -1289,7 +1289,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 for e in d.get('normal', []):
                     if make_employee_id(e) != eid: continue
                     if (eid, dt) in counted: continue
-                    if att_all.get((eid, dt)) in ('A', 'L'): continue
+                    if att_all.get((eid, dt)) in ('A', 'L', 'E'): continue
                     counted.add((eid, dt))
                     date_counts[dt] += 1
             def _has_dr_ov(eid, dt):
@@ -1311,7 +1311,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     if make_employee_id(e) != eid: continue
                     if not _has_dr_ov(eid, dt): continue
                     if (eid, dt) in counted: continue
-                    if att_all.get((eid, dt)) in ('A', 'L'): continue
+                    if att_all.get((eid, dt)) in ('A', 'L', 'E'): continue
                     counted.add((eid, dt))
                     date_counts[dt] += 1
             _p_month = set()
@@ -1401,9 +1401,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             monthly_present_dates = []
             for dt in sorted(ms_dates_set):
                 dtype = per_date_type.get(eid, {}).get(dt, emp_map.get(eid, {}).get('override_type') or emp_map.get(eid, {}).get('default_type', ''))
-                # A/L 排除与 calculate_all 对齐（原实现漏排除，日明细与薪资总表月薪不一致）
+                # A/L/E 排除与 calculate_all 对齐（原实现漏排除，日明细与薪资总表月薪不一致）
                 if dtype == 'monthly' and dt in present[eid] \
-                        and att_all.get((eid, dt)) not in ('A', 'L'):
+                        and att_all.get((eid, dt)) not in ('A', 'L', 'E'):
                     monthly_present_dates.append(dt)
             effective_days = min(len(monthly_present_dates), 26)
             per_day = base / 26
