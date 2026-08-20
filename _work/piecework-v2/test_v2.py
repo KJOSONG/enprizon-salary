@@ -249,8 +249,8 @@ class TestMonthEnd:
         pricing = _make_pricing()
 
         # Mock scoring functions to return fixed B_W
-        with patch('core.calculator.get_scoring_card_entries', return_value=[]), \
-             patch('core.calculator.get_scoring_config', return_value={}):
+        with patch('core.database.get_scoring_card_entries', return_value=[]), \
+             patch('core.database.get_scoring_config', return_value={}):
             # Mock compute_scoring_individuals to return known B_W
             fake_indiv = {
                 'X': {'coefficient': 1.2},
@@ -278,8 +278,8 @@ class TestMonthEnd:
         employees = [{'id': 'X', 'name': 'X'}]
         pricing = _make_pricing()
 
-        with patch('core.calculator.get_scoring_card_entries', return_value=[]), \
-             patch('core.calculator.get_scoring_config', return_value={}), \
+        with patch('core.database.get_scoring_card_entries', return_value=[]), \
+             patch('core.database.get_scoring_config', return_value={}), \
              patch('core.calculator.compute_scoring_individuals', return_value={}), \
              patch('core.calculator._get_v2_attendance', return_value={
                  'X': {'worked': 26, 'exempt': 0}
@@ -297,8 +297,8 @@ class TestMonthEnd:
         employees = [{'id': 'X', 'name': 'X'}]
         pricing = _make_pricing()
 
-        with patch('core.calculator.get_scoring_card_entries', return_value=[]), \
-             patch('core.calculator.get_scoring_config', return_value={}), \
+        with patch('core.database.get_scoring_card_entries', return_value=[]), \
+             patch('core.database.get_scoring_config', return_value={}), \
              patch('core.calculator.compute_scoring_individuals', return_value={}), \
              patch('core.calculator._get_v2_attendance', return_value={
                  'X': {'worked': 0, 'exempt': 26}  # all exempt
@@ -523,8 +523,8 @@ class TestEdgeCases:
         from core.calculator import apply_v2_month_end
 
         pricing = _make_pricing()
-        with patch('core.calculator.get_scoring_card_entries', return_value=[]), \
-             patch('core.calculator.get_scoring_config', return_value={}), \
+        with patch('core.database.get_scoring_card_entries', return_value=[]), \
+             patch('core.database.get_scoring_config', return_value={}), \
              patch('core.calculator.compute_scoring_individuals', return_value={}), \
              patch('core.calculator._get_v2_attendance', return_value={}):
             f_W = apply_v2_month_end({}, [], '/tmp', '2026-08', pricing)
@@ -538,8 +538,8 @@ class TestEdgeCases:
         employees = [{'id': 'W1', 'name': 'W1'}]
         pricing = _make_pricing()
 
-        with patch('core.calculator.get_scoring_card_entries', return_value=[]), \
-             patch('core.calculator.get_scoring_config', return_value={}), \
+        with patch('core.database.get_scoring_card_entries', return_value=[]), \
+             patch('core.database.get_scoring_config', return_value={}), \
              patch('core.calculator.compute_scoring_individuals', return_value={}), \
              patch('core.calculator._get_v2_attendance', return_value={
                  'W1': {'worked': 0, 'exempt': 26}
@@ -612,8 +612,8 @@ class TestEdgeCases:
             'C': {'coefficient': 1.0},
             'D': {'coefficient': 0.6},
         }
-        with patch('core.calculator.get_scoring_card_entries', return_value=[]), \
-             patch('core.calculator.get_scoring_config', return_value={}), \
+        with patch('core.database.get_scoring_card_entries', return_value=[]), \
+             patch('core.database.get_scoring_config', return_value={}), \
              patch('core.calculator.compute_scoring_individuals', return_value=fake_indiv), \
              patch('core.calculator._get_v2_attendance', return_value={
                  'A': {'worked': 26, 'exempt': 0},

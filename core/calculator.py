@@ -1681,3 +1681,86 @@ def _get_scoring_bonus(data_folder, employee_id, month_prefix='', pool_info=None
     if key not in _SCORING_BONUS_CACHE:
         _SCORING_BONUS_CACHE[key] = compute_team_bonuses(data_folder, team_id, month_prefix, pool_info)
     return int(_SCORING_BONUS_CACHE[key]['bonuses'].get(employee_id, 0) or 0)
+
+
+# ── V2: 月末出勤/行为系数 + 零和归一 ──────────────────
+
+def _get_v2_attendance(data_folder, month_prefix):
+    """V2: 读取本月出勤统计 → {eid: {worked: int, exempt: int}}.
+    worked = status P 天数; exempt = status in {L, NU, E} 天数."""
+    result = {}
+    if not data_folder or not month_prefix:
+        return result
+    db_path = os.path.join(data_folder, 'kilwa.db')
+    if not os.path.exists(db_path):
+        return result
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    try:
+        for r in conn.execute(
+            "SELECT employee_id, date, status FROM attendance_overrides WHERE date LIKE ?",
+            (month_prefix + '%',)).fetchall():
+            eid, _dt, status = r[0], r[1], r[2]
+            if eid not in result:
+                result[eid] = {'worked': 0, 'exempt': 0}
+            if status == 'P':
+                result[eid]['worked'] += 1
+            elif status in ('L', 'NU', 'E'):
+                result[eid]['exempt'] += 1
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return result
+
+
+def apply_v2_month_end(base, employees, data_folder, month_prefix, pricing):
+    """V2 月末系数：A_W(出勤) + B_W(行为) → C_W → 零和归一 → {eid: f_W}.
+    base: {eid: unnormalized_base} (来自 calculate_all 逐日累积).
+    f_W: 每人最终系数，base * f_W = final (Σfinal == Σbase)."""
+    if not base:
+        return {}
+
+    from core.database import get_scoring_card_entries, get_scoring_config
+
+    accel_target = int(pricing.get('accel_target', 40) or 40)
+    accel_full_days = int(pricing.get('accel_full_days', 26) or 26)
+    w_a = float(pricing.get('accel_w_a', 0.6) or 0.6)
+    w_b = float(pricing.get('accel_w_b', 0.4) or 0.4)
+
+    # B_W: 行为系数（从评分互评获取）
+    entries = get_scoring_card_entries(data_folder, month=month_prefix) if data_folder else []
+    norm = normalize_scoring_entries(entries or [])
+    config = get_scoring_config(data_folder) if data_folder else {}
+    indiv = compute_scoring_individuals(norm, config)
+    bw = {}
+    for eid in base:
+        bw[eid] = indiv.get(eid, {}).get('coefficient', 1.0)
+
+    # A_W: 出勤系数
+    att_stats = _get_v2_attendance(data_folder, month_prefix) if data_folder else {}
+    aw = {}
+    for eid in base:
+        stats = att_stats.get(eid, {'worked': 0, 'exempt': 0})
+        eligible = accel_full_days - stats['exempt']
+        if eligible <= 0:
+            aw[eid] = 1.0
+        else:
+            aw[eid] = min(stats['worked'] / eligible, 1.0)
+
+    # C_W = w_a * A_W + w_b * B_W
+    cw = {}
+    for eid in base:
+        cw[eid] = w_a * aw[eid] + w_b * bw[eid]
+
+    # raw = base * C_W; k = F / Σraw; f_W = C_W * k
+    F = sum(base.values())
+    if F <= 0:
+        return {eid: 1.0 for eid in base}
+
+    raw_sum = sum(base[eid] * cw[eid] for eid in base)
+    if raw_sum <= 0:
+        return {eid: 1.0 for eid in base}
+
+    k = F / raw_sum
+    return {eid: cw[eid] * k for eid in base}
