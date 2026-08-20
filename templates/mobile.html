@@ -1370,7 +1370,7 @@
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
-      + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
+      + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button><button class="btn" onclick="attBatchAll(\'E\')">'+t('shift_E_label')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
@@ -1396,7 +1396,7 @@
     if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
-      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
+      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','E'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
