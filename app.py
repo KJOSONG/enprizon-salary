@@ -816,7 +816,7 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, phone, team_id, custom_number, tin_number
+               nssf_enrolled, nssf_number, phone, team_id, custom_number, tin_number
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -839,6 +839,7 @@ def load_employees_from_db(data_folder):
             'advance_total': 0,
             'phone': r['phone'] or '',
             'nssf_enrolled': bool(r['nssf_enrolled']),
+            'nssf_number': r['nssf_number'] or '',  # NSSF 社保号（有号即参保）
             'team_id': r['team_id'] or 0,   # P15: 评分奖金按班组归属
             'custom_number': r['custom_number'] or '',  # 工号（新入职自动递增生成）
             'tin_number': r['tin_number'] or '',  # TIN号码（无TIN不扣PAYE）
@@ -942,11 +943,9 @@ def _run_pipeline(month_filter=None):
 
     APP_STATE['address_book'] = {}
 
-    # ── NSSF（社保）参保状态 ──
-    from core.nssf import load_nssf_enrollment
-    nssf_enrollment = load_nssf_enrollment(app.config['DATA_FOLDER'])
+    # ── NSSF（社保）参保状态：以 nssf_number 有值为准（SDL Excel 上传方式已废弃）──
     for emp in employees:
-        emp['nssf_enrolled'] = nssf_enrollment.get(emp['id'], {}).get('enrolled', False)
+        emp['nssf_enrolled'] = bool((emp.get('nssf_number') or '').strip())
     APP_STATE['nssf_sdl_members'] = {}
 
     # ── 加载持久化的日薪/月薪基数 + override_type ──

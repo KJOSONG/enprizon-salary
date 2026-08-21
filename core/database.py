@@ -2215,6 +2215,13 @@ def update_employee_fields(data_folder, employee_id, fields):
             if _dept not in ('PRODUCTIONTEAM(UNDERGROUND)', 'DRILLERTEAM'):
                 fields['team_id'] = 0
     updates = {k: v for k, v in fields.items() if k in allowed}
+    # 归一化 NSSF/TIN 号码：去除连字符与空白（统一格式）
+    for _k in ('nssf_number', 'tin_number'):
+        if _k in updates and updates[_k] is not None:
+            updates[_k] = str(updates[_k]).replace('-', '').strip()
+    # NSSF 参保以 nssf_number 有值为准（填号即参保）
+    if 'nssf_number' in updates:
+        updates['nssf_enrolled'] = bool(updates['nssf_number'])
     if not updates:
         return False
     conn = get_conn(data_folder)
