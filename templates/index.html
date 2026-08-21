@@ -3340,7 +3340,7 @@ async function loadEmployeeProfilePage(eid) {
           <div class="timeline-content">
             <div class="timeline-header">
               <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
-              <span class="timeline-date">${ev.effective_date}</span>
+              <span class="timeline-date">${ev.event_type === 'salary_change' ? (ev.created_at || ev.effective_date).slice(0,16) : ev.effective_date}</span>
               <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
               ${canEdit ? `<button onclick="editEvent(${ev.id}, '${ev.event_type}', '${ev.effective_date}', '${btoa(encodeURIComponent(ev.payload||'{}'))}')" style="font-size:10px;padding:1px 6px;margin-left:auto;">✎</button>` : ''}
               ${canDelete ? `<button onclick="deleteEvent(${ev.id}, '${eid}')" style="font-size:10px;padding:1px 6px;color:var(--danger);">🗑</button>` : ''}
