@@ -1658,6 +1658,10 @@ def api_employee_salary_type(employee_id):
                                      st, day_rate, monthly_salary)
     if not ok:
         return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    # P26: 档案页改薪资类别 = 权威设置——清除该员工遗留的永久覆盖，避免
+    # override_type 优先掩盖新 default_type（HALIMA 案例：day_rate 永久覆盖残留导致改月薪不生效）
+    from core.database import clear_permanent_overrides
+    clear_permanent_overrides(app.config['DATA_FOLDER'], employee_id)
     # 写 salary_change 事件（approved，本月 1 号生效）→ 时间线记录 + 下月起覆盖推导
     username = session.get('username', 'unknown')
     create_event(app.config['DATA_FOLDER'], {

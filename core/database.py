@@ -716,11 +716,33 @@ def load_overrides(data_folder, month=None):
     for eid in list(result.keys()):
         perms = [o for o in result[eid] if not o['start_date'] and not o['end_date'] and o['salary_type'] and o['type'] != 'exclusion']
         if len(perms) > 1:
-            # 保留 effective_from 最大的那条；同 effective_from 时优先保留有金额的（day_rate>0 或 monthly_salary>0）
-            perms.sort(key=lambda x: (x['effective_from'], 1 if (x['day_rate'] > 0 or x['monthly_salary'] > 0) else 0), reverse=True)
+            # 保留 effective_from 最大的那条；同 effective_from 时优先保留有金额的（day_rate>0 或 monthly_salary>0）；
+            # 仍打平（双方都有金额）时保留 id 最大的（最近添加的意图胜出，P26 修复：
+            # 旧代码稳定排序保留最早 id，导致 day_rate 永久覆盖掩盖后续 monthly 覆盖）
+            perms.sort(key=lambda x: (x['effective_from'],
+                                      1 if (x['day_rate'] > 0 or x['monthly_salary'] > 0) else 0,
+                                      x['id']), reverse=True)
             keep_id = perms[0]['id']
             result[eid] = [o for o in result[eid] if not (not o['start_date'] and not o['end_date'] and o['salary_type'] and o['type'] != 'exclusion') or o['id'] == keep_id]
     return result
+
+
+def clear_permanent_overrides(data_folder, employee_id):
+    """P26: 删除员工的所有永久覆盖（无日期区间、非排除记录）。
+
+    档案页修改薪资类别时调用——新类型写入 employees.default_type 后，遗留的
+    永久覆盖会以 override_type 优先掩盖新类型（计算与档案展示均不生效）。
+    临时例外（有日期区间）与排除记录不受影响。
+    """
+    conn = get_conn(data_folder)
+    conn.execute("""
+        DELETE FROM overrides
+        WHERE employee_id=? AND type != 'exclusion'
+          AND (start_date IS NULL OR start_date='')
+          AND (end_date IS NULL OR end_date='')
+    """, (employee_id,))
+    conn.commit()
+    conn.close()
 
 def save_override(data_folder, data):
     conn = get_conn(data_folder)
