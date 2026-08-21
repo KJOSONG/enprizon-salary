@@ -3095,7 +3095,6 @@ async function renderEmployeeTable() {
     const res = await fetch(api('/api/employees?status=active'));
     const data = await res.json();
     const emps = data.employees || [];
-    document.getElementById('empCount').textContent = emps.length + ' ' + t('unit_person');
 
     // 填充部门筛选（P13.1: 重建下拉前保留选中值）
     const sel = document.getElementById('empFilterDept');
@@ -3135,6 +3134,9 @@ async function renderEmployeeTable() {
       if (tFilter && e.team_id && String(e.team_id) !== tFilter) return false;
       return true;
     });
+
+    // 右上角人数跟随部门/班组/搜索筛选动态变化（不再固定显示全量）
+    document.getElementById('empCount').textContent = filtered.length + ' ' + t('unit_person');
 
     tbody.innerHTML = filtered.map(e => {
       const teamName = e.team_id && teamMap[e.team_id] ? escHtml(teamMap[e.team_id]) : '';
