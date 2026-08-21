@@ -3296,10 +3296,24 @@ async function loadEmployeeProfilePage(eid) {
         let payload = {};
         try { payload = JSON.parse(ev.payload || '{}'); } catch(e) {}
         let details = '';
+        // P26-b: 时间线详情键与事件 payload 键对齐（此前读 old_type/from_department 等不存在的键 → "? 0 → ? 0"）
         if (ev.event_type === 'transfer') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.from_department||'?'} → ${payload.to_department||'?'}</div>`;
+          // 实际键: new_department / new_position（OA 调岗表单）
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.new_department||'?')}${payload.new_position ? ' · ' + escHtml(payload.new_position) : ''}</div>`;
         } else if (ev.event_type === 'salary_change') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.old_type||'?'} ${fmtNum(payload.old_salary||0)} → ${payload.new_type||'?'} ${fmtNum(payload.new_salary||0)}</div>`;
+          // 实际键: salary_type / day_rate / monthly_salary（档案页端点）；事件含 old_type/old_salary 时显示 旧 → 新
+          const scTxt = (ty, base) => {
+            const lbl = TYPE_LBL[ty] || ty;
+            const bs = ty === 'day_rate' ? fmtNum(base||0) + ' TZS' + t('salary_per_day')
+                     : ty === 'monthly' ? fmtNum(base||0) + ' TZS' + t('salary_per_month') : '';
+            return bs ? lbl + ' · ' + bs : lbl;
+          };
+          const newBase = payload.salary_type === 'day_rate' ? payload.day_rate : payload.monthly_salary;
+          let sc = scTxt(payload.salary_type, newBase);
+          if (payload.old_type) sc = scTxt(payload.old_type, payload.old_salary) + ' → ' + sc;
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(sc)}</div>`;
+        } else if (ev.event_type === 'dismiss') {
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.reason||'')}</div>`;
         } else if (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') {
           const startDate = payload.start_date || ev.effective_date;
           const days = payload.days || 1;
@@ -3309,13 +3323,13 @@ async function loadEmployeeProfilePage(eid) {
             d.setDate(d.getDate() + days - 1);
             endDate = d.toISOString().split('T')[0];
           }
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${startDate} ~ ${endDate||'?'} (${days}天)</div>`;
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(startDate)} ~ ${escHtml(endDate||'?')} (${days}天)</div>`;
         } else if (ev.event_type === 'overtime') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.date||'?'} ${payload.start_time||''}-${payload.end_time||''} (${payload.hours||0}h)</div>`;
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.date||'?')} ${escHtml(payload.start_time||'')}-${escHtml(payload.end_time||'')} (${payload.hours||0}h)</div>`;
         } else if (ev.event_type === 'note') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.content||''}</div>`;
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.content||'')}</div>`;
         } else if (payload.note) {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.note}</div>`;
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.note)}</div>`;
         }
         const isNote = ev.event_type === 'note';
         const canEdit = isNote || (ev.status === 'approved' && ['annual_leave','comp_leave','overtime'].includes(ev.event_type));
