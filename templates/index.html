@@ -3188,18 +3188,28 @@ async function loadEmployeeProfilePage(eid) {
       ? '<span style="color:var(--success);">' + t('emp_status_active') + '</span>'
       : '<span style="color:var(--danger);">' + t('emp_status_dismissed') + '</span>';
     document.getElementById('pfDept').textContent = emp.department;
-    // 班组 (team) display —— 仅井下生产工人/钻工显示（按 default_type）
-    const showTeamRow = (emp.default_type === 'piece_underground' || emp.default_type === 'piece_driller');
+    // 班组 (team) display —— 按部门：井下出渣→井下班组，钻工→钻工队长；其他部门不显示
+    const deptNorm = normDept(emp.department);
+    const showTeamRow = (deptNorm === 'PRODUCTIONTEAM(UNDERGROUND)' || deptNorm === 'DRILLERTEAM');
     const pfTeamRowEl = document.getElementById('pfTeamRow');
     if (pfTeamRowEl) pfTeamRowEl.style.display = showTeamRow ? '' : 'none';
-    try {
-      const gRes = await fetch(api('/api/employee_groups'));
-      const gData = (await gRes.json()).groups || [];
-      const gMap = {};
-      gData.forEach(g => { gMap[g.id] = g.name; });
-      const pfTeamEl = document.getElementById('pfTeam');
-      if (pfTeamEl) pfTeamEl.textContent = (emp.team_id && gMap[emp.team_id]) || '—';
-    } catch(e) { const pfTeamEl = document.getElementById('pfTeam'); if (pfTeamEl) pfTeamEl.textContent = '—'; }
+    const pfTeamEl = document.getElementById('pfTeam');
+    if (!showTeamRow) { if (pfTeamEl) pfTeamEl.textContent = '—'; }
+    else if (deptNorm === 'PRODUCTIONTEAM(UNDERGROUND)') {
+      try {
+        const gRes = await fetch(api('/api/employee_groups'));
+        const gData = (await gRes.json()).groups || [];
+        const gMap = {};
+        gData.forEach(g => { gMap[g.id] = g.name; });
+        if (pfTeamEl) pfTeamEl.textContent = (emp.team_id && gMap[emp.team_id]) || '—';
+      } catch(e) { if (pfTeamEl) pfTeamEl.textContent = '—'; }
+    } else if (deptNorm === 'DRILLERTEAM') {
+      try {
+        const caps = await ensureDrCaptains();
+        const cap = caps.find(c => String(c.employee_id) === String(emp.team_id));
+        if (pfTeamEl) pfTeamEl.textContent = cap ? cap.name : '—';
+      } catch(e) { if (pfTeamEl) pfTeamEl.textContent = '—'; }
+    }
     document.getElementById('pfCustomNumber').textContent = emp.custom_number || emp.id;
     document.getElementById('pfAlias').textContent = emp.alias || '—';
     document.getElementById('pfAliasRow').textContent = emp.alias || '—';
@@ -3583,14 +3593,23 @@ async function editEmployeeProfile() {
   // 日期字段仅当值为合法 YYYY-MM-DD 才回填（type=date 要求）
   const dateVal = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v||'')) ? String(v) : '';
 
-  // P10: 班组列表
-  let groups = [];
-  try {
-    const gRes = await fetch(api('/api/employee_groups'));
-    groups = (await gRes.json()).groups || [];
-  } catch(e) {}
-  const groupOpts = groups.map(gr =>
-    `<option value="${gr.id}" ${String(emp.team_id) === String(gr.id) ? 'selected' : ''}>${escHtml(gr.name)}</option>`).join('');
+  // 班组选项：按部门分源（井下出渣→井下班组 employee_groups；钻工→钻工队长 driller_captains）
+  const deptNormEdit = normDept(emp.department);
+  const showTeamEdit = (deptNormEdit === 'PRODUCTIONTEAM(UNDERGROUND)' || deptNormEdit === 'DRILLERTEAM');
+  let teamOpts = '';
+  if (deptNormEdit === 'PRODUCTIONTEAM(UNDERGROUND)') {
+    let groups = [];
+    try {
+      const gRes = await fetch(api('/api/employee_groups'));
+      groups = (await gRes.json()).groups || [];
+    } catch(e) {}
+    teamOpts = groups.map(gr =>
+      `<option value="${gr.id}" ${String(emp.team_id) === String(gr.id) ? 'selected' : ''}>${escHtml(gr.name)}</option>`).join('');
+  } else if (deptNormEdit === 'DRILLERTEAM') {
+    const caps = await ensureDrCaptains();
+    teamOpts = caps.map(c =>
+      `<option value="${escHtml(c.employee_id)}" ${String(emp.team_id) === String(c.employee_id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+  }
 
   let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;max-width:440px;width:95vw;max-height:85vh;overflow-y:auto;padding:20px;">';
   form += '<h3 style="margin-bottom:12px;">' + t('emp_edit_title') + ' — ' + g(emp.name) + '</h3>';
@@ -3614,8 +3633,8 @@ async function editEmployeeProfile() {
   if (!isSA) {
     form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('dept_superadmin_only')}</div>`;
   }
-  // 班组（展示页顺序：部门→班组→工号→岗位；仅井下生产工人/钻工显示）
-  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${groupOpts}</select></div>`;
+  // 班组（展示页顺序：部门→班组→工号→岗位；按部门仅井下出渣/钻工显示）
+  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${teamOpts}</select></div>`;
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
   // 薪资类型不在此处修改（档案页面有独立修改入口）
@@ -3649,10 +3668,13 @@ async function editEmployeeProfile() {
   modal.innerHTML = form;
   document.body.appendChild(modal);
   toggleSalaryBaseFields();
+  // 班组行显隐由部门控制（井下出渣/钻工显示，其他隐藏）
+  const rowTeamEl = document.getElementById('pfEdit_row_team');
+  if (rowTeamEl) rowTeamEl.style.display = showTeamEdit ? '' : 'none';
   applyI18n();
 }
 
-/* P7: 按薪资类别显隐基数输入 + P10: 班组仅井下生产工人/钻工 */
+/* P7: 按薪资类别显隐基数输入（班组显隐由部门控制，见 editEmployeeProfile） */
 function toggleSalaryBaseFields() {
   const sel = document.getElementById('pfEdit_salary_type');
   if (!sel) return;
@@ -3661,8 +3683,6 @@ function toggleSalaryBaseFields() {
   const rowMs = document.getElementById('pfEdit_row_monthly');
   if (rowDr) rowDr.style.display = (v === 'day_rate') ? '' : 'none';
   if (rowMs) rowMs.style.display = (v === 'monthly') ? '' : 'none';
-  const rowTeam = document.getElementById('pfEdit_row_team');
-  if (rowTeam) rowTeam.style.display = (v === 'piece_underground' || v === 'piece_driller') ? '' : 'none';
 }
 
 function openPayslipModal() {
@@ -3820,9 +3840,9 @@ async function saveEmployeeProfile(eid) {
     .forEach(f => { data[f] = document.getElementById('pfEdit_' + f).value.trim(); });
   // 部门仅超级管理员可直改，非超管兜底移除，防误传/绕过
   if (!isSA) delete data.department;
-  // P14.10: 班组仅井下生产工人/钻工（其他类型置 0）
-  const salType = document.getElementById('pfEdit_salary_type').value;
-  data.team_id = (salType === 'piece_underground' || salType === 'piece_driller')
+  // 班组仅井下出渣/钻工部门（按部门判定；其他部门置 0）
+  const deptSave = normDept(document.getElementById('pfEdit_department').value);
+  data.team_id = (deptSave === 'PRODUCTIONTEAM(UNDERGROUND)' || deptSave === 'DRILLERTEAM')
     ? (parseInt(document.getElementById('pfEdit_team_id').value) || 0) : 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
 

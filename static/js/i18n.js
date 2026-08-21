@@ -84,7 +84,7 @@ const I18N_DICT = {
     override_on: '已开启年假资格豁免',
     override_off: '已关闭年假资格豁免',
     dept_superadmin_only: '部门仅超级管理员可修改，如需变更请走 OA 调岗审批',
-    groups_title: '评分班组',
+    groups_title: '井下班组',
     btn_add: '添加',
     btn_rename: '改名',
     /* P10 评分录入 */
@@ -1214,7 +1214,7 @@ const I18N_DICT = {
     override_on: 'Annual leave override enabled',
     override_off: 'Annual leave override disabled',
     dept_superadmin_only: 'Department can only be changed by super admin; use OA transfer for approval',
-    groups_title: 'Scoring Teams',
+    groups_title: 'Underground Teams',
     btn_add: 'Add',
     btn_rename: 'Rename',
     /* P10 Scoring entry */
