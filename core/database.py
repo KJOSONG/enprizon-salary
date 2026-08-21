@@ -539,80 +539,79 @@ def init_db(data_folder):
     """)
     conn.commit()
     _migrate_json(conn, data_folder)
-    _migrate_collection_timestamps(conn)
+    _migrate_localtime_timestamps(conn)
     conn.close()
 
-def _migrate_collection_timestamps(conn):
-    """P24-FIX: 修复 collection_submissions/collection_history 时间戳时区。
+def _migrate_localtime_timestamps(conn, offset_h=None):
+    """P26-d: 全表时间戳统一 UTC+3（坦桑尼亚时间）。
 
-    旧版本建表时 created_at/updated_at DEFAULT 为 datetime('now','localtime')
-    （服务器 CST=UTC+8），而 CREATE TABLE IF NOT EXISTS 不会更新已存在表，
-    导致 INSERT 未显式传时间时写入 UTC+8，比 UTC+3 快 5 小时（audit_log 正确）。
-    检测到 localtime 时重建表：DEFAULT 改为 +3 hours，存量时间戳减 5 小时统一为 UTC+3。
-    幂等：DDL 已含 '+3 hours' 则跳过。
+    旧版建表 DEFAULT 为 datetime('now','localtime')——在 CST(UTC+8) 服务器上写入的
+    时间比 UTC+3 快 5 小时（audit_log 显式 UTC+3 不受影响）。2026-08-14~15 数据库
+    曾在本机（UTC+3）运行，该时段行已是正确 EAT，不可平移。
+    规则：
+      1) 所有 DDL 含 localtime 的表重建：DEFAULT 改 '+3 hours'（幂等，已迁移则跳过）；
+      2) 运行机偏移 ≠3h（如服务器 CST）时：存储值按 EAT 解释落在
+         EAT_WINDOW=2026-08-14 00:00 ~ 2026-08-15 23:59 之外的行 -5h（服务器写入期）；
+      3) 运行机偏移 ==3h（本机 EAT）时：只重建 DDL，不平移数据（本地行均为 EAT）；
+      4) audit_log / dismissed_employees / approval_routes：数据由代码显式 UTC+3
+         写入，只重建 DDL 不平移。
+    offset_h 供测试注入；None 时按运行机实际偏移计算。
     """
     c = conn.cursor()
-
-    def _ddl(name):
-        r = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
-        return r[0] if r else ''
-
-    if 'localtime' not in _ddl('collection_submissions'):
-        return  # 表不存在或已迁移
-
+    if offset_h is None:
+        row = c.execute(
+            "SELECT (strftime('%s','now','localtime') - strftime('%s','now')) / 3600").fetchone()
+        offset_h = int(row[0])
+    tables = [r[0] for r in c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%localtime%'")]
+    if not tables:
+        return
+    NO_SHIFT_TABLES = {'audit_log', 'dismissed_employees', 'approval_routes'}
+    W0, W1 = '2026-08-14 00:00:00', '2026-08-15 23:59:59'
+    shifted, rebuilt = [], []
     try:
         conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("BEGIN")
-        # 1. 重建 collection_submissions
-        conn.execute("""
-            CREATE TABLE collection_submissions_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                form_type TEXT NOT NULL,
-                submission_date TEXT NOT NULL,
-                payload TEXT NOT NULL DEFAULT '{}',
-                operator_id TEXT NOT NULL,
-                month TEXT NOT NULL,
-                department TEXT DEFAULT '',
-                created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
-                version INTEGER NOT NULL DEFAULT 1
-            )
-        """)
-        conn.execute("""
-            INSERT INTO collection_submissions_new
-                (id, form_type, submission_date, payload, operator_id, month, department, created_at, updated_at, version)
-            SELECT id, form_type, submission_date, payload, operator_id, month, department,
-                   COALESCE(datetime(created_at, '-5 hours'), created_at),
-                   COALESCE(datetime(updated_at, '-5 hours'), updated_at), version
-            FROM collection_submissions
-        """)
-        conn.execute("DROP TABLE collection_submissions")
-        conn.execute("ALTER TABLE collection_submissions_new RENAME TO collection_submissions")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_month ON collection_submissions(month, form_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_date ON collection_submissions(submission_date)")
-        # 2. 重建 collection_history（FK 引用 collection_submissions.id，id 保留不受影响）
-        if 'localtime' in _ddl('collection_history'):
-            conn.execute("""
-                CREATE TABLE collection_history_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    submission_id INTEGER NOT NULL,
-                    version INTEGER NOT NULL,
-                    payload TEXT NOT NULL,
-                    operator_id TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
-                    FOREIGN KEY (submission_id) REFERENCES collection_submissions(id)
-                )
-            """)
-            conn.execute("""
-                INSERT INTO collection_history_new (id, submission_id, version, payload, operator_id, created_at)
-                SELECT id, submission_id, version, payload, operator_id,
-                       COALESCE(datetime(created_at, '-5 hours'), created_at)
-                FROM collection_history
-            """)
-            conn.execute("DROP TABLE collection_history")
-            conn.execute("ALTER TABLE collection_history_new RENAME TO collection_history")
+        for t in tables:
+            ddl = c.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (t,)).fetchone()[0]
+            if not ddl or 'localtime' not in ddl:
+                continue
+            loc_cols = set()
+            for ln in ddl.split('\n'):
+                if 'localtime' in ln:
+                    loc_cols.add(ln.strip().split()[0].strip('"'))
+            new_t = t + '__tz'
+            c.execute(f'DROP TABLE IF EXISTS "{new_t}"')
+            c.execute(ddl.replace(t, new_t, 1).replace(
+                "datetime('now','localtime')", "datetime('now','+3 hours')"))
+            names = [r[1] for r in c.execute(f'PRAGMA table_info("{t}")').fetchall()]
+            shift_cols = loc_cols if (t not in NO_SHIFT_TABLES and offset_h != 3) else set()
+            sel = []
+            for nm in names:
+                if nm in shift_cols:
+                    sel.append(
+                        f'CASE WHEN "{nm}" IS NULL OR "{nm}"=\'\' '
+                        f'OR ("{nm}" >= \'{W0}\' AND "{nm}" <= \'{W1}\') '
+                        f'THEN "{nm}" ELSE datetime("{nm}", \'-5 hours\') END')
+                else:
+                    sel.append(f'"{nm}"')
+            c.execute(
+                f'INSERT INTO "{new_t}" ({", ".join(f"\"{n}\"" for n in names)}) '
+                f'SELECT {", ".join(sel)} FROM "{t}"')
+            idxs = c.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? "
+                "AND sql IS NOT NULL", (t,)).fetchall()
+            c.execute(f'DROP TABLE "{t}"')
+            c.execute(f'ALTER TABLE "{new_t}" RENAME TO "{t}"')
+            for (isql,) in idxs:
+                c.execute(isql)
+            rebuilt.append(t)
+            if shift_cols:
+                shifted.append(t)
         conn.execute("COMMIT")
-        print("[migration] collection_submissions/collection_history 时间戳已统一为 UTC+3")
+        print(f"[migration] 时区统一 UTC+3: 重建 {len(rebuilt)} 张表 {rebuilt}"
+              f"{'，存量 -5h 平移: ' + str(shifted) if shifted else ''}")
     except Exception:
         try:
             conn.execute("ROLLBACK")

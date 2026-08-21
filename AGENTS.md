@@ -126,6 +126,8 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 - **P5 新增**：`seed_new_tables_from_excel()` 从 `data/source/*.xlsx` 重建 employees + hire 事件（仅首次）
 - **P5 新增**：`seed_default_forms()` 预置 6 张表单 schema（入职/档案/调岗/出勤/产量×3）
 - **P5 新增**：`init_default_permissions()` 初始化 4 角色默认权限到 `permissions` 表
+- **P26-d 新增**：`_migrate_localtime_timestamps()` 启动迁移——**全系统时间戳统一 UTC+3（EAT）**。服务器曾为 CST(UTC+8)，旧表 DEFAULT `datetime('now','localtime')` 写入的时间快 5 小时；迁移重建所有含 localtime 默认值的表为 `+3 hours`，并按运行机偏移修正存量（EAT 本机只重建不平移；CST 服务器对 2026-08-14~15 EAT 运行期之外的行 -5h）。audit_log/dismissed_employees/approval_routes 数据为显式 UTC+3 写入不受影响
+- **服务器时区**：生产机 `timedatectl` 与 systemd 单元均设 `Africa/Dar_es_Salaam`（UTC+3），保证任何 `localtime` 用法与 `datetime.now()`（工资单文件名）均为坦桑尼亚时间
 - **Headless 模式**：切换到无数据月份时，自动生成该月所有自然日期，仅支持出勤记录（P/A/L 手动标记），前端顶部显示 "Preview Mode" 横幅
 
 ## 架构要点
