@@ -2466,6 +2466,102 @@ def adjust_leave_balance(data_folder, employee_id, year, sick_entitled=None, sic
     return True
 
 
+# ── P28: 调休月度累积 ────────────────
+
+COMP_MONTHLY_DAYS = 4  # 每月调休额度（月=4周，每周1天）
+_COMP_ACCRUAL_KEY = 'comp_leave_accrued_through'
+
+def _eat_now():
+    import datetime
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+
+def _parse_ym(s):
+    """解析 YYYY-MM → (year, month)，非法返回 None"""
+    try:
+        if len(s) == 7 and s[4] == '-' and s[0] != '-':
+            y, m = int(s[:4]), int(s[5:7])
+            if 1 <= m <= 12:
+                return y, m
+    except ValueError:
+        pass
+    return None
+
+def _comp_days_for_hire_month(day):
+    """入职当月按周折算——月=4周，入职所在周起每周计1天：
+    第1周(1-7日)→4天，第2周(8-14)→3天，第3周(15-21)→2天，第4周(22-31)→1天"""
+    week = min((day + 6) // 7, 4)
+    return 5 - week
+
+def accrue_comp_leave_monthly(data_folder):
+    """P28: 调休余额按月自动入账（每月+4，月初一次性；入职当月按周折算；
+    hire_date 为空视为老员工整月；仅 active 员工）。
+
+    幂等：settings 键 comp_leave_accrued_through 记水位（YYYY-MM），只补水位之后
+    的月份；首次启用只入账当前月，不回溯历史。BEGIN IMMEDIATE 下先抢写锁再读
+    水位，并发调用不会双倍入账。返回 {'accrued_months', 'employees'}，无欠账返回 None。
+    """
+    import datetime
+    cur_ym = _eat_now().strftime('%Y-%m')
+    conn = get_conn(data_folder)
+    try:
+        conn.execute("BEGIN IMMEDIATE")  # 先抢写锁、后读水位，防并发双记账
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (_COMP_ACCRUAL_KEY,)).fetchone()
+        wm = (row['value'] or '').strip() if row else ''
+        cur_pair = _parse_ym(cur_ym)
+        wm_pair = _parse_ym(wm)
+        if wm_pair is not None and cur_pair is not None and wm_pair >= cur_pair:
+            conn.rollback()  # 已入账到当前月；水位超前（时钟回拨/手改）同样跳过
+            return None
+        months = []
+        if wm_pair and cur_pair:
+            y, m = wm_pair
+            ty, tm = cur_pair
+            while (y, m) != (ty, tm):
+                m += 1
+                if m > 12:
+                    y, m = y + 1, 1
+                months.append(f'{y:04d}-{m:02d}')
+        if not months:
+            months = [cur_ym]  # 首次启用或水位非法：只入账当前月
+
+        emps = conn.execute(
+            "SELECT id, hire_date FROM employees WHERE status='active'").fetchall()
+        credited = set()
+        for ym in months:
+            yy, mm = int(ym[:4]), int(ym[5:7])
+            for e in emps:
+                hd = (e['hire_date'] or '').strip()
+                days = COMP_MONTHLY_DAYS
+                if hd:
+                    try:
+                        d = datetime.date.fromisoformat(hd)
+                        if (d.year, d.month) > (yy, mm):
+                            continue
+                        if (d.year, d.month) == (yy, mm):
+                            days = _comp_days_for_hire_month(d.day)
+                    except ValueError:
+                        pass  # hire_date 格式无效 → 按老员工给整月
+                if days <= 0:
+                    continue
+                conn.execute("""
+                    INSERT INTO leave_balances (employee_id, year, comp_entitled)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(employee_id, year) DO UPDATE SET
+                        comp_entitled=comp_entitled+?,
+                        updated_at=datetime('now','+3 hours')
+                """, (e['id'], str(yy), days, days))
+                credited.add(e['id'])
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                     (_COMP_ACCRUAL_KEY, cur_ym))
+        conn.commit()
+        return {'accrued_months': months, 'employees': len(credited)}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ── P2: 年假资格校验 ────────────────
 
 def check_annual_leave_eligible(data_folder, employee_id):

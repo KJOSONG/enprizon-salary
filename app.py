@@ -1846,6 +1846,12 @@ def oa_approve_event(event_id):
     # P13: 自审限制——super_admin 例外，可批准自己提交的事件
     if event['operator_id'] == username and session.get('role') != 'super_admin':
         return jsonify({'ok': False, 'error': '不能批准自己提交的事件'}), 400
+    # P28: 须在 approve_event 抢占状态之前入账——放后面会把批准卡死在无法回退的半途
+    from core.database import accrue_comp_leave_monthly
+    try:
+        accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'调休入账失败，请稍后重试: {e}'}), 500
     # 并发安全：先用 approve_event 原子抢占（pending→approved，WHERE status='pending'），
     # 抢到的请求才执行副作用；失败回滚状态。防同一事件并发双审批/双扣。
     ok = approve_event(app.config['DATA_FOLDER'], event_id, username)
@@ -2162,7 +2168,12 @@ def oa_submit_leave():
 def leave_balance(employee_id):
     import datetime as _dt
     year = request.args.get('year', str(_dt.datetime.now(_dt.timezone(_dt.timedelta(hours=3))).year))
-    from core.database import get_leave_balance
+    from core.database import get_leave_balance, accrue_comp_leave_monthly, log_audit
+    try:
+        accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
+    except Exception as e:
+        log_audit(app.config['DATA_FOLDER'], 'comp_accrual_lazy_failed', employee_id,
+                  json.dumps({'error': str(e)}))
     balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year)
     return jsonify({'balance': balance})
 
@@ -4853,6 +4864,13 @@ def seed_new_tables_from_excel():
 def auto_load_source():
     """纯采集模式：从数据库重建并加载当前月份数据"""
     from datetime import datetime
+    from core.database import accrue_comp_leave_monthly
+    try:
+        r = accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
+        if r:
+            print(f"  ✓ P28 调休月度入账 {','.join(r['accrued_months'])}（{r['employees']} 人）")
+    except Exception as e:
+        print(f'  ⚠ P28 调休月度入账失败: {e}')
     current_month = datetime.now(EAT).strftime('%Y-%m')
     chosen_month = current_month
 
