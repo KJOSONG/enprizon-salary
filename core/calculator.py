@@ -840,7 +840,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
                     scoring_employees.add(eid)
                     for dt in all_dates:
-                        per_date_type[eid][dt] = 'monthly'
+                        # P27: 临时例外优先于模式重定向——带日期区间的临时例外（如 8月过渡日薪）
+                        # 先于本块写入 per_date_type（见上方 787 行临时例外循环），此处不得覆盖。
+                        if dt not in per_date_type.get(eid, {}):
+                            per_date_type[eid][dt] = 'monthly'
         elif underground_mode == 'v2':
             pass  # V2: no scoring redirect, keep piece_underground type
 
@@ -1284,7 +1287,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
                     scoring_employees.add(eid)
                     for dt in all_dates:
-                        per_date_type[eid][dt] = 'monthly'
+                        # P27: 临时例外优先于模式重定向（与 calculate_all 843 行保持一致）
+                        if dt not in per_date_type.get(eid, {}):
+                            per_date_type[eid][dt] = 'monthly'
         elif underground_mode == 'v2':
             pass  # V2: no scoring redirect
         combined_excl = exclusions | att_exclusions | range_exclusions

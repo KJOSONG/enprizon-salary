@@ -776,9 +776,7 @@
   }
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
   function renderEmpProfile(e, att, sal){
-    // P22 R6/R7: 顶层部门（ENPRIZON LINDI PROJECT）员工不显示薪资概览与薪资类别行（替代原硬编码名单）
-    const isUgDept = ((e.department || '') || '').trim() === 'ENPRIZON LINDI PROJECT';
-    const hideSalary = isUgDept;
+    // P22 R6/R7: 移动端员工详情不显示薪资内容（全员隐藏，不再依赖部门判断）
     const role = STATE.auth && STATE.auth.role;
     // P18 阶段3: 档案编辑入口统一走 employees:edit
     const canEdit = hasPermission('employees','edit');
@@ -787,10 +785,6 @@
     let attDays=0, leaveDays=0, absentDays=0;
     const attRow = att && att.rows ? att.rows.find(r=>r.id===e.id) : null;
     if(attRow && attRow.days){ Object.values(attRow.days).forEach(s=>{ const v=(s||'').toUpperCase(); if(v==='P'||v==='D'||v==='N'||v==='C'||v==='R'||v==='B') attDays++; else if(v==='L') leaveDays++; else if(v==='A') absentDays++; }); }
-    // 薪资概览
-    let gross=null, net=null;
-    const salRow = sal && sal.result && sal.result.employees ? sal.result.employees.find(r=>r.employee_id===e.id) : null;
-    if(salRow){ gross=salRow.gross; net=salRow.net; }
     const base = STATE.employees.find(x=>x.id===e.id) || {};
     const idTags = [];
     if(e.custom_number) idTags.push('<span class="profile-tag profile-tag--primary">#'+esc(e.custom_number)+'</span>');
@@ -802,12 +796,7 @@
       + '</div>';
     // 基本信息
     html += '<div class="info-section"><div class="info-section__title">'+t('basic_info')+'</div>';
-    // R1: 薪资类别行（P22 R6/R7: 只保留类型名，去掉金额后缀；UG 部门整行不显示）
-    const TYPE_LBL = { piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
-    let salTypeVal = e.override_type||e.default_type||'';
-    let salTypeText = TYPE_LBL[salTypeVal] || salTypeVal;
     const info = [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']];
-    if(!isUgDept) info.splice(5, 0, ['salary_type', salTypeText]);
     info.forEach(r=>{ if(r[1]!=null&&r[1]!=='') html+=kv(t(r[0]), r[1]); });
     html += '</div>';
     // 出勤统计 mini 卡
@@ -817,14 +806,6 @@
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+leaveDays+'</span><span class="mini-stat-card__label">'+t('leave_days')+'</span></div>'
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+absentDays+'</span><span class="mini-stat-card__label">'+t('absent_days')+'</span></div>'
       + '</div></div>';
-    // 薪资概览（顶层部门员工不显示）
-    if(!hideSalary && (gross!=null || net!=null)){
-      html += '<div class="info-section"><div class="info-section__title">'+t('salary_overview')+'</div>'
-        + '<div class="mini-card-row">'
-        + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+fmt(gross||0)+'</span><span class="mini-stat-card__label">'+t('gross')+'</span></div>'
-        + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+fmt(net||0)+'</span><span class="mini-stat-card__label">'+t('net')+'</span></div>'
-        + '</div></div>';
-    }
     // 操作
     html += '<div class="profile-actions">'
       + '<button class="btn" onclick="openLeave(\''+esc(e.id)+'\')">'+t('leave_apply')+'</button>'
