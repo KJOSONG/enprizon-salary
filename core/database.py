@@ -2076,10 +2076,22 @@ def update_pending_event(data_folder, event_id, fields):
     conn.close()
     return affected > 0
 
-def get_pending_events(data_folder, approver='', is_super_admin=False):
+def get_pending_events(data_folder, approver='', is_super_admin=False, operator_filter=None):
     """获取待审批事件；approver 指定时仅返回该审批人或 super_admin 可见的事件，
-    未指定审批人（''）的事件所有人可见"""
+    未指定审批人（''）的事件所有人可见
+    P29 T4: operator_filter（oa:apply-only 用户）时忽略审批人路由，
+    仅返回该提交人自己的 pending 事件"""
     conn = get_conn(data_folder)
+    if operator_filter:
+        rows = conn.execute("""
+            SELECT e.*, em.name as employee_name
+            FROM employee_events e
+            LEFT JOIN employees em ON e.employee_id = em.id
+            WHERE e.status = 'pending' AND e.operator_id = ?
+            ORDER BY e.created_at DESC
+        """, (operator_filter,)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
     rows = conn.execute("""
         SELECT e.*, em.name as employee_name
         FROM employee_events e
@@ -2091,9 +2103,11 @@ def get_pending_events(data_folder, approver='', is_super_admin=False):
     conn.close()
     return [dict(r) for r in rows]
 
-def get_processed_events(data_folder, event_type=None):
+def get_processed_events(data_folder, event_type=None, operator_filter=None):
     """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked
-    P22 R2: 增加 event_type 可选过滤（None 时不过滤）"""
+    P22 R2: 增加 event_type 可选过滤（None 时不过滤）
+    P29 T4: operator_filter（oa:apply-only 用户）时仅返回该提交人的事件
+    （全状态含 revoked——撤销结果对本人可见）"""
     conn = get_conn(data_folder)
     sql = """
         SELECT e.*, em.name as employee_name
@@ -2105,6 +2119,9 @@ def get_processed_events(data_folder, event_type=None):
     if event_type:
         sql += " AND e.event_type=?"
         params.append(event_type)
+    if operator_filter:
+        sql += " AND e.operator_id=?"
+        params.append(operator_filter)
     sql += " ORDER BY e.updated_at DESC, e.created_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()

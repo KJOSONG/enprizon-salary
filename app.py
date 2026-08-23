@@ -676,6 +676,7 @@ def api_seed_default_forms():
 
 @app.route('/api/archive/months', methods=['GET'])
 @login_required
+@require_permission('salary', 'view')  # P29 T4 A11
 def archive_months():
     from core.database import list_archive_months
     months = list_archive_months(app.config['DATA_FOLDER'])
@@ -686,6 +687,7 @@ def archive_months():
 
 @app.route('/api/archive/salary', methods=['GET'])
 @login_required
+@require_permission('salary', 'view')  # P29 T4 A11
 def archive_salary():
     from core.database import get_archive_salary
     month = request.args.get('month', '').strip()
@@ -1168,7 +1170,7 @@ def reload_source():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/set-month', methods=['POST'])
-@editor_required
+@login_required  # P29 T4 A1: 月份上下文是 UX 状态非数据暴露，降为登录即可（spec §7）
 def set_month():
     """切换月份筛选，始终以当前覆盖重算。纯采集模式下从采集数据构建"""
     data = request.get_json()
@@ -1349,6 +1351,7 @@ def api_employee_temp_overrides(employee_id):
 
 @app.route('/employees/bonus-penalty', methods=['POST'])
 @editor_required
+@require_permission('employees', 'edit')  # P29 T4 A2
 def save_bonus_penalty():
     """保存单个员工的奖金/罚款（当月独立）"""
     import json as _json
@@ -1759,7 +1762,8 @@ def api_employee_avatar_delete():
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/api/oa/events', methods=['POST'])
-@editor_required
+@login_required
+@require_permission('oa', 'apply')  # P29 T4 A3（editor 角色地板移除：applicant/collector 为 level 0，凭 oa:apply 键准入）
 def oa_create_event():
     """发起 OA 事件（入职/调岗/离职/薪资变更等）"""
     from core.database import create_event, log_audit
@@ -1799,38 +1803,66 @@ def oa_create_event():
               data['employee_id'], json.dumps(data))
     return jsonify({'ok': True, 'event_id': event_id})
 
+def _oa_read_gate():
+    """P29 T4 A4: OA 读接口双键门控（oa:view || oa:apply），spec §7。
+
+    返回 (operator_filter, denied)：
+    - 无两键 → (None, (body, 403))，403 形状与 @require_permission 一致
+    - 持 oa:view → (None, None)（全量视图）
+    - 仅 oa:apply → (username, None)（只看自己提交的：pending/history/count 过滤 operator_id，
+      revoked 对本人可见；详情接口据此拦截他人事件）"""
+    from core.database import check_permission
+    u = session.get('username', '')
+    has_view = check_permission(app.config['DATA_FOLDER'], u, 'oa', 'view')
+    has_apply = check_permission(app.config['DATA_FOLDER'], u, 'oa', 'apply')
+    if not (has_view or has_apply):
+        _audit('perm_denied', '', json.dumps({'user': u, 'module': 'oa', 'action': 'view'}))
+        return None, (jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'oa'}), 403)
+    return (None if has_view else u), None
+
 @app.route('/api/oa/pending', methods=['GET'])
 @login_required
-@require_permission('oa', 'view')
 def oa_pending():
-    """待审批事件列表（P13: 按当前用户为审批人过滤，super_admin 全可见）"""
+    """待审批事件列表（P13: 按当前用户为审批人过滤，super_admin 全可见）
+    P29 T4 A4: (oa:view || oa:apply) 门控；仅 apply 者只看自己提交的"""
     from core.database import get_pending_events
+    op_filter, denied = _oa_read_gate()
+    if denied:
+        return denied
     events = get_pending_events(
         app.config['DATA_FOLDER'],
         approver=session.get('username', ''),
-        is_super_admin=(session.get('role') == 'super_admin'))
+        is_super_admin=(session.get('role') == 'super_admin'),
+        operator_filter=op_filter)
     return jsonify({'events': events})
 
 @app.route('/api/oa/pending/count', methods=['GET'])
 @login_required
-@require_permission('oa', 'view')
 def oa_pending_count():
-    """待审批数量（P13: 与列表同一过滤规则）"""
+    """待审批数量（P13: 与列表同一过滤规则；P29 T4 A4 同款双键门控+own 过滤）"""
     from core.database import get_pending_events
+    op_filter, denied = _oa_read_gate()
+    if denied:
+        return denied
     events = get_pending_events(
         app.config['DATA_FOLDER'],
         approver=session.get('username', ''),
-        is_super_admin=(session.get('role') == 'super_admin'))
+        is_super_admin=(session.get('role') == 'super_admin'),
+        operator_filter=op_filter)
     return jsonify({'count': len(events)})
 
 @app.route('/api/oa/history', methods=['GET'])
 @login_required
-@require_permission('oa', 'view')
 def oa_history():
-    """P8: 已处理事件列表（approved/rejected）；P22 R2: 支持 ?type= 按事件类型筛选"""
+    """P8: 已处理事件列表（approved/rejected）；P22 R2: 支持 ?type= 按事件类型筛选
+    P29 T4 A4: (oa:view || oa:apply) 门控；仅 apply 者只看自己提交的（含 revoked）"""
     from core.database import get_processed_events
+    op_filter, denied = _oa_read_gate()
+    if denied:
+        return denied
     ev_type = (request.args.get('type') or '').strip() or None
-    events = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type)
+    events = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type,
+                                  operator_filter=op_filter)
     return jsonify({'events': events})
 
 @app.route('/api/oa/events/<int:event_id>/approve', methods=['POST'])
@@ -1892,17 +1924,25 @@ def oa_reject_event(event_id):
 
 @app.route('/api/oa/events/<int:event_id>', methods=['GET'])
 @login_required
-@require_permission('oa', 'view')
 def oa_event_detail(event_id):
-    """P21 M4: 单个事件详情（前端编辑/撤销预填用）"""
+    """P21 M4: 单个事件详情（前端编辑/撤销预填用）
+    P29 T4 A4: (oa:view || oa:apply) 门控；仅 apply 者不可看他人事件"""
     from core.database import get_event
+    op_filter, denied = _oa_read_gate()
+    if denied:
+        return denied
     ev = get_event(app.config['DATA_FOLDER'], event_id)
     if not ev:
         return jsonify({'error': '事件不存在'}), 404
+    if op_filter and ev.get('operator_id') != op_filter:
+        _audit('perm_denied', '', json.dumps({'user': session.get('username', ''),
+                                              'module': 'oa', 'action': 'view'}))
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'oa'}), 403
     return jsonify({'event': ev})
 
 @app.route('/api/oa/events/<int:event_id>/revoke', methods=['POST'])
 @editor_required
+@require_permission('oa', 'approve')  # P29 T4 A5（内联本人待审自撤规则原样保留于 handler 内）
 def oa_revoke_event(event_id):
     """P21 M4: 撤销事件（已批需 oa:approve 权限；待审仅申请人本人或 super_admin）"""
     from core.database import get_event, revoke_event, log_audit, check_permission
@@ -1929,6 +1969,7 @@ def oa_revoke_event(event_id):
 
 @app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
 @editor_required
+@require_permission('oa', 'approve')  # P29 T4 A5（内联本人待审自改规则原样保留于 handler 内）
 def oa_edit_event(event_id):
     """P21 M4: 修改请假事件
     - 待审: update_pending_event（payload.days + effective_date）
@@ -2131,7 +2172,8 @@ def attendance_roster():
     return jsonify({'employees': emps})
 
 @app.route('/api/oa/leave', methods=['POST'])
-@editor_required
+@login_required
+@require_permission('oa', 'apply')  # P29 T4 A3（editor 角色地板移除，同上）
 def oa_submit_leave():
     from core.database import create_event, log_audit, check_annual_leave_eligible
     data = request.get_json()
@@ -2181,7 +2223,8 @@ def leave_balance(employee_id):
     return jsonify({'balance': balance})
 
 @app.route('/api/leave/sick', methods=['POST'])
-@editor_required
+@login_required
+@require_permission('oa', 'apply')  # P29 T4 A3（editor 角色地板移除，同上）
 def leave_sick():
     """P28 R5: 病假申请改走 OA 审批 — 创建待审事件（审批通过才扣病假余额+逐日落 SK），
     不再免审直批、不再落 P"""
@@ -2399,7 +2442,7 @@ def _filter_marks_by_department(marks, dept):
     return kept, discarded
 
 @app.route('/api/collection/submit', methods=['POST'])
-@editor_required
+@login_required
 def collection_submit():
     """P9: 数据采集提交 — 写 collection_submissions + 合并 main_data + 重算"""
     from datetime import datetime
@@ -2411,6 +2454,12 @@ def collection_submit():
     payload = data.get('payload') or {}
     if form_type not in ('underground', 'driller', 'crush', 'attendance'):
         return jsonify({'ok': False, 'error': '无效表单类型'}), 400
+    # P29 T4 A6: 按表单类型动态鉴权 collection:<type>（403 形状与 @require_permission 一致）
+    from core.database import check_permission as _check_perm
+    _u = session.get('username', '')
+    if not _check_perm(app.config['DATA_FOLDER'], _u, 'collection', form_type):
+        _audit('perm_denied', '', json.dumps({'user': _u, 'module': 'collection', 'action': form_type}))
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
     if not date:
         return jsonify({'ok': False, 'error': '缺少日期'}), 400
     if date > datetime.now(EAT).strftime('%Y-%m-%d'):
@@ -2474,19 +2523,25 @@ def collection_submit():
     return jsonify(result)
 
 @app.route('/api/collection/history', methods=['GET'])
-@editor_required
-@require_permission('production', 'view')
+@login_required
 def collection_history():
     """P9: 采集提交历史（按 form_type/month/date/operator 过滤）
-    R5: 非 admin(editor)强制 operator=当前登录用户名（后端安全，只看本人提交）"""
-    from core.database import get_collection_submissions
+    P29 T4 A7: 门控改 (collection:view || 任一表单键)；仅表单键者强制 operator=本人
+    （原 role==='admin' 硬编码收敛为权限判定，view 持有者保留看全部语义）"""
+    from core.database import get_collection_submissions, check_permission
     form_type = request.args.get('form_type')
     month = request.args.get('month') or APP_STATE.get('month')
     date = request.args.get('date')
     operator = request.args.get('operator')
-    role = session.get('role', '')
-    if role not in ('admin', 'super_admin'):
-        operator = session.get('username', '')
+    u = session.get('username', '')
+    has_view = check_permission(app.config['DATA_FOLDER'], u, 'collection', 'view')
+    if not has_view:
+        has_form_key = any(check_permission(app.config['DATA_FOLDER'], u, 'collection', a)
+                           for a in ('underground', 'driller', 'crush', 'attendance'))
+        if not has_form_key:
+            _audit('perm_denied', '', json.dumps({'user': u, 'module': 'collection', 'action': 'view'}))
+            return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
+        operator = u
     subs = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type, month=month,
                                       date=date, operator=operator)
     return jsonify({'submissions': subs})
@@ -2536,7 +2591,7 @@ def collection_driller_teams():
     return jsonify({'teams': teams})
 
 @app.route('/api/collection/edit/<int:submission_id>', methods=['POST'])
-@editor_required
+@login_required
 def collection_edit(submission_id):
     """P9: 再编辑采集提交（仅本人或 admin+），版本+1 + 旧版写 history + 重新合并 main_data"""
     from datetime import datetime
@@ -2546,6 +2601,12 @@ def collection_edit(submission_id):
     sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     if not sub:
         return jsonify({'ok': False, 'error': '提交不存在'}), 404
+    # P29 T4 A8: 编辑者（含 admin）须持该表单键 collection:<form_type>，先于 owner-or-admin 判定
+    from core.database import check_permission as _check_perm
+    if not _check_perm(app.config['DATA_FOLDER'], username, 'collection', sub['form_type']):
+        _audit('perm_denied', '', json.dumps({'user': username, 'module': 'collection',
+                                              'action': sub['form_type']}))
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
     is_admin = (session.get('role') in ('admin', 'super_admin'))
     if sub['operator_id'] != username and not is_admin:
         return jsonify({'ok': False, 'error': '只能编辑本人提交或管理员可改'}), 403
@@ -3275,7 +3336,7 @@ def verify_salary():
 
 @app.route('/production', methods=['GET'])
 @login_required
-@require_permission('production', 'view')
+@require_permission('dashboard', 'view')  # P29 T4 A9: production:view → dashboard:view
 def get_production():
     md = APP_STATE.get('main_data', {})
     shift_prod = md.get('shift_production', [])
@@ -3320,7 +3381,7 @@ def get_production():
 
 @app.route('/api/production/dashboard', methods=['GET'])
 @login_required
-@require_permission('production', 'view')
+@require_permission('dashboard', 'view')  # P29 T4 A9: production:view → dashboard:view
 def get_production_dashboard():
     md = APP_STATE.get('main_data', {})
     shift_prod = md.get('shift_production', [])
@@ -3380,7 +3441,7 @@ def get_production_dashboard():
 
 @app.route('/production-verify', methods=['GET'])
 @login_required
-@require_permission('production', 'view')
+@require_permission('salary', 'view')  # P29 T4 A10: production:view → salary:view
 def get_production_verify():
     """返回逐日钻工组产量与井下白班+夜班产量对比"""
     md = APP_STATE.get('main_data', {})
