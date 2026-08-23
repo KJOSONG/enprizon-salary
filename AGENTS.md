@@ -117,6 +117,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 - 密码存储：SHA256(salt + password)，salt 随机生成存入 `admin_users`（格式 `salt:hash`）
 - 默认账号 `user/qweasd`（viewer），`KEJU` 首次登录自动升级为 super_admin
 - **服务器测试账号（供 AI/自动化测试用）**：`keju_admin` / `000000`（super_admin）——生产端验证权限、审批等流程时可直接使用
+- 🚨 **铁律（2026-08-23 用户明令）**：`keju_admin` 只能用于测试，且**测试全程绝不能污染生产库原始数据**；需要最新数据时，把生产库拉到本地在本地测。本地超管：`KEJU` / `0000`
 
 ## 启动初始化
 
