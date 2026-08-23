@@ -1388,14 +1388,11 @@ def save_bonus_penalty():
 @app.route('/employees/dismissed', methods=['GET'])
 @login_required
 def get_dismissed_employees():
-    """获取已离职员工列表（含姓名）"""
+    """获取已离职员工列表（P29-F: load_dismissed_with_info 已 LEFT JOIN employees 带姓名/部门/薪资）"""
     from core.database import load_dismissed_with_info
     dismissed = load_dismissed_with_info(app.config['DATA_FOLDER'])
-    # 从当前员工列表补姓名
-    emp_map = {e['id']: e.get('name', e['id']) for e in APP_STATE.get('employees', [])}
-    # 也尝试从历史数据中查找（因为离职员工已不在 employees 中）
     for d in dismissed:
-        d['name'] = emp_map.get(d['employee_id'], d['employee_id'])
+        d.setdefault('name', d['employee_id'])
     return jsonify(dismissed)
 
 @app.route('/employees/dismiss', methods=['POST'])
@@ -1418,14 +1415,73 @@ def dismiss_employee_api():
 @app.route('/employees/restore', methods=['POST'])
 @editor_required
 def restore_employee_api():
-    """恢复已离职员工"""
-    data = request.get_json()
-    eid = data.get('employee_id', '')
+    """P29-F: 复职=重新入职式恢复——必填复职日期；部门/薪资与原值不同时更新员工行并写入事件时间线"""
+    import json as _json
+    data = request.get_json() or {}
+    eid = (data.get('employee_id') or '').strip()
+    rehire_date = (data.get('rehire_date') or '').strip()
     if not eid:
         return jsonify({'ok': False, 'error': '缺少 employee_id'}), 400
-    from core.database import restore_employee as _restore
+    if not rehire_date:
+        return jsonify({'ok': False, 'error': '缺少 rehire_date'}), 400
+    from core.database import get_conn, restore_employee as _restore
+    conn = get_conn(app.config['DATA_FOLDER'])
+    row = conn.execute(
+        "SELECT department, default_type, monthly_salary, day_rate FROM employees WHERE id=?",
+        (eid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    old_dept = row['department'] or ''
+    old_type = row['default_type'] or ''
+    old_monthly = int(row['monthly_salary'] or 0)
+    old_daily = int(row['day_rate'] or 0)
+
+    new_dept = (data.get('department') or old_dept).strip()
+    new_type = data.get('salary_type') or old_type
+    if new_type not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+        conn.close()
+        return jsonify({'ok': False, 'error': '非法 salary_type'}), 400
+    try:
+        new_monthly = int(data.get('monthly_salary', old_monthly) or 0)
+        new_daily = int(data.get('day_rate', old_daily) or 0)
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({'ok': False, 'error': '薪资基数必须为数字'}), 400
+
+    operator = session.get('username', '')
+    dept_changed = bool(new_dept) and new_dept != old_dept
+    sal_changed = (new_type, new_monthly, new_daily) != (old_type, old_monthly, old_daily)
+
+    def _insert_event(conn, etype, payload):
+        conn.execute(
+            "INSERT INTO employee_events (employee_id, event_type, effective_date, snapshot, payload, operator_id, status) VALUES (?,?,?,?,?,?,?)",
+            (eid, etype, rehire_date, '{}', _json.dumps(payload, ensure_ascii=False), operator, 'approved'))
+
+    # 1) 移出离职名单
     _restore(app.config['DATA_FOLDER'], eid)
-    _audit('restore_employee', eid)
+    # 2) 部门变化 → 更新 + transfer 事件（时间线显示 from → to）
+    if dept_changed:
+        conn.execute("UPDATE employees SET department=? WHERE id=?", (new_dept, eid))
+        _insert_event(conn, 'transfer', {'from_department': old_dept, 'new_department': new_dept})
+    # 3) 薪资变化 → 更新 + salary_change 事件（含旧值快照，时间线显示 前 → 后）
+    if sal_changed:
+        conn.execute(
+            "UPDATE employees SET default_type=?, day_rate=?, monthly_salary=? WHERE id=?",
+            (new_type, new_daily, new_monthly, eid))
+        payload = {'salary_type': new_type, 'day_rate': new_daily, 'monthly_salary': new_monthly}
+        if old_type:
+            payload['old_type'] = old_type
+            payload['old_salary'] = old_monthly if old_type == 'monthly' else old_daily
+        _insert_event(conn, 'salary_change', payload)
+    # 4) 复职事件（结构化键，前端 i18n 渲染）
+    _insert_event(conn, 'reinstatement', {'department': new_dept, 'salary_type': new_type})
+    conn.commit()
+    conn.close()
+
+    _audit('restore_employee', eid, _json.dumps({
+        'rehire_date': rehire_date, 'department': new_dept,
+        'dept_changed': dept_changed, 'salary_changed': sal_changed}, ensure_ascii=False))
     # P23 R4: 恢复员工重新进缓存（补 dismiss 过滤的对称逻辑），并重算薪资
     ok, msg = _refresh_employees_cache() or (None, None)
     return jsonify({'ok': True, 'message': msg})

@@ -1471,9 +1471,13 @@ def apply_approved_event(data_folder, event):
         conn.close()
 
 def load_dismissed_with_info(data_folder):
-    """返回已离职员工详情列表"""
+    """返回已离职员工详情列表（P29-F: LEFT JOIN employees 带姓名/部门/薪资原值，供列表显名+复职弹窗预填）"""
     conn = get_conn(data_folder)
-    rows = conn.execute("SELECT * FROM dismissed_employees ORDER BY dismissed_at DESC").fetchall()
+    rows = conn.execute(
+        "SELECT d.employee_id, d.dismissed_at, d.note, "
+        "e.name, e.department, e.default_type, e.monthly_salary, e.day_rate "
+        "FROM dismissed_employees d LEFT JOIN employees e ON e.id = d.employee_id "
+        "ORDER BY d.dismissed_at DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

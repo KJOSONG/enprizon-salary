@@ -337,6 +337,47 @@
           </table>
         </div>
       </div>
+
+      <!-- P29-F: 复职确认弹窗(重新入职式: 日期/归入部门/薪资类别与基数) -->
+      <div class="modal-overlay" id="rehireModal" style="display:none;">
+        <div class="modal" style="max-width:420px;">
+          <h2 data-i18n="rehire_title">确认复职</h2>
+          <div id="rehireEmpInfo" style="font-size:13px;color:var(--text-muted);margin-bottom:10px;"></div>
+          <div class="form-row">
+            <label data-i18n="rehire_date">复职日期</label>
+            <input type="date" id="rehireDate">
+          </div>
+          <div class="form-row">
+            <label data-i18n="th_dept">部门</label>
+            <select id="rehireDept"></select>
+          </div>
+          <div class="form-row">
+            <label data-i18n="rehire_salary_type">薪资类别</label>
+            <select id="rehireType" onchange="syncRehireBase()">
+              <option value="day_rate" data-i18n="emp_dayrate">日薪</option>
+              <option value="monthly" data-i18n="emp_monthly">月薪</option>
+              <option value="piece_underground" data-i18n="emp_ug_piece">生产薪资</option>
+              <option value="piece_driller" data-i18n="emp_dr_piece">钻工计件</option>
+              <option value="piece_crush" data-i18n="emp_crush_piece">破碎计件</option>
+            </select>
+          </div>
+          <div class="form-row" id="rehireDayRow">
+            <label data-i18n="modal_dayrate_base_label">日薪基数(TZS)</label>
+            <input type="number" id="rehireDayRate" min="0" step="1000">
+          </div>
+          <div class="form-row" id="rehireMonthlyRow">
+            <label data-i18n="modal_monthly_base_label">月薪基数(TZS)</label>
+            <input type="number" id="rehireMonthlySalary" min="0" step="10000">
+          </div>
+          <div class="form-row" id="rehireTypeHint" style="display:none;">
+            <label style="min-width:auto;color:var(--text-muted);font-size:12px;" data-i18n="modal_piece_hint">计件类型不需要设置基数</label>
+          </div>
+          <div class="btn-row" style="margin-top:12px;">
+            <button class="nav-btn" onclick="closeRehireModal()" data-i18n="btn_cancel">取消</button>
+            <button class="btn-primary" style="background:var(--success);" onclick="confirmRehire()" data-i18n="btn_confirm_rehire">确认复职</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3422,8 +3463,8 @@ async function loadEmployeeProfilePage(eid) {
         let details = '';
         // P26-b: 时间线详情键与事件 payload 键对齐（此前读 old_type/from_department 等不存在的键 → "? 0 → ? 0"）
         if (ev.event_type === 'transfer') {
-          // 实际键: new_department / new_position（OA 调岗表单）
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.new_department||'?')}${payload.new_position ? ' · ' + escHtml(payload.new_position) : ''}</div>`;
+          // 实际键: new_department / new_position（OA 调岗表单）；P29-F 复职调岗含 from_department → 显示 从 → 至
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.from_department ? escHtml(payload.from_department) + ' → ' : ''}${escHtml(payload.new_department||'?')}${payload.new_position ? ' · ' + escHtml(payload.new_position) : ''}</div>`;
         } else if (ev.event_type === 'salary_change') {
           // 实际键: salary_type / day_rate / monthly_salary（档案页端点）；事件含 old_type/old_salary 时显示 旧 → 新
           const scTxt = (ty, base) => {
@@ -3436,6 +3477,10 @@ async function loadEmployeeProfilePage(eid) {
           let sc = scTxt(payload.salary_type, newBase);
           if (payload.old_type) sc = scTxt(payload.old_type, payload.old_salary) + ' → ' + sc;
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(sc)}</div>`;
+        } else if (ev.event_type === 'reinstatement') {
+          // P29-F 复职事件: 结构化键 department / salary_type
+          const ri = [payload.department, TYPE_LBL[payload.salary_type] || payload.salary_type].filter(Boolean).join(' · ');
+          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(ri)}</div>`;
         } else if (ev.event_type === 'dismiss') {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.reason||'')}</div>`;
         } else if (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') {
@@ -4218,24 +4263,71 @@ async function dismissEmployee(eid, name) {
   } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
 }
 
-async function restoreEmployee(eid) {
+let _rehireEmp = null;
+
+function openRehireModal(eid) {
+  const d = (STATE._dismissed || []).find(x => x.employee_id === eid);
+  if (!d) return;
+  _rehireEmp = d;
+  document.getElementById('rehireEmpInfo').textContent =
+    (d.name || eid) + (d.dismissed_at ? ' · ' + t('emp_dismissed_on') + ' ' + String(d.dismissed_at).slice(0, 10) : '');
+  const now = new Date();
+  document.getElementById('rehireDate').value =
+    now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const depts = [...new Set([...(STATE._empAll || []).map(e => e.department).filter(Boolean), d.department].filter(Boolean))].sort();
+  document.getElementById('rehireDept').innerHTML =
+    depts.map(dep => `<option value="${escHtml(dep)}" ${dep === d.department ? 'selected' : ''}>${escHtml(dep)}</option>`).join('');
+  document.getElementById('rehireType').value = d.default_type || 'day_rate';
+  document.getElementById('rehireDayRate').value = d.day_rate || 0;
+  document.getElementById('rehireMonthlySalary').value = d.monthly_salary || 0;
+  syncRehireBase();
+  document.getElementById('rehireModal').style.display = '';
+  document.getElementById('rehireModal').classList.add('show');
+}
+
+function closeRehireModal() {
+  const m = document.getElementById('rehireModal');
+  m.classList.remove('show');
+  m.style.display = 'none';
+  _rehireEmp = null;
+}
+
+function syncRehireBase() {
+  const v = document.getElementById('rehireType').value;
+  document.getElementById('rehireDayRow').style.display = v === 'day_rate' ? 'flex' : 'none';
+  document.getElementById('rehireMonthlyRow').style.display = v === 'monthly' ? 'flex' : 'none';
+  document.getElementById('rehireTypeHint').style.display = (v === 'piece_underground' || v === 'piece_driller' || v === 'piece_crush') ? 'flex' : 'none';
+}
+
+async function confirmRehire() {
+  if (!_rehireEmp) return;
+  const rehireDate = document.getElementById('rehireDate').value;
+  if (!rehireDate) { showToast(t('rehire_date_required'), 'error'); return; }
+  const type = document.getElementById('rehireType').value;
   try {
     const res = await authFetch(api('/employees/restore'), {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({employee_id: eid}),
+      body: JSON.stringify({
+        employee_id: _rehireEmp.employee_id,
+        rehire_date: rehireDate,
+        department: document.getElementById('rehireDept').value,
+        salary_type: type,
+        day_rate: type === 'day_rate' ? parseInt(document.getElementById('rehireDayRate').value || 0) : 0,
+        monthly_salary: type === 'monthly' ? parseInt(document.getElementById('rehireMonthlySalary').value || 0) : 0,
+      }),
     });
     const data = await res.json();
-    if (data.ok) {
-      // 重新加载员工列表
-      const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
-      const d = await r.json();
-      STATE._empAll = STATE.employees = d.employees;
-      STATE._headless = d.headless || false;
-      renderEmployeeTable();
-      loadDismissed(); // 刷新已离职列表
-      document.getElementById('recalcBtn').click();
-      showToast(t('emp_restore') + ' ✓');
-    }
+    if (!data.ok) { showToast(data.error || t('toast_operation_fail'), 'error'); return; }
+    closeRehireModal();
+    // 重新加载员工列表（复职者默认回到员工列表）
+    const r = await fetch(api('/employees?month=' + encodeURIComponent(document.getElementById('monthSelect').value)));
+    const d = await r.json();
+    STATE._empAll = STATE.employees = d.employees;
+    STATE._headless = d.headless || false;
+    renderEmployeeTable();
+    loadDismissed(); // 刷新已离职列表
+    document.getElementById('recalcBtn').click();
+    showToast(t('rehire_success'));
   } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
 }
 
@@ -4256,10 +4348,10 @@ function renderDismissedList() {
     tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">' + t('emp_no_dismissed') + '</td></tr>';
     return;
   }
-  tbody.innerHTML = dismissed.map(d => `<tr>
-    <td class="left">${escHtml(d.name||d.employee_id)}</td>
+    tbody.innerHTML = dismissed.map(d => `<tr>
+    <td class="left">${escHtml(d.name||d.employee_id)}<div style="font-size:11px;color:var(--text-muted);">${escHtml(d.department||'')}</div></td>
     <td class="left" style="font-size:12px;color:var(--text-muted);">${escHtml(d.note||'—')}</td>
-    <td><button class="nav-btn" style="font-size:11px;padding:3px 8px;color:var(--success);" onclick="restoreEmployee('${d.employee_id}')">↩ ${t('emp_restore')}</button></td>
+    <td><button class="nav-btn" style="font-size:11px;padding:3px 8px;color:var(--success);" onclick="openRehireModal('${d.employee_id}')">↩ ${t('emp_restore')}</button></td>
   </tr>`).join('');
 }
 
