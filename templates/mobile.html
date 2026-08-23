@@ -423,6 +423,11 @@
     if(perms.indexOf('*:*') !== -1) return true;
     return perms.indexOf(module + ':' + action) !== -1;
   }
+  // P29 V2.1: admin 级角色判定(超管专属字段如部门编辑仍保留 super_admin 判定)
+  function isAdminLevel(){
+    var r=(STATE.auth||{}).role;
+    return r==='admin'||r==='super_admin';
+  }
   function checkAuth(){
     return api('/api/auth/status').then(a=>{
       if(!a.permissions) a.permissions = [];
@@ -777,10 +782,8 @@
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
   function renderEmpProfile(e, att, sal){
     // P22 R6/R7: 移动端员工详情不显示薪资内容（全员隐藏，不再依赖部门判断）
-    const role = STATE.auth && STATE.auth.role;
     // P18 阶段3: 档案编辑入口统一走 employees:edit
     const canEdit = hasPermission('employees','edit');
-    const isSuper = role==='super_admin';
     // 出勤统计
     let attDays=0, leaveDays=0, absentDays=0;
     const attRow = att && att.rows ? att.rows.find(r=>r.id===e.id) : null;
@@ -807,9 +810,11 @@
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+absentDays+'</span><span class="mini-stat-card__label">'+t('absent_days')+'</span></div>'
       + '</div></div>';
     // 操作
+    // P29 V2.1: 请假/加班申请按钮挂 oa:apply(与采集页快捷入口一致,修复无门槛不一致)
+    const canApply = hasPermission('oa','apply');
     html += '<div class="profile-actions">'
-      + '<button class="btn" onclick="openLeave(\''+esc(e.id)+'\')">'+t('leave_apply')+'</button>'
-      + '<button class="btn" onclick="openOvertime(\''+esc(e.id)+'\')">'+t('event_overtime')+'</button>'
+      + (canApply?'<button class="btn" onclick="openLeave(\''+esc(e.id)+'\')">'+t('leave_apply')+'</button>':'')
+      + (canApply?'<button class="btn" onclick="openOvertime(\''+esc(e.id)+'\')">'+t('event_overtime')+'</button>':'')
       + (canEdit?'<button class="btn btn-primary" onclick="openEditEmp(\''+esc(e.id)+'\')">'+t('edit_profile')+'</button>':'')
       + '</div>';
     document.getElementById('emp-detail').innerHTML = html;
@@ -849,6 +854,12 @@
 
   // ── OA 审批 ──
   function loadOAPendingCount(){
+    // P29 V2.1: 徽标与 OA 列表同门槛(view||apply);无权限时隐藏徽标且不发请求
+    if(!(hasPermission('oa','view') || hasPermission('oa','apply'))){
+      const b0=document.getElementById('oa-pending-n'); if(b0) b0.style.display='none';
+      const tb0=document.getElementById('oaTabBadge'); if(tb0) tb0.style.display='none';
+      return;
+    }
     api('/api/oa/pending/count').then(d=>{
       const n = d.count||0;
       const badge = document.getElementById('oa-pending-n');
@@ -860,8 +871,14 @@
   }
   function loadOA(mode){
     const el = document.getElementById('oa-list');
+    // P29 V2.1: OA 列表对 oa:view 或 oa:apply 开放;仅 apply 时由后端(T4)过滤为本人提交
+    if(!(hasPermission('oa','view') || hasPermission('oa','apply'))){
+      el.innerHTML='<div class="state-box"><div class="state-box__icon">🔒</div><div class="state-box__title">'+t('need_editor')+'</div></div>';
+      return;
+    }
     el.innerHTML='<div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div>';
     const url = mode==='history' ? '/api/oa/history' : '/api/oa/pending';
+    // P29 V2.1: 现网 /api/oa/history 仅接受 type 参数、无 mine 入参,故不附加伪参数;仅 apply 者只看自己提交由 T4 服务端强制
     api(url).then(d=>{
       const evs = d.events||[];
       STATE._oaEvents = evs;
@@ -1064,20 +1081,18 @@
     renderColHisFilter();
     renderColHistoryList();
   }
-  // R5: 采集历史筛选状态（日期 + 只看我的；非 admin 强制只看自己，后端亦强制）
+  // R5: 采集历史筛选状态（日期 + 只看我的；P29 V2.1: 有 collection:view 可看全部历史,仅表单键者强制只看自己,后端亦强制）
   if(!STATE._colHisFilter){
-    const _r=(STATE.auth||{}).role;
-    STATE._colHisFilter = { date:'', mine: !(_r==='admin'||_r==='super_admin') };
+    STATE._colHisFilter = { date:'', mine: !(hasPermission('collection','view') || isAdminLevel()) };
   }
   function renderColHisFilter(){
     const el=document.getElementById('col-his-filter'); if(!el) return;
     const f=STATE._colHisFilter;
-    const role=(STATE.auth||{}).role;
-    const isAdmin=(role==='admin'||role==='super_admin');
+    const canViewAll = hasPermission('collection','view') || isAdminLevel();
     const inStyle='flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);font-size:14px;';
     let html='<div style="display:flex;gap:6px;align-items:center;padding:0 var(--space-md) 8px;">'
       + '<input type="date" value="'+esc(f.date||'')+'" onchange="STATE._colHisFilter.date=this.value;renderColHisFilter();renderColHistoryList();" style="'+inStyle+'">';
-    if(isAdmin){
+    if(canViewAll){
       html += '<button class="btn btn-sm '+(f.mine?'':'btn-primary')+'" onclick="STATE._colHisFilter.mine=false;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_all')+'</button>'
         + '<button class="btn btn-sm '+(f.mine?'btn-primary':'')+'" onclick="STATE._colHisFilter.mine=true;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_mine')+'</button>';
     }
@@ -1120,8 +1135,8 @@
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
   function openColForm(ty, initPayload){
-    // P18 阶段2: 采集/出勤编辑入口按权限(生产 edit 权限;出勤收集与出勤网格编辑分离,网格走 attendance:edit)
-    if(!hasPermission('production','edit')){ toast(t('need_editor'),'warning'); return; }
+    // P29 V2.1: 采集入口按表单键守卫(collection:underground/driller/crush/attendance,与后端动作名一一对应)
+    if(!hasPermission('collection', ty)){ toast(t('need_editor'),'warning'); return; }
     STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
     if(ty==='underground') renderUgForm(initPayload); else if(ty==='driller') renderDrForm(initPayload); else if(ty==='crush') renderCrForm(initPayload); else renderAttForm(initPayload); }
   function backColHome(){ _pageStack[activeTab]=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
@@ -1172,7 +1187,7 @@
     const auth = STATE.auth || {};
     // A9: 存量混部门 attendance 记录(department 空)只读, 仅可查看
     const hasDept = s.department || (p.department||'');
-    const canEdit = (auth.username===s.operator_id || auth.role==='admin' || auth.role==='super_admin')
+    const canEdit = (auth.username===s.operator_id || isAdminLevel())
       && (s.form_type!=='attendance' || !!hasDept);
     const body=document.getElementById('sheet-body');
     body.innerHTML =
@@ -1611,11 +1626,11 @@
 
   // 请假快捷入口
   function quickLeave(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openLeave(document.getElementById(\'ql-emp\').value)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
-  function quickSick(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
+  function quickSick(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(r.message || t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
-  // P18 阶段2: OA 申请入口按 oa:view 权限守卫
-  function openQuickLeave(){ if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }
+  // P29 V2.1: OA 申请入口按 oa:apply 权限守卫
+  function openQuickLeave(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }
   // ── P23 R2: 加班申请（移动端） ──
   function quickOvertime(){
     const body=document.getElementById('sheet-body');
@@ -1623,7 +1638,7 @@
     body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qot-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openOvertime(document.getElementById(\'qot-emp\').value)">'+t('next')+'</button>';
     openSheet(t('overtime_apply'), body);
   }
-  function openQuickOvertime(){ if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
+  function openQuickOvertime(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
   function openOvertime(empId){
     const body=document.getElementById('sheet-body');
     body.innerHTML='<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"></div>'
@@ -1664,11 +1679,9 @@
   function openHireApply(){
     if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
     const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
-    const role=STATE.auth && STATE.auth.role;
-    const isSuper=role==='super_admin';
-    api('/api/employee_groups').then(d=>{ STATE._groups=d.groups||[]; renderHireForm(depts, isSuper); }).catch(()=>{ STATE._groups=[]; renderHireForm(depts, isSuper); });
+    api('/api/employee_groups').then(d=>{ STATE._groups=d.groups||[]; renderHireForm(depts); }).catch(()=>{ STATE._groups=[]; renderHireForm(depts); });
   }
-  function renderHireForm(depts, isSuper){
+  function renderHireForm(depts){
     const g=STATE._groups||[];
     const gOpts='<option value="0">—</option>'+g.map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('');
     const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
