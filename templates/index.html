@@ -9013,9 +9013,14 @@ async function renderPermSources(u) {
       let src = grantMap[key] || (summary[module] && summary[module][action]) || 'none';
       // summary 不展开继承,effective 有则视为角色默认
       if (src === 'none' && effSet && effSet.has(key)) src = 'role';
+      // P29-b: 单用户授权(deny/allow)支持就地移除——矩阵视图与抽屉授权清单同一能力
+      const _rm = (src === 'grant' || src === 'deny')
+        ? `<button class="nav-btn" style="font-size:10px;padding:2px 8px;color:#F44336;" onclick="deleteUserGrant('${module}','${action}')">${t('perm_remove')}</button>`
+        : '';
       html += `<div class="perm-source-row">
         <span style="flex:1;font-weight:600;">${t(meta.name) || meta.name}</span>
         <span class="perm-source-tag ${tagMap[src]}">${labelMap[src]}</span>
+        ${_rm}
       </div>`;
     });
     wrap.innerHTML = html;
@@ -9031,7 +9036,7 @@ function renderUserGrants(grants) {
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;background:var(--bg-secondary);">
       <span style="font-size:12px;font-weight:600;flex:1;">${t(g.name) || g.name}</span>
       <span style="font-size:11px;padding:2px 8px;border-radius:10px;${isDeny ? 'background:#FDE8E8;color:#F44336;' : 'background:#E8F5E9;color:#4CAF50;'}">${t(isDeny ? 'perm_deny' : 'perm_allow')}</span>
-      <button class="nav-btn" style="font-size:10px;padding:2px 6px;" onclick="deleteUserGrant('${g.module}','${g.action}')">✕</button>
+      <button class="nav-btn" style="font-size:10px;padding:2px 8px;color:#F44336;" onclick="deleteUserGrant('${g.module}','${g.action}')">${t('perm_remove')}</button>
     </div>`;
   }).join('');
 }
@@ -9077,7 +9082,8 @@ async function addUserGrant() {
       body: JSON.stringify({ username: currentEditUser, module, action, grant_type: type }),
     });
     const data = await res.json();
-    if (data.ok) { if (m) { m.textContent = t('saved'); m.style.color = ''; } openUserDrawer(currentEditUser); }
+    // P29-b: 增删授权后失效该用户缓存,强制 openUserDrawer 重拉最新状态
+    if (data.ok) { _permUsersCache = (_permUsersCache || []).filter(x => x.username !== currentEditUser); if (m) { m.textContent = t('saved'); m.style.color = ''; } openUserDrawer(currentEditUser); }
     else { if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
   } catch(e) { if (m) { m.textContent = t('fail'); m.style.color = '#F44336'; } }
 }
@@ -9091,7 +9097,8 @@ async function deleteUserGrant(module, action) {
       body: JSON.stringify({ username: currentEditUser, module, action }),
     });
     const data = await res.json();
-    if (data.ok) { if (m) { m.textContent = t('saved'); m.style.color = ''; } openUserDrawer(currentEditUser); }
+    // P29-b: 同上,删除授权后失效缓存再刷新抽屉
+    if (data.ok) { _permUsersCache = (_permUsersCache || []).filter(x => x.username !== currentEditUser); if (m) { m.textContent = t('saved'); m.style.color = ''; } openUserDrawer(currentEditUser); }
     else { if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
   } catch(e) { if (m) { m.textContent = t('fail'); m.style.color = '#F44336'; } }
 }
