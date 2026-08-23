@@ -776,11 +776,11 @@
     document.getElementById('emp-search-wrap').style.display='none';
     document.getElementById('emp-detail').style.display='block';
     document.getElementById('emp-detail').innerHTML='<div class="skeleton-card kpi"></div><div class="skeleton-card chart"></div>';
-    // 并行聚合：档案 + 出勤统计 + 薪资概览(P18: 无 salary 权限不拉薪资)
+    // 并行聚合：档案 + 出勤统计 + 薪资概览(P29-c Req①: 硬角色门控——仅 super_admin/admin/viewer 拉取薪资)
     Promise.all([
       api('/api/employees/'+encodeURIComponent(id)).catch(()=>({employee:null})),
       api('/attendance').catch(()=>null),
-      hasPermission('salary','view') ? api('/salary').catch(()=>null) : Promise.resolve(null),
+      ['super_admin','admin','viewer'].includes((STATE.auth||{}).role) ? api('/salary').catch(()=>null) : Promise.resolve(null),
     ]).then(([d, att, sal])=>{
       if(!d.employee){ document.getElementById('emp-detail').innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('emp_load_err')+'</div><button class="state-box__action" onclick="openEmpProfile(\''+esc(id)+'\')">'+t('retry')+'</button></div>'; return; }
       renderEmpProfile(d.employee, att, sal);

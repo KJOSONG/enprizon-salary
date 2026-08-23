@@ -546,7 +546,7 @@
           <div class="info-row"><span class="info-label" data-i18n="emp_custom_number">工号</span><span class="info-value" id="pfCustomNumber">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_position">岗位</span><span class="info-value" id="pfPosition">—</span></div>
           <!-- P14.5: 薪资类型（可编辑，置于岗位下方） -->
-          <div class="info-row"><span class="info-label" data-i18n="emp_salary_type">薪资类别</span><span class="info-value" id="pfSalaryType">—</span><button class="nav-btn" id="pfSalaryTypeEditBtn" onclick="editProfileSalaryType()" style="font-size:10px;padding:2px 8px;margin-left:8px;" data-i18n="btn_edit">✎ 编辑</button></div>
+          <div class="info-row" id="pfSalaryTypeRow" style="display:none;"><span class="info-label" data-i18n="emp_salary_type">薪资类别</span><span class="info-value" id="pfSalaryType">—</span><button class="nav-btn" id="pfSalaryTypeEditBtn" onclick="editProfileSalaryType()" style="font-size:10px;padding:2px 8px;margin-left:8px;display:none;" data-i18n="btn_edit">✎ 编辑</button></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_skill_level">技能等级</span><span class="info-value" id="pfSkill">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_hire_date">入职日期</span><span class="info-value" id="pfHireDate">—</span></div>
           <div class="info-row"><span class="info-label" data-i18n="emp_nida">NIDA</span><span class="info-value" id="pfNida">—</span></div>
@@ -2425,8 +2425,8 @@ async function loadDashboard() {
     await loadDashboard();
     // 同时加载薪资/员工数据供其他页面使用
     try {
-      // P18 阶段2: 按权限决定是否拉取薪资;无权限不拉、STATE.salaryResult=null
-      if (hasPermission('salary', 'view')) {
+      // P29-c Req①: 档案薪资板块硬角色门控——仅 super_admin/admin/viewer 预载薪资数据（collector/applicant 永不拉取）
+      if (['super_admin', 'admin', 'viewer'].includes(_authState.role)) {
         const sr = await fetch(api('/salary'));
         const sd = await sr.json();
         if (sd.result && sd.result.employees) {
@@ -3381,9 +3381,13 @@ async function loadEmployeeProfilePage(eid) {
     } else if (salType === 'monthly') {
       salTypeText += ' · ' + fmtNum(emp.monthly_salary || 0) + ' TZS' + t('salary_per_month');
     }
-    document.getElementById('pfSalaryType').textContent = salTypeText;
+    // P29-c Req①: 薪资类别行同属档案薪资板块,与 init() 预载同一硬角色门
+    const _salHardOk = ['super_admin', 'admin', 'viewer'].includes(_authState.role);
+    const stRow = document.getElementById('pfSalaryTypeRow');
+    if (stRow) stRow.style.display = _salHardOk ? '' : 'none';
+    document.getElementById('pfSalaryType').textContent = _salHardOk ? salTypeText : '—';
     const stBtn = document.getElementById('pfSalaryTypeEditBtn');
-    if (stBtn) stBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
+    if (stBtn) stBtn.style.display = (_salHardOk && hasPermission('employees','edit')) ? 'inline-block' : 'none';
 
     // P14.6: 加载临时例外列表
     loadProfileTempOverrides(eid);
@@ -4584,6 +4588,11 @@ function filterSalaryTable() {
   if (thBase) thBase.style.display = hasV2 ? '' : 'none';
   if (thCoeff) thCoeff.style.display = hasV2 ? '' : 'none';
   const tbody = document.querySelector('#salaryTable tbody');
+  // P29-c Req②: 行内编辑门控（奖金/罚款/预支三列，需 employees:edit）
+  const canInlineEdit = hasPermission('employees', 'edit');
+  const inlineTd = (rowEid, field, raw, disp, colorVar) => canInlineEdit
+    ? `<td class="num cell-edit" onclick="startSalaryInlineEdit(this,'${escHtml(rowEid)}','${field}',${raw})" style="color:${colorVar}">${disp}</td>`
+    : `<td class="num" style="color:${colorVar}">${disp}</td>`;
   tbody.innerHTML = filtered.map(emp => {
     const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0);
     const bonus = emp.bonus || 0;
@@ -4605,12 +4614,12 @@ function filterSalaryTable() {
       ${ugBaseTd}
       ${ugCoeffTd}
       <td class="num bold">${fmtNum(g)}</td>
-      <td class="num" style="color:var(--success)">${bonus ? '+' + fmtNum(bonus) : '—'}</td>
+      ${inlineTd(eid, 'bonus', bonus, bonus ? '+' + fmtNum(bonus) : '—', 'var(--success)')}
       <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.nssf||0)}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.paye||0)}</td>
-      <td class="num" style="color:var(--danger)">${penalty ? '-' + fmtNum(penalty) : '—'}</td>
-      <td class="num" style="color:var(--danger)">${fmtNum(emp.advance||0)}</td>
+      ${inlineTd(eid, 'penalty', penalty, penalty ? '-' + fmtNum(penalty) : '—', 'var(--danger)')}
+      ${inlineTd(eid, 'advance', emp.advance||0, fmtNum(emp.advance||0), 'var(--danger)')}
       <td class="num bold" style="color:var(--success)">${fmtNum(n)}</td>
       <td style="font-size:10px;color:var(--text-muted);max-width:180px;">
         ${(emp.temp_overrides||[]).map(to => 
@@ -4621,6 +4630,81 @@ function filterSalaryTable() {
       </td>
     </tr>`;
   }).join('');
+}
+
+// ═══ P29-c Req②: 薪资总表行内编辑（奖金/罚款/预支） ═══
+// 保存走 POST /api/salary/inline-edit（后端合并写 bonus_penalties + employees.advance），
+// 成功后重拉 GET /salary?month= 全量刷新——实发(net)由服务端重算，前端不做本地算术。
+const _salInlineInflight = {};   // 双击/重复提交守卫：eid|field → true
+function _salInlineMonth() {
+  return (STATE._salaryResult && STATE._salaryResult.month) || STATE.currentMonth || '';
+}
+async function _salInlineReload(month) {
+  const r = await fetch(api('/salary?month=' + encodeURIComponent(month)));
+  const d = await r.json();
+  if (d.result && d.result.employees) {
+    STATE.salaryResult = d.result;
+    renderSalaryTable(d.result);
+    return true;
+  }
+  return false;
+}
+function startSalaryInlineEdit(td, eid, field, curVal) {
+  if (!td || td.querySelector('input')) return;
+  const key = eid + '|' + field;
+  if (_salInlineInflight[key]) return;
+  const oldHtml = td.innerHTML;
+  td.innerHTML = '';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.inputMode = 'numeric';
+  inp.value = String(curVal || 0);
+  inp.className = 'cell-edit-input';
+  td.appendChild(inp);
+  td.classList.add('cell-editing');
+  inp.focus();
+  inp.select();
+  let settled = false;
+  const cancel = () => { if (settled) return; settled = true; td.classList.remove('cell-editing'); td.innerHTML = oldHtml; }; // Esc：还原文本，零网络
+  const commit = async () => {
+    if (settled) return;
+    const raw = inp.value.trim();
+    const n = Number(raw);
+    if (raw === '' || !Number.isInteger(n) || n < 0) { showToast(t('fail'), 'error'); cancel(); return; }
+    settled = true;
+    const month = _salInlineMonth();
+    _salInlineInflight[key] = true;
+    td.classList.add('cell-saving');
+    try {
+      const res = await authFetch(api('/api/salary/inline-edit'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ employee_id: eid, field, month, value: n }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        const ok = await _salInlineReload(month);   // 重拉后 tbody 整体重建，无需手动还原单元格
+        if (!ok) { showToast(t('fail'), 'error'); }
+      } else {
+        td.classList.remove('cell-saving');
+        td.classList.remove('cell-editing');
+        td.innerHTML = oldHtml;
+        showToast((data && data.error) || t('fail'), 'error');
+      }
+    } catch (e) {
+      td.classList.remove('cell-saving');
+      td.classList.remove('cell-editing');
+      td.innerHTML = oldHtml;
+      showToast(t('fail'), 'error');
+    } finally {
+      delete _salInlineInflight[key];
+    }
+  };
+  inp.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cancel(); }
+  });
+  inp.addEventListener('blur', () => commit());
 }
 
 // ════════════════════════════════════════════════

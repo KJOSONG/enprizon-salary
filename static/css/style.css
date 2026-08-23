@@ -988,6 +988,44 @@ table.data-table td.bold {
   color: var(--text);
 }
 
+/* ── P29-c Req③: 薪资总表姓名列冻结（横向滚动首列固定，仅作用于 #salaryTable） ──
+   实底背景为硬性要求：sticky 单元格若透明，滚动时下层内容会透出。
+   斑马纹/悬停行需单独补首列底色，否则被下方 bg-card 覆盖。 */
+#salaryTable th:first-child,
+#salaryTable td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-shadow: inset -1px 0 0 var(--border);
+}
+#salaryTable td:first-child { background: var(--bg-card); }
+#salaryTable thead th:first-child { z-index: 3; } /* 表头底色沿用 .table-wrap thead th 的 --muted */
+#salaryTable tbody tr:nth-child(even) td:first-child { background: var(--muted); }
+#salaryTable tbody tr:hover td:first-child { background: var(--accent); }
+
+/* ── P29-c Req②: 薪资总表行内编辑单元格（奖金/罚款/预支） ── */
+#salaryTable td.cell-edit {
+  cursor: pointer;
+  text-decoration: underline dotted var(--text-muted);
+  text-underline-offset: 3px;
+}
+#salaryTable td.cell-saving {
+  opacity: 0.55;
+  pointer-events: none;
+}
+#salaryTable td.cell-editing .cell-edit-input {
+  width: 92px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--text);
+  outline: none;
+}
+
 /* ════════════════════════════════════════════════
    状态徽章
    ════════════════════════════════════════════════ */
