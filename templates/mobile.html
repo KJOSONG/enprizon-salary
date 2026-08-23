@@ -881,7 +881,8 @@
     let html = '<div class="oa-card" onclick="oaPreview('+ev.id+',\''+mode+'\')">'
       + '<div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div>'
       + (summary?'<div class="oa-card__desc">'+esc(summary)+'</div>':'')
-      + '<div class="oa-card__date">'+esc(ev.effective_date||'')+'</div>';
+      + '<div class="oa-card__date">'+esc(ev.effective_date||'')+'</div>'
+      + '<div class="oa-card__date">'+t('oa_submitter')+': '+esc(ev.operator_id||'—')+'</div>';
     if(mode==='pending'){
       html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="event.stopPropagation();approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn" onclick="event.stopPropagation();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
     } else {

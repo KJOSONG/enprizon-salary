@@ -5819,7 +5819,8 @@ async function _oaDetailHtml(ev) {
     if (k === 'team_id') val = await _oaGroupName(v) || val;
     rows.push(`<div class="oa-detail-row"><span class="oa-detail-label">${escHtml(label)}</span><span class="oa-detail-value">${escHtml(val)}</span></div>`);
   }
-  return avatarHtml + rows.join('');
+  const submitterRow = `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_submitter')}</span><span class="oa-detail-value">${escHtml(ev.operator_id || '—')}${ev.created_at ? ' · ' + escHtml(String(ev.created_at).slice(0, 16)) : ''}</span></div>`;
+  return submitterRow + avatarHtml + rows.join('');
 }
 
 async function loadOAPending() {
@@ -5988,7 +5989,7 @@ async function loadOAHistory() {
         <div class="oa-event-info">
           <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
           <div class="oa-event-meta">
-            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
+            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_submitter')}: ${escHtml(ev.operator_id || '—')} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
             ${ev.status === 'revoked' && ev.revoked_by ? ' · ' + t('oa_revoke_by') + ': ' + escHtml(ev.revoked_by) : ''}
             ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
             · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || ev.revoked_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
