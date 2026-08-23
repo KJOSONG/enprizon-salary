@@ -184,7 +184,8 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 **UG 部门双条件（2026-08-16 用户明确）**：Production TEAM (underground) 部门只有 `default_type=piece_underground` 才参与井下计件/scoring；日薪/月薪员工通过井下采集出勤显示 D/N 属真实出勤，但不参与计件，按自身类型计薪。薪资类型判定**用 `override_type or default_type`，不能只看 default_type**（ENPRIZON LINDI PROJECT 部门 8 人 default=day_rate 但 override=monthly 实际月薪）。详见记忆 `salary_calc_logic.md`。
 
 税前总额 = 井下 + 钻工 + 破碎 + 日薪 + 月薪 + 加班费
-净额 = 税前 + 奖金 + 司机津贴 - 预支 - NSSF(10%) - 罚款
+净额 = 税前 + 奖金 + 司机津贴 - 预支 - NSSF(10%) - PAYE - 罚款
+（P29-c：奖金/罚款/预支均为 bonus_penalties 表月度手动项，支持薪资总表行内编辑；预支旧员工字段 advance_total 已废弃恒 0 仅兜底）
 
 ### 定价机制（非显而易见）
 
@@ -288,7 +289,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | `audit_log` | 操作审计（强制 UTC+3） | P0 |
 | `shift_additions` | 手动补井下计件班次 | P0 |
 | `driller_additions` | 手动补钻工分组 | P0 |
-| `bonus_penalties` | 月度奖惩 | P0 |
+| `bonus_penalties` | 月度奖惩＋预支（P29-c 补 advance 列：预支改月度手动录入，calculator 由此取值替代恒 0 的旧员工字段） | P0+P29-c |
 | `dismissed_employees` | 离职追踪 | P0 |
 | `admin_users` | 用户认证（加盐 SHA256） | P0 |
 | `employee_events` | OA 生命周期事件（入职/调岗/离职/薪资变/请假/**加班**） | P1+P23 |
@@ -414,6 +415,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | POST | `/api/collection/submit` | editor+ | 数据采集提交（4 类） |
 | GET | `/api/collection/history` | editor+ | 数据采集历史 |
 | POST | `/api/collection/edit/<id>` | editor+ | 再编辑历史提交 |
+| GET | `/api/collection/roster` | 持任一采集键或 scoring:edit | 采集/评分表单轻量花名册（仅 id/name/dept 等 7 字段，不含薪酬数据）P29-b |
+| POST | `/api/salary/inline-edit` | employees:edit | 薪资总表行内编辑奖金/罚款/预支（写 bonus_penalties 含 advance 列，审计 salary_inline_edit）P29-c |
 | GET/POST/PUT/DELETE | `/api/employee_groups/*` | admin+ | 班组 CRUD |
 | GET | `/api/scoring/team/<id>/month/<m>` | editor+ | 评分卡全员列表 |
 | POST | `/api/scoring/card/batch` | editor+ | 批量提交评分卡 |
