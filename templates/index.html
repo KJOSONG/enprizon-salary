@@ -360,7 +360,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="nav_employees_hire">入职申请</h2>
-      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      <button class="nav-btn" onclick="navigate('oa','pending')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:760px;">
       <div class="form-row"><label data-i18n="emp_name">姓名</label><input type="text" id="hireName" data-i18n-placeholder="ph_name_required" placeholder="姓名（必填）" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -406,7 +406,7 @@
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;">
       <button class="btn-primary" onclick="submitApply('hire')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-cancel" onclick="navigate('oa','pending')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
     <div id="hireMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
@@ -417,7 +417,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="nav_employees_leave">请假申请</h2>
-      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      <button class="nav-btn" onclick="navigate('oa','pending')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;" id="leaveSubForm">
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="leaveEmpId" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="leaveEmpEid"></div>
@@ -434,7 +434,7 @@
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;">
       <button class="btn-primary" onclick="submitLeave()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-cancel" onclick="navigate('oa','pending')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
     <div id="leaveMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
@@ -445,7 +445,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="nav_employees_overtime">加班申请</h2>
-      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      <button class="nav-btn" onclick="navigate('oa','pending')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="otEmpId" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="otEmpEid"></div>
@@ -459,7 +459,7 @@
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px;" data-i18n="overtime_cross_day">结束早于开始视为次日</div>
     <div style="display:flex;gap:8px;margin-top:16px;">
       <button class="btn-primary" onclick="submitOvertime()" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-cancel" onclick="navigate('oa','pending')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
     <div id="otMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
@@ -470,7 +470,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="nav_employees_transfer">调岗申请</h2>
-      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      <button class="nav-btn" onclick="navigate('oa','pending')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="transferSearch" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="transferEid"></div>
@@ -481,7 +481,7 @@
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;">
       <button class="btn-primary" onclick="submitApply('transfer')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-cancel" onclick="navigate('oa','pending')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
     <div id="transferMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
@@ -492,7 +492,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="nav_employees_dismiss">离职申请</h2>
-      <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
+      <button class="nav-btn" onclick="navigate('oa','pending')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="dismissSearch" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="dismissEid"></div>
@@ -502,7 +502,7 @@
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;">
       <button class="btn-primary" onclick="submitApply('dismiss')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_submit">提交</button>
-      <button class="btn-cancel" onclick="navigate('employees','list')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      <button class="btn-cancel" onclick="navigate('oa','pending')" style="padding:6px 16px;font-size:12px;" data-i18n="btn_cancel">取消</button>
     </div>
     <div id="dismissMsg" style="margin-top:8px;font-size:12px;"></div>
   </div>
@@ -1962,17 +1962,16 @@ function switchPage(name) {
 // 侧边栏顺序即 spec §5.1: 数据台→员工→审批中心(D1 独立)→出勤→薪资→数据采集→评分→系统
 const MODULES = {
   dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null, perm: 'dashboard:view' },
-  employees:  { label: 'nav_employees',  icon: '👥', perm: 'employees:view', children: [
-                { id: 'list',     perm: 'employees:view' },
-                { id: 'hire',     perm: 'oa:apply' },
-                { id: 'transfer', perm: 'oa:apply' },
-                { id: 'dismiss',  perm: 'oa:apply' },
-                { id: 'leave',    perm: 'oa:apply' },
-                { id: 'overtime', perm: 'oa:apply' },
-              ] },
+  employees:  { label: 'nav_employees',  icon: '👥', children: null, perm: 'employees:view' },
+  // P29 IA: 5 申请子页自员工模块迁入审批中心（label 复用 nav_employees_* i18n 键）
   oa:         { label: 'nav_oa', icon: '📨', anyOf: ['oa:view', 'oa:apply'], children: [
                 { id: 'pending' },
                 { id: 'history' },
+                { id: 'hire',     perm: 'oa:apply', label: 'nav_employees_hire' },
+                { id: 'transfer', perm: 'oa:apply', label: 'nav_employees_transfer' },
+                { id: 'dismiss',  perm: 'oa:apply', label: 'nav_employees_dismiss' },
+                { id: 'leave',    perm: 'oa:apply', label: 'nav_employees_leave' },
+                { id: 'overtime', perm: 'oa:apply', label: 'nav_employees_overtime' },
               ] },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null, perm: 'attendance:view' },
   salary:     { label: 'nav_salary',      icon: '💰', perm: 'salary:view', children: [
@@ -2017,6 +2016,12 @@ const SUBPAGE_TARGETS = {
   // P29 D1: 审批中心独立模块路由（复用员工页 OA Tab 面板 DOM）
   'oa/pending':        'employees',
   'oa/history':        'employees',
+  // P29 IA: 申请子页迁入审批中心（员工模块旧键保留，旧书签继续可用）
+  'oa/hire':           'employees-hire',
+  'oa/transfer':       'employees-transfer',
+  'oa/dismiss':        'employees-dismiss',
+  'oa/leave':          'employees-leave',
+  'oa/overtime':       'employees-overtime',
   'collection/underground': 'collection-underground',
   'collection/driller':     'collection-driller',
   'collection/crush':       'collection-crush',
@@ -2034,6 +2039,7 @@ const SUBPAGE_TARGETS = {
 // 无子页模块默认目标
 const MODULE_TARGETS = {
   dashboard:  'dashboard',
+  employees:  'employees',
   attendance: 'attendance',
 };
 
@@ -2064,7 +2070,7 @@ function renderSidebar() {
         const subActive = isActive && STATE.currentSubPage === sub.id;
         html += `<button class="sidebar-subpage${subActive?' active':''}"
                         onclick="navigate('${key}','${sub.id}')">
-                   <span>${t('nav_'+key+'_'+sub.id)}</span>
+                   <span>${sub.label ? t(sub.label) : t('nav_'+key+'_'+sub.id)}</span>
                  </button>`;
       }
       html += '</div>';
@@ -2188,10 +2194,13 @@ function showTargetPage(module, subPage) {
   if (targetId === 'employees') {
     renderEmployeeTable();
   }
-  // P29 D1: 审批中心路由复用员工页 OA Tab 面板（#oa/pending / #oa/history）
-  if (module === 'oa') { switchEmpTab(subPage === 'history' ? 'oa-history' : 'oa-pending'); }
+  // P29 D1: 审批中心路由复用员工页 OA Tab 面板（#oa/pending / #oa/history；P29 IA: 申请子页渲染各自页面 DIV，不走 Tab 面板）
+  if (module === 'oa' && (subPage === 'pending' || subPage === 'history')) { switchEmpTab(subPage === 'history' ? 'oa-history' : 'oa-pending'); }
   // 员工列表子页进入时确保 Tab 复位到列表（避免从审批中心切回时残留 OA 面板）
   if (module === 'employees' && (!subPage || subPage === 'list')) { switchEmpTab('list'); }
+  // P29 IA 需求②: 审批中心视图内隐藏"员工列表" Tab（离开审批中心时恢复）
+  const _lt = document.querySelector('.emp-tab[data-emp-tab="list"]');
+  if (_lt && targetId === 'employees') _lt.style.display = module === 'oa' ? 'none' : '';
   // P12: 员工档案独立子页加载
   if (targetId === 'employees-profile') {
     const eid = STATE.currentParams && STATE.currentParams.id;
@@ -2264,7 +2273,9 @@ function updateBreadcrumb() {
   html += `<span onclick="navigate('${currentModule}')" style="cursor:pointer;">${t(MODULES[currentModule]?.label || 'nav_'+currentModule)}</span>`;
   if (currentSubPage) {
     html += `<span class="breadcrumb-sep">/</span>`;
-    html += `<span>${t('nav_'+currentModule+'_'+currentSubPage)}</span>`;
+    // P29 IA: 子页 label 覆盖（审批中心申请子页复用 nav_employees_* 键）
+    const _bcSub = ((MODULES[currentModule] || {}).children || []).find(c => c.id === currentSubPage);
+    html += `<span>${t(_bcSub && _bcSub.label ? _bcSub.label : 'nav_'+currentModule+'_'+currentSubPage)}</span>`;
   }
   bc.innerHTML = html;
 }
@@ -6205,7 +6216,7 @@ document.addEventListener('click', function(e) {
 });
 /* ── P2 请假提交（P13: 独立子页） ── */
 function showLeaveForm() {
-  navigate('employees', 'leave');
+  navigate('oa', 'leave');
 }
 
 async function submitLeave() {
