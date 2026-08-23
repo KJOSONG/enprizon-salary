@@ -130,6 +130,10 @@ def init_db(data_folder):
         try:
             conn.execute(f"ALTER TABLE employees ADD COLUMN {col} {defn}")
         except: pass
+    # P29-c: 老库 bonus_penalties 补 advance 列（幂等）
+    try:
+        conn.execute("ALTER TABLE bonus_penalties ADD COLUMN advance INTEGER DEFAULT 0")
+    except: pass
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS shift_additions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,6 +154,7 @@ def init_db(data_folder):
             month TEXT NOT NULL,
             bonus INTEGER DEFAULT 0,
             penalty INTEGER DEFAULT 0,
+            advance INTEGER DEFAULT 0,
             PRIMARY KEY (employee_id, month)
         );
         CREATE TABLE IF NOT EXISTS dismissed_employees (
@@ -627,7 +632,8 @@ def _migrate_localtime_timestamps(conn, offset_h=None):
 def _migrate_permissions_v2(data_folder):
     """P29: 权限体系 V2.1 一次性幂等迁移(docs/P29_PERMISSION_V2_SPEC.md §9)
 
-    - settings.perm_v2_migrated=1 已迁移则直接返回(重复启动跳过)
+    - settings.perm_v2_migrated 版本化(P29-c): 存值 ≥2 直接返回;<1 执行旧键平移;<2 重播种内置角色
+      至当前预设(预设演进如 collector 补 employees:view 即由此生效),完成置 '2'
     - 变更前把 permissions/role_permissions/user_grants 三表全量快照写入 audit_log
     - 内置四角色(admin/collector/applicant/viewer)按 V2 预设强制重播种;
       super_admin 硬编码全权限永不落表,不触碰
@@ -636,7 +642,13 @@ def _migrate_permissions_v2(data_folder):
     """
     conn = get_conn(data_folder)
     row = conn.execute("SELECT value FROM settings WHERE key='perm_v2_migrated'").fetchone()
-    if row and row['value'] == '1':
+    ver = 0
+    if row:
+        try:
+            ver = int(str(row['value']))
+        except ValueError:
+            ver = 0
+    if ver >= 2:
         conn.close()
         return
     c = conn.cursor()
@@ -660,55 +672,56 @@ def _migrate_permissions_v2(data_folder):
                         "INSERT OR REPLACE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,1)",
                         (role, module, action))
 
-        # 3) permissions 注册表翻译: find-or-create 去重(INSERT OR IGNORE 后 SELECT id)
-        def _find_or_create(module, action):
-            c.execute(
-                "INSERT OR IGNORE INTO permissions (module, action, scope_type, scope_value) VALUES (?,?,?,?)",
-                (module, action, 'all', ''))
-            return c.execute(
-                "SELECT id FROM permissions WHERE module=? AND action=? AND scope_type='all'",
-                (module, action)).fetchone()[0]
-
-        PROD_VIEW_TARGET = ('dashboard', 'view')
-        PROD_EDIT_TARGETS = [
-            ('collection', 'view'), ('collection', 'underground'), ('collection', 'driller'),
-            ('collection', 'crush'), ('collection', 'attendance')]
-        # user_grants 平移: view 重指向目标;edit 复制到 5 个目标(同 username+grant_type),然后删源行
-        for r in c.execute("SELECT id, action FROM permissions WHERE module='production'").fetchall():
-            src_id, act = r[0], r[1]
-            if act == 'view':
-                targets = [PROD_VIEW_TARGET]
-            elif act == 'edit':
-                targets = PROD_EDIT_TARGETS
-            else:
-                targets = []  # 其余 production:* 无等价新键,授权随源行一并删除
-            tgt_ids = [_find_or_create(m, a) for m, a in targets]
-            grants = c.execute(
-                "SELECT username, grant_type FROM user_grants WHERE permission_id=?", (src_id,)).fetchall()
-            for g in grants:
-                for tid in tgt_ids:
-                    c.execute(
-                        "INSERT OR IGNORE INTO user_grants (username, permission_id, grant_type) VALUES (?,?,?)",
-                        (g[0], tid, g[1]))
-            c.execute("DELETE FROM user_grants WHERE permission_id=?", (src_id,))
-            c.execute("DELETE FROM permissions WHERE id=?", (src_id,))
-        # 4) role_permissions 翻译(非重播种角色: 自定义 + 存量 editor);allow 值保留,已有目标行不覆盖
-        for r in c.execute(
-                "SELECT id, role, action, allow FROM role_permissions WHERE module='production'").fetchall():
-            rid, role, act, allow = r[0], r[1], r[2], r[3]
-            if act == 'view':
-                targets = [PROD_VIEW_TARGET]
-            elif act == 'edit':
-                targets = PROD_EDIT_TARGETS
-            else:
-                targets = []
-            for m, a in targets:
+        # 3) permissions 注册表翻译(ver<1 才需要;v1 库已完成,跳过)
+        if ver < 1:
+            def _find_or_create(module, action):
                 c.execute(
-                    "INSERT OR IGNORE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,?)",
-                    (role, m, a, allow))
-            c.execute("DELETE FROM role_permissions WHERE id=?", (rid,))
+                    "INSERT OR IGNORE INTO permissions (module, action, scope_type, scope_value) VALUES (?,?,?,?)",
+                    (module, action, 'all', ''))
+                return c.execute(
+                    "SELECT id FROM permissions WHERE module=? AND action=? AND scope_type='all'",
+                    (module, action)).fetchone()[0]
+
+            PROD_VIEW_TARGET = ('dashboard', 'view')
+            PROD_EDIT_TARGETS = [
+                ('collection', 'view'), ('collection', 'underground'), ('collection', 'driller'),
+                ('collection', 'crush'), ('collection', 'attendance')]
+            # user_grants 平移: view 重指向目标;edit 复制到 5 个目标(同 username+grant_type),然后删源行
+            for r in c.execute("SELECT id, action FROM permissions WHERE module='production'").fetchall():
+                src_id, act = r[0], r[1]
+                if act == 'view':
+                    targets = [PROD_VIEW_TARGET]
+                elif act == 'edit':
+                    targets = PROD_EDIT_TARGETS
+                else:
+                    targets = []  # 其余 production:* 无等价新键,授权随源行一并删除
+                tgt_ids = [_find_or_create(m, a) for m, a in targets]
+                grants = c.execute(
+                    "SELECT username, grant_type FROM user_grants WHERE permission_id=?", (src_id,)).fetchall()
+                for g in grants:
+                    for tid in tgt_ids:
+                        c.execute(
+                            "INSERT OR IGNORE INTO user_grants (username, permission_id, grant_type) VALUES (?,?,?)",
+                            (g[0], tid, g[1]))
+                c.execute("DELETE FROM user_grants WHERE permission_id=?", (src_id,))
+                c.execute("DELETE FROM permissions WHERE id=?", (src_id,))
+            # 4) role_permissions 翻译(非重播种角色: 自定义 + 存量 editor);allow 值保留,已有目标行不覆盖
+            for r in c.execute(
+                    "SELECT id, role, action, allow FROM role_permissions WHERE module='production'").fetchall():
+                rid, role, act, allow = r[0], r[1], r[2], r[3]
+                if act == 'view':
+                    targets = [PROD_VIEW_TARGET]
+                elif act == 'edit':
+                    targets = PROD_EDIT_TARGETS
+                else:
+                    targets = []
+                for m, a in targets:
+                    c.execute(
+                        "INSERT OR IGNORE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,?)",
+                        (role, m, a, allow))
+                c.execute("DELETE FROM role_permissions WHERE id=?", (rid,))
         # 5) 标记一次性完成,单次事务提交
-        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('perm_v2_migrated', '1')")
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('perm_v2_migrated', '2')")
         conn.execute("COMMIT")
         print('[migration] P29 权限目录 V2.1 迁移完成')
     except Exception:
@@ -1154,22 +1167,31 @@ def load_driller_additions(data_folder):
 # ── 奖金/罚款 ──────────────────────────────────
 
 def load_bonus_penalties(data_folder, month):
-    """加载指定月份的奖金/罚款数据 → {employee_id: {bonus: int, penalty: int}}"""
+    """加载指定月份的奖金/罚款/预支 → {employee_id: {bonus: int, penalty: int, advance: int}}"""
     if not month:
         return {}
     conn = get_conn(data_folder)
     rows = conn.execute("SELECT * FROM bonus_penalties WHERE month=?", (month,)).fetchall()
     conn.close()
-    return {r['employee_id']: {'bonus': r['bonus'], 'penalty': r['penalty']} for r in rows}
+    return {r['employee_id']: {'bonus': r['bonus'], 'penalty': r['penalty'],
+                               'advance': r['advance'] if 'advance' in r.keys() else 0} for r in rows}
 
-def save_bonus_penalty(data_folder, employee_id, month, bonus, penalty):
-    """保存单个员工的奖金/罚款"""
+def save_bonus_penalty(data_folder, employee_id, month, bonus, penalty, advance=None):
+    """保存单个员工的奖金/罚款/预支(advance=None 表示本次不动该列)"""
     conn = get_conn(data_folder)
-    conn.execute(
-        "INSERT INTO bonus_penalties (employee_id, month, bonus, penalty) VALUES (?,?,?,?) "
-        "ON CONFLICT(employee_id,month) DO UPDATE SET bonus=?, penalty=?",
-        (employee_id, month, bonus or 0, penalty or 0, bonus or 0, penalty or 0)
-    )
+    if advance is None:
+        conn.execute(
+            "INSERT INTO bonus_penalties (employee_id, month, bonus, penalty) VALUES (?,?,?,?) "
+            "ON CONFLICT(employee_id,month) DO UPDATE SET bonus=?, penalty=?",
+            (employee_id, month, bonus or 0, penalty or 0, bonus or 0, penalty or 0)
+        )
+    else:
+        conn.execute(
+            "INSERT INTO bonus_penalties (employee_id, month, bonus, penalty, advance) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(employee_id,month) DO UPDATE SET bonus=?, penalty=?, advance=?",
+            (employee_id, month, bonus or 0, penalty or 0, advance or 0,
+             bonus or 0, penalty or 0, advance or 0)
+        )
     conn.commit()
     conn.close()
 
@@ -1530,6 +1552,7 @@ ROLE_DEFAULT_PERMISSIONS = {
         'dashboard': ['view'],
         'collection': ['view', 'underground', 'driller', 'crush', 'attendance'],
         'attendance': ['view'],
+        'employees': ['view'],
         'oa': ['apply'],
     },
     # applicant = 普通员工自助申请
