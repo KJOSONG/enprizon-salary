@@ -3321,6 +3321,45 @@ def get_salary():
         res = {**res, 'month': APP_STATE.get('month', '')}  # 浅拷贝，防污染缓存
     return jsonify({'result': res, 'month': APP_STATE.get('month', ''), 'headless': APP_STATE.get('headless', False)})
 
+@app.route('/api/salary/inline-edit', methods=['POST'])
+@login_required
+@require_permission('employees', 'edit')
+def api_salary_inline_edit():
+    """P29-c: 薪资总表行内编辑——奖金/罚款合并写 bonus_penalties,预支直改 employees.advance。
+    前端保存后重拉 GET /salary(GET 每次全量重算)即见自动计算结果,无需 /recalculate 权限。"""
+    from core.database import save_bonus_penalty, load_bonus_penalties, get_conn
+    data = request.get_json(silent=True) or {}
+    eid = (data.get('employee_id') or '').strip()
+    field = (data.get('field') or '').strip()
+    month = (data.get('month') or '').strip() or datetime.now(EAT).strftime('%Y-%m')
+    try:
+        value = int(data.get('value'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': '数值非法'}), 400
+    if value < 0:
+        return jsonify({'ok': False, 'error': '数值不能为负'}), 400
+    if field not in ('bonus', 'penalty', 'advance'):
+        return jsonify({'ok': False, 'error': '不支持的字段'}), 400
+    if not eid:
+        return jsonify({'ok': False, 'error': '缺少 employee_id'}), 400
+    old = None
+    conn = get_conn(app.config['DATA_FOLDER'])
+    row = conn.execute('SELECT 1 FROM employees WHERE id=?', (eid,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    bp = load_bonus_penalties(app.config['DATA_FOLDER'], month) or {}
+    cur = bp.get(eid) or {}
+    old = int(cur.get(field, 0) or 0)
+    bonus = value if field == 'bonus' else int(cur.get('bonus', 0) or 0)
+    penalty = value if field == 'penalty' else int(cur.get('penalty', 0) or 0)
+    advance = value if field == 'advance' else int(cur.get('advance', 0) or 0)
+    save_bonus_penalty(app.config['DATA_FOLDER'], eid, month, bonus, penalty, advance)
+    _audit('salary_inline_edit', eid,
+           json.dumps({'user': session.get('username', ''), 'month': month,
+                       'field': field, 'old': old, 'new': value}))
+    return jsonify({'ok': True})
+
 # ═══════════════════════════════════════════════════════════
 #  API: 薪资双路径核对
 # ═══════════════════════════════════════════════════════════

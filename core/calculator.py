@@ -1057,8 +1057,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
         ot = round(ot_total.get(eid, 0))  # P23 R2: 加班费并入税前（可独立展示）
         gross = pu + pd_val + dr_total + ms_total + cr_total + ot
-        advance = emp.get('advance_total', 0)
         bp = bonus_penalties.get(eid, {})
+        # P29-c: 预支改由月度手动录入(bonus_penalties.advance);旧 advance_total 纯采集时代恒 0,仅兜底
+        advance = int(bp.get('advance', 0) or 0) or int(emp.get('advance_total', 0) or 0)
         bonus = int(bp.get('bonus', 0) or 0)
         penalty = int(bp.get('penalty', 0) or 0)
 
