@@ -12,7 +12,7 @@
 - `docs/P12/P13/P14/P15_*.md`：各阶段详设与实施对照清单（见 §重构状态）
 - `docs/P25_PIECEWORK_V2_SPEC.md`：计件薪资制度 V2 逻辑规格（凸性加速 + 月末零和再分配，业务侧权威）
 - `docs/P25_PIECEWORK_V2_IMPLEMENTATION.md`：V2 实现设计（第三模式、班组对齐、公式、前端清单，工程侧权威）
-- `docs/P29_PERMISSION_V2_SPEC.md`：权限体系 V2.1 重设计规格（**已批准未开工的下一任务**，需求已冻结，接手必读）
+- `docs/P29_PERMISSION_V2_SPEC.md`：权限体系 V2.1 重设计规格（**已实施于 `feature/p29-permission-v2`，待批准部署**；需求文本冻结，接手必读）
 
 ## 协作流程
 
@@ -268,9 +268,13 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 由出勤勾选"驾驶"触发，须在校验 `driver_roster` 名单内，自动 5,000/班 计津贴并流入薪资总表 `driver_allowance` 列。
 
-### 权限模型
+### 权限模型（P29 V2.1）
 
-`super_admin` > `admin` > `editor` > `viewer`。默认账号 `user/qweasd`（viewer），`KEJU` 自动升 super_admin。P18 起细粒度权限（role_permissions + user_grants）。
+细粒度目录 **21 键 / 8 模块**（数据台/员工/审批中心/出勤/薪资/数据采集/评分/系统，production:* 已移除：view→dashboard:view、edit→collection:view+4 表单键）。动作四类：`view`（看页面）/ 操作键（approve/edit/export 等）/ `apply`（提交 OA 申请）/ `manage`（角色授权管理）。
+
+内置五角色：`super_admin`(*:*) > `admin` > `collector`（仅采集 4 表单键）> `applicant`（oa:view+oa:apply 只看自己申请）> `viewer`（全模块 view 含薪资只读）。继承仅一条字面映射 `ROLE_HIERARCHY={'collector':['applicant']}`；custom 角色平级。**editor 已降出内置角色但 `ROLE_LEVELS['editor']=1` 保留**（旧装饰器基线兼容）。判定走 check_permission（role_permissions + user_grants）。
+
+运营侧两个高频点：**OA 申请三端点挂 `oa:apply`**（POST /api/oa/events、/api/oa/leave、/api/leave/sick），读端点 (oa:view||oa:apply) 且仅 apply 者只看自己的提交；**数据采集按表单类型动态校验 `collection:<type>`**（underground/driller/crush/attendance），无 editor 角色地板（collector 是 0 级角色，地板会废掉整个 persona）。默认账号 `user/qweasd`（viewer），`KEJU` 自动升 super_admin。启动迁移 `_migrate_permissions_v2()` 幂等（settings.perm_v2_migrated=1）。
 
 ### 数据库表（P5 18+ 张 + P7-P23 增量）
 
@@ -279,7 +283,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | `employees` | 员工主档（P1：position/skill_level/hire_date/NIDA/NSSF/银行；**P7 增** gender/date_of_birth/avatar_path；**P10 增** custom_number/team_id；**P14.5 增** alias；**P20 增** annual_leave_override；**P21 增** tin_number） | P0+P1+P7+P10+P14.5+P20+P21 |
 | `overrides` | 薪资例外：永久/临时（逐步被 employee_events 取代） | P0 |
 | `attendance_overrides` | 手动出勤标记 P/A/L/D/N/C/S/Y/T/NU | P0+P8 |
-| `settings` | 系统配置 key-value（定价/NSSF/underground_mode/scoring/overtime 参数） | P0 |
+| `settings` | 系统配置 key-value（定价/NSSF/underground_mode/scoring/overtime 参数/**perm_v2_migrated 迁移标志**） | P0 |
 | `monthly_data` | 月度薪资快照缓存 | P0 |
 | `audit_log` | 操作审计（强制 UTC+3） | P0 |
 | `shift_additions` | 手动补井下计件班次 | P0 |
@@ -293,15 +297,15 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 | `driver_roster` | 司机白名单 | P2 |
 | `scoring_cards/entries` | 评分卡 + 6 维评分（**P10 重设计**；奖金计算读**新表** `scoring_card_entries`） | P3+P10 |
 | `objective_records` | 客观产量数据（R1/R2→S；R1 实际出渣量**手工录入**） | P3 |
-| `permissions` | 细粒度权限定义（模块×动作） | P4 |
-| `user_grants` | 用户单独授权（覆盖角色默认） | P4 |
+| `permissions` | 细粒度权限注册表（**P29 V2.1 目录：8 模块×21 键**，启动迁移重置） | P4+P29 |
+| `user_grants` | 用户单独授权（覆盖角色默认；P29 迁移翻译 production 旧键，deny 复制×5） | P4+P29 |
 | `form_schemas/fields` | Schema 驱动表单定义 | P4 |
 | **`collection_submissions`** | **P9 新增**：数据采集提交主表（井下/钻工/破碎/出勤收集 4 类） | P9 |
 | **`collection_history`** | **P9 新增**：编辑历史版本表（旧 payload 留档） | P9 |
 | **`employee_groups`** | **P10 新增**：班组表（LAMBA LAMBA / SAKA SAKA 等） | P10 |
 | **`driller_captains`** | **v5 新增**：钻工队长名单（当前 3 人，计薪参数页维护） | v5 |
 | **`approval_routes`** | **P13 新增**：审批人路由表（event_type → 指定审批人） | P13 |
-| **`role_permissions`** | **P18 新增**：角色默认权限（DB 可编辑） | P18 |
+| **`role_permissions`** | **P18 新增**：角色默认权限（DB 可编辑；P29 重置为五内置角色预设） | P18+P29 |
 | **`overtime_records`** | **P23 新增**：加班记录（event_id 外键/employee_id/date/起止时间/hours/amount） | P23 |
 
 ### 硬排除名单（`app.py:40-45`）
@@ -462,15 +466,15 @@ app.py (Flask 路由 / 认证 / 数据管线)
 - 复杂任务（≥3 需求）用 KEJU 团队并行（designer/dev/qa），简单任务直接做
 - 判断薪资类型用 `override_type or default_type`
 
-## 重构状态（2026-08-21 更新，main=a871bc0）
+## 重构状态（2026-08-23 更新，main=a871bc0；feature/p29-permission-v2 待部署）
 
-**分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）
-**阶段**: **P0-P25 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速）
+**分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）；`feature/p29-permission-v2` 已完成 P29 权限 V2.1 全部实施（41 测试通过），待用户批准 push + 服务器部署
+**阶段**: **P0-P25 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速）；**P29 权限 V2.1 已实施于 feature 分支待部署**
 **纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），服务 active
 **团队**: KEJU 团队（designer/dev/qa）并行工作流，复杂任务必用；agentmemory 已整合（开始 recall / 完成 remember）
 
-### 最近阶段新增功能（P18-P23 摘要）
+### 最近阶段新增功能（P18-P29 摘要）
 
 | 阶段 | 新增 |
 |------|------|
@@ -483,6 +487,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **P23** | 照片放大压缩/加班申请计费(overtime_records+参数可改)/审计日志移权限页/缓存同步bug修复 |
 | **P24** | 安全修复（登录角色回退降级/恒时密码比较/会话Cookie加固/OA审批原子化等）+ 登录体验（密码可见图标/错误提示/取消账户锁定） |
 | **P25** | **计件薪资制度 V2（凸性加速计件）**：第三模式 `underground_mode='v2'` + 班组对齐 employee_groups + 出勤 E 豁免 + 子部门筛选（详见下方 P25 专节） |
+| **P29** | **权限体系 V2.1**：目录重造 21 键/8 模块（production:* 移除，目录=页面）+ 五内置角色（新增 collector/applicant，editor 降级但 ROLE_LEVELS 保留）+ 三表幂等迁移（perm_v2_migrated 标志 + audit_log 备份）+ OA apply/approve 分离（oa:apply）+ 采集动态表单键门控 + Web 审批中心独立模块 + 移动端 isAdminLevel 收敛（详见 ARCHITECTURE.md §十一） |
 | **UI** | 壳层布局（顶部栏/面包屑/筛选框固定，内容区滚动，切页重置）+ modal Apple 风格动画 + toast 顶部居中 |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
@@ -512,7 +517,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
-0. **P29 权限体系 V2.1（已批准，未开工）**：方案定稿于 `docs/P29_PERMISSION_V2_SPEC.md`（需求已冻结）——A 期「OA 提交人显示」可先行小改上线；B-E 期大改走 `feature/p29-permission-v2` 分支 KEJU 并行
+0. **P29 权限体系 V2.1（代码已完成，待部署）**：已在 `feature/p29-permission-v2` 完成全部实施（41 测试通过：目录形状/迁移幂等/端点矩阵），等待用户批准 push + 服务器部署；上线后观察首次启动迁移日志（`_migrate_permissions_v2()` 幂等，settings.perm_v2_migrated=1）
 1. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）
 2. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 3. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n

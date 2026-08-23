@@ -1,7 +1,7 @@
 # ENPRIZON LINDI PROJECT — 薪资系统架构文档
 
 > **历史快照**（v3.0 重构架构决策）。现行需求与产品定义见 `REFACTOR_SPEC.md` v4。
-> 精简版 (v3.0) | 最后更新: 2026-07-01 | 维护者: KEJU
+> 精简版 | 最后更新: 2026-08-23 | 维护者: KEJU
 > 原则: 只写设计决策和理由，不写代码细节（代码会变，理由不变）
 
 ---
@@ -202,6 +202,58 @@ A/L 标记的员工从当日计件分配中排除 (按日重新均分, 总额守
 | core/addressbook.py | 通讯录 Excel 解析 |
 | core/pricing.py | 单价配置 |
 | templates/index.html | 单页 SPA (约 2621 行, 6 页面标签, 全部 JS 内联) |
+
+---
+
+## 十一、权限体系 (P18 框架 -> P29 V2.1 重造)
+
+> P29 已实施于 `feature/p29-permission-v2` 分支 (本地验证通过, 待部署)。需求权威见 `docs/P29_PERMISSION_V2_SPEC.md`。
+
+### 11.1 目录为什么重造 (核心决策: 目录 = 页面)
+
+P18 的目录按功能域划分, 出现过 production:* 这类数据域键, 与前端页面对不上: 有键无页面, 授权时要在"键"和"页面"之间做心算翻译。V2.1 改为**目录 = 页面**: 21 键 / 8 模块 (数据台/员工/审批中心/出勤/薪资/数据采集/评分/系统), 一个模块对应一个侧边栏入口, 权限编辑器矩阵按侧边栏顺序分组。
+
+production:* 移除后的去向: 查看 -> dashboard:view, 编辑 -> collection:view + 4 个表单键 (underground/driller/crush/attendance)。
+
+### 11.2 动作语义 (四类)
+
+| 动作 | 语义 | 例子 |
+|------|------|------|
+| view | 看得到页面 / 读得到数据 | salary:view |
+| 操作键 | 页面内的具体写操作 | oa:approve, employees:edit, attendance:export |
+| apply | 提交 OA 申请 (申请人视角) | oa:apply |
+| manage | 管理角色与授权本身 | system:manage |
+
+apply 与 approve 分离是重造动机之一: 采集工/普通员工要能提加班/请假申请, 但不该有任何审批权。
+
+### 11.3 内置角色与继承决策
+
+| 角色 | 预设 |
+|------|------|
+| super_admin | *:* |
+| admin | 全模块管理 |
+| collector | 仅数据采集 4 表单键 |
+| applicant | oa:view + oa:apply, 只看自己的提交 |
+| viewer | 全模块 view (含薪资只读) |
+
+- **字面继承**: ROLE_HIERARCHY = {'collector': ['applicant']}, collector 直接继承 applicant 的全部键 (能采集必然要能交申请)。不做通用层级推导; custom 角色完全平级, 不参与继承。
+- **editor 降级**: editor 移出内置角色 (旧语义与新五角色定位冲突), 但 ROLE_LEVELS['editor'] = 1 保留。理由: 存量装饰器基线 (@editor_required 等) 仍引用该层级, 删掉会破坏兼容。
+
+### 11.4 三表迁移 (_migrate_permissions_v2)
+
+挂在两条启动路径上执行, 幂等靠 settings 表 perm_v2_migrated = 1 标志:
+
+1. **备份先行**: 旧 permissions / role_permissions / user_grants 全量写入 audit_log (action='p29_migration_backup')
+2. **重置**: permissions 注册表刷成 V2.1 目录, 内置角色 role_permissions 刷成新预设
+3. **翻译**: 存量 user_grants 里的 production 旧键映射到新键; deny 类授权复制到全部 5 个替代键 (拒绝语义不松动)
+
+**回滚 = 恢复 P29 之前的 DB 快照**, 没有代码级回滚开关; audit_log 备份用于审计追溯, 不做自动还原。
+
+### 11.5 动态表单键门控 (约定)
+
+采集端点统一约定: @login_required 进门 + handler 内按 payload 表单类型动态 check_permission(u, 'collection', <type>)。不挂静态角色地板, 理由: collector 是 0 级角色, 任何 editor 地板都会让 collector 人设失效; 表单类型与动作名天然对齐, 加表单即加键, 无需改装饰器。
+
+OA 同构: 申请三端点 (POST /api/oa/events, /api/oa/leave, /api/leave/sick) 挂 oa:apply; 读四端点改 (oa:view || oa:apply), 仅 apply 者返回体过滤为自己的提交 (operator_filter); 撤销/编辑补 oa:approve 并保留"本人可撤/改自己申请"规则。
 
 ---
 
