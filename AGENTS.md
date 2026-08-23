@@ -55,19 +55,19 @@ python3 app.py                    # 前台（自动找空闲端口 ≥8080）
 ### 服务器运维
 ```bash
 # SSH 连接（密钥认证，端口 22222）
-ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33
+ssh -p 22222 -i /Users/osong/new.pem root@47.236.187.33
 
 # 部署流程（本地推送后）
-ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "cd /root/enprizon-salary && git pull && systemctl restart enprizon-salary"
+ssh -p 22222 -i /Users/osong/new.pem root@47.236.187.33 "cd /root/enprizon-salary && git pull && systemctl restart enprizon-salary"
 
 # 一键部署快捷别名（添加到 ~/.zshrc 或 ~/.bashrc）
-alias save-salary='ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "cd /root/enprizon-salary && git pull && systemctl restart enprizon-salary"'
+alias save-salary='ssh -p 22222 -i /Users/osong/new.pem root@47.236.187.33 "cd /root/enprizon-salary && git pull && systemctl restart enprizon-salary"'
 
 # 查看服务状态
-ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "systemctl status enprizon-salary"
+ssh -p 22222 -i /Users/osong/new.pem root@47.236.187.33 "systemctl status enprizon-salary"
 
 # 跟踪日志
-ssh -p 22222 -i ~/.ssh/KEJUUSER.pem root@47.236.187.33 "journalctl -u enprizon-salary -f"
+ssh -p 22222 -i /Users/osong/new.pem root@47.236.187.33 "journalctl -u enprizon-salary -f"
 ```
 
 ### 测试（无自动化测试！）
