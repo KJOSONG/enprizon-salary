@@ -138,16 +138,15 @@ ROLE_DEFAULT_PERMISSIONS_V2 = {
 
 ## 5. Web 端映射（index.html）
 
-### 5.1 侧边栏结构 V2.1（D1：审批中心独立）
+### 5.1 侧边栏结构 V2.1（D1：审批中心独立；2026-08-23 IA 修订：申请表单迁入审批中心、员工扁平化）
 
 ```
 ◆  数据台      dashboard:view
-👥 员工        employees:view
-   ├ 员工列表 / 员工档案            → employees:view
-   └ 入职/调岗/离职/请假/加班 申请   → oa:apply          ← D4 改挂
-📨 审批中心    (oa:view || oa:apply) 任一即可见       ← 新独立模块，紧挨员工下方（D1）
+👥 员工        employees:view（扁平化：点击直入员工列表，无父/子展开）
+📨 审批中心    (oa:view || oa:apply) 任一即可见       ← 紧挨员工下方（D1）
    ├ 待审批                        → oa:view（approve 按钮另需 oa:approve）
-   └ 审批历史                      → 同上
+   ├ 审批历史                      → 同上
+   └ 入职/调岗/离职/请假/加班 申请   → oa:apply          ← D4 改挂 + IA 修订迁入
 📅 出勤        attendance:view（保存计算按钮 attendance:edit）
 💰 薪资        salary:view（导出按钮 salary:export；归档子页 salary:view）
 ⚒  数据采集    (collection:view || 任一表单键) 任一即可见
@@ -158,6 +157,8 @@ ROLE_DEFAULT_PERMISSIONS_V2 = {
    ├ 用户与权限 / 表单自定义         → system:manage
    └ 旧数据归档                     → salary:view
 ```
+
+> 路由实现：申请子页 hash 为 `#oa/<app>`，页面 DIV 沿用 `page-employees-<app>`（`SUBPAGE_TARGETS` 别名映射）；legacy `#employees/<app>` 书签仍可用。审批中心视图下员工列表 Tab 隐藏，进入员工模块时恢复。
 
 ### 5.2 机制升级（两处小改）
 

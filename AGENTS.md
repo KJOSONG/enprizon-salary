@@ -487,7 +487,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | **P23** | 照片放大压缩/加班申请计费(overtime_records+参数可改)/审计日志移权限页/缓存同步bug修复 |
 | **P24** | 安全修复（登录角色回退降级/恒时密码比较/会话Cookie加固/OA审批原子化等）+ 登录体验（密码可见图标/错误提示/取消账户锁定） |
 | **P25** | **计件薪资制度 V2（凸性加速计件）**：第三模式 `underground_mode='v2'` + 班组对齐 employee_groups + 出勤 E 豁免 + 子部门筛选（详见下方 P25 专节） |
-| **P29** | **权限体系 V2.1**：目录重造 21 键/8 模块（production:* 移除，目录=页面）+ 五内置角色（新增 collector/applicant，editor 降级但 ROLE_LEVELS 保留）+ 三表幂等迁移（perm_v2_migrated 标志 + audit_log 备份）+ OA apply/approve 分离（oa:apply）+ 采集动态表单键门控 + Web 审批中心独立模块 + 移动端 isAdminLevel 收敛（详见 ARCHITECTURE.md §十一） |
+| **P29** | **权限体系 V2.1**：目录重造 21 键/8 模块（production:* 移除，目录=页面）+ 五内置角色（新增 collector/applicant，editor 降级但 ROLE_LEVELS 保留）+ 三表幂等迁移（perm_v2_migrated 标志 + audit_log 备份）+ OA apply/approve 分离（oa:apply）+ 采集动态表单键门控 + Web 审批中心独立模块（五类申请表单归入其下，员工板块扁平化直入列表，IA 修订 2026-08-23）+ 移动端 isAdminLevel 收敛（详见 ARCHITECTURE.md §十一） |
 | **UI** | 壳层布局（顶部栏/面包屑/筛选框固定，内容区滚动，切页重置）+ modal Apple 风格动画 + toast 顶部居中 |
 
 ### 纯采集模式修复的 Bug（2026-08-13）
