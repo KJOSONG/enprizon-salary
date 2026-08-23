@@ -1673,6 +1673,18 @@ def api_employee_salary_type(employee_id):
     monthly_salary = _to_int(data.get('monthly_salary', 0))
     if day_rate is None or monthly_salary is None:
         return jsonify({'ok': False, 'error': '薪资基数必须是数字'}), 400
+    # P29-c: 变更前快照取管线合并产物(APP_STATE.employees, 含 override_type/清零后基数),
+    # 与档案页显示及计薪完全同口径; 冷启动无该员工时回退空
+    _pre_emp = next((e for e in (APP_STATE.get('employees') or [])
+                     if e.get('id') == employee_id), None)
+    old_type = ((_pre_emp or {}).get('override_type')
+                or (_pre_emp or {}).get('default_type') or '')
+    if old_type == 'day_rate':
+        old_salary = int((_pre_emp or {}).get('day_rate', 0) or 0)
+    elif old_type == 'monthly':
+        old_salary = int((_pre_emp or {}).get('monthly_salary', 0) or 0)
+    else:
+        old_salary = 0
     ok = update_employee_salary_type(app.config['DATA_FOLDER'], employee_id,
                                      st, day_rate, monthly_salary)
     if not ok:
@@ -1689,7 +1701,8 @@ def api_employee_salary_type(employee_id):
         'effective_date': datetime.now(EAT).strftime('%Y-%m-01'),
         'snapshot': '{}',
         'payload': json.dumps({'salary_type': st, 'day_rate': day_rate,
-                               'monthly_salary': monthly_salary},
+                               'monthly_salary': monthly_salary,
+                               'old_type': old_type, 'old_salary': old_salary},
                               ensure_ascii=False),
         'operator_id': username,
         'status': 'approved',

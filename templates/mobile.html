@@ -900,7 +900,7 @@
   function oaCard(ev, mode){
     const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), overtime:t('event_overtime') };
     let summary='';
-    try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : (p.new_position? t('oa_transfer')+': '+p.new_position : '')); } catch(e){}
+    try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : (p.new_position? t('oa_transfer')+': '+p.new_position : '')); if (ev.event_type==='salary_change' && p.salary_type) { summary = t('oa_salary')+': '+(p.old_type? p.old_type+' → ':'')+p.salary_type; } } catch(e){}
     // C3/C4: 点击整张卡片弹出预览（sheet）
     let html = '<div class="oa-card" onclick="oaPreview('+ev.id+',\''+mode+'\')">'
       + '<div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div>'

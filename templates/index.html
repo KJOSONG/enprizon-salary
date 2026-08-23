@@ -324,6 +324,19 @@
           <tbody></tbody>
         </table>
       </div>
+      <!-- P29-c: 已离职员工列表(容器此前重构中丢失致按钮无响应, 现补回; 行内含复职操作) -->
+      <div id="dismissedSection" style="display:none;margin-top:14px;">
+        <div class="table-wrap">
+          <table class="data-table" id="dismissedTable">
+            <thead><tr>
+              <th data-i18n="th_name">姓名</th>
+              <th data-i18n="emp_note">备注</th>
+              <th style="width:90px;"></th>
+            </tr></thead>
+            <tbody id="dismissedBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -5996,6 +6009,18 @@ async function _oaDetailHtml(ev) {
     delete payload.avatar_data;
   }
   const rows = [];
+  // P29-c: 薪资变更专显——变更前/后(创建端自 snapshot old_type/old_salary; 历史旧事件无旧值则仅显示变更后)
+  if (ev.event_type === 'salary_change') {
+    const _slbl = (ty) => OA_SALARY_TYPE_MAP[ty] ? t(OA_SALARY_TYPE_MAP[ty]) : (ty || '—');
+    const _sbase = (ty, v) => ty === 'day_rate' ? fmtNum(v || 0) + ' TZS' + t('salary_per_day')
+      : ty === 'monthly' ? fmtNum(v || 0) + ' TZS' + t('salary_per_month') : '';
+    const _sfmt = (ty, v) => { const b = _sbase(ty, v); return _slbl(ty) + (b ? ' · ' + b : ''); };
+    if (payload.old_type) {
+      rows.push(`<div class="oa-detail-row"><span class="oa-detail-label">${escHtml(t('event_old_value'))}</span><span class="oa-detail-value">${escHtml(_sfmt(payload.old_type, payload.old_salary))}</span></div>`);
+    }
+    rows.push(`<div class="oa-detail-row"><span class="oa-detail-label">${escHtml(t('event_new_value'))}</span><span class="oa-detail-value">${escHtml(_sfmt(payload.salary_type, payload.salary_type === 'day_rate' ? payload.day_rate : payload.monthly_salary))}</span></div>`);
+    ['old_type', 'old_salary', 'salary_type', 'day_rate', 'monthly_salary'].forEach(k => delete payload[k]);
+  }
   for (const [k, v] of Object.entries(payload)) {
     if (v === undefined || v === null || v === '' || v === 0) continue;
     let label = OA_PAYLOAD_LABELS[k] ? t(OA_PAYLOAD_LABELS[k]) : k;
