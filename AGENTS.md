@@ -116,6 +116,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 - **P4 新增**：`@require_permission(module, action)` 细粒度权限（角色继承 + 单独授权），已接入 OA 审批 + 导出端点
 - 密码存储：SHA256(salt + password)，salt 随机生成存入 `admin_users`（格式 `salt:hash`）
 - 默认账号 `user/qweasd`（viewer），`KEJU` 首次登录自动升级为 super_admin
+- **服务器测试账号（供 AI/自动化测试用）**：`keju_admin` / `000000`（super_admin）——生产端验证权限、审批等流程时可直接使用
 
 ## 启动初始化
 
