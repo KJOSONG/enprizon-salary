@@ -1407,6 +1407,12 @@ def dismiss_employee_api():
         return jsonify({'ok': False, 'error': '缺少 employee_id'}), 400
     from core.database import dismiss_employee as _dismiss
     _dismiss(app.config['DATA_FOLDER'], eid, note)
+    # P29-F 补丁: 手动离职同步 status, 与 OA 批准路径及复职还原保持三向一致
+    from core.database import get_conn
+    conn = get_conn(app.config['DATA_FOLDER'])
+    conn.execute("UPDATE employees SET status='dismissed' WHERE id=?", (eid,))
+    conn.commit()
+    conn.close()
     _audit('dismiss_employee', eid, _json.dumps({'note': note}))
     # 从内存列表中移除
     APP_STATE['employees'] = [e for e in APP_STATE.get('employees', []) if e['id'] != eid]

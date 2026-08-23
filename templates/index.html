@@ -4349,7 +4349,7 @@ function renderDismissedList() {
     return;
   }
     tbody.innerHTML = dismissed.map(d => `<tr>
-    <td class="left">${escHtml(d.name||d.employee_id)}<div style="font-size:11px;color:var(--text-muted);">${escHtml(d.department||'')}</div></td>
+    <td class="left">${escHtml(d.name||d.employee_id)}<div style="font-size:11px;color:var(--text-muted);">${escHtml(d.employee_id)} · ${escHtml(d.department||'')}</div></td>
     <td class="left" style="font-size:12px;color:var(--text-muted);">${escHtml(d.note||'—')}</td>
     <td><button class="nav-btn" style="font-size:11px;padding:3px 8px;color:var(--success);" onclick="openRehireModal('${d.employee_id}')">↩ ${t('emp_restore')}</button></td>
   </tr>`).join('');

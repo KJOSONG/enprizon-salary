@@ -1254,9 +1254,10 @@ def dismiss_employee(data_folder, employee_id, note=''):
     conn.close()
 
 def restore_employee(data_folder, employee_id):
-    """恢复已离职员工"""
+    """恢复已离职员工（P29-F 补丁: 同步还原 employees.status——旧逻辑只删名单行, 残留 status='dismissed' 致员工悬空）"""
     conn = get_conn(data_folder)
     conn.execute("DELETE FROM dismissed_employees WHERE employee_id=?", (employee_id,))
+    conn.execute("UPDATE employees SET status='active' WHERE id=?", (employee_id,))
     conn.commit()
     conn.close()
 
