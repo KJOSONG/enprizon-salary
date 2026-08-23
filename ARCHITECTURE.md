@@ -232,7 +232,7 @@ apply 与 approve 分离是重造动机之一: 采集工/普通员工要能提�
 |------|------|
 | super_admin | *:* |
 | admin | 全模块管理 |
-| collector | 仅数据采集 4 表单键 |
+| collector | 数据采集 4 表单键 + collection:view + employees:view(浏览全员,档案薪资板块对其硬隐藏) + attendance:view |
 | applicant | oa:view + oa:apply, 只看自己的提交 |
 | viewer | 全模块 view (含薪资只读) |
 
@@ -241,7 +241,7 @@ apply 与 approve 分离是重造动机之一: 采集工/普通员工要能提�
 
 ### 11.4 三表迁移 (_migrate_permissions_v2)
 
-挂在两条启动路径上执行, 幂等靠 settings 表 perm_v2_migrated = 1 标志:
+挂在两条启动路径上执行, 幂等靠 settings 表 perm_v2_migrated 数字版本标志 (P29-c 起为 2; 版本升级即按当前预设重播种内置角色, 预设演进如 collector 补 employees:view 由此生效):
 
 1. **备份先行**: 旧 permissions / role_permissions / user_grants 全量写入 audit_log (action='p29_migration_backup')
 2. **重置**: permissions 注册表刷成 V2.1 目录, 内置角色 role_permissions 刷成新预设

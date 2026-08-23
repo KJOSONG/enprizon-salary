@@ -272,7 +272,7 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 细粒度目录 **21 键 / 8 模块**（数据台/员工/审批中心/出勤/薪资/数据采集/评分/系统，production:* 已移除：view→dashboard:view、edit→collection:view+4 表单键）。动作四类：`view`（看页面）/ 操作键（approve/edit/export 等）/ `apply`（提交 OA 申请）/ `manage`（角色授权管理）。
 
-内置五角色：`super_admin`(*:*) > `admin` > `collector`（仅采集 4 表单键）> `applicant`（oa:view+oa:apply 只看自己申请）> `viewer`（全模块 view 含薪资只读）。继承仅一条字面映射 `ROLE_HIERARCHY={'collector':['applicant']}`；custom 角色平级。**editor 已降出内置角色但 `ROLE_LEVELS['editor']=1` 保留**（旧装饰器基线兼容）。判定走 check_permission（role_permissions + user_grants）。
+内置五角色：`super_admin`(*:*) > `admin` > `collector`（采集 4 表单键+employees:view+attendance:view）> `applicant`（oa:view+oa:apply 只看自己申请）> `viewer`（全模块 view 含薪资只读）。**档案页薪资板块硬角色门控（P29-c）：仅 super_admin/admin/viewer 可见，与权限键无关**（collector 凭 employees:view 浏览全员但不泄薪资）。继承仅一条字面映射 `ROLE_HIERARCHY={'collector':['applicant']}`；custom 角色平级。**editor 已降出内置角色且生产已删**，但 `ROLE_LEVELS['editor']=1` 保留（旧装饰器基线兼容）。判定走 check_permission（role_permissions + user_grants）。迁移版本化：settings.perm_v2_migrated 数字版本（当前 2），预设演进自动重播种。薪资总表支持奖金/罚款/预支行内编辑（POST /api/salary/inline-edit，employees:edit 门控，写 bonus_penalties 含 advance 列）。
 
 运营侧两个高频点：**OA 申请三端点挂 `oa:apply`**（POST /api/oa/events、/api/oa/leave、/api/leave/sick），读端点 (oa:view||oa:apply) 且仅 apply 者只看自己的提交；**数据采集按表单类型动态校验 `collection:<type>`**（underground/driller/crush/attendance），无 editor 角色地板（collector 是 0 级角色，地板会废掉整个 persona）。默认账号 `user/qweasd`（viewer），`KEJU` 自动升 super_admin。启动迁移 `_migrate_permissions_v2()` 幂等（settings.perm_v2_migrated=1）。
 
