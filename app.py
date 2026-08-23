@@ -4902,6 +4902,8 @@ def _gunicorn_init():
     from core.database import init_default_permissions, sync_role_permissions, seed_default_forms
     init_default_permissions(app.config['DATA_FOLDER'])
     sync_role_permissions(app.config['DATA_FOLDER'])
+    from core.database import _migrate_permissions_v2
+    _migrate_permissions_v2(app.config['DATA_FOLDER'])  # P29: V2 权限目录一次性幂等迁移(播种后执行)
     seed_default_forms(app.config['DATA_FOLDER'])
     _backup_to_archive()
     seed_new_tables_from_excel()
@@ -4920,6 +4922,8 @@ if __name__ == '__main__':
     init_db(app.config['DATA_FOLDER'])
     init_default_permissions(app.config['DATA_FOLDER'])
     sync_role_permissions(app.config['DATA_FOLDER'])
+    from core.database import _migrate_permissions_v2
+    _migrate_permissions_v2(app.config['DATA_FOLDER'])  # P29: V2 权限目录一次性幂等迁移(播种后执行)
     seed_default_forms(app.config['DATA_FOLDER'])
     _backup_to_archive()
     seed_new_tables_from_excel()

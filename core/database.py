@@ -624,6 +624,102 @@ def _migrate_localtime_timestamps(conn, offset_h=None):
         except Exception:
             pass
 
+def _migrate_permissions_v2(data_folder):
+    """P29: 权限体系 V2.1 一次性幂等迁移(docs/P29_PERMISSION_V2_SPEC.md §9)
+
+    - settings.perm_v2_migrated=1 已迁移则直接返回(重复启动跳过)
+    - 变更前把 permissions/role_permissions/user_grants 三表全量快照写入 audit_log
+    - 内置四角色(admin/collector/applicant/viewer)按 V2 预设强制重播种;
+      super_admin 硬编码全权限永不落表,不触碰
+    - production:view → dashboard:view;production:edit → collection:view+4 表单键(1 行展开 5 行)
+      作用于自定义角色/存量 editor 的 role_permissions 与全部 user_grants(deny 行同样平移)
+    """
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT value FROM settings WHERE key='perm_v2_migrated'").fetchone()
+    if row and row['value'] == '1':
+        conn.close()
+        return
+    c = conn.cursor()
+    try:
+        conn.execute("BEGIN")
+        # 1) 三表全量预态快照 → audit_log(UTC+3,与 log_audit 同格式)
+        backup = {}
+        for t in ('permissions', 'role_permissions', 'user_grants'):
+            backup[t] = [dict(r) for r in c.execute(f'SELECT * FROM {t}').fetchall()]
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d %H:%M:%S')
+        c.execute(
+            "INSERT INTO audit_log (timestamp, action, employee_id, detail) VALUES (?,?,?,?)",
+            (now, 'p29_migration_backup', '', json.dumps(backup, ensure_ascii=False)))
+        # 2) 内置角色重播种(V2 预设;super_admin 不落表)
+        for role in ('admin', 'collector', 'applicant', 'viewer'):
+            c.execute("DELETE FROM role_permissions WHERE role=?", (role,))
+            for module, actions in ROLE_DEFAULT_PERMISSIONS.get(role, {}).items():
+                for action in actions:
+                    c.execute(
+                        "INSERT OR REPLACE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,1)",
+                        (role, module, action))
+
+        # 3) permissions 注册表翻译: find-or-create 去重(INSERT OR IGNORE 后 SELECT id)
+        def _find_or_create(module, action):
+            c.execute(
+                "INSERT OR IGNORE INTO permissions (module, action, scope_type, scope_value) VALUES (?,?,?,?)",
+                (module, action, 'all', ''))
+            return c.execute(
+                "SELECT id FROM permissions WHERE module=? AND action=? AND scope_type='all'",
+                (module, action)).fetchone()[0]
+
+        PROD_VIEW_TARGET = ('dashboard', 'view')
+        PROD_EDIT_TARGETS = [
+            ('collection', 'view'), ('collection', 'underground'), ('collection', 'driller'),
+            ('collection', 'crush'), ('collection', 'attendance')]
+        # user_grants 平移: view 重指向目标;edit 复制到 5 个目标(同 username+grant_type),然后删源行
+        for r in c.execute("SELECT id, action FROM permissions WHERE module='production'").fetchall():
+            src_id, act = r[0], r[1]
+            if act == 'view':
+                targets = [PROD_VIEW_TARGET]
+            elif act == 'edit':
+                targets = PROD_EDIT_TARGETS
+            else:
+                targets = []  # 其余 production:* 无等价新键,授权随源行一并删除
+            tgt_ids = [_find_or_create(m, a) for m, a in targets]
+            grants = c.execute(
+                "SELECT username, grant_type FROM user_grants WHERE permission_id=?", (src_id,)).fetchall()
+            for g in grants:
+                for tid in tgt_ids:
+                    c.execute(
+                        "INSERT OR IGNORE INTO user_grants (username, permission_id, grant_type) VALUES (?,?,?)",
+                        (g[0], tid, g[1]))
+            c.execute("DELETE FROM user_grants WHERE permission_id=?", (src_id,))
+            c.execute("DELETE FROM permissions WHERE id=?", (src_id,))
+        # 4) role_permissions 翻译(非重播种角色: 自定义 + 存量 editor);allow 值保留,已有目标行不覆盖
+        for r in c.execute(
+                "SELECT id, role, action, allow FROM role_permissions WHERE module='production'").fetchall():
+            rid, role, act, allow = r[0], r[1], r[2], r[3]
+            if act == 'view':
+                targets = [PROD_VIEW_TARGET]
+            elif act == 'edit':
+                targets = PROD_EDIT_TARGETS
+            else:
+                targets = []
+            for m, a in targets:
+                c.execute(
+                    "INSERT OR IGNORE INTO role_permissions (role, module, action, allow) VALUES (?,?,?,?)",
+                    (role, m, a, allow))
+            c.execute("DELETE FROM role_permissions WHERE id=?", (rid,))
+        # 5) 标记一次性完成,单次事务提交
+        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('perm_v2_migrated', '1')")
+        conn.execute("COMMIT")
+        print('[migration] P29 权限目录 V2.1 迁移完成')
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
 def _migrate_json(conn, data_folder):
     """将旧 JSON 文件导入 SQLite（仅首次运行）"""
     c = conn.cursor()
@@ -1410,66 +1506,79 @@ def get_user_role(data_folder, username):
     conn.close()
     return row['role'] if row else None
 
-ROLE_LEVELS = {'super_admin': 3, 'admin': 2, 'editor': 1, 'viewer': 0}
+# P29 权限体系 V2.1(docs/P29_PERMISSION_V2_SPEC.md §4): 追加 collector/applicant 两角色
+# 红线 §12-2: editor:1 必须保留(存量 editor 用户兼容依赖 @editor_required 基线兜底)
+ROLE_LEVELS = {'super_admin': 3, 'admin': 2, 'editor': 1, 'viewer': 0, 'collector': 0, 'applicant': 0}
 
+# P29 V2.1 五内置角色预设(spec §4, 用户逐条批准的产物):
+# editor 预设移除——存量 editor 的 role_permissions 行由 _migrate_permissions_v2 平移后原样保留
 ROLE_DEFAULT_PERMISSIONS = {
     'super_admin': {'*': ['*']},
-    # P18b 决策1: viewer 查看类全开放(数据台/产量/出勤/员工/OA 只读),不含薪资/评分/编辑/导出
-    'viewer': {
-        'dashboard': ['view'],
-        'production': ['view'],
-        'attendance': ['view'],
-        'employees': ['view'],
-        'oa': ['view'],
-    },
-    # editor = viewer 全继承(view) + 编辑/评分查看/薪资查看/OA 审批/导出
-    # 2026-08-15: editor 去掉 attendance:edit(出勤网格只读,可通过 user_grants 单独授权覆盖);出勤收集表单走 production:edit
-    'editor': {
-        'production': ['edit'],
-        'attendance': ['export'],
-        'employees': ['edit', 'export'],
-        'oa': ['approve'],
-        'scoring': ['view', 'edit'],
-        'salary': ['view'],
-    },
-    # admin = editor 全继承 + 薪资导出 + 系统配置 + 出勤编辑(editor 已无 edit,admin 显式保留)
+    # admin = 全业务，不含 system:manage
     'admin': {
-        'salary': ['export'],
+        'dashboard': ['view'],
+        'employees': ['view', 'edit', 'export'],
+        'oa': ['view', 'apply', 'approve'],
+        'attendance': ['view', 'edit', 'export'],
+        'salary': ['view', 'export'],
+        'collection': ['view', 'underground', 'driller', 'crush', 'attendance'],
+        'scoring': ['view', 'edit'],
         'system': ['view'],
-        'attendance': ['edit'],
+    },
+    # collector = 数据采集员(继承 applicant): 4 表单全开,可按 user_grants 收窄到单表单
+    'collector': {
+        'dashboard': ['view'],
+        'collection': ['view', 'underground', 'driller', 'crush', 'attendance'],
+        'attendance': ['view'],
+        'oa': ['apply'],
+    },
+    # applicant = 普通员工自助申请
+    'applicant': {
+        'dashboard': ['view'],
+        'oa': ['apply'],
+    },
+    # viewer = 全查看零写入(D5)
+    'viewer': {
+        'dashboard': ['view'], 'employees': ['view'], 'oa': ['view'],
+        'attendance': ['view'], 'salary': ['view'], 'collection': ['view'],
+        'scoring': ['view'], 'system': ['view'],
     },
 }
 
-# P18 决策2: viewer 仅保留 dashboard.view(去掉 salary:view)
-# 角色继承链(判定时展开): admin ⊇ editor ⊇ viewer
-ROLE_HIERARCHY = {'admin': ['editor'], 'editor': ['viewer'], 'viewer': []}
+# P29 V2.1: 仅 collector 继承 applicant(字面实现 D4「自动继承」);其余内置角色预设自足、平铺
+ROLE_HIERARCHY = {'collector': ['applicant']}
 
-# P18b: 权限项元数据(module:action → 名称/功能说明/分组),前端权限编辑器渲染用
+# P29b: 权限项元数据(module:action → 名称/功能说明/分组),前端权限编辑器渲染用
+# V2.1 目录 8 模块 · 21 键(spec §3);分组顺序即侧边栏顺序;production:* 目录项删除
 PERMISSION_CATALOG = {
-    'dashboard:view': {'name': '数据台', 'desc': '查看数据台产量看板', 'group': '数据台'},
-    'production:view': {'name': '产量查看', 'desc': '查看井下/钻工/破碎产量数据', 'group': '产量'},
-    'production:edit': {'name': '产量采集', 'desc': '提交井下/钻工/破碎/出勤收集数据', 'group': '产量'},
-    'attendance:view': {'name': '出勤查看', 'desc': '查看出勤网格', 'group': '出勤'},
-    'attendance:edit': {'name': '出勤编辑', 'desc': '标记/批量修改出勤,保存计算', 'group': '出勤'},
-    'attendance:export': {'name': '出勤导出', 'desc': '导出出勤 Excel', 'group': '出勤'},
+    'dashboard:view': {'name': '数据台查看', 'desc': '数据台页＋产量图表接口数据', 'group': '数据台'},
     'employees:view': {'name': '员工查看', 'desc': '查看员工列表/档案', 'group': '员工'},
     'employees:edit': {'name': '员工编辑', 'desc': '编辑员工档案(别名/班组/电话等)', 'group': '员工'},
     'employees:export': {'name': '员工导出', 'desc': '导出员工花名册', 'group': '员工'},
-    'oa:view': {'name': 'OA 查看', 'desc': '查看 OA 待审/历史,发起申请', 'group': 'OA'},
-    'oa:approve': {'name': 'OA 审批', 'desc': '批准/驳回 OA 事件', 'group': 'OA'},
-    'salary:view': {'name': '薪资查看', 'desc': '查看薪资总表/日工资明细/核对', 'group': '薪资'},
+    'oa:view': {'name': 'OA 查看', 'desc': '待审/历史列表纯浏览，不含发起申请', 'group': '审批中心'},
+    'oa:apply': {'name': '发起申请', 'desc': '请假/病假/加班/入职/调岗/离职六类申请', 'group': '审批中心'},
+    'oa:approve': {'name': 'OA 审批', 'desc': '批准/驳回/撤销/编辑事件', 'group': '审批中心'},
+    'attendance:view': {'name': '出勤查看', 'desc': '查看出勤网格', 'group': '出勤'},
+    'attendance:edit': {'name': '出勤编辑', 'desc': '标记/批量修改出勤,保存计算', 'group': '出勤'},
+    'attendance:export': {'name': '出勤导出', 'desc': '导出出勤 Excel', 'group': '出勤'},
+    'salary:view': {'name': '薪资查看', 'desc': '查看薪资总表/日工资明细/核对/旧数据归档', 'group': '薪资'},
     'salary:export': {'name': '薪资导出', 'desc': '导出薪资 Excel', 'group': '薪资'},
+    'collection:view': {'name': '采集历史查看', 'desc': '采集记录列表/再编辑入口', 'group': '数据采集'},
+    'collection:underground': {'name': '井下出渣提交', 'desc': '仅授权井下出渣采集表单提交', 'group': '数据采集'},
+    'collection:driller': {'name': '钻工组提交', 'desc': '仅授权钻工组采集表单提交', 'group': '数据采集'},
+    'collection:crush': {'name': '破碎计件提交', 'desc': '仅授权破碎计件采集表单提交', 'group': '数据采集'},
+    'collection:attendance': {'name': '出勤收集提交', 'desc': '仅授权出勤收集采集表单提交', 'group': '数据采集'},
     'scoring:view': {'name': '评分查看', 'desc': '查看评分汇总/客观数据', 'group': '评分'},
     'scoring:edit': {'name': '评分录入', 'desc': '录入/编辑评分卡', 'group': '评分'},
-    'system:view': {'name': '系统配置', 'desc': '查看/修改计薪参数等配置', 'group': '系统'},
-    'system:manage': {'name': '系统管理', 'desc': '用户/权限管理(仅超级管理员有效)', 'group': '系统'},
+    'system:view': {'name': '参数查看', 'desc': '计薪参数页可见（读取），参数保存另受 admin 角色基线约束', 'group': '系统'},
+    'system:manage': {'name': '系统管理', 'desc': '用户/角色/审批人路由/表单自定义(仅超级管理员有效)', 'group': '系统'},
 }
 
-ALL_MODULES = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'production', 'scoring', 'system']
-ALL_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage']
+ALL_MODULES = ['dashboard', 'employees', 'oa', 'attendance', 'salary', 'collection', 'scoring', 'system']
+ALL_ACTIONS = ['view', 'edit', 'apply', 'approve', 'export', 'manage', 'underground', 'driller', 'crush', 'attendance']
 
-# P18D: 内置角色(查看者/编辑员/管理员) — 保护不可删除,sync 仅同步这 3 个,不触碰自定义角色
-BUILTIN_ROLES = ['viewer', 'editor', 'admin']
+# P29 V2.1: 内置五角色(管理员/采集员/申请人/查看者) — 保护不可删除,sync 仅同步这 4 个落表角色,不触碰自定义角色
+BUILTIN_ROLES = ['super_admin', 'admin', 'collector', 'applicant', 'viewer']
 
 def init_default_permissions(data_folder):
     """初始化默认权限数据到 permissions 表（幂等）"""
