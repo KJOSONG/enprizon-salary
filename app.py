@@ -1994,7 +1994,7 @@ def oa_edit_event(event_id):
 
 # ── P13: 审批人路由（super_admin 后台指定） ─────────────
 
-ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave', 'overtime')
+ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave', 'overtime', 'sick')  # P28 R5: 增病假
 
 # ── P21 M7/R5: 年假资格错误双语（后端无 i18n 模块，硬编码两套文案） ──
 _LEAVE_ERR_MSG = {
@@ -2111,7 +2111,10 @@ def attendance_batch_submit():
             return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
         if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
             return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
-        save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+        try:
+            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+        except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+            return jsonify({'ok': False, 'error': str(e)}), 400
         count += 1
         if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
             add_driver(app.config['DATA_FOLDER'], eid)
@@ -2180,10 +2183,9 @@ def leave_balance(employee_id):
 @app.route('/api/leave/sick', methods=['POST'])
 @editor_required
 def leave_sick():
-    """P8: 病假申请（editor+，免审）— 落档 + 扣病假余额 + 落出勤 P（视为出勤，不参与计件）"""
-    from core.database import insert_leave_request, deduct_sick_leave, save_attendance_override, log_audit, get_employee_profile
-    from core.pricing import load_config
-    from datetime import datetime, timedelta
+    """P28 R5: 病假申请改走 OA 审批 — 创建待审事件（审批通过才扣病假余额+逐日落 SK），
+    不再免审直批、不再落 P"""
+    from core.database import create_event, log_audit, get_approver_for_event, get_employee_profile
     data = request.get_json() or {}
     eid = data.get('employee_id', '')
     date = data.get('effective_date', '')
@@ -2195,27 +2197,26 @@ def leave_sick():
         days = int(data.get('days', 1))
         if days < 1:
             raise ValueError
-        d0 = datetime.strptime(date, '%Y-%m-%d')
+        datetime.strptime(date, '%Y-%m-%d')
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': '无效的日期或天数'}), 400
-    year = str(d0.year)
-    cfg = load_config(app.config['DATA_FOLDER'])
-    sick_default = int(cfg.get('sick_leave_days', 14) or 14)
-    ok = deduct_sick_leave(app.config['DATA_FOLDER'], eid, year, days, default_entitled=sick_default)
-    if not ok:
-        return jsonify({'ok': False, 'error': '病假余额不足'}), 403
-    insert_leave_request(app.config['DATA_FOLDER'], {
-        'employee_id': eid, 'leave_type': 'sick',
-        'start_date': date, 'end_date': (d0 + timedelta(days=days - 1)).strftime('%Y-%m-%d'),
-        'days': days, 'reason': data.get('note', ''),
-        'submitted_by': session.get('username', 'unknown'), 'status': 'approved',
+    # P13/P28: 按事件类型取指定审批人写入（未设定为 ''，与年假/调休提交同款）
+    event_id = create_event(app.config['DATA_FOLDER'], {
+        'employee_id': eid,
+        'event_type': 'sick',
+        'effective_date': date,
+        'payload': json.dumps({
+            'days': days,
+            'note': data.get('note', ''),
+            'event_type': 'sick',
+        }, ensure_ascii=False),
+        'snapshot': '{}',
+        'operator_id': session.get('username', 'unknown'),
+        'approver': get_approver_for_event(app.config['DATA_FOLDER'], 'sick'),
     })
-    for i in range(days):
-        d = (d0 + timedelta(days=i)).strftime('%Y-%m-%d')
-        save_attendance_override(app.config['DATA_FOLDER'], eid, d, 'P')
-    log_audit(app.config['DATA_FOLDER'], 'leave_sick', eid,
-              json.dumps({'date': date, 'days': days}))
-    return jsonify({'ok': True, 'message': '病假已登记（免审），出勤已落 P'})
+    log_audit(app.config['DATA_FOLDER'], 'oa_create_event', eid,
+              json.dumps({'event_type': 'sick', 'event_id': event_id, 'date': date, 'days': days}))
+    return jsonify({'ok': True, 'message': '已提交审批，待OA审核', 'event_id': event_id})
 
 @app.route('/api/leave/balance/adjust', methods=['POST'])
 @admin_required
@@ -2438,7 +2439,10 @@ def collection_submit():
             if not eid or not status:
                 continue
             # P12: 只写 status，驾驶标记改由井下采集的 drivers 处理
-            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+            try:
+                save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+            except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+                return jsonify({'ok': False, 'error': str(e)}), 400
 
     # upsert collection_submissions by (form_type, date) [attendance 另加 department 维度]
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
@@ -2623,7 +2627,10 @@ def collection_edit(submission_id):
             status = m.get('status', '')
             if not eid or not status:
                 continue
-            save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
+            try:
+                save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
+            except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+                return jsonify({'ok': False, 'error': str(e)}), 400
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
               json.dumps({'submission_id': submission_id, 'form_type': form_type,
                           'date': new_date}))
@@ -3633,7 +3640,10 @@ def toggle_attendance():
         return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
     if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
         return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
-    save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+    try:
+        save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+    except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+        return jsonify({'ok': False, 'error': str(e)}), 400
     _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status}))
     return jsonify({'ok': True})
 

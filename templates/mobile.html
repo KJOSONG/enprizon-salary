@@ -961,7 +961,7 @@
   }
   function openLeave(empId){
     const body = document.getElementById('sheet-body');
-    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="casual" selected>'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick_leave">'+t('sick_leave')+'</option></select></div>'
+    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="casual" selected>'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick">'+t('sick_leave')+'</option></select></div>'
       + '<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
       + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitLeave(\''+esc(empId)+'\')">'+t('submit')+'</button>';
@@ -1157,7 +1157,7 @@
     }
     if(ty==='attendance'){
       const marks=p.marks||[];
-      const AT={P:t('att_status_p'),A:t('att_status_a'),S:t('att_status_s'),Y:t('att_status_y'),T:t('att_status_t'),B:t('att_status_b'),L:t('att_status_l')};
+      const AT={P:t('att_status_p'),A:t('att_status_a'),S:t('att_status_s'),SK:t('att_status_sk'),T:t('att_status_t'),B:t('att_status_b'),L:t('att_status_l')};
       return '<div class="detail-line">'+t('col_marks')+': '+marks.length+'</div>'
         + marks.map(m=>'<div class="detail-line">'+esc(colMobEidName(m.employee_id))+': '+esc(m.status||'')+' · '+esc(AT[m.status]||'')+'</div>').join('');
     }
@@ -1433,7 +1433,7 @@
     if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
-      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','E'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
+      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','SK','E'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
@@ -1450,7 +1450,7 @@
     colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null); }
 
   // ── 出勤模块 (Phase 4 / 2e) ──
-  const ATT_STATUS = ['P','A','L','D','N','C','R','B'];
+  const ATT_STATUS = ['P','A','L','SK','D','N','C','R','B'];
   const ATT_PAGE_SIZE = 20;
   function attStatusLabel(s){ return t('st_'+s.toLowerCase()); }
   function isWeekend(dt){ const d=new Date(dt+'T00:00:00'); const w=d.getDay(); return w===0||w===6; }
@@ -1485,6 +1485,7 @@
       + '<span class="legend-item"><span class="legend-dot st-P"></span>'+t('st_p')+'</span>'
       + '<span class="legend-item"><span class="legend-dot st-A"></span>'+t('st_a')+'</span>'
       + '<span class="legend-item"><span class="legend-dot st-L"></span>'+t('st_l')+'</span>'
+      + '<span class="legend-item"><span class="legend-dot st-SK"></span>'+t('st_sk')+'</span>'
       + '<span class="legend-item"><span class="legend-dot st-C"></span>'+t('st_c')+'</span>'
       + '<span class="legend-item"><span class="legend-dot st-R"></span>'+t('st_r')+'</span>'
       + '<span class="legend-item"><span class="legend-dot st-B"></span>'+t('st_b')+'</span>'
@@ -1610,7 +1611,7 @@
   // 请假快捷入口
   function quickLeave(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openLeave(document.getElementById(\'ql-emp\').value)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
   function quickSick(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
-  function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
+  function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(r.message || t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
   // P18 阶段2: OA 申请入口按 oa:view 权限守卫
   function openQuickLeave(){ if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }

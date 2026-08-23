@@ -822,7 +822,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
         <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" data-perm="attendance:edit" style="display:none;">保存并计算</button>
-        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 Y=年假 T=调休 E=豁免 NU=年假(计薪) (P)=月薪默认</span>
+        <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 SK=病假 T=调休 E=豁免 NU=年假(计薪) (P)=月薪默认</span>
       </div>
     </div>
     <div class="table-wrap">
@@ -899,6 +899,12 @@
       <h3 style="margin-bottom:8px;font-size:13px;">🤒 <span data-i18n="settings_sick_leave">病假年额度</span></h3>
       <div class="form-row"><label style="min-width:90px;" data-i18n="settings_sick_days">天数/年</label><input type="number" id="cfg_sick_days" class="cfg-input" data-key="sick_leave_days" step="1" onchange="saveConfig()"></div>
       <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_sick_desc">新员工病假年额度（默认14），修改后新扣减按新额度</p>
+    </div>
+    <!-- P28 R7: 年假月薪基数 -->
+    <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
+      <h3 style="margin-bottom:8px;font-size:13px;">🌴 <span data-i18n="settings_ug_annual_leave_monthly">年假月薪基数</span></h3>
+      <div class="form-row"><label style="min-width:90px;" data-i18n="settings_ug_annual_leave_monthly_tzs">金额(TZS)</label><input type="number" id="cfg_ug_annual_leave_monthly" class="cfg-input" step="1" onchange="saveConfig()"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin-top:4px;" data-i18n="settings_ug_annual_leave_monthly_desc">年假计薪使用的月薪基数（默认 400000）</p>
     </div>
     <!-- P23 R2: 加班费参数 -->
     <div style="margin-top:12px;background:var(--bg-secondary);padding:16px;border-radius:var(--radius);border:1px solid var(--border);max-width:300px;">
@@ -5066,7 +5072,7 @@ function renderAttendance() {
     'A': {color: 'var(--danger)', label: t('shift_A_label'), desc: t('shift_A_desc')},
     'L': {color: 'var(--warning)', label: t('shift_L_label'), desc: t('shift_L_desc')},
     'S': {color: '#F59E0B', label: t('shift_S_label'), desc: t('shift_S_desc')},
-    'Y': {color: '#06B6D4', label: t('shift_Y_label'), desc: t('shift_Y_desc')},
+    'SK': {color: '#DB2777', label: t('shift_SK_label'), desc: t('shift_SK_desc')},  // P28 R8: 病假（未出勤、不计薪、不罚月末系数）
     'T': {color: '#A855F7', label: t('shift_T_label'), desc: t('shift_T_desc')},
     'NU': {color: '#7C3AED', label: t('shift_nu_label'), desc: t('shift_nu_desc')},  // P21 R2: 年假(计薪)，比 T 更深的紫
     'R': {color: '#14B8A6', label: t('shift_R_label'), desc: t('shift_R_desc')},
@@ -5123,20 +5129,20 @@ async function toggleAttDay(eid, date, currentStatus, autoVal, empType) {
     return;
   }
   /* 桌面端: 循环点击
-     C/D/N/P → A → L → Y → T → '' → 恢复自动值
-     新增 S(事假)/Y(年假)/T(调休) — 与 L 同级, 均排除计件 */
+     C/D/N/P → A → L → SK → T → '' → 恢复自动值
+     新增 S(事假)/SK(病假)/T(调休) — 与 L 同级, 均排除计件; P28 R3: Y 移除可选项 */
   let nextStatus;
   const isCrush = empType === '破碎计件';
   const isUnderground = empType === 'Underground Piece Rate' || empType === '生产薪资';
   if (autoVal === '' || autoVal === undefined) {
     const cycle = isCrush
-      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'E', 'E':''}
+      ? {'':'C', 'C':'P', 'P':'A', 'A':'L', 'L':'SK', 'SK':'T', 'T':'E', 'E':''}
       : isUnderground
-      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'E', 'E':''}
-      : {'':'P', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'E', 'E':''};
+      ? {'':'D', 'D':'N', 'N':'A', 'A':'L', 'L':'SK', 'SK':'T', 'T':'E', 'E':''}
+      : {'':'P', 'P':'A', 'A':'L', 'L':'SK', 'SK':'T', 'T':'E', 'E':''};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : (isCrush ? 'C' : isUnderground ? 'D' : 'P');
   } else {
-    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'Y', 'Y':'T', 'T':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A', 'S':'A', 'E':'A'};
+    const cycle = {'':'A', 'P':'A', 'A':'L', 'L':'SK', 'SK':'T', 'T':'', 'D':'A', 'N':'A', 'B':'A', 'R':'A', 'C':'A', 'S':'A', 'E':'A'};
     nextStatus = cycle[currentStatus] !== undefined ? cycle[currentStatus] : 'P';
   }
   // 仅更新本地状态，不持久化
@@ -5202,8 +5208,8 @@ function showAttPopup(eid, date, currentStatus, autoVal, empType) {
   }
   options.push({v:'A', label:t('shift_A_label'), color:'var(--danger)'});
   options.push({v:'L', label:t('shift_L_label'), color:'var(--warning)'});
+  options.push({v:'SK', label:t('shift_SK_label'), color:'#DB2777'});
   options.push({v:'S', label:t('shift_S_label'), color:'#F59E0B'});
-  options.push({v:'Y', label:t('shift_Y_label'), color:'#06B6D4'});
   options.push({v:'T', label:t('shift_T_label'), color:'#A855F7'});
   options.push({v:'E', label:t('shift_E_label'), color:'#8B5CF6'});
   options.push({v:'', label:t('btn_clear'), color:'var(--text-muted)'});
@@ -5498,6 +5504,9 @@ async function loadConfig() {
     if (otHpd) otHpd.value = cfg.overtime_hours_per_day != null ? cfg.overtime_hours_per_day : 8;
     const otRate = document.getElementById('cfg_ot_rate');
     if (otRate) otRate.value = cfg.overtime_rate != null ? cfg.overtime_rate : 1.5;
+    // P28 R7: 年假月薪基数
+    const alm = document.getElementById('cfg_ug_annual_leave_monthly');
+    if (alm) alm.value = cfg.ug_annual_leave_monthly != null ? cfg.ug_annual_leave_monthly : 400000;
   } catch(e) {}
 }
 
@@ -5567,6 +5576,8 @@ async function doSaveConfig() {
     overtime_work_days: _num('cfg_ot_days', 26),
     overtime_hours_per_day: _num('cfg_ot_hpd', 8),
     overtime_rate: _num('cfg_ot_rate', 1.5),
+    // P28 R7: 年假月薪基数
+    ug_annual_leave_monthly: _num('cfg_ug_annual_leave_monthly', 400000),
   };
   const res = await authFetch(api('/config'), {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -5756,7 +5767,7 @@ async function loadAuditLog() {
 const EVENT_LABELS_MAP = {
   hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
   salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement',
-  sick_leave: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave',
+  sick: 'event_sick_leave', sick_leave: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave',
   overtime: 'event_overtime'   // P23 R2
 };
 
@@ -6550,7 +6561,7 @@ function renderColPayloadPreview(formType, payload) {
   }
   if (formType === 'attendance') {
     const marks = payload.marks || [];
-    const AT = { P: t('att_status_p'), A: t('att_status_a'), S: t('att_status_s'), Y: t('att_status_y'), T: t('att_status_t'), B: t('att_status_b'), L: t('att_status_l') };
+    const AT = { P: t('att_status_p'), A: t('att_status_a'), S: t('att_status_s'), SK: t('att_status_sk'), T: t('att_status_t'), B: t('att_status_b'), L: t('att_status_l') };
     return '<div style="font-size:12px;line-height:1.9;">' + marks.map(m =>
       '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + escHtml(m.status || '') + ' · ' + escHtml(AT[m.status] || '') + '</div>'
     ).join('') + '</div>';
@@ -7224,7 +7235,7 @@ async function submitCrCollection() {
 /* ── P9-5 出勤收集表单（花名册点选，井下/钻工/破碎以外部门） ── */
 const COL_ATT_STATUS = [
   ['P', 'att_status_p'], ['A', 'att_status_a'], ['S', 'att_status_s'],
-  ['Y', 'att_status_y'], ['T', 'att_status_t'], ['B', 'att_status_b'],
+  ['SK', 'att_status_sk'], ['T', 'att_status_t'], ['B', 'att_status_b'],
 ];
 
 async function renderAttCollectionForm(payload) {

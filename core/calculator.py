@@ -41,6 +41,18 @@ def _norm_dept(s):
     import re
     return re.sub(r'\s+', '', (s or '')).replace('（', '(').replace('）', ')').upper()
 
+def ug_annual_leave_per_day(monthly):
+    """P28 R4: 井下年假逐日折算 round(monthly/26)。
+    calculate_all / compute_daily_breakdown / 核对路径必须共用本函数取整，保证逐分一致。"""
+    try:
+        return round(float(monthly or 0) / 26)
+    except (TypeError, ValueError):
+        return 0
+
+def is_ug_production_emp(emp):
+    """P28 R4: 井下生产工判定 = 部门匹配目标井下部门（规范化比较）"""
+    return _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT)
+
 # 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
 EAT = timezone(timedelta(hours=3))
 TODAY = datetime.now(EAT).date()
@@ -723,7 +735,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if os.path.exists(db_path):
                 conn = sqlite3.connect(db_path)
                 # P21 R2: NU（年假）加入计件分配排除，剩余人员平分（总额守恒）
-                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU','E')").fetchall():
+                # P28 R2: T/SK 加入排除集（非惩罚性缺勤不摊薄出勤者份额）
+                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU','E','T','SK')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
@@ -897,6 +910,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     # V2 gate: underground_mode == 'v2' AND month >= v2_effective_from
     v2_effective_from = pricing.get('v2_effective_from', '') or ''
     v2_active = (underground_mode == 'v2' and (not v2_effective_from or month_prefix >= v2_effective_from))
+    # P28 R4: UG 年假折算逐日金额（仅 v2 生效月；三处共用 ug_annual_leave_per_day 取整）
+    ug_al_per_day = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000)) if v2_active else 0
 
     # P23 R2: 读本月加班记录（审批通过后落库 overtime_records）
     ot_total = defaultdict(float)
@@ -1023,6 +1038,11 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 dr_total += get_day_rate_for_date(overrides, emp_map, eid, dt)
             elif dtype == 'monthly' and not absent and (dt in present_dates[eid] or nu):
                 monthly_present_count += 1
+
+            # P28 R4: v2 生效月 UG 生产工 NU（年假）天按配置月薪折算，走日薪轨道展示；
+            # 属 V2 零和体系之外（不入 pu/ug_base，不影响 apply_v2_month_end 守恒）
+            if ug_al_per_day and nu and dtype == 'piece_underground' and is_ug_production_emp(emp):
+                dr_total += ug_al_per_day
 
         # 月薪：实际出勤 >= 26天封顶为满勤基薪
         mb = monthly_base.get(eid, 0)
@@ -1184,7 +1204,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if os.path.exists(dbp):
                 conn = sqlite3.connect(dbp)
                 # P21 R2: NU（年假）加入计件分配排除（与 calculate_all C6 保持一致）
-                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU','E')").fetchall():
+                # P28 R2: T/SK 加入排除集（与 calculate_all 保持一致）
+                for r in conn.execute("SELECT employee_id, date FROM attendance_overrides WHERE status IN ('A','L','NU','E','T','SK')").fetchall():
                     att_exclusions.add((r[0], r[1]))
                 conn.close()
 
@@ -1340,6 +1361,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         # V2 gate (mirrors calculate_all)
         v2_eff = pricing.get('v2_effective_from', '') or ''
         v2_active_br = (underground_mode == 'v2' and (not v2_eff or _ym >= v2_eff))
+        # P28 R4: 与 calculate_all 同源（共用 ug_annual_leave_per_day 取整）
+        ug_al_per_day_br = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000)) if v2_active_br else 0
 
         # P23 R2: 读本月加班记录（与 calculate_all 同一来源，保证日明细与薪资页一致）
         ot_daily_br = defaultdict(dict)
@@ -1557,6 +1580,10 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         daily[dt] = round(amt)
                         s = ug_shifts.get(eid, {}).get(dt, '')
                         if s: shifts_info[dt] = s
+                    # P28 R4: UG 生产工 NU（年假）天折算计发（NU 天计件池排除，amt 恒 0，
+                    # 此处金额即年假折算本身；V2 重缩放按 NU 日期跳过，见下方镜像块）
+                    if ug_al_per_day_br and att_all.get((eid, dt)) == 'NU' and is_ug_production_emp(emp):
+                        daily[dt] = round(daily.get(dt, 0) + ug_al_per_day_br)
                 elif dt_eff == 'piece_driller':
                     amt = dr_daily.get(eid, {}).get(dt, 0)
                     if amt > 0: daily[dt] = round(amt)
@@ -1596,15 +1623,18 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         ug_base_br = {}
         for eid, rec in result.items():
             if rec.get('salary_type') == 'piece_underground':
+                # P28 R4: NU（年假）日条目是折算保障金，不属于 ug_base（与 calculate_all 一致）
                 ug_base_br[eid] = sum(rec['daily'].get(dt, 0) for dt in rec['daily']
-                                       if per_date_type.get(eid, {}).get(dt, '') == 'piece_underground')
+                                       if per_date_type.get(eid, {}).get(dt, '') == 'piece_underground'
+                                       and att_all.get((eid, dt)) != 'NU')
         if ug_base_br:
             f_w_br = apply_v2_month_end(ug_base_br, employees, data_folder, _ym, pricing)
             for eid, rec in result.items():
                 if eid in f_w_br and rec.get('salary_type') == 'piece_underground':
                     for dt in list(rec['daily'].keys()):
                         dt_eff = per_date_type.get(eid, {}).get(dt, '')
-                        if dt_eff == 'piece_underground':
+                        # P28 R4: NU（年假）日条目不参与零和系数缩放
+                        if dt_eff == 'piece_underground' and att_all.get((eid, dt)) != 'NU':
                             rec['daily'][dt] = round(rec['daily'][dt] * f_w_br[eid])
                     rec['total'] = round(sum(rec['daily'].values()))
 
@@ -1768,7 +1798,7 @@ def _get_scoring_bonus(data_folder, employee_id, month_prefix='', pool_info=None
 
 def _get_v2_attendance(data_folder, month_prefix):
     """V2: 读取本月出勤统计 → {eid: {worked: int, exempt: int}}.
-    worked = status P 天数; exempt = status in {L, NU, E} 天数."""
+    worked = status P 天数; exempt = status in {L, NU, E, T, SK} 天数（P28 R1 保护集合扩展）."""
     result = {}
     if not data_folder or not month_prefix:
         return result
@@ -1786,7 +1816,7 @@ def _get_v2_attendance(data_folder, month_prefix):
                 result[eid] = {'worked': 0, 'exempt': 0}
             if status == 'P':
                 result[eid]['worked'] += 1
-            elif status in ('L', 'NU', 'E'):
+            elif status in ('L', 'NU', 'E', 'T', 'SK'):  # P28 R1: T/SK 同属非惩罚性缺勤
                 result[eid]['exempt'] += 1
     except Exception:
         pass

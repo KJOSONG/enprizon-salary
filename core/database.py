@@ -856,6 +856,8 @@ def load_config(data_folder):
         cfg.setdefault('accel_w_b', 0.4)
         cfg.setdefault('accel_full_days', 26)
         cfg.setdefault('v2_effective_from', '')
+        # P28 R7: 井下年假折算月薪基数兜底（旧库无此键时补默认）
+        cfg.setdefault('ug_annual_leave_monthly', 400000)
         return cfg
     # 返回默认值
     return {
@@ -877,6 +879,7 @@ def load_config(data_folder):
         'accel_w_b': 0.4,
         'accel_full_days': 26,
         'v2_effective_from': '',
+        'ug_annual_leave_monthly': 400000,  # P28 R7: 井下年假折算月薪基数（TZS）
     }
 
 def save_config(data_folder, config):
@@ -897,6 +900,11 @@ def save_config(data_folder, config):
         if not required_keys.issubset(ap.keys()):
             missing = required_keys - set(ap.keys())
             raise ValueError(f"accel_prices missing keys: {missing}")
+    # P28 R7: 井下年假折算月薪基数必须为正数
+    if 'ug_annual_leave_monthly' in config:
+        v = config['ug_annual_leave_monthly']
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+            raise ValueError(f"ug_annual_leave_monthly must be positive, got {v!r}")
     conn = get_conn(data_folder)
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('config', ?) ON CONFLICT(key) DO UPDATE SET value=?",
@@ -919,11 +927,19 @@ def load_attendance_overrides(data_folder):
         result[key] = r['status']
     return result
 
+# P28 R3: 手动出勤允许状态 = 原有码 − Y + SK（Y 年假手动标记已取消，NU 为唯一年假码且只读）
+_ATT_VALID_STATUSES = ('P', 'A', 'L', 'D', 'N', 'B', 'R', 'C', 'S', 'T', 'NU', 'E', 'SK')
+
 def save_attendance_override(data_folder, employee_id, date, status, is_driver=0):
-    """保存手动出勤标记：P出勤 A旷工 L请假；P11 增 is_driver（0/1，出勤勾选驾驶，旧调用不受影响）"""
+    """保存手动出勤标记：P出勤 A旷工 L请假 T调休 SK病假；P28 R3: 拒绝 Y（年假改 OA 审批落 NU，
+    历史 Y 行保留不动）；P11 增 is_driver（0/1，出勤勾选驾驶，旧调用不受影响）"""
     if status == '' or status == 'R':
         # 空值 = 复位：删除手动覆盖，恢复自动
         return delete_attendance_override(data_folder, employee_id, date)
+    if status == 'Y':
+        raise ValueError("Y（年假手动标记）已取消：请走 OA 年假审批（批准后自动落 NU）")
+    if status not in _ATT_VALID_STATUSES:
+        raise ValueError(f"无效的出勤状态: {status!r}")
     conn = get_conn(data_folder)
     conn.execute(
         "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,?) "
@@ -1162,7 +1178,8 @@ def apply_approved_event(data_folder, event):
     hire    → 创建/补全 employees 记录 + status='active'
     transfer→ 更新 employees.department/position
     dismiss/resign → 写 dismissed_employees + 置 employees.status='dismissed' + dismissed_at
-    annual_leave/comp_leave → 扣对应余额 + 逐日落出勤 NU/T（P21 R1/R2，事务内任一步失败整体回滚）
+    annual_leave/comp_leave/sick/casual → 扣对应余额（如有）+ 逐日落出勤 NU/T/SK/L
+    （P21 R1/R2；P28 R5/R6，事务内任一步失败整体回滚）
     """
     eid = event.get('employee_id', '')
     etype = event.get('event_type', '')
@@ -1267,9 +1284,10 @@ def apply_approved_event(data_folder, event):
                 "UPDATE employees SET status='dismissed',"
                 " dismissed_at=COALESCE(NULLIF(?,''), dismissed_at) WHERE id=?",
                 (eff, eid))
-        elif etype in ('annual_leave', 'comp_leave'):
+        elif etype in ('annual_leave', 'comp_leave', 'sick', 'casual'):
             # P21 R1/R2: 请假批准落库 — 扣余额 + 逐日落出勤覆盖（NU=年假 / T=调休）
-            # 必须与 deduct_annual_leave/deduct_comp_leave 共享同一事务，任一步失败整体回滚
+            # P28 R5/R6: 增病假（扣病假余额+落 SK）与普通请假（无余额，落 L）
+            # 必须与 deduct_* 共享同一事务，任一步失败整体回滚
             try:
                 days = int(payload.get('days', 1) or 1)
             except (TypeError, ValueError):
@@ -1284,11 +1302,21 @@ def apply_approved_event(data_folder, event):
                 if not ok:
                     raise RuntimeError('年假余额不足，无法批准')
                 st = 'NU'
-            else:
+            elif etype == 'comp_leave':
                 ok = deduct_comp_leave(data_folder, eid, year, days, conn=conn)
                 if not ok:
                     raise RuntimeError('调休余额不足，无法批准')
                 st = 'T'
+            elif etype == 'sick':
+                _cfg = load_config(data_folder)
+                ok = deduct_sick_leave(data_folder, eid, year, days,
+                                       default_entitled=int(_cfg.get('sick_leave_days', 14) or 14),
+                                       conn=conn)
+                if not ok:
+                    raise RuntimeError('病假余额不足，无法批准')
+                st = 'SK'
+            else:  # casual：普通请假无余额扣减
+                st = 'L'
             from datetime import datetime as _dt, timedelta as _td
             try:
                 d0 = _dt.strptime(eff, '%Y-%m-%d')
@@ -2027,9 +2055,9 @@ def reject_event(data_folder, event_id, rejected_by, reason):
 def revoke_event(data_folder, event_id, revoked_by):
     """P21 M4: 撤销事件（approved 或 pending → revoked，保留原审计轨迹）
 
-    leave 事件（annual_leave/comp_leave）同时：
-      - 回滚余额（restore_annual_leave / restore_comp_leave，防负）
-      - 删除按 effective_date+days 逐日写下的 attendance_overrides（NU/T）
+    leave 事件（annual_leave/comp_leave/sick/casual）同时：
+      - 回滚余额（restore_annual_leave / restore_comp_leave / restore_sick_leave，防负）
+      - 删除按 effective_date+days 逐日写下的 attendance_overrides（NU/T/SK/L）
     全部在同一事务内，任一步失败整体回滚。
     """
     conn = get_conn(data_folder)
@@ -2044,7 +2072,8 @@ def revoke_event(data_folder, event_id, revoked_by):
             " revoked_at=datetime('now','+3 hours'),"
             " updated_at=datetime('now','+3 hours') WHERE id=?",
             (revoked_by, event_id))
-        if ev['event_type'] in ('annual_leave', 'comp_leave'):
+        if ev['event_type'] in ('annual_leave', 'comp_leave', 'sick', 'casual'):
+            # P28 R5/R6: 病假/普通请假撤销与年假/调休同款——回滚余额（如有）+ 删逐日出勤
             try:
                 payload = json.loads(ev['payload'] or '{}')
             except Exception:
@@ -2060,8 +2089,10 @@ def revoke_event(data_folder, event_id, revoked_by):
             if year:
                 if ev['event_type'] == 'annual_leave':
                     restore_annual_leave(data_folder, ev['employee_id'], year, days, conn=conn)
-                else:
+                elif ev['event_type'] == 'comp_leave':
                     restore_comp_leave(data_folder, ev['employee_id'], year, days, conn=conn)
+                elif ev['event_type'] == 'sick':
+                    restore_sick_leave(data_folder, ev['employee_id'], year, days, conn=conn)
             from datetime import datetime as _dt, timedelta as _td
             try:
                 d0 = _dt.strptime(eff, '%Y-%m-%d')
@@ -2402,29 +2433,52 @@ def deduct_comp_leave(data_folder, employee_id, year, days, conn=None):
 
 # ── P8: 病假余额 ─────────────────────────
 
-def deduct_sick_leave(data_folder, employee_id, year, days, default_entitled=14):
-    """扣减病假余额（懒初始化：无行时按 default_entitled 建行）；余额不足返回 False"""
-    conn = get_conn(data_folder)
-    row = conn.execute(
-        "SELECT sick_entitled, sick_used FROM leave_balances WHERE employee_id=? AND year=?",
-        (employee_id, year)).fetchone()
-    if not row:
-        conn.execute(
-            "INSERT OR IGNORE INTO leave_balances (employee_id, year, sick_entitled, sick_used) VALUES (?,?,?,0)",
-            (employee_id, year, default_entitled))
-        conn.commit()
-        row = {'sick_entitled': default_entitled, 'sick_used': 0}
-    if (row['sick_entitled'] - row['sick_used']) < days:
-        conn.close()
-        return False
-    conn.execute("""
-        UPDATE leave_balances SET sick_used=sick_used+?,
-            updated_at=datetime('now','+3 hours')
-        WHERE employee_id=? AND year=?
-    """, (days, employee_id, year))
-    conn.commit()
-    conn.close()
-    return True
+def deduct_sick_leave(data_folder, employee_id, year, days, default_entitled=14, conn=None):
+    """扣减病假余额（懒初始化：无行时按 default_entitled 建行）；余额不足返回 False。
+    conn 非 None 时共享事务（不 commit/close），供 OA 审批事务内调用"""
+    own = conn is None
+    if own:
+        conn = get_conn(data_folder)
+    try:
+        row = conn.execute(
+            "SELECT sick_entitled, sick_used FROM leave_balances WHERE employee_id=? AND year=?",
+            (employee_id, year)).fetchone()
+        if not row:
+            conn.execute(
+                "INSERT OR IGNORE INTO leave_balances (employee_id, year, sick_entitled, sick_used) VALUES (?,?,?,0)",
+                (employee_id, year, default_entitled))
+            row = {'sick_entitled': default_entitled, 'sick_used': 0}
+        if (row['sick_entitled'] - row['sick_used']) < days:
+            return False
+        conn.execute("""
+            UPDATE leave_balances SET sick_used=sick_used+?,
+                updated_at=datetime('now','+3 hours')
+            WHERE employee_id=? AND year=?
+        """, (days, employee_id, year))
+        if own:
+            conn.commit()
+        return True
+    finally:
+        if own:
+            conn.close()
+
+def restore_sick_leave(data_folder, employee_id, year, days, conn=None):
+    """P28 R5: 撤销病假事件时反向恢复余额（防负：MAX(sick_used-?,0)）。
+    conn 非 None 时共享事务（不 commit/close）"""
+    own = conn is None
+    if own:
+        conn = get_conn(data_folder)
+    try:
+        conn.execute("""
+            UPDATE leave_balances SET sick_used=MAX(sick_used-?,0),
+                updated_at=datetime('now','+3 hours')
+            WHERE employee_id=? AND year=?
+        """, (days, employee_id, year))
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            conn.close()
 
 def insert_leave_request(data_folder, data):
     """写入 leave_requests 记录（status 由调用方指定）"""
