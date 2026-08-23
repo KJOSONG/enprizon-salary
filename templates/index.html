@@ -1609,6 +1609,45 @@ function hasPermission(module, action) {
   return perms.indexOf(module + ':' + action) !== -1;
 }
 
+// P29 V2.1: 21 键目录的模块→动作映射（与 core/database.py PERMISSION_CATALOG 对应）
+const CATALOG_ACTIONS = {
+  dashboard:  ['view'],
+  employees:  ['view', 'edit', 'export'],
+  oa:         ['view', 'apply', 'approve'],
+  attendance: ['view', 'edit', 'export'],
+  salary:     ['view', 'export'],
+  collection: ['view', 'underground', 'driller', 'crush', 'attendance'],
+  scoring:    ['view', 'edit'],
+  system:     ['view', 'manage'],
+};
+// spec §5.2: 持该模块任意一键即视为可见（applicant 见审批中心、单表单采集员见数据采集的前提）
+function hasAnyPermission(module) {
+  const acts = CATALOG_ACTIONS[module] || [];
+  return acts.some(a => hasPermission(module, a));
+}
+// P29 V2.1: 'module:action' 键判定助手
+function _permKeyOk(key) {
+  const parts = key.split(':');
+  return hasPermission(parts[0], parts[1]);
+}
+// 模块级可见性：anyOf 任一命中 > 单键 perm > 任一子页 perm（D4: applicant 凭 oa:apply 经员工子页入口可见员工模块）
+function _moduleVisible(mod) {
+  if (!mod) return true;
+  if (mod.anyOf && mod.anyOf.some(p => _permKeyOk(p))) return true;
+  if (mod.perm && _permKeyOk(mod.perm)) return true;
+  if (mod.children && mod.children.some(c => c.perm && _permKeyOk(c.perm))) return true;
+  return false;
+}
+// 子页级守卫：children 项带 perm 且未持有 → 拦截（无 perm 的子页仅受模块级守卫）
+function _childPermDenied(module, subPage) {
+  if (!subPage) return false;
+  const mod = MODULES[module];
+  if (!mod || !mod.children) return false;
+  const child = mod.children.find(c => c.id === subPage);
+  if (!child || !child.perm) return false;
+  return !_permKeyOk(child.perm);
+}
+
 async function checkAuth() {
   try {
     const res = await fetch(api('/api/auth/status'));
@@ -1919,15 +1958,47 @@ function switchPage(name) {
 
 /* ════════ P0 导航系统 ════════ */
 
-// 模块/子页配置（P18 阶段2: perm 标注所需细粒度权限,无权限不渲染/拦截）
+// 模块/子页配置（P29 V2.1: children 为 {id, perm} 对象; anyOf=持任一键即可见; 子页 perm 缺省时仅受模块级守卫）
+// 侧边栏顺序即 spec §5.1: 数据台→员工→审批中心(D1 独立)→出勤→薪资→数据采集→评分→系统
 const MODULES = {
   dashboard:  { label: 'nav_dashboard',  icon: '◆', children: null, perm: 'dashboard:view' },
-  employees:  { label: 'nav_employees',  icon: '👥', children: ['list','hire','transfer','dismiss','leave','overtime'], perm: 'employees:view' },
+  employees:  { label: 'nav_employees',  icon: '👥', perm: 'employees:view', children: [
+                { id: 'list',     perm: 'employees:view' },
+                { id: 'hire',     perm: 'oa:apply' },
+                { id: 'transfer', perm: 'oa:apply' },
+                { id: 'dismiss',  perm: 'oa:apply' },
+                { id: 'leave',    perm: 'oa:apply' },
+                { id: 'overtime', perm: 'oa:apply' },
+              ] },
+  oa:         { label: 'nav_oa', icon: '📨', anyOf: ['oa:view', 'oa:apply'], children: [
+                { id: 'pending' },
+                { id: 'history' },
+              ] },
   attendance: { label: 'nav_attendance',  icon: '📅', children: null, perm: 'attendance:view' },
-  salary:     { label: 'nav_salary',      icon: '💰', children: ['table','daily'], perm: 'salary:view' },
-  collection: { label: 'nav_collection',  icon: '⚒', children: ['underground','driller','crush','attendance'], perm: 'production:edit' },
-  scoring:    { label: 'nav_scoring',     icon: '★', children: ['card','summary','objective','weekly'], perm: 'scoring:view' },
-  system:     { label: 'nav_system',      icon: '⚙', children: ['users','forms','params','archive'], perm: 'system:view' },
+  salary:     { label: 'nav_salary',      icon: '💰', perm: 'salary:view', children: [
+                { id: 'table', perm: 'salary:view' },
+                { id: 'daily', perm: 'salary:view' },
+              ] },
+  collection: { label: 'nav_collection',  icon: '⚒',
+                anyOf: ['collection:view', 'collection:underground', 'collection:driller', 'collection:crush', 'collection:attendance'],
+                children: [
+                { id: 'underground', perm: 'collection:underground' },
+                { id: 'driller',     perm: 'collection:driller' },
+                { id: 'crush',       perm: 'collection:crush' },
+                { id: 'attendance',  perm: 'collection:attendance' },
+              ] },
+  scoring:    { label: 'nav_scoring',     icon: '★', perm: 'scoring:view', children: [
+                { id: 'card',      perm: 'scoring:edit' },
+                { id: 'summary',   perm: 'scoring:view' },
+                { id: 'objective', perm: 'scoring:view' },
+                { id: 'weekly',    perm: 'scoring:view' },
+              ] },
+  system:     { label: 'nav_system',      icon: '⚙', anyOf: ['system:view', 'system:manage'], children: [
+                { id: 'params',  perm: 'system:view' },
+                { id: 'users',   perm: 'system:manage' },
+                { id: 'forms',   perm: 'system:manage' },
+                { id: 'archive', perm: 'salary:view' },
+              ] },
 };
 
 // 子页→旧页面映射 (P0 复用现有页面)
@@ -1943,6 +2014,9 @@ const SUBPAGE_TARGETS = {
   'salary/table':      'salary',
   'salary/daily':      'dailywages',
   'attendance':        'attendance',
+  // P29 D1: 审批中心独立模块路由（复用员工页 OA Tab 面板 DOM）
+  'oa/pending':        'employees',
+  'oa/history':        'employees',
   'collection/underground': 'collection-underground',
   'collection/driller':     'collection-driller',
   'collection/crush':       'collection-crush',
@@ -1969,9 +2043,11 @@ function renderSidebar() {
   let html = '';
   for (const [key, mod] of Object.entries(MODULES)) {
     if (key !== 'dashboard' && !_authState.logged_in) continue;
-    // P18 阶段2: 已登录后无权限模块不渲染(未登录保持原逻辑,仅 dashboard 显示)
-    if (_authState.logged_in && mod.perm && !hasPermission(mod.perm.split(':')[0], mod.perm.split(':')[1])) continue;
-    const hasChildren = mod.children && mod.children.length > 0;
+    // P29 V2.1: 已登录后无权限模块不渲染(anyOf 任一 / 单键 / 任一子页键;未登录保持原逻辑,仅 dashboard 显示)
+    if (_authState.logged_in && !_moduleVisible(mod)) continue;
+    // P29 V2.1: 子页按各自 perm 过滤(无 perm 子页随模块可见)
+    const visibleChildren = (mod.children || []).filter(c => !c.perm || _permKeyOk(c.perm));
+    const hasChildren = visibleChildren.length > 0;
     const isActive = STATE.currentModule === key;
     const isExpanded = isActive;
     html += `<button class="sidebar-module${isActive?' active':''}${isExpanded&&hasChildren&&!collapsed?' expanded':''}"
@@ -1980,15 +2056,15 @@ function renderSidebar() {
                <span class="module-icon">${mod.icon}</span>
                <span class="module-label">${t(mod.label)}</span>
                ${hasChildren && !collapsed ? '<span class="module-arrow">▸</span>' : ''}
-               ${key === 'employees' ? '<span class="sidebar-badge" id="oaSideBadge" onclick="event.stopPropagation();goOaPending()" style="display:none;">0</span>' : ''}
+               ${key === 'oa' ? '<span class="sidebar-badge" id="oaSideBadge" onclick="event.stopPropagation();goOaPending()" style="display:none;">0</span>' : ''}
              </button>`;
     if (hasChildren && !collapsed) {
       html += `<div class="sidebar-subpages"${isExpanded ? ' style="display:block"' : ''}>`;
-      for (const sub of mod.children) {
-        const subActive = isActive && STATE.currentSubPage === sub;
+      for (const sub of visibleChildren) {
+        const subActive = isActive && STATE.currentSubPage === sub.id;
         html += `<button class="sidebar-subpage${subActive?' active':''}"
-                        onclick="navigate('${key}','${sub}')">
-                   <span>${t('nav_'+key+'_'+sub)}</span>
+                        onclick="navigate('${key}','${sub.id}')">
+                   <span>${t('nav_'+key+'_'+sub.id)}</span>
                  </button>`;
       }
       html += '</div>';
@@ -1998,11 +2074,11 @@ function renderSidebar() {
   updateOaSideBadge();
 }
 
-/* C1: 侧边栏"员工"待审批红徽章（数字，>99 显示 99+） */
+/* C1: 侧边栏"审批中心"待审批红徽章（数字，>99 显示 99+;P29 V2.1: 需 approve 且能进入审批中心(view|apply)） */
 function updateOaSideBadge() {
   const b = document.getElementById('oaSideBadge');
   if (!b) return;
-  if (!hasPermission('oa', 'approve')) {
+  if (!(hasPermission('oa', 'approve') && (hasPermission('oa', 'view') || hasPermission('oa', 'apply')))) {
     b.style.display = 'none';
     return;
   }
@@ -2011,10 +2087,9 @@ function updateOaSideBadge() {
   b.style.display = n > 0 ? 'inline-block' : 'none';
 }
 
-/* C1: 点击侧边栏徽章直达 OA 待审批页 */
+/* C1: 点击侧边栏徽章直达审批中心待审批页（P29 D1: #oa/pending） */
 function goOaPending() {
-  navigate('employees', 'oa-pending');
-  switchEmpTab('oa-pending');
+  navigate('oa', 'pending');
 }
 
 function handleModuleClick(module, hasChildren) {
@@ -2033,7 +2108,7 @@ function handleModuleClick(module, hasChildren) {
       return;
     }
     // 未激活：展开 + 跳转到第一个子页
-    navigate(module, MODULES[module].children[0]);
+    navigate(module, MODULES[module].children[0].id);
   } else {
     // 无子页：直接跳转
     navigate(module);
@@ -2045,9 +2120,15 @@ function navigate(module, subPage, params) {
     openLoginModal();
     return;
   }
-  // P18 阶段2: 目标模块无权限 → 提示 + 跳回 dashboard
+  // P29 V2.1: 目标模块无权限(anyOf 任一 / 单键 / 任一子页键) → 提示 + 跳回 dashboard
   const _mod = MODULES[module];
-  if (_authState.logged_in && _mod && _mod.perm && !hasPermission(_mod.perm.split(':')[0], _mod.perm.split(':')[1])) {
+  if (_authState.logged_in && !_moduleVisible(_mod)) {
+    showToast(t('no_perm'), 'warning');
+    navigate('dashboard', null);
+    return;
+  }
+  // P29 V2.1: 子页级守卫（children 项带 perm 且未持有）
+  if (_authState.logged_in && _childPermDenied(module, subPage)) {
     showToast(t('no_perm'), 'warning');
     navigate('dashboard', null);
     return;
@@ -2077,10 +2158,15 @@ function navigate(module, subPage, params) {
 }
 
 function showTargetPage(module, subPage) {
-  // P18 阶段2: 权限守卫(直输 hash / 外部调用也拦截)
+  // P29 V2.1: 权限守卫(直输 hash / 外部调用也拦截;模块级 anyOf/单键 + 子页级 perm)
   const _mod2 = MODULES[module];
-  if (_authState.logged_in && _mod2 && _mod2.perm && !hasPermission(_mod2.perm.split(':')[0], _mod2.perm.split(':')[1])) {
+  if (_authState.logged_in && !_moduleVisible(_mod2)) {
     if (module !== 'dashboard') { showToast(t('no_perm'), 'warning'); navigate('dashboard', null); return; }
+  }
+  if (_authState.logged_in && _childPermDenied(module, subPage)) {
+    showToast(t('no_perm'), 'warning');
+    navigate('dashboard', null);
+    return;
   }
   const key = subPage ? `${module}/${subPage}` : module;
   const targetId = SUBPAGE_TARGETS[key] || MODULE_TARGETS[module] || module;
@@ -2102,6 +2188,10 @@ function showTargetPage(module, subPage) {
   if (targetId === 'employees') {
     renderEmployeeTable();
   }
+  // P29 D1: 审批中心路由复用员工页 OA Tab 面板（#oa/pending / #oa/history）
+  if (module === 'oa') { switchEmpTab(subPage === 'history' ? 'oa-history' : 'oa-pending'); }
+  // 员工列表子页进入时确保 Tab 复位到列表（避免从审批中心切回时残留 OA 面板）
+  if (module === 'employees' && (!subPage || subPage === 'list')) { switchEmpTab('list'); }
   // P12: 员工档案独立子页加载
   if (targetId === 'employees-profile') {
     const eid = STATE.currentParams && STATE.currentParams.id;
@@ -6096,7 +6186,7 @@ function renderNotifPanel() {
 function closeNotifAndGo(eventId) {
   const panel = document.getElementById('notifPanel');
   if (panel) panel.style.display = 'none';
-  navigate('employees', 'oa-pending');
+  navigate('oa', 'pending');
   // 等待页面渲染后滚动到对应卡片
   setTimeout(() => {
     const card = document.getElementById('oaCard' + eventId);
@@ -6361,10 +6451,8 @@ async function submitApply(type) {
         const teamSel = document.getElementById('hireTeamId'); if (teamSel) teamSel.value = '0';
         toggleHireBaseFields();
         clearHireAvatar();
-        // P13: 入职提交成功后跳转 OA 待审
-        navigate('employees', 'list');
-        switchEmpTab('oa-pending');
-        loadOAPending();
+        // P13: 入职提交成功后跳转 OA 待审（P29 D1: 审批中心路由）
+        navigate('oa', 'pending');
         loadNotifCount();
         showToast(t('hire_submit_goto_pending'));
       } else if (type === 'transfer') {
@@ -8282,12 +8370,13 @@ const MODULE_NAMES = {
   oa: 'perm_module_oa',
   attendance: 'perm_module_attendance',
   salary: 'perm_module_salary',
-  production: 'perm_module_production',
+  collection: 'perm_module_collection',
   scoring: 'perm_module_scoring',
   system: 'perm_module_system',
 };
 
-const MODULE_ACTIONS = ['view', 'edit', 'approve', 'export', 'manage'];
+// P29 V2.1: 与 CATALOG_ACTIONS/ALL_ACTIONS(database.py) 对齐
+const MODULE_ACTIONS = ['view', 'edit', 'apply', 'approve', 'export', 'manage', 'underground', 'driller', 'crush', 'attendance'];
 
 // ── P13: 审批人设定(P18C 误删后恢复) ──
 async function loadApprovalRoutes() {
@@ -8701,11 +8790,11 @@ async function loadRolePermissions(role) {
   } catch(e) {}
 }
 
-// P18E: 矩阵表常量(分组 → 模块/动作)
-const _GROUP_ORDER = ['数据台', '产量', '出勤', '员工', 'OA', '薪资', '评分', '系统'];
-const _GROUP_MODULE = { '数据台': 'dashboard', '产量': 'production', '出勤': 'attendance', '员工': 'employees', 'OA': 'oa', '薪资': 'salary', '评分': 'scoring', '系统': 'system' };
-const _GROUP_ACTIONS = { '数据台': ['view'], '产量': ['view', 'edit'], '出勤': ['view', 'edit', 'export'], '员工': ['view', 'edit', 'export'], 'OA': ['view', 'approve'], '薪资': ['view', 'export'], '评分': ['view', 'edit'], '系统': ['view', 'manage'] };
-const _COL_ACTIONS = ['view', 'edit', 'export', 'approve', 'manage'];
+// P29 V2.1: 矩阵表常量(分组 → 模块/动作) — 8 组 21 键,分组顺序即侧边栏顺序(spec §3/§5.1)
+const _GROUP_ORDER = ['数据台', '员工', '审批中心', '出勤', '薪资', '数据采集', '评分', '系统'];
+const _GROUP_MODULE = { '数据台': 'dashboard', '员工': 'employees', '审批中心': 'oa', '出勤': 'attendance', '薪资': 'salary', '数据采集': 'collection', '评分': 'scoring', '系统': 'system' };
+const _GROUP_ACTIONS = { '数据台': ['view'], '员工': ['view', 'edit', 'export'], '审批中心': ['view', 'apply', 'approve'], '出勤': ['view', 'edit', 'export'], '薪资': ['view', 'export'], '数据采集': ['view', 'underground', 'driller', 'crush', 'attendance'], '评分': ['view', 'edit'], '系统': ['view', 'manage'] };
+const _COL_ACTIONS = ['view', 'edit', 'apply', 'approve', 'export', 'underground', 'driller', 'crush', 'attendance', 'manage'];
 
 function _rpSourceOf(key) {
   const p = _rpState.effective.find(x => _rpKey(x.module, x.action) === key);
@@ -8747,13 +8836,17 @@ function renderMatrix(selector) {
       const isInherited = src && src !== _rpState.role;
       const dirty = Object.prototype.hasOwnProperty.call(_rpState.dirty, key);
       const finalChecked = dirty ? !!_rpState.dirty[key] : !!_rpState.base[key];
+      // P29 V2.1: 勾选项下挂目录中文名（服务端 catalog name,即 spec §3 名称）
+      const meta = _rpState.catalog[key];
+      const permName = meta ? (typeof meta === 'string' ? meta : (meta.name || '')) : '';
       let cls = 'pm-cell';
       if (dirty) cls += ' pm-cell--dirty';
       else if (isInherited) cls += ' pm-cell--inherited';
       else if (finalChecked) cls += ' pm-cell--owned';
-      html += `<td class="${cls}">${dirty ? '<span class="pm-dirty-mark">*</span>' : ''}
+      html += `<td class="${cls}" title="${permName}">${dirty ? '<span class="pm-dirty-mark">*</span>' : ''}
         <input type="checkbox" ${finalChecked ? 'checked' : ''} ${isInherited ? 'disabled' : ''}
-          onchange="onRolePermChange('${key}', this.checked)"></td>`;
+          onchange="onRolePermChange('${key}', this.checked)">
+        <div style="font-size:10px;color:var(--text-muted);white-space:nowrap;margin-top:2px;">${permName}</div></td>`;
     });
     html += '</tr>';
   });
