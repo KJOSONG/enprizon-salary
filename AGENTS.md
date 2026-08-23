@@ -1,6 +1,6 @@
 # AGENTS.md — ENPRIZON LINDI (enprizon-salary)
 
-> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=a871bc0，服务 active（P25 V2 凸性计件已部署）**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
+> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=be3efce，服务 active（P29 权限体系 V2.1 已部署 2026-08-23）**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
 
 ## 相关文档
 
@@ -12,7 +12,7 @@
 - `docs/P12/P13/P14/P15_*.md`：各阶段详设与实施对照清单（见 §重构状态）
 - `docs/P25_PIECEWORK_V2_SPEC.md`：计件薪资制度 V2 逻辑规格（凸性加速 + 月末零和再分配，业务侧权威）
 - `docs/P25_PIECEWORK_V2_IMPLEMENTATION.md`：V2 实现设计（第三模式、班组对齐、公式、前端清单，工程侧权威）
-- `docs/P29_PERMISSION_V2_SPEC.md`：权限体系 V2.1 重设计规格（**已实施于 `feature/p29-permission-v2`，待批准部署**；需求文本冻结，接手必读）
+- `docs/P29_PERMISSION_V2_SPEC.md`：权限体系 V2.1 重设计规格（✅ 已部署上线 2026-08-23；需求文本冻结，接手必读）
 
 ## 协作流程
 
@@ -466,10 +466,10 @@ app.py (Flask 路由 / 认证 / 数据管线)
 - 复杂任务（≥3 需求）用 KEJU 团队并行（designer/dev/qa），简单任务直接做
 - 判断薪资类型用 `override_type or default_type`
 
-## 重构状态（2026-08-23 更新，main=a871bc0；feature/p29-permission-v2 待部署）
+## 重构状态（2026-08-23 更新，main=be3efce；P29 已部署）
 
 **分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）；`feature/p29-permission-v2` 已完成 P29 权限 V2.1 全部实施（41 测试通过），待用户批准 push + 服务器部署
-**阶段**: **P0-P25 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速）；**P29 权限 V2.1 已实施于 feature 分支待部署**
+**阶段**: **P0-P25 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速 / P26-P28 / **P29 权限体系 V2.1（已部署 2026-08-23，迁移幂等完成）**
 **纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
 **部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），服务 active
 **团队**: KEJU 团队（designer/dev/qa）并行工作流，复杂任务必用；agentmemory 已整合（开始 recall / 完成 remember）
@@ -517,7 +517,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
-0. **P29 权限体系 V2.1（代码已完成，待部署）**：已在 `feature/p29-permission-v2` 完成全部实施（41 测试通过：目录形状/迁移幂等/端点矩阵），等待用户批准 push + 服务器部署；上线后观察首次启动迁移日志（`_migrate_permissions_v2()` 幂等，settings.perm_v2_migrated=1）
+0. **P29 权限体系 V2.1 ✅ 已部署（2026-08-23）**：main=be3efce 上线，服务器首启迁移日志确认「P29 权限目录 V2.1 迁移完成」，perm_v2_migrated=1、五内置角色行数精确、存量 editor 平移保留；回滚预案=data/backups/kilwa_before_p29_20260823_194713.db。后续观察项：各角色登录走查 + 权限编辑器分组显示
 1. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）
 2. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 3. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
