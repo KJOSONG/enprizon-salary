@@ -736,7 +736,14 @@
   }
 
   function loadEmployees(){
-    return api('/api/employees').then(d=>{ STATE.employees = (d.employees||[]); renderEmpList(); });
+    return api('/api/employees').then(async d=>{
+      STATE.employees = (d && d.employees) || [];
+      // P29-b: 无 employees:view 的采集角色回退轻量花名册(采集表单员工选择器数据源)
+      if (!STATE.employees.length) {
+        try { const r = await api('/api/collection/roster'); if (r && r.employees) STATE.employees = r.employees; } catch(e2) {}
+      }
+      renderEmpList();
+    });
   }
   function empCard(e){
     const initial = (e.name||'?').slice(0,1);

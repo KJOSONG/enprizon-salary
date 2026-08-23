@@ -6334,8 +6334,16 @@ async function ensureEmpPool() {
   if (_empPool && _empPool.length) return _empPool;
   if (STATE._empAll && STATE._empAll.length) { _empPool = STATE._empAll; return _empPool; }
   try {
+    let data = {};
     const res = await fetch(api('/api/employees?status=active'));
-    const data = await res.json();
+    if (res.ok) data = await res.json();
+    // P29-b: 无 employees:view 的采集/评分角色回退轻量花名册
+    if (!data.employees || !data.employees.length) {
+      try {
+        const r2 = await fetch(api('/api/collection/roster'));
+        if (r2.ok) { const d2 = await r2.json(); data = { employees: d2.employees || [] }; }
+      } catch(e2) {}
+    }
     _empPool = data.employees || [];
     STATE._empAll = _empPool;
   } catch(e) { _empPool = []; }
@@ -6552,8 +6560,16 @@ async function getEmpPool() {
   if (_colEmpPool && _colEmpPool.length) return _colEmpPool;
   if (STATE._empAll && STATE._empAll.length) { _colEmpPool = STATE._empAll; return _colEmpPool; }
   try {
+    let data = {};
     const res = await fetch(api('/api/employees?status=active'));
-    const data = await res.json();
+    if (res.ok) data = await res.json();
+    // P29-b: 无 employees:view 的采集角色回退轻量花名册(仅 id/name/dept 等必要字段)
+    if (!data.employees || !data.employees.length) {
+      try {
+        const r2 = await fetch(api('/api/collection/roster'));
+        if (r2.ok) { const d2 = await r2.json(); data = { employees: d2.employees || [] }; }
+      } catch(e2) {}
+    }
     _colEmpPool = data.employees || [];
     STATE._empAll = _colEmpPool;
   } catch(e) { _colEmpPool = []; }

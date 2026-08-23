@@ -2697,6 +2697,26 @@ def collection_edit(submission_id):
                           'date': new_date}))
     return jsonify({'ok': True, 'submission_id': submission_id})
 
+@app.route('/api/collection/roster', methods=['GET'])
+@login_required
+def api_collection_roster():
+    """P29-b: 采集/评分表单专用轻量花名册——collector 等 0 级角色无 employees:view,
+    但提交表单需要员工选择器数据;按持有任一采集键或 scoring:edit 放行。
+    仅返回 id/name/department 等必要字段,不暴露 overrides/bonus 等薪酬敏感数据。"""
+    from core.database import check_permission, list_employees_extended
+    u = session.get('username', '')
+    ok = any(check_permission(app.config['DATA_FOLDER'], u, 'collection', a)
+             for a in ('view', 'underground', 'driller', 'crush', 'attendance'))
+    if not ok:
+        ok = check_permission(app.config['DATA_FOLDER'], u, 'scoring', 'edit')
+    if not ok:
+        _audit('perm_denied', '', json.dumps({'user': u, 'module': 'collection', 'action': 'roster'}))
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
+    emps = list_employees_extended(app.config['DATA_FOLDER']) or []
+    keep = ('id', 'name', 'department', 'default_type', 'team_id', 'custom_number', 'alias')
+    slim = [{k: e.get(k) for k in keep} for e in emps]
+    return jsonify({'ok': True, 'employees': slim})
+
 @app.route('/api/production/shift', methods=['POST'])
 @editor_required
 def production_shift_entry():
