@@ -9108,6 +9108,7 @@ async function renderPermSources(u) {
     const tagMap = { role: 'perm-source-tag--role', grant: 'perm-source-tag--grant', deny: 'perm-source-tag--deny', none: 'perm-source-tag--none' };
     const labelMap = { role: t('perm_source_role') + ' · ' + roleLabel(roleName), grant: t('perm_source_allow'), deny: t('perm_source_deny'), none: t('perm_source_none') };
     let html = '';
+    html += `<div style="font-size:11px;color:var(--text-muted);padding:4px 2px 8px;line-height:1.5;">${t('perm_override_hint')}</div>`;
     Object.entries(_rpState.catalog || {}).forEach(([key, meta]) => {
       const [module, action] = key.split(':');
       let src = grantMap[key] || (summary[module] && summary[module][action]) || 'none';
@@ -9117,9 +9118,14 @@ async function renderPermSources(u) {
       const _rm = (src === 'grant' || src === 'deny')
         ? `<button class="nav-btn" style="font-size:10px;padding:2px 8px;color:#F44336;" onclick="deleteUserGrant('${module}','${action}')">${t('perm_remove')}</button>`
         : '';
+      // P29-c2: 角色默认权限支持按用户禁用(添加 deny 覆盖)
+      const _dis = (src === 'role')
+        ? `<button class="nav-btn" style="font-size:10px;padding:2px 8px;color:var(--warning);" onclick="setUserGrantOverride('${module}','${action}','deny')">${t('perm_disable_for_user')}</button>`
+        : '';
       html += `<div class="perm-source-row">
         <span style="flex:1;font-weight:600;">${t(meta.name) || meta.name}</span>
         <span class="perm-source-tag ${tagMap[src]}">${labelMap[src]}</span>
+        ${_dis}
         ${_rm}
       </div>`;
     });
@@ -9127,11 +9133,44 @@ async function renderPermSources(u) {
   } catch(e) { wrap.innerHTML = ''; }
 }
 
+function setUserGrantOverride(module, action, type) {
+  if (!currentEditUser) return;
+  try {
+    const res = authFetch(api('/api/permissions/grant'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentEditUser, module, action, grant_type: type }),
+    });
+    Promise.resolve(res).then(async r => {
+      const d = await r.json().catch(() => ({}));
+      const m = document.getElementById('userDrawerGrantMsg');
+      if (d.ok) { _permUsersCache = (_permUsersCache || []).filter(x => x.username !== currentEditUser); openUserDrawer(currentEditUser); }
+      else if (m) { m.textContent = d.error || t('fail'); m.style.color = '#F44336'; }
+    });
+  } catch(e) {}
+}
+
+async function clearUserGrants() {
+  if (!currentEditUser) return;
+  if (!confirm(t('perm_grants_clear_confirm'))) return;
+  try {
+    const res = await authFetch(api('/api/permissions/grants/clear'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: currentEditUser }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.ok) { _permUsersCache = (_permUsersCache || []).filter(x => x.username !== currentEditUser); openUserDrawer(currentEditUser); showToast(t('saved')); }
+    else { const m = document.getElementById('userDrawerGrantMsg'); if (m) { m.textContent = data.error || t('fail'); m.style.color = '#F44336'; } }
+  } catch(e) {}
+}
+
 function renderUserGrants(grants) {
   const wrap = document.getElementById('userDrawerGrants');
   if (!wrap) return;
   if (!grants || !grants.length) { wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">' + t('perm_no_grants') + '</div>'; return; }
-  wrap.innerHTML = grants.map((g, i) => {
+  wrap.innerHTML = '<div style="display:flex;justify-content:flex-end;padding:2px 0 6px;"><button class="nav-btn" style="font-size:10px;padding:2px 10px;color:#F44336;" onclick="clearUserGrants()">' + t('perm_grants_clear_all') + '</button></div>'
+    + grants.map((g, i) => {
     const isDeny = g.grant_type === 'deny';
     return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;background:var(--bg-secondary);">
       <span style="font-size:12px;font-weight:600;flex:1;">${t(g.name) || g.name}</span>

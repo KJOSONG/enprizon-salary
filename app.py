@@ -562,6 +562,22 @@ def api_permissions_revoke():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
 
+@app.route('/api/permissions/grants/clear', methods=['POST'])
+@super_admin_required
+def api_permissions_grants_clear():
+    """P29-c2: 一键清空某用户全部单独授权, 恢复纯角色默认权限"""
+    from core.database import clear_user_grants
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    if not username:
+        return jsonify({'ok': False, 'error': 'missing_username'}), 400
+    try:
+        cleared = clear_user_grants(app.config['DATA_FOLDER'], username)
+        _audit('grants_clear', username, json.dumps({'cleared': cleared}))
+        return jsonify({'ok': True, 'cleared': cleared})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
 @app.route('/api/permissions/init-defaults', methods=['POST'])
 @super_admin_required
 def api_permissions_init_defaults():

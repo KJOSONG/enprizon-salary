@@ -1726,6 +1726,15 @@ def revoke_user_grant(data_folder, username, permission_id):
     conn.commit()
     conn.close()
 
+def clear_user_grants(data_folder, username):
+    """清空某用户全部单独授权(恢复纯角色默认), 返回删除行数"""
+    conn = get_conn(data_folder)
+    cur = conn.execute("DELETE FROM user_grants WHERE username=?", (username,))
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    return n
+
 def revoke_user_grant_by_action(data_folder, username, module, action):
     """撤销用户单独授权（按 module + action 查找 permission_id 后删除）"""
     conn = get_conn(data_folder)
