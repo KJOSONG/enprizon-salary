@@ -12,6 +12,7 @@
 - `docs/P12/P13/P14/P15_*.md`：各阶段详设与实施对照清单（见 §重构状态）
 - `docs/P25_PIECEWORK_V2_SPEC.md`：计件薪资制度 V2 逻辑规格（凸性加速 + 月末零和再分配，业务侧权威）
 - `docs/P25_PIECEWORK_V2_IMPLEMENTATION.md`：V2 实现设计（第三模式、班组对齐、公式、前端清单，工程侧权威）
+- `docs/P29_PERMISSION_V2_SPEC.md`：权限体系 V2.1 重设计规格（**已批准未开工的下一任务**，需求已冻结，接手必读）
 
 ## 协作流程
 
@@ -511,6 +512,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 ### 下一步
 
+0. **P29 权限体系 V2.1（已批准，未开工）**：方案定稿于 `docs/P29_PERMISSION_V2_SPEC.md`（需求已冻结）——A 期「OA 提交人显示」可先行小改上线；B-E 期大改走 `feature/p29-permission-v2` 分支 KEJU 并行
 1. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）
 2. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 3. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
