@@ -1651,11 +1651,13 @@ def compute_scoring_pool(main_data, pricing):
     仅 NICKEL（H）（全角括号），NICKEL（L）/MAWE 不参与。"""
     threshold = int(pricing.get('scoring_nh_threshold', 600) or 600)
     price     = int(pricing.get('scoring_nh_price', 20000) or 20000)
-    nh_count = 0
+    # 采集产量允许一位小数（2026-08-24）：float 累加防逐日 int() 截断失真，末尾统一取整
+    nh_count = 0.0
     for day in main_data.get('shift_production', []):
         dp = day.get('day_prod') or {}
         np = day.get('night_prod') or {}
-        nh_count += int(dp.get('NICKEL（H）', 0) or 0) + int(np.get('NICKEL（H）', 0) or 0)
+        nh_count += float(dp.get('NICKEL（H）', 0) or 0) + float(np.get('NICKEL（H）', 0) or 0)
+    nh_count = int(round(nh_count))
     total_pool = max(nh_count - threshold, 0) * price
     return {'nh_count': nh_count, 'total_pool': total_pool, 'half_pool': total_pool // 2}
 

@@ -1263,9 +1263,9 @@
       + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
     const seg=(p, title, dotClass, s)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
       + '<div style="display:flex;gap:6px;">'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="'+((s&&s.nl)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="'+((s&&s.mw)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="'+((s&&s.nl)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
+      + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="'+((s&&s.mw)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
       + '</div>'
       + '<div style="display:flex;gap:6px;align-items:center;margin:4px 0;">'
       + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('col_ug_team')+'</label><select id="'+p+'Team" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts((s&&s.team_id)||'')+'</select></div>'
@@ -1374,7 +1374,7 @@
   function renderDrSlotsM(){ const c=document.getElementById('drSlots'); if(!c) return;
     c.innerHTML=STATE._drSlots.map((s,i)=>'<div class="seg-card"><div class="seg-card__title">'+t('col_dr')+' '+(i+1)+'</div>'
       + '<div class="field"><label class="field__label">'+t('captain')+'</label><select id="drCap'+i+'" onchange="STATE._drSlots['+i+'].captain=this.value">'+capOpts(s.captain)+'</select></div>'
-      + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0" inputmode="numeric" pattern="[0-9]*"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0" inputmode="numeric" pattern="[0-9]*"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0" inputmode="numeric" pattern="[0-9]*"></div></div>'
+      + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0" step="0.1" inputmode="decimal"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0" step="0.1" inputmode="decimal"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0" step="0.1" inputmode="decimal"></div></div>'
       + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div class="col-count-hint" id="drMem'+i+'-count">'+t('col_selected_count',{n:(s.members||[]).length})+'</div><div id="drMemBox'+i+'"></div></div>'
       + (STATE._drSlots.length>1?'<button class="btn btn-block" onclick="removeDrSlotM('+i+')" style="margin-top:6px;">'+t('remove')+'</button>':'')+'</div>').join('');
     STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[], 'drMem'+i, deptPool('driller')); });

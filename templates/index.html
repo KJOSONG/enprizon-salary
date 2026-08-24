@@ -7171,9 +7171,9 @@ async function renderUgCollectionForm(payload) {
   // B1c: prodRow 需区分数据源(day/night)，否则夜班输入框误显示白班值
   const prodRow = (prefix, data) => `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;">
-      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="${prefix}Nh" value="${+data.nh || 0}" min="0" style="${colInStyle()}"></div>
-      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="${prefix}Nl" value="${+data.nl || 0}" min="0" style="${colInStyle()}"></div>
-      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+data.mw || 0}" min="0" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="${prefix}Nh" value="${+data.nh || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="${prefix}Nl" value="${+data.nl || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+data.mw || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
     </div>`;
   const remarkRow = (prefix, label) => `
     <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"></div>`;
@@ -7364,11 +7364,10 @@ async function renderDrSlots() {
         <div id="drMem${i}" class="emp-chips" style="flex:1;line-height:1.5;justify-content:flex-start;"><span style="color:var(--text-muted);font-size:12px;">${t('not_selected')}</span></div>
         <input type="hidden" id="drMemVal${i}" value="${(s.members||[]).join(',')}">
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <label style="font-size:12px;min-width:36px;">${t('col_output')}</label>
-        <input type="number" id="drNh${i}" value="${s.nh||0}" min="0" placeholder="NH" style="${colInStyle(true)}">
-        <input type="number" id="drNl${i}" value="${s.nl||0}" min="0" placeholder="NL" style="${colInStyle(true)}">
-        <input type="number" id="drMw${i}" value="${s.mw||0}" min="0" placeholder="MW" style="${colInStyle(true)}">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="drNh${i}" value="${s.nh||0}" min="0" step="0.1" style="${colInStyle()}"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="drNl${i}" value="${s.nl||0}" min="0" step="0.1" style="${colInStyle()}"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="drMw${i}" value="${s.mw||0}" min="0" step="0.1" style="${colInStyle()}"></div>
       </div>
     </div>`).join('');
   // 回填成员显示（chips）
@@ -7506,9 +7505,9 @@ async function submitDrCollection() {
     if (!captain) continue;
     teams.push({
       captain,
-      nh: parseInt(document.getElementById('drNh' + i).value) || 0,
-      nl: parseInt(document.getElementById('drNl' + i).value) || 0,
-      mw: parseInt(document.getElementById('drMw' + i).value) || 0,
+      nh: parseFloat(document.getElementById('drNh' + i).value) || 0,
+      nl: parseFloat(document.getElementById('drNl' + i).value) || 0,
+      mw: parseFloat(document.getElementById('drMw' + i).value) || 0,
       members: (document.getElementById('drMemVal' + i).value || '').split(',').filter(Boolean),
     });
   }
@@ -7660,9 +7659,9 @@ async function submitUgCollection() {
   const nightExempt = nightExemptEl ? nightExemptEl.checked : false;
   const payload = {
     day: {
-      nh: parseInt(document.getElementById('ugDayNh').value) || 0,
-      nl: parseInt(document.getElementById('ugDayNl').value) || 0,
-      mw: parseInt(document.getElementById('ugDayMw').value) || 0,
+      nh: parseFloat(document.getElementById('ugDayNh').value) || 0,
+      nl: parseFloat(document.getElementById('ugDayNl').value) || 0,
+      mw: parseFloat(document.getElementById('ugDayMw').value) || 0,
       emps: (document.getElementById('ugDayEmpsVal').value || '').split(',').filter(Boolean),
       drivers: (document.getElementById('ugDayDriversVal').value || '').split(',').filter(Boolean),
       remark: document.getElementById('ugDayRemark').value.trim(),
@@ -7670,9 +7669,9 @@ async function submitUgCollection() {
       exempt: dayExempt,
     },
     night: {
-      nh: parseInt(document.getElementById('ugNightNh').value) || 0,
-      nl: parseInt(document.getElementById('ugNightNl').value) || 0,
-      mw: parseInt(document.getElementById('ugNightMw').value) || 0,
+      nh: parseFloat(document.getElementById('ugNightNh').value) || 0,
+      nl: parseFloat(document.getElementById('ugNightNl').value) || 0,
+      mw: parseFloat(document.getElementById('ugNightMw').value) || 0,
       emps: (document.getElementById('ugNightEmpsVal').value || '').split(',').filter(Boolean),
       drivers: (document.getElementById('ugNightDriversVal').value || '').split(',').filter(Boolean),
       remark: document.getElementById('ugNightRemark').value.trim(),
