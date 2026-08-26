@@ -101,9 +101,9 @@
 <div class="app-main" id="appMain">
   <!-- 周期上下文条 -->
   <div class="period-bar" id="periodBar">
-    <button class="period-btn" id="periodPrev" onclick="shiftMonth(-1)">«</button>
+    <button class="period-btn" id="periodPrev" disabled style="opacity:0.4;cursor:not-allowed" onclick="shiftMonth(-1)">«</button>
     <span class="period-label" id="periodLabel">—</span>
-    <button class="period-btn" id="periodNext" onclick="shiftMonth(1)">»</button>
+    <button class="period-btn" id="periodNext" disabled style="opacity:0.4;cursor:not-allowed" onclick="shiftMonth(1)">»</button>
     <span class="spacer"></span>
     <div class="global-search" id="globalSearch">
       <input type="search" id="searchInput" data-i18n-placeholder="search_placeholder" placeholder="搜索..."
@@ -2426,14 +2426,16 @@ async function refreshAvailableMonthsCache() {
     }
   } catch (e) {}
 }
-// 箭头禁用态：到边界时 disabled + 透明度 0.4
+// 箭头禁用态：到边界时 disabled + 透明度 0.4；冷启动未就绪时双箭头禁用防无钳制越界
 function _updatePeriodArrowState() {
   const prev = document.getElementById('periodPrev');
   const next = document.getElementById('periodNext');
   if (!prev || !next) return;
   if (!CACHED_AVAILABLE_MONTHS || !CACHED_AVAILABLE_MONTHS.length || !STATE.currentMonth) {
-    prev.disabled = false; next.disabled = false;
-    prev.style.opacity = ''; next.style.opacity = '';
+    // 冷启动未就绪：双箭头禁用，直至 available-months 拉取完成
+    prev.disabled = true; next.disabled = true;
+    prev.style.opacity = '0.4'; next.style.opacity = '0.4';
+    prev.style.cursor = 'not-allowed'; next.style.cursor = 'not-allowed';
     return;
   }
   const sorted = [...CACHED_AVAILABLE_MONTHS].sort();
@@ -2448,10 +2450,13 @@ function _updatePeriodArrowState() {
   next.style.cursor = atMax ? 'not-allowed' : '';
 }
 
-function shiftMonth(delta) {
+async function shiftMonth(delta) {
   if (!STATE.currentMonth) return;
-  // 若缓存为空，尝试异步刷新但不阻塞本次钳制（下一次生效）
-  if (!CACHED_AVAILABLE_MONTHS.length) { refreshAvailableMonthsCache(); }
+  // 冷启动竞态修复：缓存为空时等待拉取完成，否则无钳制越界；仍为空则直接返回
+  if (!CACHED_AVAILABLE_MONTHS.length) {
+    await refreshAvailableMonthsCache();
+    if (!CACHED_AVAILABLE_MONTHS.length) return;
+  }
   const parts = STATE.currentMonth.split('-');
   let y = parseInt(parts[0]), m = parseInt(parts[1]);
   m += delta;

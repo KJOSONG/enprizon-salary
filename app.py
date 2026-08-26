@@ -1863,8 +1863,8 @@ def restore_employee_api():
         'rehire_date': rehire_date, 'department': new_dept,
         'dept_changed': dept_changed, 'salary_changed': sal_changed}, ensure_ascii=False))
     # P23 R4: 恢复员工重新进缓存（补 dismiss 过滤的对称逻辑），并重算薪资
-    ok, msg = _refresh_employees_cache() or (None, None)
-    return jsonify({'ok': True, 'message': msg})
+    _refresh_employees_cache()
+    return jsonify({'ok': True})
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2365,7 +2365,12 @@ def oa_approve_event(event_id):
         return jsonify({'ok': False, 'error': f'批准失败: {str(e)}'}), 400
     log_audit(app.config['DATA_FOLDER'], 'oa_approve',
               event['employee_id'], json.dumps({'event_id': event_id}))
-    _refresh_employees_cache()  # P23 R2/R4: 批准（加班落库/入职/调岗）后薪资缓存即时生效
+    # P27 按月隔离修复：按事件生效月份精准刷新，避免全局 APP_STATE.month 错月污染
+    eff_month = (event.get('effective_date') or '')[:7]
+    if eff_month and MONTH_RE.match(eff_month):
+        _refresh_employees_cache(eff_month)
+    else:
+        _refresh_employees_cache()  # 回退：无生效日期时全局刷新
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
@@ -2429,7 +2434,12 @@ def oa_revoke_event(event_id):
         return jsonify({'ok': False, 'error': '撤销失败（事件可能已处理）'}), 400
     log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
               json.dumps({'event_id': event_id, 'event_type': event['event_type']}))
-    _refresh_employees_cache()  # P23 R2: 撤销加班/请假后薪资缓存即时回退
+    # P27 按月隔离修复：按事件生效月份精准回退，避免全局错月
+    eff_month = (event.get('effective_date') or '')[:7]
+    if eff_month and MONTH_RE.match(eff_month):
+        _refresh_employees_cache(eff_month)
+    else:
+        _refresh_employees_cache()  # 回退：无生效日期时全局刷新
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
@@ -2481,6 +2491,15 @@ def oa_edit_event(event_id):
             return jsonify({'ok': False, 'error': '修改失败（事件可能已处理）'}), 400
         log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
                   json.dumps({'event_id': event_id, 'status': 'pending', 'new_date': new_date, 'days': new_days}))
+        # P27 按月隔离：待审修改按新旧生效月份失效缓存
+        old_month = (event.get('effective_date') or '')[:7]
+        new_month = (new_date or '')[:7]
+        if old_month and MONTH_RE.match(old_month):
+            _invalidate_month_cache(old_month)
+        if new_month and MONTH_RE.match(new_month) and new_month != old_month:
+            _invalidate_month_cache(new_month)
+        elif new_month and MONTH_RE.match(new_month):
+            _invalidate_month_cache(new_month)
         return jsonify({'ok': True})
 
     # 已批：同月修改（事务内撤销重建）
@@ -2495,6 +2514,12 @@ def oa_edit_event(event_id):
     log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
               json.dumps({'event_id': event_id, 'status': 'approved', 'new_date': new_date,
                           'days': new_days, 'new_event_id': msg}))
+    # P27 按月隔离：已批修改按生效月份精准刷新（同月约束下仍按月重建）
+    eff_month = (new_date or event.get('effective_date') or '')[:7]
+    if eff_month and MONTH_RE.match(eff_month):
+        _refresh_employees_cache(eff_month)
+    else:
+        _refresh_employees_cache()
     return jsonify({'ok': True, 'event_id': event_id, 'new_event_id': msg})
 
 
