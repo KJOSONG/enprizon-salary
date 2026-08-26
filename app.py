@@ -1782,14 +1782,17 @@ def dismiss_employee_api():
     conn.commit()
     conn.close()
     _audit('dismiss_employee', eid, _json.dumps({'note': note}))
-    cur_emps = APP_STATE.get('employees', []) or []
-    APP_STATE.update({'employees': [e for e in cur_emps if e.get('id') != eid]})
-    # also evict from MONTH_CACHE entries containing this employee
+    # 按月失效，后续读取重建（避免 salary_result 与 employees 错位）
     with MONTH_CACHE_LOCK:
-        for _k, _v in list(MONTH_CACHE.items()):
-            _emps = _v.get('employees', [])
-            if any(x.get('id') == eid for x in _emps):
-                _v['employees'] = [x for x in _emps if x.get('id') != eid]
+        affected = [k for k, v in list(MONTH_CACHE.items()) if any(x.get('id') == eid for x in v.get('employees', []))]
+    for k in affected:
+        if k != '__all__':
+            _invalidate_month_cache(k)
+    # 若无缓存命中，回退失效当前视图月
+    try:
+        _invalidate_month_cache(resolve_month(request)[:7])
+    except Exception:
+        pass
     return jsonify({'ok': True})
 
 @app.route('/employees/restore', methods=['POST'])
@@ -2649,6 +2652,7 @@ def attendance_batch_submit():
         count += 1
         if m.get('is_driver') and not is_driver(app.config['DATA_FOLDER'], eid):
             add_driver(app.config['DATA_FOLDER'], eid)
+    _invalidate_month_cache((date or '')[:7])
     log_audit(app.config['DATA_FOLDER'], 'attendance_batch', session.get('username',''),
               json.dumps({'date': date, 'count': count}))
     return jsonify({'ok': True, 'count': count})
@@ -5324,8 +5328,9 @@ def export_payslip_single(employee_id):
         month = (request.args.get('month') or '').strip() or resolve_month(request)
         download = request.args.get('download', '0') == '1'
         
-        result = APP_STATE.get('salary_result')
-        if not result:
+        md = _get_month_data(month)
+        result = md.get('salary_result') if md else None
+        if not md or not result:
             return jsonify({'error': 'No salary data. Please recalculate.', 'ok': False}), 400
         
         emp = None
@@ -5337,7 +5342,7 @@ def export_payslip_single(employee_id):
         if not emp:
             return jsonify({'error': f'Employee {employee_id} not found', 'ok': False}), 404
         
-        slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
+        slip_data = _build_slip_data(emp, result, md.get('employees', []), month)
         html_content = render_template('payslip_single.html', slip=slip_data)
         pdf_bytes = HTML(string=html_content).write_pdf()
         
@@ -5377,8 +5382,9 @@ def export_payslips_all():
         month = (data.get('month') or '').strip() or resolve_month(request)
         department = data.get('department', '')
         
-        result = APP_STATE.get('salary_result')
-        if not result:
+        md = _get_month_data(month)
+        result = md.get('salary_result') if md else None
+        if not md or not result:
             return jsonify({'error': 'No salary data. Please recalculate.', 'ok': False}), 400
         
         employees = result.get('employees', [])
@@ -5386,12 +5392,12 @@ def export_payslips_all():
             return jsonify({'error': 'No employees found', 'ok': False}), 404
         
         if department:
-            emp_dept_map = {e.get('id'): e.get('department', '') for e in APP_STATE.get('employees', [])}
+            emp_dept_map = {e.get('id'): e.get('department', '') for e in md.get('employees', [])}
             employees = [e for e in employees if emp_dept_map.get(e.get('employee_id', e.get('id', ''))) == department]
         
         slips = []
         for emp in employees:
-            slip_data = _build_slip_data(emp, result, APP_STATE.get('employees', []), month)
+            slip_data = _build_slip_data(emp, result, md.get('employees', []), month)
             if slip_data.get('net', 0) > 0:
                 slips.append(slip_data)
         
