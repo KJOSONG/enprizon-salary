@@ -6,6 +6,8 @@ __pycache__/
 # data 目录整体忽略（数据库与备份，运行时数据；仅保留 source/.gitkeep 目录占位）
 data/
 !data/source/.gitkeep
+# KILWA_SECRET_KEY dev pin file (redundant with data/ ignore, explicit for clarity)
+data/.kilwa_secret
 _work/
 uploads/*
 !uploads/.gitkeep

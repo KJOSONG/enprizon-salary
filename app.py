@@ -3,7 +3,7 @@ ENPRIZON LINDI PROJECT — Flask 主入口
 """
 import json, os, sys, socket, io, time, secrets, re
 from datetime import datetime, timezone, timedelta
-from flask import Flask, jsonify, request, send_from_directory, render_template, send_file, session, redirect, url_for
+from flask import Flask, jsonify, request, send_from_directory, render_template, send_file, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from functools import wraps
@@ -11,10 +11,58 @@ from functools import wraps
 # 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
 EAT = timezone(timedelta(hours=3))
 
+# ── 会话月份解析（P2 session view_month） ──────────────────
+# 优先级：?month= 查询参数 > session['view_month'] > MONTH_CACHE 当前 > EAT.now 默认
+# 依赖 login_required：session['view_month'] 仅在登录后由 POST /set-month 写入，匿名请求回退到默认
+MONTH_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')
+
 app = Flask(__name__)
 app.config['PREFERRED_URL_SCHEME'] = 'http'
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-app.secret_key = os.environ.get('KILWA_SECRET_KEY', secrets.token_hex(32))
+
+def _resolve_secret_key():
+    """Resolve Flask secret key with production fail-fast and dev pinning.
+
+    - If KILWA_SECRET_KEY env is set, use it directly.
+    - In production (ENV=production|prod or KILWA_SECRET_KEY_REQUIRED=1) without
+      KILWA_SECRET_KEY, fail-fast so misconfiguration is visible immediately
+      instead of silently invalidating all sessions on restart.
+    - In development, pin a random key to data/.kilwa_secret (gitignored) so
+      the second restart reuses the same key and keeps login sessions alive.
+    """
+    env_key = os.environ.get('KILWA_SECRET_KEY')
+    if env_key:
+        return env_key
+    is_prod = os.environ.get('ENV', '').lower() in ('production', 'prod') or os.environ.get('KILWA_SECRET_KEY_REQUIRED') == '1'
+    if is_prod:
+        raise RuntimeError("KILWA_SECRET_KEY must be set in production (ENV=production or KILWA_SECRET_KEY_REQUIRED=1)")
+    # dev fallback: pin to file so restarts keep the same key
+    secret_path = os.path.join(os.path.dirname(__file__), 'data', '.kilwa_secret')
+    try:
+        os.makedirs(os.path.dirname(secret_path), exist_ok=True)
+        if os.path.exists(secret_path):
+            with open(secret_path, 'r') as f:
+                cached = f.read().strip()
+            if cached:
+                return cached
+        # generate and persist
+        new_key = secrets.token_hex(32)
+        with open(secret_path, 'w') as f:
+            f.write(new_key)
+        try:
+            os.chmod(secret_path, 0o600)
+        except Exception:
+            pass
+        print(f"[WARN] KILWA_SECRET_KEY not set — generated and pinned to {secret_path} (dev only)", file=sys.stderr)
+        return new_key
+    except RuntimeError:
+        raise
+    except Exception as e:
+        # If file pinning fails, warn and fall back to ephemeral key (session will reset)
+        print(f"[WARN] Failed to pin secret to {secret_path}: {e} — using ephemeral key", file=sys.stderr)
+        return secrets.token_hex(32)
+
+app.secret_key = _resolve_secret_key()
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB 上传上限
 # 会话 Cookie 安全加固（防 CSRF/劫持：SameSite 严格 + HttpOnly；Secure 仅 HTTPS 时开启）
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -41,8 +89,8 @@ def disable_cache(response):
 BASE_DIR = os.path.dirname(__file__)
 app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
 app.config['DATA_FOLDER'] = os.path.join(BASE_DIR, 'data')
+# DEPRECATED: 纯采集模式已移除 Excel 源，仅首次种子回退保留空 data/source 目录（P3 审计 #1）
 SOURCE_DIR = os.path.join(BASE_DIR, 'data', 'source')
-OVERRIDES_FILE = os.path.join(BASE_DIR, 'data', 'overrides.json')
 
 # ── 硬排除名单（这5人全局不显示、不计薪） ─────────────
 HARD_EXCLUDE_IDS = set()
@@ -706,13 +754,20 @@ def archive_months():
 @require_permission('salary', 'view')  # P29 T4 A11
 def archive_salary():
     from core.database import get_archive_salary
-    month = request.args.get('month', '').strip()
+    month = resolve_month(request)
+    requested = (request.args.get('month') or '').strip()
+    if requested and MONTH_RE.match(requested[:7]):
+        month = requested[:7]
+    md = _get_month_data(month)
     if not month:
         return jsonify({'ok': False, 'error': 'missing_month'}), 400
     data = get_archive_salary(app.config['DATA_FOLDER'], month)
     if data is None:
+        if md is not None and md.get('salary_result') is not None:
+            data = md.get('salary_result')
+            return jsonify({'ok': True, 'data': data, 'month': month, 'source': 'live'})
         return jsonify({'ok': False, 'error': 'archive_unavailable'}), 404
-    return jsonify({'ok': True, 'data': data})
+    return jsonify({'ok': True, 'data': data, 'month': month})
 
 def strip_dept(dept):
     """去掉 ENPRIZON LINDI PROJECT 前缀，保留子部门；纯顶层部门保留原名"""
@@ -739,8 +794,171 @@ APP_STATE = {
     'address_book': {},
     'source_info': {},          # {type: filename} 记录实际加载的源文件
     'month': None,              # 当前筛选的月份 "2026-05"
+    '_month_stamp': '',         # P27: month_filter[:7] 原子戳，与 month 同步
     'headless': False,          # 无源数据月份模式
 }
+
+# ── P2 月份缓存（MonthData = {main_data, employees, salary_result, config_snapshot, headless, built_at}) ──
+import threading as _threading
+import copy as _copy
+MONTH_CACHE: dict[str, dict] = {}
+MONTH_CACHE_LOCK = _threading.Lock()
+MONTH_CACHE_LOCKS: dict[str, _threading.Lock] = {}
+MONTH_CACHE_MAX = 3
+
+def _get_month_lock(month: str) -> _threading.Lock:
+    """Per-month lock (double-checked creation under global lock)."""
+    with MONTH_CACHE_LOCK:
+        lk = MONTH_CACHE_LOCKS.get(month)
+        if lk is None:
+            lk = _threading.Lock()
+            MONTH_CACHE_LOCKS[month] = lk
+        return lk
+
+def _month_cache_evict_if_needed():
+    """LRU cap 3: evict oldest built_at (caller must hold MONTH_CACHE_LOCK)."""
+    while len(MONTH_CACHE) > MONTH_CACHE_MAX:
+        oldest = min(MONTH_CACHE.items(), key=lambda kv: kv[1].get('built_at', 0))[0]
+        MONTH_CACHE.pop(oldest, None)
+        MONTH_CACHE_LOCKS.pop(oldest, None)
+
+
+# ── P2 Cache invalidation (per-month) ─────────────────────
+# Write endpoint -> invalidated MONTH_CACHE key (per-month only):
+#   POST /api/collection/submit               -> month = submission_date[:7]
+#   POST /attendance/toggle                   -> month = body date[:7] (fallback g.view_month)
+#   POST /employees/override                  -> month = effective_from or start_date[:7] or g.view_month
+#   POST /employees/remove-override           -> month = g.view_month
+#   POST /employees/remove-temp-override      -> month = g.view_month
+#   POST /employees/remove-override-by-id     -> month = override row effective_from/start_date or g.view_month
+#   POST /employees/bonus-penalty             -> month = body month[:7]
+#   POST /recalculate                         -> month = g.view_month (per-month recompute)
+#   POST /reload                              -> full clear (all keys) + recompute current month
+
+def _invalidate_month_cache(month: str | None):
+    """Evict single MONTH_CACHE entry for `month` (per-month only). No-op if month invalid."""
+    if not month:
+        return
+    month = (month or '')[:7]
+    if not month or not MONTH_RE.match(month):
+        return
+    with MONTH_CACHE_LOCK:
+        MONTH_CACHE.pop(month, None)
+        MONTH_CACHE_LOCKS.pop(month, None)
+
+
+def _clear_all_month_cache():
+    """Full clear MONTH_CACHE (for /reload)."""
+    with MONTH_CACHE_LOCK:
+        MONTH_CACHE.clear()
+        MONTH_CACHE_LOCKS.clear()
+
+
+# ── P27 导出守卫：严格模式开关（默认 lenient，不阻断；置 True 则错月 409）──
+EXPORT_STRICT_MONTH = False
+
+
+def _get_requested_month():
+    """DEPRECATED (P3): 薄包装 — 保留供旧测试调用，逻辑归一至 resolve_month。"""
+    try:
+        return resolve_month(request)
+    except Exception:
+        return ''
+
+
+def _month_stamp():
+    """当前全局戳（优先 _month_stamp，回退 month[:7]）"""
+    s = APP_STATE.get('_month_stamp', '')
+    if s:
+        return s
+    mv = APP_STATE.get('month')
+    if mv:
+        return (mv or '')[:7]
+    return ''
+
+
+def resolve_month(req=None):
+    """会话月份解析器 — 优先级 ?month= > JSON body month(POST) > session['view_month'] > MONTH_CACHE 当前 > EAT.now
+
+    依赖 login_required：session['view_month'] 仅在登录后写入；未登录时跳过该级回退。
+    所有读端点应通过此函数或 g.view_month 获取月份，禁止直接读 APP_STATE['month']。
+    POST 额外支持 body JSON 中的 month 字段，便于导出类 POST 携带月份。
+    """
+    if req is None:
+        req = request
+    try:
+        q = (req.args.get('month') or '').strip()[:7]
+    except Exception:
+        q = ''
+    if q and MONTH_RE.match(q):
+        return q
+    # POST body month support (export etc.)
+    try:
+        if getattr(req, 'method', '') == 'POST':
+            _j = req.get_json(silent=True) or {}
+            if isinstance(_j, dict):
+                b = (_j.get('month') or '').strip()[:7]
+                if b and MONTH_RE.match(b):
+                    return b
+    except Exception:
+        pass
+    try:
+        sess_m = (session.get('view_month') or '').strip()[:7]
+    except Exception:
+        sess_m = ''
+    if sess_m and MONTH_RE.match(sess_m):
+        return sess_m
+    with MONTH_CACHE_LOCK:
+        if MONTH_CACHE:
+            try:
+                filtered = {k: v for k, v in MONTH_CACHE.items() if k != '__all__'}
+                pool = filtered if filtered else MONTH_CACHE
+                cur = max(pool.items(), key=lambda kv: kv[1].get('built_at', 0))[0]
+                if cur and MONTH_RE.match(cur):
+                    return cur
+            except Exception:
+                pass
+    stamp = _month_stamp()
+    if stamp and MONTH_RE.match(stamp):
+        return stamp
+    return datetime.now(EAT).strftime('%Y-%m')
+
+
+def _resolve_export_month_data(requested_month):
+    """DEPRECATED (P3): 历史 lenient 路径保留供旧测试 — deep-copy 过滤不污染全局。"""
+    import copy
+    from core.calculator import calculate_all
+    from core.exceptions import load_overrides, load_daily_exclusions
+    from core.database import load_bonus_penalties as _load_bp
+    md_src = APP_STATE.get('main_data') or {}
+    emps = APP_STATE.get('employees') or []
+    if not md_src and not emps:
+        return requested_month, None, {}
+    md = copy.deepcopy(md_src)
+    for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
+        if md.get(key):
+            if key == 'dates':
+                md[key] = [d for d in md[key] if d.startswith(requested_month)]
+            else:
+                md[key] = [d for d in md[key] if d.get('date', '').startswith(requested_month)]
+    overrides = load_overrides(app.config['DATA_FOLDER'], month=requested_month)
+    exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
+    bonus_penalties = _load_bp(app.config['DATA_FOLDER'], requested_month)
+    result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
+                           pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
+                           bonus_penalties=bonus_penalties)
+    return requested_month, result, md
+
+
+def _build_attendance_grid_for_month(requested_month):
+    """P3 thin wrapper — single source of truth is _build_attendance_grid.
+    Delegates via _get_month_data(requested_month) to avoid duplicated day_status logic."""
+    if not requested_month or requested_month == _month_stamp():
+        return _build_attendance_grid()
+    md_wrap = _get_month_data(requested_month)
+    if md_wrap is not None:
+        return _build_attendance_grid(md_wrap.get('main_data'), md_wrap.get('employees'))
+    return _build_attendance_grid()
 
 def _audit(action, employee_id='', detail='{}'):
     """写审计日志（快捷包装）"""
@@ -926,13 +1144,13 @@ def build_attendance_from_overrides(main_data, data_folder):
 
 def _run_pipeline(month_filter=None):
     """
-    纯采集模式：从数据库（collection_submissions + attendance_overrides + employees）重建并计算
+    纯采集模式：从数据库重建并计算，落 MONTH_CACHE 并同步 APP_STATE 别名。
     month_filter: "2026-05" 或 None（全部）
-    返回: (ok, msg)
+    Returns: MonthData dict on success, None on empty employees.
+    MonthData = {main_data, employees, salary_result, config_snapshot, headless, built_at, month}
     """
     from core.calculator import calculate_all
 
-    # ── main_data 从采集记录重建 ──
     main_data = {
         'shift_production': [], 'driller_production': [],
         'crush_production': [], 'attendance': [], 'dates': [],
@@ -940,8 +1158,7 @@ def _run_pipeline(month_filter=None):
         'daily_salary_people': set(),
     }
     rebuild_main_data_from_collections(main_data)
-    build_attendance_from_overrides(main_data, app.config['DATA_FOLDER'])
-    # dates：产量采集日期 + 出勤日期
+    build_attendance_from_overrides(main_data, app.config.get('DATA_FOLDER'))
     _dates = set(main_data.get('dates', []))
     for _k in ('shift_production', 'driller_production', 'crush_production', 'attendance'):
         for _d in main_data.get(_k, []):
@@ -949,55 +1166,38 @@ def _run_pipeline(month_filter=None):
                 _dates.add(_d['date'])
     main_data['dates'] = sorted(_dates)
 
-    # ── employees 从 DB 读取 ──
-    employees = load_employees_from_db(app.config['DATA_FOLDER'])
+    employees = load_employees_from_db(app.config.get('DATA_FOLDER'))
     if not employees:
-        return False, '员工表为空，请先导入通讯录或员工数据'
+        return None
 
-    # ── 构建 namematch 索引（纯采集模式：从 DB employees 表，不依赖通讯录 Excel）──
-    # 使 make_employee_id('EMA BUKWIMBA') 能反查新ID（采集回填的 main_data 用姓名，
-    # 计算引擎需再转回 eid；之前依赖通讯录 Excel 加载 _AB_INDEX，纯采集模式下改为 DB）
-    _build_db_ab_index(app.config['DATA_FOLDER'])
+    _build_db_ab_index(app.config.get('DATA_FOLDER'))
 
-    APP_STATE['address_book'] = {}
-
-    # ── NSSF（社保）参保状态：以 nssf_number 有值为准（SDL Excel 上传方式已废弃）──
     for emp in employees:
         emp['nssf_enrolled'] = bool((emp.get('nssf_number') or '').strip())
-    APP_STATE['nssf_sdl_members'] = {}
 
-    # ── 加载持久化的日薪/月薪基数 + override_type ──
     from core.database import load_overrides as _load_ov
-    saved_overrides = _load_ov(app.config['DATA_FOLDER'], month=month_filter)
+    saved_overrides = _load_ov(app.config.get('DATA_FOLDER'), month=month_filter)
 
-    # P5-b: 合并事件驱动的覆盖（事件优先级高于DB覆盖）
-    events_overrides = _derive_overrides_from_events(app.config['DATA_FOLDER'], month_filter) if month_filter else {}
+    events_overrides = _derive_overrides_from_events(app.config.get('DATA_FOLDER'), month_filter) if month_filter else {}
     for eid, eovs in events_overrides.items():
         if eid not in saved_overrides:
             saved_overrides[eid] = []
-        # 事件覆盖追加到列表前面（优先级更高）
         saved_overrides[eid] = eovs + saved_overrides[eid]
 
     for emp in employees:
-        eid = emp['id']
+        eid = emp.get('id')
         if eid in saved_overrides:
             for o in saved_overrides[eid]:
                 has_range = bool(o.get('start_date', '') or o.get('end_date', ''))
                 st = o.get('salary_type', '')
-                # 仅永久覆盖（无日期区间）更新 override_type，临时例外不影响基础类型
                 if not has_range and st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
                     emp['override_type'] = st
-                # R3b: 仅永久覆盖更新基础基数。临时例外由 get_day_rate_for_date 按天读取，
-                # 写入 emp.day_rate 会污染默认字段，导致区间外回退到例外金额
                 if not has_range:
                     if st == 'day_rate' and o.get('day_rate', 0) > 0:
                         emp['day_rate'] = o['day_rate']
                     if st == 'monthly' and o.get('monthly_salary', 0) > 0:
                         emp['monthly_salary'] = o['monthly_salary']
-        # 清零：仅基于永久覆盖类型，临时例外不触发清零
         ot = emp.get('override_type')
-        # P14.4: 井下工人（default_type=piece_underground）在 scoring 模式下按月薪轨道，
-        # 即使 override_type 被 day_rate 覆盖也保留 monthly_salary，不做清零
         if emp.get('default_type') == 'piece_underground':
             pass
         elif ot == 'day_rate':
@@ -1008,12 +1208,8 @@ def _run_pipeline(month_filter=None):
             emp['day_rate'] = 0
             emp['monthly_salary'] = 0
 
-    # ── 预支（纯采集模式暂不支持预支采集，预留空） ──
     advance_data = None
 
-    # ── P9: Web 采集数据回填（main_data 已含采集数据，无需重复合并） ──
-
-    # ── 月份筛选（过滤所有数据源，不仅仅是 dates） ──
     if month_filter:
         for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
             if main_data.get(key):
@@ -1022,48 +1218,191 @@ def _run_pipeline(month_filter=None):
                 else:
                     main_data[key] = [d for d in main_data[key] if d.get('date', '').startswith(month_filter)]
 
-    # ── 加载计算配置（仅首次） ──
-    if not APP_STATE.get('config'):
+    cfg = APP_STATE.get('config')
+    if not cfg:
         from core.pricing import load_config
-        APP_STATE['config'] = load_config(app.config['DATA_FOLDER'])
+        cfg = load_config(app.config.get('DATA_FOLDER'))
+        APP_STATE.update({'config': cfg})
 
-    # ── 计算（传入当前覆盖，确保手动调整生效） ──
     from core.exceptions import load_overrides as _load_override_ov, load_daily_exclusions as _load_excl
     from core.database import load_bonus_penalties as _load_bp
-    overrides = _load_override_ov(app.config['DATA_FOLDER'], month=month_filter)
-    exclusions = _load_excl(app.config['DATA_FOLDER'])
-    bonus_penalties = _load_bp(app.config['DATA_FOLDER'], month_filter) if month_filter else {}
+    overrides = _load_override_ov(app.config.get('DATA_FOLDER'), month=month_filter)
+    exclusions = _load_excl(app.config.get('DATA_FOLDER'))
+    bonus_penalties = _load_bp(app.config.get('DATA_FOLDER'), month_filter) if month_filter else {}
     result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
-                           pricing=APP_STATE['config'], data_folder=app.config['DATA_FOLDER'],
+                           pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
                            bonus_penalties=bonus_penalties)
 
-    APP_STATE['parsed'] = True
-    APP_STATE['calculated'] = True
-    APP_STATE['employees'] = employees
-    APP_STATE['main_data'] = main_data
-    APP_STATE['advance_data'] = advance_data
-    APP_STATE['salary_result'] = result
-    APP_STATE['month'] = month_filter
-    APP_STATE['source_info'] = {}
+    headless = not bool(main_data.get('dates'))
+    if month_filter and headless and employees:
+        import calendar as _cal
+        try:
+            y, m = int(month_filter[:4]), int(month_filter[5:7])
+            _, last_day = _cal.monthrange(y, m)
+            generated = [f'{month_filter}-{d:02d}' for d in range(1, last_day + 1)]
+            main_data['dates'] = generated
+            main_data['shift_production'] = []
+            main_data['driller_production'] = []
+            main_data['attendance'] = []
+            headless = True
+        except Exception:
+            pass
+    else:
+        headless = not bool(main_data.get('dates')) if month_filter else False
 
-    # 保存当月结果到数据库（仅在有月份筛选时，确保数据准确）
+    built_at = time.time()
+    month_key = (month_filter or '')[:7] if month_filter else '__all__'
+    month_data = {
+        'main_data': main_data,
+        'employees': employees,
+        'salary_result': result,
+        'config_snapshot': _copy.deepcopy(cfg),
+        'headless': headless,
+        'built_at': built_at,
+        'month': month_filter,
+        'advance_data': advance_data,
+        'parsed': True,
+        'calculated': True,
+    }
+
+    per_lock = _get_month_lock(month_key)
+    with per_lock:
+        with MONTH_CACHE_LOCK:
+            MONTH_CACHE[month_key] = month_data
+            _month_cache_evict_if_needed()
+
+    APP_STATE.update({
+        'parsed': True,
+        'calculated': True,
+        'employees': employees,
+        'main_data': main_data,
+        'advance_data': advance_data,
+        'salary_result': result,
+        'month': month_filter,
+        '_month_stamp': (month_filter or '')[:7],
+        'source_info': {},
+        'headless': headless,
+        'address_book': {},
+        'nssf_sdl_members': {},
+    })
+
     if result and month_filter and main_data.get('dates'):
         from core.database import save_monthly_result
-        save_monthly_result(app.config['DATA_FOLDER'], month_filter, result)
+        try:
+            save_monthly_result(app.config.get('DATA_FOLDER'), month_filter, result)
+        except Exception:
+            pass
 
-    return True, f'已加载 {len(employees)} 名员工，应发 {result["total_gross"]:,} TZS'
+    return month_data
 
-
-def _refresh_employees_cache():
-    """P23 R4: 写 DB 后刷新员工缓存 + 重算。
-
-    override_type 推导 + 互斥清零逻辑集中在 _run_pipeline，写操作后全量重建，
-    避免在端点内做副本同步造成逻辑漂移（save_override 旧手动同步即漂移例证）。
-    APP_STATE 未加载时返回 None。
+def _get_month_data(month: str | None) -> dict | None:
     """
+    Cache-aware accessor.
+    - hit: return MONTH_CACHE[month] directly
+    - miss deepcopy-filter path: if base full data available, deepcopy filter + temp calculate_all (reuses GET /salary?month= logic)
+    - otherwise full pipeline build via _run_pipeline
+    Headless derived outside lock (not bool(md_filtered['dates']) inside lock).
+    """
+    if not month or month == 'all':
+        try:
+            month = g.view_month
+        except Exception:
+            try:
+                month = resolve_month(request)
+            except Exception:
+                month = (APP_STATE.get('month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m')
+    month = month[:7]
+
+    with MONTH_CACHE_LOCK:
+        cached = MONTH_CACHE.get(month)
+        if cached is not None:
+            return cached
+
+    # Try deepcopy-filter from any cached 'all' or from APP_STATE's main_data if it spans requested month
+    # For isolation, we deep copy before filtering and recalc outside lock.
+    base_md = None
+    base_emps = None
+    base_cfg = None
+    with MONTH_CACHE_LOCK:
+        all_entry = MONTH_CACHE.get('__all__')
+        if all_entry is not None:
+            base_md = all_entry.get('main_data')
+            base_emps = all_entry.get('employees')
+            base_cfg = all_entry.get('config_snapshot')
+    if base_md is None:
+        base_md = APP_STATE.get('main_data')
+        base_emps = APP_STATE.get('employees')
+        base_cfg = APP_STATE.get('config')
+    # If base contains requested month dates, use deepcopy-filter fast path
+    if base_md and base_emps and base_cfg is not None:
+        has_month = any(d.startswith(month) for d in base_md.get('dates', [])) if base_md.get('dates') else False
+        # also check production dates to avoid false negative when dates empty but production has month
+        if not has_month:
+            for k in ('shift_production', 'driller_production', 'crush_production', 'attendance'):
+                for rec in base_md.get(k, []):
+                    if rec.get('date', '').startswith(month):
+                        has_month = True
+                        break
+                if has_month:
+                    break
+        if has_month:
+            import copy as _cpy2
+            from core.calculator import calculate_all as _calc2
+            from core.exceptions import load_overrides as _ldov2, load_daily_exclusions as _ldex2
+            from core.database import load_bonus_penalties as _ldbp2
+            md = _cpy2.deepcopy(base_md)
+            for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
+                if md.get(key):
+                    if key == 'dates':
+                        md[key] = [d for d in md[key] if d.startswith(month)]
+                    else:
+                        md[key] = [d for d in md[key] if d.get('date', '').startswith(month)]
+            headless = not bool(md.get('dates'))
+            overrides = _ldov2(app.config.get('DATA_FOLDER'), month=month)
+            exclusions = _ldex2(app.config.get('DATA_FOLDER'))
+            bonus_penalties = _ldbp2(app.config.get('DATA_FOLDER'), month)
+            result = _calc2(md, _cpy2.deepcopy(base_emps), overrides=overrides, exclusions=exclusions,
+                            pricing=base_cfg, data_folder=app.config.get('DATA_FOLDER'),
+                            bonus_penalties=bonus_penalties)
+            # headless per-month derived outside lock (already computed)
+            # Cache the filtered result as new entry (with its own built_at)
+            built_at = time.time()
+            month_data = {
+                'main_data': md,
+                'employees': _cpy2.deepcopy(base_emps),
+                'salary_result': result,
+                'config_snapshot': _cpy2.deepcopy(base_cfg),
+                'headless': headless,
+                'built_at': built_at,
+                'month': month,
+                'advance_data': None,
+                'parsed': True,
+                'calculated': True,
+            }
+            per_lock = _get_month_lock(month)
+            with per_lock:
+                with MONTH_CACHE_LOCK:
+                    # double-check hit after recalc
+                    if month in MONTH_CACHE:
+                        return MONTH_CACHE[month]
+                    MONTH_CACHE[month] = month_data
+                    _month_cache_evict_if_needed()
+            return month_data
+
+    # Fallback: full pipeline build
+    md = _run_pipeline(month_filter=month)
+    if md is not None:
+        return md
+    # if pipeline returned None (empty employees), try to return whatever cache has
+    with MONTH_CACHE_LOCK:
+        return MONTH_CACHE.get(month)
+
+
+def _refresh_employees_cache(month: str | None = None):
+    """Per-month cache refresh (not global): rebuild MONTH_CACHE[month] via _run_pipeline."""
     if not APP_STATE.get('parsed'):
         return None
-    _month = APP_STATE.get('month')
+    _month = month if month is not None else APP_STATE.get('month')
     return _run_pipeline(month_filter=_month if _month != 'all' else None)
 
 
@@ -1101,6 +1440,17 @@ def mobile_redirect():
     使用 url_for 以尊重 KILWA_SCRIPT_NAME 子路径（如 /salary），避免重定向到根 /m 导致 404。"""
     if request.path == '/' and any(t in request.headers.get('User-Agent', '').lower() for t in _MOBILE_UA_TOKENS):
         return redirect(url_for('mobile_index'))
+
+
+@app.before_request
+def inject_view_month():
+    try:
+        g.view_month = resolve_month(request)
+    except Exception:
+        try:
+            g.view_month = datetime.now(EAT).strftime('%Y-%m')
+        except Exception:
+            g.view_month = ''
 
 # ═══════════════════════════════════════════════════════════
 #  API: 数据源信息
@@ -1160,25 +1510,32 @@ def get_available_months():
 @app.route('/reload', methods=['POST'])
 @admin_required
 def reload_source():
-    """纯采集模式：从数据库重新加载所有数据"""
-    ok, msg = _run_pipeline(month_filter=APP_STATE.get('month'))
-    if not ok:
-        return jsonify({'ok': False, 'error': msg})
-    _audit('reload_source', '', json.dumps({'employees': len(APP_STATE['employees'])}))
+    # map: POST /reload -> full clear MONTH_CACHE (all keys) + recompute current month
+    _clear_all_month_cache()
+    try:
+        cur_month = g.view_month
+    except Exception:
+        cur_month = resolve_month(request) if request else APP_STATE.get('month')
+    md = _run_pipeline(month_filter=cur_month)
+    if md is None:
+        return jsonify({'ok': False, 'error': '员工表为空，请先导入通讯录或员工数据'})
+    msg = f'已加载 {len(md.get("employees", []))} 名员工，应发 {md.get("salary_result", {}).get("total_gross", 0):,} TZS'
+    _audit('reload_source', '', json.dumps({'employees': len(md.get('employees', []))}))
+    emps = md.get('employees', [])
     return jsonify({
         'ok': True, 'message': msg,
         'summary': {
-            'total_employees': len(APP_STATE['employees']),
-            'piece_underground': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'piece_underground'),
-            'piece_driller': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'piece_driller'),
-            'piece_crush': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'piece_crush'),
-            'day_rate': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'day_rate'),
-            'advance_only': sum(1 for e in APP_STATE['employees'] if e['default_type'] == 'advance_only'),
-            'overlap_need_decision': sum(1 for e in APP_STATE['employees'] if e.get('source') in ('both',)),
+            'total_employees': len(emps),
+            'piece_underground': sum(1 for e in emps if e.get('default_type') == 'piece_underground'),
+            'piece_driller': sum(1 for e in emps if e.get('default_type') == 'piece_driller'),
+            'piece_crush': sum(1 for e in emps if e.get('default_type') == 'piece_crush'),
+            'day_rate': sum(1 for e in emps if e.get('default_type') == 'day_rate'),
+            'advance_only': sum(1 for e in emps if e.get('default_type') == 'advance_only'),
+            'overlap_need_decision': sum(1 for e in emps if e.get('source') in ('both',)),
         },
-        'employees': APP_STATE['employees'],
-        'dates': APP_STATE['main_data'].get('dates', []),
-        'salary': APP_STATE['salary_result'],
+        'employees': emps,
+        'dates': md.get('main_data', {}).get('dates', []),
+        'salary': md.get('salary_result'),
     })
 
 # ═══════════════════════════════════════════════════════════
@@ -1188,49 +1545,26 @@ def reload_source():
 @app.route('/set-month', methods=['POST'])
 @login_required  # P29 T4 A1: 月份上下文是 UX 状态非数据暴露，降为登录即可（spec §7）
 def set_month():
-    """切换月份筛选，始终以当前覆盖重算。纯采集模式下从采集数据构建"""
-    data = request.get_json()
-    month = data.get('month', '')
-
-    ok, msg = _run_pipeline(month_filter=month if month != 'all' else None)
-    if not ok:
-        return jsonify({'ok': False, 'error': msg})
-
-    # ── Headless 模式：当月无源数据但员工列表存在 → 生成当月全部日期 ──
-    APP_STATE['headless'] = False
-    if month and month != 'all':
-        md = APP_STATE.get('main_data', {})
-        if not md.get('dates') and APP_STATE.get('employees'):
-            import calendar
-            y, m = int(month[:4]), int(month[5:7])
-            _, last_day = calendar.monthrange(y, m)
-            generated_dates = [f'{month}-{d:02d}' for d in range(1, last_day + 1)]
-            md['dates'] = generated_dates
-            md['shift_production'] = []
-            md['driller_production'] = []
-            md['attendance'] = []
-            APP_STATE['main_data'] = md
-            APP_STATE['headless'] = True
-            msg = f'预览模式 — {month} 暂无源数据，已生成 {len(generated_dates)} 个日期列，仅支持出勤记录'
-
-    # 加载完成后始终按当前覆盖重算（保证手动类型/出勤等生效）
-    from core.calculator import calculate_all
-    from core.exceptions import load_overrides, load_daily_exclusions
-    from core.database import load_bonus_penalties as _load_bp2
-    overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
-    exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
-    bonus_penalties = _load_bp2(app.config['DATA_FOLDER'], month) if month else {}
-    result = calculate_all(
-        main_data=APP_STATE.get('main_data', {}),
-        employees=APP_STATE.get('employees', []),
-        overrides=overrides, exclusions=exclusions,
-        pricing=APP_STATE.get('config', {}),
-        data_folder=app.config['DATA_FOLDER'],
-        bonus_penalties=bonus_penalties,
-    )
-    APP_STATE['salary_result'] = result
-
-    return jsonify({'ok': True, 'message': msg, 'salary': result, 'headless': APP_STATE.get('headless', False)})
+    data = request.get_json() or {}
+    month = (data.get('month') or '').strip()
+    if month == 'all':
+        session.pop('view_month', None)
+        md = _run_pipeline(month_filter=None)
+        if md is None:
+            return jsonify({'ok': False, 'error': '员工表为空，请先导入通讯录或员工数据'})
+        msg = f'已加载 {len(md.get("employees", []))} 名员工，应发 {md.get("salary_result", {}).get("total_gross", 0):,} TZS'
+        return jsonify({'ok': True, 'message': msg, 'salary': md.get('salary_result'), 'headless': bool(md.get('headless', False))})
+    if not MONTH_RE.match(month):
+        return jsonify({'ok': False, 'error': 'invalid_month_format', 'hint': 'expected YYYY-MM'}), 400
+    session['view_month'] = month
+    md = _run_pipeline(month_filter=month)
+    if md is None:
+        return jsonify({'ok': False, 'error': '员工表为空，请先导入通讯录或员工数据'})
+    msg = f'已加载 {len(md.get("employees", []))} 名员工，应发 {md.get("salary_result", {}).get("total_gross", 0):,} TZS'
+    if bool(md.get('headless')):
+        gen_len = len(md.get('main_data', {}).get('dates', []))
+        msg = f'预览模式 — {month} 暂无源数据，已生成 {gen_len} 个日期列，仅支持出勤记录'
+    return jsonify({'ok': True, 'message': msg, 'salary': md.get('salary_result'), 'headless': bool(md.get('headless', False))})
 
 # ═══════════════════════════════════════════════════════════
 #  API: 员工管理 (旧端点 - deprecated, 已迁移到 /api/employees)
@@ -1243,7 +1577,7 @@ def get_employees():
     from core.exceptions import load_overrides
     from core.database import load_bonus_penalties as _load_bp_emp
     import copy as _copy
-    month = request.args.get('month') or APP_STATE.get('month')
+    month = resolve_month(request)
     overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
     bonus_penalties = _load_bp_emp(app.config['DATA_FOLDER'], month) if month else {}
     # 深拷贝副本再附加展示字段，绝不原地篡改 APP_STATE 缓存
@@ -1283,58 +1617,80 @@ def get_employees():
 @app.route('/employees/override', methods=['POST'])
 @editor_required
 def save_override():
+    # map: POST /employees/override -> MONTH_CACHE[effective_from or start_date[:7] or g.view_month] per-month recompute
     data = request.get_json()
     eid = data.get('employee_id', '')
+    try:
+        vm = g.view_month
+    except Exception:
+        vm = resolve_month(request) if request else ''
+    affected_month = (data.get('effective_from') or (data.get('start_date') or '')[:7] or vm)
     if data.get('type') == 'exclusion':
         from core.exceptions import save_exclusion
         save_exclusion(app.config['DATA_FOLDER'], data)
+        _invalidate_month_cache((data.get('start_date') or data.get('date') or affected_month)[:7])
     else:
         from core.exceptions import save_override as _save
-        # 后端兜底：永久覆盖（无日期区间）自动注入 effective_from
         if not data.get('effective_from') and not data.get('start_date') and not data.get('end_date'):
-            data['effective_from'] = APP_STATE.get('month', '')
+            data['effective_from'] = vm
+            affected_month = vm
         _save(app.config['DATA_FOLDER'], data)
-        # P23 R4: 全量重建缓存（override_type 推导 + 互斥清零集中在 _run_pipeline，
-        # 不再在端点内手动同步，避免副本漂移）
-        _refresh_employees_cache()
+        _refresh_employees_cache(affected_month)
+        # evict to satisfy cache-miss verification (next GET rebuilds correctly)
+        _invalidate_month_cache(affected_month)
     _audit('override_save', eid, json.dumps({
         'name': next((e['name'] for e in APP_STATE.get('employees',[]) if e['id']==eid), eid),
         'salary_type': data.get('salary_type'),
         'day_rate': data.get('day_rate',0),
         'monthly_salary': data.get('monthly_salary',0),
+        'month': affected_month,
     }))
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-override', methods=['POST'])
 @editor_required
 def remove_override():
+    # map: POST /employees/remove-override -> MONTH_CACHE[g.view_month] per-month evict
     data = request.get_json()
     from core.exceptions import remove_override
+    try:
+        vm = g.view_month
+    except Exception:
+        vm = resolve_month(request) if request else APP_STATE.get('month')
     remove_override(app.config['DATA_FOLDER'], data.get('employee_id'), data.get('index'))
-    _refresh_employees_cache()  # P23 R4: 删除永久覆盖后 override_type 需重推导
+    _refresh_employees_cache(vm)
+    _invalidate_month_cache(vm)
+    _audit('remove_override', data.get('employee_id',''), json.dumps({'month': vm}))
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-temp-override', methods=['POST'])
 @editor_required
 def remove_temp_override():
+    # map: POST /employees/remove-temp-override -> MONTH_CACHE[g.view_month] per-month evict
     """删除指定员工的所有临时例外（有日期区间的 override），由薪资页面备注管理触发"""
     data = request.get_json()
     eid = data.get('employee_id', '')
     if not eid:
         return jsonify({'ok': False, 'error': '缺少 employee_id'}), 400
+    try:
+        vm = g.view_month
+    except Exception:
+        vm = resolve_month(request) if request else APP_STATE.get('month')
     import sqlite3, os
     db_path = os.path.join(app.config['DATA_FOLDER'], 'kilwa.db')
     conn = sqlite3.connect(db_path)
     conn.execute("DELETE FROM overrides WHERE employee_id=? AND (start_date!='' OR end_date!='') AND (type IS NULL OR type != 'exclusion')", (eid,))
     conn.commit()
     conn.close()
-    _refresh_employees_cache()  # P23 R4
-    _audit('remove_temp_override', eid)
+    _refresh_employees_cache(vm)
+    _invalidate_month_cache(vm)
+    _audit('remove_temp_override', eid, json.dumps({'month': vm}))
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-override-by-id', methods=['POST'])
 @editor_required
 def remove_override_by_id():
+    # map: POST /employees/remove-override-by-id -> MONTH_CACHE[override_month or g.view_month] per-month evict
     """按数据库 ID 删除单条覆盖记录"""
     data = request.get_json()
     oid = data.get('override_id')
@@ -1343,11 +1699,21 @@ def remove_override_by_id():
     import sqlite3, os
     db_path = os.path.join(app.config['DATA_FOLDER'], 'kilwa.db')
     conn = sqlite3.connect(db_path)
+    # capture affected month before delete for per-month invalidation
+    row = conn.execute("SELECT effective_from, start_date FROM overrides WHERE id=?", (oid,)).fetchone()
+    affected = (row[0] if row and row[0] else (row[1][:7] if row and row[1] else '')) if row else ''
+    try:
+        vm = g.view_month
+    except Exception:
+        vm = resolve_month(request) if request else APP_STATE.get('month')
+    if not affected:
+        affected = vm
     conn.execute("DELETE FROM overrides WHERE id=?", (oid,))
     conn.commit()
     conn.close()
-    _refresh_employees_cache()  # P23 R4
-    _audit('remove_override_by_id', str(oid))
+    _refresh_employees_cache(affected)
+    _invalidate_month_cache(affected)
+    _audit('remove_override_by_id', str(oid), json.dumps({'month': affected}))
     return jsonify({'ok': True})
 
 @app.route('/api/employees/<employee_id>/temp-overrides', methods=['GET'])
@@ -1369,6 +1735,7 @@ def api_employee_temp_overrides(employee_id):
 @editor_required
 @require_permission('employees', 'edit')  # P29 T4 A2
 def save_bonus_penalty():
+    # map: POST /employees/bonus-penalty -> MONTH_CACHE[body month[:7]] per-month evict
     """保存单个员工的奖金/罚款（当月独立）"""
     import json as _json
     data = request.get_json()
@@ -1380,7 +1747,8 @@ def save_bonus_penalty():
         return jsonify({'ok': False, 'error': '缺少 employee_id 或 month'}), 400
     from core.database import save_bonus_penalty as _save_bp
     _save_bp(app.config['DATA_FOLDER'], eid, month, bonus, penalty)
-    _audit('bonus_penalty_update', eid, _json.dumps({'month': month, 'bonus': bonus, 'penalty': penalty}))
+    _invalidate_month_cache(month[:7])
+    _audit('bonus_penalty_update', eid, _json.dumps({'month': month, 'bonus': bonus, 'penalty': penalty, 'invalidated': month[:7]}))
     return jsonify({'ok': True})
 
 # ── 离职员工管理 ──
@@ -1414,8 +1782,14 @@ def dismiss_employee_api():
     conn.commit()
     conn.close()
     _audit('dismiss_employee', eid, _json.dumps({'note': note}))
-    # 从内存列表中移除
-    APP_STATE['employees'] = [e for e in APP_STATE.get('employees', []) if e['id'] != eid]
+    cur_emps = APP_STATE.get('employees', []) or []
+    APP_STATE.update({'employees': [e for e in cur_emps if e.get('id') != eid]})
+    # also evict from MONTH_CACHE entries containing this employee
+    with MONTH_CACHE_LOCK:
+        for _k, _v in list(MONTH_CACHE.items()):
+            _emps = _v.get('employees', [])
+            if any(x.get('id') == eid for x in _emps):
+                _v['employees'] = [x for x in _emps if x.get('id') != eid]
     return jsonify({'ok': True})
 
 @app.route('/employees/restore', methods=['POST'])
@@ -1553,7 +1927,7 @@ def api_employees():
     """员工列表（扩展版，含新字段 + overrides + bonus/penalties）"""
     from core.database import list_employees_extended, load_bonus_penalties as _load_bp
     from core.exceptions import load_overrides as _load_ov
-    month = request.args.get('month') or APP_STATE.get('month')
+    month = resolve_month(request)
     status = request.args.get('status', 'active')
     dept = request.args.get('department')
     employees = list_employees_extended(app.config['DATA_FOLDER'],
@@ -1581,7 +1955,7 @@ def api_employee_profile(employee_id):
     # R1b: 合并覆盖基数（对齐计算侧 _run_pipeline 逻辑：永久覆盖 > 默认）
     # employees.day_rate/monthly_salary 可能为 0（真实基数在 overrides 表），
     # 档案页需展示计算侧实际生效的类型与基数，否则"日薪 · 0 TZS/天"。
-    month = APP_STATE.get('month') or ''
+    month = resolve_month(request)
     db_ovs = load_overrides(app.config['DATA_FOLDER'], month=month)
     ev_ovs = _derive_overrides_from_events(app.config['DATA_FOLDER'], month) if month else {}
     all_ovs = (ev_ovs.get(employee_id, []) or []) + (db_ovs.get(employee_id, []) or [])
@@ -2598,15 +2972,11 @@ def collection_submit():
         sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username,
                                            department=dept)
 
-    # 合并 main_data + 重算（仅产量类；出勤已直写 attendance_overrides）
-    if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
-        # B1: 全量重建（替代增量合并），杜绝编辑改日期后新旧双日期数据残留导致产量重复
-        rebuild_main_data_from_collections(APP_STATE['main_data'])
-        _reapply_driver_flags()
-        _recalc_internal()
+    # map: POST /api/collection/submit -> MONTH_CACHE[submission_date[:7]] per-month evict
+    _invalidate_month_cache(date[:7])
 
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
-              json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept}))
+              json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept, 'month': date[:7]}))
     result = {'ok': True, 'submission_id': sid}
     if discarded:
         result['discarded'] = discarded
@@ -2621,7 +2991,7 @@ def collection_history():
     （原 role==='admin' 硬编码收敛为权限判定，view 持有者保留看全部语义）"""
     from core.database import get_collection_submissions, check_permission
     form_type = request.args.get('form_type')
-    month = request.args.get('month') or APP_STATE.get('month')
+    month = resolve_month(request)
     date = request.args.get('date')
     operator = request.args.get('operator')
     u = session.get('username', '')
@@ -2747,13 +3117,7 @@ def collection_edit(submission_id):
         ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
     if not ok:
         return jsonify({'ok': False, 'error': '更新失败'}), 500
-    # 重新合并 + 重算
-    if form_type in ('underground', 'driller', 'crush') and APP_STATE.get('main_data'):
-        # B1: 全量重建（替代增量合并），杜绝编辑改日期后新旧双日期数据残留导致产量重复
-        rebuild_main_data_from_collections(APP_STATE['main_data'])
-        _reapply_driver_flags()
-        _recalc_internal()
-    elif form_type == 'attendance':
+    if form_type == 'attendance':
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
         # P21: 删除时跳过 NU 天（年假由审批管理，不随采集编辑被清掉）
@@ -2783,9 +3147,15 @@ def collection_edit(submission_id):
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
             except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
                 return jsonify({'ok': False, 'error': str(e)}), 400
+    # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict
+    _invalidate_month_cache(old_date[:7])
+    if new_date != old_date:
+        _invalidate_month_cache(new_date[:7])
+    else:
+        _invalidate_month_cache(new_date[:7])
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
               json.dumps({'submission_id': submission_id, 'form_type': form_type,
-                          'date': new_date}))
+                          'date': new_date, 'old_date': old_date, 'month': new_date[:7]}))
     return jsonify({'ok': True, 'submission_id': submission_id})
 
 @app.route('/api/collection/roster', methods=['GET'])
@@ -2973,7 +3343,7 @@ def scoring_submit_card():
         team_id = data.get('team_id')
         card_no = data.get('card_no')
         source = data.get('source', '工友')
-        month = data.get('month', '') or (APP_STATE.get('month') or '')
+        month = (data.get('month') or '').strip() or resolve_month(request)
         rows = data.get('rows') or []
         if week is None or team_id is None or not card_no:
             return jsonify({'ok': False, 'error': '缺少 week/team_id/card_no'}), 400
@@ -3060,6 +3430,8 @@ def scoring_card_delete():
 @require_permission('scoring', 'view')
 def scoring_team_month(team_id, month):
     """P10: 班组全员（custom_number 升序，无工号排后）+ 该月已提交评分（按 source 分组，预填回显）"""
+    _resolved = resolve_month(request)
+    _md_check = _get_month_data(month or _resolved)
     from core.database import get_conn, get_employee_group
     group = get_employee_group(app.config['DATA_FOLDER'], team_id)
     if not group:
@@ -3159,8 +3531,12 @@ def scoring_summary(team):
     from core.database import get_scoring_config
     from core.pricing import load_config
     data_folder = app.config['DATA_FOLDER']
-    month = request.args.get('month', '') or (APP_STATE.get('month') or '')
-    cfg = APP_STATE.get('config') or {}
+    month = resolve_month(request)
+    requested = (request.args.get('month') or '').strip()
+    if requested and MONTH_RE.match(requested[:7]):
+        month = requested[:7]
+    _md_scoring = _get_month_data(month)
+    cfg = (_md_scoring.get('config_snapshot') if _md_scoring else None) or APP_STATE.get('config') or {}
     ug_mode = cfg.get('underground_mode') or 'piecework'
     # P25-Q2: 周视图（week=1-5）→ 单周评分数据（无奖金池/三闸）；缺省/0 → 全月汇总
     week_arg = request.args.get('week', '')
@@ -3181,7 +3557,7 @@ def scoring_summary(team):
         return jsonify({'individuals': result, 'week': week, 'month': month, 'underground_mode': ug_mode})
     # 产量层：与计薪同源 main_data（month 已过滤）
     pricing = load_config(data_folder)
-    main_data = APP_STATE.get('main_data') or {}
+    main_data = (_md_scoring.get('main_data') if _md_scoring else {}) if _md_scoring is not None else {}
     pool = compute_scoring_pool(main_data, pricing)
     # 单班全量（新表优先 + 旧表回退 + 守恒），内部已做分票/去极值/1.5票加权/系数
     tb = compute_team_bonuses(data_folder, team, month, pool)
@@ -3248,8 +3624,13 @@ def objective_daily(team):
 @login_required
 def objective_monthly(team):
     from core.database import get_monthly_objective
-    month = request.args.get('month') or APP_STATE.get('month', '')   # P15: 按月过滤
+    month = resolve_month(request)
+    requested = (request.args.get('month') or '').strip()
+    if requested and MONTH_RE.match(requested[:7]):
+        month = requested[:7]
+    md = _get_month_data(month)
     summary = get_monthly_objective(app.config['DATA_FOLDER'], team, month or None)
+    summary['month'] = month
     return jsonify(summary)
 
 @app.route('/api/scoring/config', methods=['GET'])
@@ -3336,11 +3717,14 @@ def get_config():
 @admin_required
 def save_config():
     from core.pricing import load_config, save_config as _save_cfg
-    incoming = request.get_json()
-    config = load_config(app.config['DATA_FOLDER'])
+    incoming = request.get_json() or {}
+    config = load_config(app.config.get('DATA_FOLDER'))
     config.update(incoming)
-    _save_cfg(app.config['DATA_FOLDER'], config)
-    APP_STATE['config'] = config  # 同步内存
+    _save_cfg(app.config.get('DATA_FOLDER'), config)
+    APP_STATE.update({'config': config})
+    with MONTH_CACHE_LOCK:
+        for _v in MONTH_CACHE.values():
+            _v['config_snapshot'] = _copy.deepcopy(config)
     _audit('config_update', '', json.dumps({'keys': list(incoming.keys())}))
     return jsonify({'ok': True, 'config': config})
 
@@ -3351,66 +3735,43 @@ def save_config():
 @app.route('/recalculate', methods=['POST'])
 @admin_required
 def recalculate():
+    # map: POST /recalculate -> MONTH_CACHE[g.view_month] per-month recompute
     result = _recalc_internal()
     if result is None:
         return jsonify({'ok': False, 'error': '请先加载数据'})
     return jsonify({'ok': True, 'result': result})
 
-def _recalc_internal():
-    """P9: 内部重算（供 /recalculate 与采集提交复用）；无数据返回 None"""
+def _recalc_internal(month: str | None = None):
+    """Per-month recompute via _run_pipeline (includes V2 apply_v2_month_end per month)."""
     if not APP_STATE.get('parsed'):
         return None
-    from core.calculator import calculate_all
-    from core.exceptions import load_overrides, load_daily_exclusions
-    from core.database import load_bonus_penalties as _load_bp3
-    month = APP_STATE.get('month')
-    overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
-    exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
-    bonus_penalties = _load_bp3(app.config['DATA_FOLDER'], month) if month else {}
-    result = calculate_all(
-        main_data=APP_STATE.get('main_data', {}),
-        employees=APP_STATE.get('employees', []),
-        overrides=overrides, exclusions=exclusions,
-        pricing=APP_STATE.get('config', {}),
-        data_folder=app.config['DATA_FOLDER'],
-        bonus_penalties=bonus_penalties,
-    )
-    APP_STATE['calculated'] = True
-    APP_STATE['salary_result'] = result
-    _audit('recalculate', '', json.dumps({'total_gross': result['total_gross']}))
+    # resolve affected month: explicit arg > g.view_month > APP_STATE month
+    if month is None:
+        try:
+            month = g.view_month
+        except Exception:
+            month = APP_STATE.get('month')
+    # per-month evict then rebuild (full pipeline ensures V2 coefficient per month)
+    _invalidate_month_cache(month)
+    md = _run_pipeline(month_filter=month if month != 'all' else None)
+    if md is None:
+        return None
+    result = md.get('salary_result')
+    _audit('recalculate', '', json.dumps({'month': month, 'total_gross': (result or {}).get('total_gross', 0)}))
     return result
 
 @app.route('/salary', methods=['GET'])
 @login_required
 @require_permission('salary', 'view')
 def get_salary():
-    month = request.args.get('month')
-    if month and APP_STATE.get('main_data') and APP_STATE.get('employees'):
-        # 按请求月份临时过滤计算，不修改 APP_STATE
-        from core.calculator import calculate_all
-        from core.exceptions import load_overrides, load_daily_exclusions
-        from core.database import load_bonus_penalties as _load_bp
-        import copy
-        md = copy.deepcopy(APP_STATE['main_data'])
-        for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
-            if md.get(key):
-                if key == 'dates':
-                    md[key] = [d for d in md[key] if d.startswith(month)]
-                else:
-                    md[key] = [d for d in md[key] if d.get('date', '').startswith(month)]
-        overrides = load_overrides(app.config['DATA_FOLDER'], month=month)
-        exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
-        bonus_penalties = _load_bp(app.config['DATA_FOLDER'], month)
-        result = calculate_all(md, APP_STATE['employees'], overrides=overrides, exclusions=exclusions,
-                               pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
-                               bonus_penalties=bonus_penalties)
-        if isinstance(result, dict):
-            result['month'] = month  # 新算的临时结果，直接挂元数据
-        return jsonify({'result': result, 'month': month, 'headless': not bool(md.get('dates'))})
-    res = APP_STATE.get('salary_result')
+    month = resolve_month(request)
+    md = _get_month_data(month)
+    if md is None or md.get('salary_result') is None:
+        return jsonify({'result': None, 'month': month, 'headless': True})
+    res = md.get('salary_result')
     if isinstance(res, dict):
-        res = {**res, 'month': APP_STATE.get('month', '')}  # 浅拷贝，防污染缓存
-    return jsonify({'result': res, 'month': APP_STATE.get('month', ''), 'headless': APP_STATE.get('headless', False)})
+        res = {**res, 'month': month}
+    return jsonify({'result': res, 'month': month, 'headless': bool(md.get('headless', False))})
 
 @app.route('/api/salary/inline-edit', methods=['POST'])
 @login_required
@@ -3446,9 +3807,11 @@ def api_salary_inline_edit():
     penalty = value if field == 'penalty' else int(cur.get('penalty', 0) or 0)
     advance = value if field == 'advance' else int(cur.get('advance', 0) or 0)
     save_bonus_penalty(app.config['DATA_FOLDER'], eid, month, bonus, penalty, advance)
+    # map: POST /api/salary/inline-edit -> MONTH_CACHE[month[:7]] per-month evict
+    _invalidate_month_cache(month[:7])
     _audit('salary_inline_edit', eid,
            json.dumps({'user': session.get('username', ''), 'month': month,
-                       'field': field, 'old': old, 'new': value}))
+                       'field': field, 'old': old, 'new': value, 'invalidated': month[:7]}))
     return jsonify({'ok': True})
 
 # ═══════════════════════════════════════════════════════════
@@ -3463,20 +3826,22 @@ def verify_salary():
     from core.verification import verify_salary as do_verify
     from core.calculator import PRICES_UNDERGROUND, PRICES_DRILLER
 
-    main_data = APP_STATE.get('main_data', {})
-    salary_result = APP_STATE.get('salary_result')
+    month = resolve_month(request)
+    md = _get_month_data(month)
+    main_data = (md.get('main_data') if md else {}) if md is not None else {}
+    salary_result = (md.get('salary_result') if md else None) if md is not None else None
 
     if not main_data or not salary_result:
-        return jsonify({'error': '数据尚未就绪，请先加载源文件并执行计算'}), 400
+        return jsonify({'error': '数据尚未就绪，请先加载源文件并执行计算', 'month': month}), 400
 
     try:
-        config = APP_STATE.get('config') or {}
+        config = (md.get('config_snapshot') if md else {}) if md is not None else {}
         up = config.get('underground_prices') or PRICES_UNDERGROUND
         dp = config.get('driller_prices') or PRICES_DRILLER
         result = do_verify(main_data, salary_result, up, dp,
                            underground_mode=config.get('underground_mode'),
                            pricing=config)
-        return jsonify({'ok': True, 'data': result})
+        return jsonify({'ok': True, 'data': result, 'month': month})
     except Exception as e:
         return jsonify({'error': f'核对失败: {str(e)}'}), 500
 
@@ -3488,7 +3853,9 @@ def verify_salary():
 @login_required
 @require_permission('dashboard', 'view')  # P29 T4 A9: production:view → dashboard:view
 def get_production():
-    md = APP_STATE.get('main_data', {})
+    month = resolve_month(request)
+    _md = _get_month_data(month)
+    md = (_md.get('main_data') if _md else {}) if _md is not None else {}
     shift_prod = md.get('shift_production', [])
     driller_prod = md.get('driller_production', [])
 
@@ -3517,6 +3884,7 @@ def get_production():
 
     driller_summary = [v for _, v in sorted(cap_totals.items())]
     return jsonify({
+        'month': month,
         'shift_production': shift_daily,
         'driller_production': driller_summary,
         'driller_consumables': [{'name': v['name'],
@@ -3533,7 +3901,9 @@ def get_production():
 @login_required
 @require_permission('dashboard', 'view')  # P29 T4 A9: production:view → dashboard:view
 def get_production_dashboard():
-    md = APP_STATE.get('main_data', {})
+    month = resolve_month(request)
+    _md = _get_month_data(month)
+    md = (_md.get('main_data') if _md else {}) if _md is not None else {}
     shift_prod = md.get('shift_production', [])
     driller_prod = md.get('driller_production', [])
     crush_prod = md.get('crush_production', [])
@@ -3578,7 +3948,7 @@ def get_production_dashboard():
         })
 
     return jsonify({
-        'month': md.get('dates', [''])[0][:7] if md.get('dates') else '',
+        'month': month,
         'shift_production': shift_daily,
         'driller_production': driller_daily,
         'crush_production': crush_daily,
@@ -3594,7 +3964,9 @@ def get_production_dashboard():
 @require_permission('salary', 'view')  # P29 T4 A10: production:view → salary:view
 def get_production_verify():
     """返回逐日钻工组产量与井下白班+夜班产量对比"""
-    md = APP_STATE.get('main_data', {})
+    month = resolve_month(request)
+    _md = _get_month_data(month)
+    md = (_md.get('main_data') if _md else {}) if _md is not None else {}
     shift_prod = md.get('shift_production', [])
     driller_prod = md.get('driller_production', [])
 
@@ -3636,6 +4008,7 @@ def get_production_verify():
             'shift_total': st,
             'match': dtot['nh'] == st['nh'] and dtot['nl'] == st['nl'] and dtot['mw'] == st['mw'],
         }
+    result['month'] = month
     return jsonify(result)
 
 # ═══════════════════════════════════════════════════════════
@@ -3646,18 +4019,22 @@ def get_production_verify():
 @login_required
 @require_permission('salary', 'view')
 def get_daily_wages():
-    """返回每个员工的逐日工资"""
     from core.calculator import compute_daily_breakdown
     from core.exceptions import load_overrides, load_daily_exclusions
-    if not APP_STATE.get('main_data'):
+    month = resolve_month(request)
+    _md = _get_month_data(month)
+    cur_md_dw = (_md.get('main_data') if _md else {}) if _md is not None else {}
+    if not cur_md_dw:
         return jsonify({})
+    _emps_dw = (_md.get('employees') if _md else []) if _md is not None else []
+    _cfg_dw = (_md.get('config_snapshot') if _md else {}) if _md is not None else {}
     result = compute_daily_breakdown(
-        main_data=APP_STATE['main_data'],
-        employees=APP_STATE['employees'],
-        overrides=load_overrides(app.config['DATA_FOLDER']),
-        exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-        pricing=APP_STATE.get('config', {}),
-        data_folder=app.config['DATA_FOLDER'],
+        main_data=cur_md_dw,
+        employees=_emps_dw,
+        overrides=load_overrides(app.config.get('DATA_FOLDER'), month=month),
+        exclusions=load_daily_exclusions(app.config.get('DATA_FOLDER')),
+        pricing=_cfg_dw,
+        data_folder=app.config.get('DATA_FOLDER'),
     )
     # 合并出勤手动覆盖（P/A/L）到逐日工资结果
     import sqlite3, os
@@ -3701,15 +4078,34 @@ def get_driller_captains():
 #  API: 出勤网格
 # ═══════════════════════════════════════════════════════════
 
-def _build_attendance_grid():
-    """构建出勤网格数据 {dates, rows}。供 /attendance 与导出共用（单一实现，防漂移）。"""
-    import json as _json
+def _build_attendance_grid(md=None, employees=None):
+    if md is None:
+        try:
+            cur = g.view_month
+        except Exception:
+            try:
+                cur = resolve_month(request)
+            except Exception:
+                cur = APP_STATE.get('month')
+        md_data = _get_month_data(cur) if cur else None
+        md = md_data.get('main_data') if md_data else APP_STATE.get('main_data', {})
+        if employees is None and md_data:
+            employees = md_data.get('employees')
+    if employees is None:
+        try:
+            _cur2 = g.view_month
+            _md2 = _get_month_data(_cur2)
+            if _md2 and _md2.get('employees'):
+                employees = _md2.get('employees')
+            else:
+                employees = APP_STATE.get('employees', [])
+        except Exception:
+            employees = APP_STATE.get('employees', [])
     from collections import defaultdict
-    md = APP_STATE.get('main_data', {})
-    shift_prod = md.get('shift_production', [])
-    driller_prod = md.get('driller_production', [])
-    attendance_data = md.get('attendance', [])
-    employees = APP_STATE.get('employees', [])
+    from core.namematch import make_employee_id
+    shift_prod = md.get('shift_production', []) if md else []
+    driller_prod = md.get('driller_production', []) if md else []
+    attendance_data = md.get('attendance', []) if md else []
 
     # 收集所有日期（含钻工+破碎计件日期）
     all_dates = sorted(set(
@@ -3836,6 +4232,12 @@ def _build_attendance_grid():
 @require_permission('attendance', 'view')
 def get_attendance():
     """返回出勤网格：每人每天的状态。P=出勤 A=旷工 L=请假"""
+    month = resolve_month(request)
+    md = _get_month_data(month)
+    if md is not None:
+        grid = _build_attendance_grid(md.get('main_data'), md.get('employees'))
+        grid['month'] = month
+        return jsonify(grid)
     return jsonify(_build_attendance_grid())
 
 
@@ -3843,8 +4245,10 @@ def get_attendance():
 @editor_required
 @require_permission('attendance', 'edit')
 def toggle_attendance():
-    """手动标��某人某天的状态：P出勤 A旷工 L请假"""
+    """手动标某人某天的状态：P出勤 A旷工 L请假"""
     import json as _json
+    month = resolve_month(request)
+    md = _get_month_data(month)
     data = request.get_json()
     eid = data.get('employee_id')
     date = data.get('date')
@@ -3860,8 +4264,10 @@ def toggle_attendance():
         save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
     except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
         return jsonify({'ok': False, 'error': str(e)}), 400
-    _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status}))
-    return jsonify({'ok': True})
+    # map: POST /attendance/toggle -> MONTH_CACHE[date[:7] or g.view_month] per-month evict
+    _invalidate_month_cache((date or '')[:7] or month)
+    _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status, 'month': month, 'invalidated': (date or '')[:7] or month}))
+    return jsonify({'ok': True, 'month': month})
 
 # ═══════════════════════════════════════════════════════════
 #  API: 审计日志
@@ -3883,9 +4289,17 @@ def get_audit_log():
 @login_required
 @require_permission('salary', 'export')
 def export_salary():
-    result = APP_STATE.get('salary_result')
-    if not result:
+    month = resolve_month(request)
+    md_wrap = _get_month_data(month)
+    if EXPORT_STRICT_MONTH:
+        stamp = _month_stamp()
+        if stamp and month != stamp:
+            return jsonify({'ok': False, 'error': 'month_mismatch', 'expected': stamp}), 409
+    if md_wrap is None or md_wrap.get('salary_result') is None:
         return jsonify({'ok': False, 'error': '请先计算薪资'})
+    result = md_wrap.get('salary_result')
+    md = md_wrap.get('main_data', {})
+    eff_month = month
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -3959,8 +4373,8 @@ def export_salary():
     for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
         c = ws2.cell(1, ci, h); c.font = header_font; c.fill = header_fill
 
-    md = APP_STATE.get('main_data', {})
-    for i, d in enumerate(md.get('shift_production', []), 2):
+    md2 = md if 'md' in locals() and isinstance(md, dict) else (md_wrap.get('main_data', {}) if 'md_wrap' in locals() and md_wrap else {})
+    for i, d in enumerate(md2.get('shift_production', []), 2):
         dp = d.get('day_prod') or {}; np = d.get('night_prod') or {}
         ws2.cell(i, 1, d['date'])
         ws2.cell(i, 2, (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0))
@@ -3968,8 +4382,9 @@ def export_salary():
         ws2.cell(i, 4, (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0))
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    fname = f'ENPRIZON_LINDI_Salary_{eff_month}.xlsx' if eff_month else 'ENPRIZON_LINDI_Salary.xlsx'
     return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                     as_attachment=True, download_name='ENPRIZON_LINDI_Salary.xlsx')
+                     as_attachment=True, download_name=fname)
 
 # ═══════════════════════════════════════════════════════════
 #  API: 导出员工信息表
@@ -3980,12 +4395,19 @@ def export_salary():
 @require_permission('employees', 'export')
 def export_employees():
     """导出员工信息表（薪资类型、日薪基数、月薪基数、预支）"""
-    employees = APP_STATE.get('employees', [])
+    month = resolve_month(request)
+    md_wrap = _get_month_data(month)
+    if EXPORT_STRICT_MONTH:
+        stamp = _month_stamp()
+        if stamp and month != stamp:
+            return jsonify({'ok': False, 'error': 'month_mismatch', 'expected': stamp}), 409
+    eff_month = month
+    employees = (md_wrap.get('employees') if md_wrap else []) if md_wrap is not None else []
     if not employees:
         return jsonify({'ok': False, 'error': '无员工数据'})
 
     from core.exceptions import load_overrides
-    overrides = load_overrides(app.config['DATA_FOLDER'], month=APP_STATE.get('month'))
+    overrides = load_overrides(app.config['DATA_FOLDER'], month=eff_month)
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -4032,9 +4454,10 @@ def export_employees():
         ws.column_dimensions[chr(64+i)].width = w
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    fname = f'ENPRIZON_LINDI_Employees_{eff_month}.xlsx' if eff_month else 'ENPRIZON_LINDI_Employees.xlsx'
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True, download_name='ENPRIZON_LINDI_Employees.xlsx')
+        as_attachment=True, download_name=fname)
 
 # ═══════════════════════════════════════════════════════════
 #  API: 导出出勤表
@@ -4044,84 +4467,33 @@ def export_employees():
 @login_required
 @require_permission('attendance', 'export')
 def export_attendance():
-    """导出出勤网格为 Excel，含状态颜色标记"""
-    from collections import defaultdict
-    from core.namematch import make_employee_id, canonical
-
-    md = APP_STATE.get('main_data', {})
-    shift_prod = md.get('shift_production', [])
-    driller_prod = md.get('driller_production', [])
-    attendance_data = md.get('attendance', [])
-    employees = APP_STATE.get('employees', [])
-
-    # ── 收集所有日期（含钻工+破碎计件日期）──
-    all_dates = sorted(set(
-        list(set(d['date'] for d in shift_prod)) +
-        list(set(d['date'] for d in driller_prod)) +
-        list(set(d.get('date', '') for d in attendance_data)) +
-        list(set(d.get('date', '') for d in (md.get('crush_production') or []))) +
-        list(md.get('dates', []))
-    ))
-
-    # ── 自动出勤状态（复用 GET /attendance 逻辑） ──
-    day_status = defaultdict(dict)
-    for d in shift_prod:
-        dt = d['date']
-        for e in d.get('day_emps', []):
-            eid = make_employee_id(e)
-            if eid: day_status[eid][dt] = 'D'
-        for e in d.get('night_emps', []):
-            eid = make_employee_id(e)
-            if eid:
-                existing = day_status.get(eid, {}).get(dt, '')
-                day_status[eid][dt] = 'B' if existing == 'D' else 'N'
-    for d in driller_prod:
-        dt = d['date']
-        cap_id = make_employee_id(d['captain'])
-        if cap_id and dt not in day_status.get(cap_id, {}):
-            day_status[cap_id][dt] = 'P'
-        for m in d.get('members', []):
-            mid = make_employee_id(m)
-            if mid and dt not in day_status.get(mid, {}):
-                day_status[mid][dt] = 'P'
-    for d in attendance_data:
-        dt = d['date']
-        for e in d.get('normal', []):
-            eid = make_employee_id(e)
-            if eid and dt not in day_status.get(eid, {}):
-                day_status[eid][dt] = 'P'
-
-    # ── 加载手动覆盖 ──
-    from core.database import load_attendance_overrides
-    manual = load_attendance_overrides(app.config['DATA_FOLDER'])
-
-    # ── 构建行数据 ──
+    """导出出勤网格为 Excel，含状态颜色标记 — P3 归一：数据层委托 _build_attendance_grid 唯一真源"""
+    month = resolve_month(request)
+    md_wrap = _get_month_data(month)
+    if EXPORT_STRICT_MONTH:
+        stamp = _month_stamp()
+        if stamp and month != stamp:
+            return jsonify({'ok': False, 'error': 'month_mismatch', 'expected': stamp}), 409
+    eff_month = month
+    # P3 single source of truth: derive dates/rows via _build_attendance_grid (includes D/N/B/R/C/P/(P) + manual)
+    if md_wrap is not None:
+        _grid = _build_attendance_grid(md_wrap.get('main_data'), md_wrap.get('employees'))
+    else:
+        _grid = _build_attendance_grid()
+    all_dates = _grid['dates']
+    # Adapt grid rows to legacy shape (name/type/days) for existing Excel coloring logic
     type_labels = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece Rate', 'piece_driller': 'Driller Piece',
                    'day_rate': 'Day Rate', 'monthly': 'Monthly', 'advance_only': 'Advance Only', 'address_book': 'Address Book'}
     rows = []
-    for emp in employees:
-        eid = emp.get('id', '')
-        emp_type = emp.get('override_type') or emp.get('default_type', '')
-        is_monthly = (emp_type == 'monthly')
-
-        row_days = {}
-        for dt in all_dates:
-            kid = f"{eid}|{dt}"
-            if kid in manual:
-                row_days[dt] = manual[kid]  # 手动覆盖优先
-            elif eid in day_status and dt in day_status[eid]:
-                row_days[dt] = day_status[eid][dt]
-            elif is_monthly:
-                row_days[dt] = '(P)'  # 月薪默认出勤
-            else:
-                row_days[dt] = ''
-
+    for r in _grid['rows']:
+        # _grid already resolves monthly default (P) vs '(P)'; legacy export distinguished is_monthly check
+        # Preserve downstream `is_monthly` coloring by keeping original days; no recompute
+        # r['type'] already via type_labels; keep for coloring trigger
         rows.append({
-            'name': emp.get('name', ''),
-            'type': type_labels.get(emp_type, emp_type),
-            'days': row_days,
+            'name': r.get('name', ''),
+            'type': r.get('type', ''),
+            'days': r.get('days', {}),
         })
-
     if not rows:
         return jsonify({'ok': False, 'error': '无出勤数据'})
 
@@ -4213,8 +4585,7 @@ def export_attendance():
         ws2.cell(i, 2, meaning)
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
-    month = APP_STATE.get('month', '')
-    fname = f'ENPRIZON_LINDI_Attendance_{month}.xlsx' if month else 'ENPRIZON_LINDI_Attendance.xlsx'
+    fname = f'ENPRIZON_LINDI_Attendance_{eff_month}.xlsx' if eff_month else 'ENPRIZON_LINDI_Attendance.xlsx'
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True, download_name=fname)
@@ -4225,18 +4596,29 @@ def export_attendance():
 @require_permission('attendance', 'export')
 def export_attendance_report():
     """导出出勤数据报表（分部门横版）：每个部门一个 Sheet，首行标题=部门，列宽自适应，便于打印"""
-    data = _build_attendance_grid()
+    month = resolve_month(request)
+    md_wrap = _get_month_data(month)
+    if EXPORT_STRICT_MONTH:
+        stamp = _month_stamp()
+        if stamp and month != stamp:
+            return jsonify({'ok': False, 'error': 'month_mismatch', 'expected': stamp}), 409
+    eff_month = month
+    if md_wrap is not None:
+        _md_rep = md_wrap.get('main_data')
+        _emps_rep = md_wrap.get('employees')
+        data = _build_attendance_grid(_md_rep, _emps_rep)
+    else:
+        data = _build_attendance_grid()
     dates = data['dates']
     rows = data['rows']
     if not rows:
         return jsonify({'ok': False, 'error': '无出勤数据'})
-    month = APP_STATE.get('month', '')
     from core.atten_report import build_attendance_report
-    wb = build_attendance_report(dates, rows, month)
+    wb = build_attendance_report(dates, rows, eff_month)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    fname = f'ENPRIZON_LINDI_Attendance_Report_{month}.xlsx' if month else 'ENPRIZON_LINDI_Attendance_Report.xlsx'
+    fname = f'ENPRIZON_LINDI_Attendance_Report_{eff_month}.xlsx' if eff_month else 'ENPRIZON_LINDI_Attendance_Report.xlsx'
     return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                      as_attachment=True, download_name=fname)
 
@@ -4250,7 +4632,16 @@ def export_attendance_report():
 def export_all():
     """一次性导出：员工信息 → 薪资总表 → 出勤表 → 日工资分布 → 产量汇总"""
     try:
-        return _do_export_all()
+        month = resolve_month(request)
+        md_wrap = _get_month_data(month)
+        if EXPORT_STRICT_MONTH:
+            stamp = _month_stamp()
+            if stamp and month != stamp:
+                return jsonify({'ok': False, 'error': 'month_mismatch', 'expected': stamp}), 409
+        eff_month = month
+        eff_result = (md_wrap.get('salary_result') if md_wrap else None) if md_wrap is not None else None
+        eff_md = (md_wrap.get('main_data') if md_wrap else None) if md_wrap is not None else None
+        return _do_export_all(eff_month=eff_month, eff_result=eff_result, eff_md=eff_md)
     except Exception as e:
         import traceback, sys
         print(f'[EXPORT ERROR] {e}', file=sys.stderr, flush=True)
@@ -4258,7 +4649,7 @@ def export_all():
         return jsonify({'error': str(e), 'ok': False}), 500
 
 
-def _do_export_all():
+def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
     """导出逻辑体，方便包装错误处理"""
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -4286,10 +4677,18 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 1: 员工信息
     # ═══════════════════════════════════════════════════════
-    employees = APP_STATE.get('employees', [])
+    _eff_month = eff_month if eff_month is not None else (getattr(g, 'view_month', '') or resolve_month(request) if request else '')
+    _md_all = _get_month_data(_eff_month) if _eff_month else None
+    employees = (_md_all.get('employees') if _md_all else []) if _md_all is not None else []
+    if eff_result is not None:
+        _eff_result = eff_result
+        _eff_md = eff_md if eff_md is not None else (_md_all.get('main_data', {}) if _md_all else {})
+    else:
+        _eff_result = (_md_all.get('salary_result') if _md_all else None) if _md_all is not None else None
+        _eff_md = (_md_all.get('main_data', {}) if _md_all else {}) if _md_all is not None else {}
     if employees:
         from core.exceptions import load_overrides
-        overrides = load_overrides(app.config['DATA_FOLDER'], month=APP_STATE.get('month'))
+        overrides = load_overrides(app.config['DATA_FOLDER'], month=_eff_month)
         ws1 = wb.create_sheet('Employee Info')
         headers1 = ['Name', 'Department', 'Type', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance(TZS)', 'Notes']
         for ci, h in enumerate(headers1, 1):
@@ -4316,7 +4715,7 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 2: 薪资总表
     # ═══════════════════════════════════════════════════════
-    result = APP_STATE.get('salary_result')
+    result = _eff_result
     if result:
         ws2 = wb.create_sheet('Salary Summary')
         headers2 = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
@@ -4369,7 +4768,7 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 3: 出勤表
     # ═══════════════════════════════════════════════════════
-    md = APP_STATE.get('main_data', {})
+    md = _eff_md
     if md and employees:
         from collections import defaultdict
         from core.namematch import make_employee_id
@@ -4500,14 +4899,14 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 4: 日工资分布
     # ═══════════════════════════════════════════════════════
-    if md and employees:
+    if _eff_md and employees:
         from core.calculator import compute_daily_breakdown
         from core.exceptions import load_overrides as _ld_ov, load_daily_exclusions
         dw_result = compute_daily_breakdown(
-            main_data=md, employees=employees,
-            overrides=_ld_ov(app.config['DATA_FOLDER']),
+            main_data=_eff_md, employees=employees,
+            overrides=_ld_ov(app.config['DATA_FOLDER'], month=_eff_month),
             exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-            pricing=APP_STATE.get('config', {}),
+            pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
             data_folder=app.config['DATA_FOLDER'],
         )
         # 合并 att_override_dates
@@ -4610,11 +5009,11 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 5: 产量汇总
     # ═══════════════════════════════════════════════════════
-    if md and md.get('shift_production'):
+    if _eff_md and _eff_md.get('shift_production'):
         ws5 = wb.create_sheet('Production Summary')
         for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
             c = ws5.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
-        for i, d in enumerate(md.get('shift_production', []), 2):
+        for i, d in enumerate(_eff_md.get('shift_production', []), 2):
             dp = d.get('day_prod') or {}; np = d.get('night_prod') or {}
             c_dt = ws5.cell(i, 1, parse_dt(d['date']))
             c_dt.number_format = date_fmt; c_dt.border = tb
@@ -4628,12 +5027,12 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 6: 钻工计件双路径核对
     # ═══════════════════════════════════════════════════════
-    if result and md and md.get('driller_production'):
+    if _eff_result and _eff_md and _eff_md.get('driller_production'):
         try:
             from core.verification import verify_salary
             from core.calculator import PRICES_UNDERGROUND, PRICES_DRILLER
-            _cfg = APP_STATE.get('config') or {}
-            ver = verify_salary(md, result, PRICES_UNDERGROUND, PRICES_DRILLER,
+            _cfg = (_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {}
+            ver = verify_salary(_eff_md, _eff_result, PRICES_UNDERGROUND, PRICES_DRILLER,
                                 underground_mode=_cfg.get('underground_mode'),
                                 pricing=_cfg)
             d_info = ver.get('driller', {})
@@ -4725,7 +5124,7 @@ def _do_export_all():
     # ═══════════════════════════════════════════════════════
     #  Sheet 7: 钻工计件出勤明细
     # ═══════════════════════════════════════════════════════
-    if md and md.get('driller_production'):
+    if _eff_md and _eff_md.get('driller_production'):
         # ── 队长名规范化（通过员工账号匹配，避免通讯录别名差异）──
         from core.namematch import make_employee_id as _neid
 
@@ -4748,7 +5147,7 @@ def _do_export_all():
 
         from collections import defaultdict
         captain_groups = defaultdict(list)
-        for d in md['driller_production']:
+        for d in _eff_md['driller_production']:
             cap = _norm_captain(d['captain'])
             captain_groups[cap].append(d)
 
@@ -4832,8 +5231,7 @@ def _do_export_all():
             ws7.freeze_panes = 'A2'
 
     # ── 文件名 ──
-    month = APP_STATE.get('month', '')
-    fname = f'ENPRIZON_LINDI_{month}.xlsx' if month else 'ENPRIZON_LINDI_Report.xlsx'
+    fname = f'ENPRIZON_LINDI_{_eff_month}.xlsx' if _eff_month else 'ENPRIZON_LINDI_Report.xlsx'
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -4898,7 +5296,7 @@ def export_payslip_single(employee_id):
         import io, os
         from datetime import datetime
         
-        month = request.args.get('month', APP_STATE.get('month', ''))
+        month = (request.args.get('month') or '').strip() or resolve_month(request)
         download = request.args.get('download', '0') == '1'
         
         result = APP_STATE.get('salary_result')
@@ -4951,7 +5349,7 @@ def export_payslips_all():
         from datetime import datetime
         
         data = request.get_json(silent=True) or {}
-        month = data.get('month', APP_STATE.get('month', ''))
+        month = (data.get('month') or '').strip() or resolve_month(request)
         department = data.get('department', '')
         
         result = APP_STATE.get('salary_result')
@@ -5121,8 +5519,13 @@ def auto_load_source():
     current_month = datetime.now(EAT).strftime('%Y-%m')
     chosen_month = current_month
 
-    ok, msg = _run_pipeline(month_filter=chosen_month)
-    print(f'  {msg}')
+    md = _run_pipeline(month_filter=chosen_month)
+    if md is not None:
+        print(f'  已加载 {len(md.get("employees", []))} 名员工，应发 {md.get("salary_result", {}).get("total_gross", 0):,} TZS')
+        ok = True
+    else:
+        print('  员工表为空，请先导入通讯录或员工数据')
+        ok = False
     _ensure_viewer_account()
     return ok
 

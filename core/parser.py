@@ -1,7 +1,9 @@
 """
-Excel 解析引擎
-解析 Attendance+data+daily+and+piece+rate.xlsx 的 3 个 sheet
-全部列索引通过扫描表头获取，不依赖硬编码列号
+DEPRECATED (P3): Excel 解析引擎 — 纯采集模式已移除 Excel 源（AGENTS.md data/source 已清空）。
+
+保留仅供历史追溯：parse_all / parse_piece_rate_sheet / parse_daily_salary_sheet /
+parse_crush_sheet 及其辅助均无活跃调用（grep -rn parse_all 仅定义与 ARCHITECTURE 历史描述）。
+新数据流经 collection_submissions → _run_pipeline()，勿新增调用。
 """
 import re
 import openpyxl

@@ -14,27 +14,52 @@ Web 薪资计算系统。用户上传 Excel 考勤数据 -> 自动解析 -> 五�
 
 ---
 
-## 二、数据流水线
+## 二、数据流水线（纯采集 + 月份键化）
 
 ```
-Attendancedatadailyandpiecerate.xlsx --+
-ENPRIZON_LINDI_PROJECT.xlsx ----------+
-                                       v
-  parser.py --> namematch.py --> calculator.py --> app.py (API) --> 前端六页面
-                    |                  |
-            通讯录索引加载      逐日单轨合并
-            employee_id 生成    总表 + 日明细
+collection_submissions (井下/钻工/破碎/出勤 4类) --+
+attendance_overrides (P/A/L/D/N/C/S/Y/T/NU/E) ----+
+employees (DB 主档) -------------------------------+
+         | rebuild_main_data_from_collections() + build_attendance_from_overrides()
+         v
+  _run_pipeline(month_filter=YYYY-MM) --> MONTH_CACHE[YYYY-MM] --+--> g.view_month / resolve_month()
+         |  逐日单轨合并 + Headless 派生 + 五轨 calculator    |       (param > session > global)
+         +--> APP_STATE 别名(兼容)                           +--> salary / attendance / daily-wages / export / ... (12 端点同源)
 ```
 
-### 2.1 输入文件
+**核心决策**: 月份是键, 不是全局变量。P27 之前 `APP_STATE['month']` 是单例, 切月即全局覆写, 并发两用户切不同月必串扰。现改为 `MONTH_CACHE` + `session['view_month']`, 原因有三: 一是隔离, Aug 篡改不染 Jul, 深拷贝隔离已由 16 例单测覆盖; 二是会话粘性, 同用户跨请求保持所选月, 重启后由 `KILWA_SECRET_KEY` 固化; 三是显式覆盖, 任何 `?month=` 显式参可越过会话, 导出与 API 均以显式月为准, 不静默错月。
 
-| 文件 | 内容 | 说明 |
-|------|------|------|
-| Attendancedatadailyandpiecerate.xlsx | 产量 + 出勤 | 主文件, Sheet1=产量(D/N队+钻工), Sheet2=日薪出勤 |
-| ENPRIZON_LINDI_PROJECT.xlsx | 通讯录 | 134人, 含部门和账号, 作为员工身份基准 |
-| 预支汇总数据.xlsx | 预支记录 | 可选 |
+### 2.1 月份解析链（单源 `resolve_month` + `g.view_month`）
 
-### 2.2 姓名标准化 (namematch.py)
+优先级严格为 `?month=` 查询参数 > `POST JSON body month` > `session['view_month']` > `MONTH_CACHE` 当前最大 `built_at` 键 > `APP_STATE['_month_stamp']` > `EAT.now (UTC+3)`。全部 12 个读端点经 `before_request inject_view_month` 注入 `g.view_month`, 禁止直接读 `APP_STATE['month']`。`POST /set-month` 仅写 `session['view_month']` 并落 `MONTH_CACHE[month]`, 不碰其他月份。
+
+### 2.2 MONTH_CACHE（键形 `YYYY-MM`，LRU 3，逐键锁）
+
+`MONTH_CACHE: dict[str, MonthData]`，`MonthData = {main_data, employees, salary_result, config_snapshot, headless, built_at, month}`。键为 `YYYY-MM` 前缀, 与 `available-months` 五类来源一致。全局锁 `MONTH_CACHE_LOCK` 护字典结构与 LRU, 每键一把 `MONTH_CACHE_LOCKS[month]` 双检构建, 同月并发仅一线程重建。容量 `MONTH_CACHE_MAX=3`, `_month_cache_evict_if_needed()` 按 `built_at` 最小逐出, 避免无界增长同时保留近月热数据。
+
+### 2.3 单轨不变量与 Headless 按月派生
+
+薪资、出勤、日工资明细三者同源: 同一 `MonthData` 的 `main_data` + `per_date_type` + 四轨子函数, 逐日选轨求和。任一日期只归属一个轨道, 总额守恒, 改计算逻辑时三者必须同步验证。`headless` 不再是全局标志, 改为按月派生 `not bool(filtered_main_data['dates'])`; 无日期但有员工时落 `MonthData.headless=true`, 后端按自然日历生成日期骨架, 前端显预览横幅, 仅出勤三种标记可写, 采集到位后手写不被覆盖。
+
+### 2.4 失效地图（按月驱逐，其余命中）
+
+任一写仅逐出受影响月份, 其余月份保持命中; `deepcopy` 隔离保证跨月不污染。
+
+| 写入 | 失效键 | 备注 |
+|------|--------|------|
+| `POST /api/collection/submit` | `submission_date[:7]` | `invalidate_month_cache(date[:7])` |
+| `POST /attendance/toggle` | `date[:7] or g.view_month` |  |
+| `POST /employees/override` | `effective_from or start_date[:7] or g.view_month` | 永久/临时区分 |
+| `POST /employees/remove-override*` | `g.view_month` 或行 `effective_from/start_date` | 按行解析 |
+| `POST /employees/bonus-penalty` | `body month[:7]` |  |
+| `POST /recalculate` | `g.view_month` 单键重建 | 非全清 |
+| `POST /reload` | `MONTH_CACHE.clear()` 全清 | 唯一全清路径 |
+
+### 2.5 密钥持久化（`KILWA_SECRET_KEY`）
+
+生产未配 `KILWA_SECRET_KEY` 则 fail-fast, 拒绝隐式随机导致全员掉线; 开发未配则 pin 到 `data/.kilwa_secret` (gitignored, 0600), 二次重启复用同一密钥, 会话与 `session['view_month']` 跨重启不丢失。该文件与 `data/kilwa.db` 同为本地态, 不入仓。
+
+### 2.6 姓名标准化 (namematch.py)
 
 **核心决策**: make_employee_id(name) 优先从通讯录索引查找, 返回**通讯录账号**(如 111, 128, 005), 而非旧版的姓名字符串。
 

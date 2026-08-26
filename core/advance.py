@@ -1,6 +1,8 @@
 """
-预支汇总解析
-从 预支汇总数据.xlsx → Sheet 预支汇总 读取
+DEPRECATED (P3): 预支汇总解析 — Excel 预支源已废弃。
+
+原从 预支汇总数据.xlsx Sheet 预支汇总 读取，现由 bonus_penalties.advance 月度手动项替代
+（P29-c，calculator 取 DB advance 列）。文件保留仅供审计追溯，无活跃调用。
 """
 import openpyxl
 from .namematch import make_employee_id

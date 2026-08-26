@@ -856,6 +856,8 @@
   <div class="card">
     <h2 style="display:none;margin-bottom:0;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="att_title">出勤网格</h2>
     <div id="headlessBannerAtt" style="display:none;background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(96,165,250,0.04));border:1px solid rgba(59,130,246,0.25);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--accent);" data-i18n="headless_banner_att">📋 预览模式 — 当月暂无源数据，可手动记录出勤（P/A/L）。上传源数据后手动标记不会被覆盖。</div>
+    <!-- P27 出勤月份粘性徽标（与周期栏同源，headless 时附加“· 预览”） -->
+    <div id="attMonthLabel" style="position:sticky;top:0;z-index:5;background:var(--bg-card);padding:6px 10px;margin-bottom:8px;font-size:13px;font-weight:600;color:var(--text);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;gap:6px;">—</div>
     <div class="att-toolbar" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="text" id="attSearch" data-i18n-placeholder="att_search_ph" placeholder="搜索姓名..." oninput="renderAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
@@ -1561,7 +1563,12 @@ const STATE = {
   currentModule: 'dashboard',
   currentSubPage: null,
   currentParams: {},
+  // P27 月份戳：记录各缓存最后对应的月份，用于跨月失效判断
+  _monthStamp: '',
 };
+
+// P27 可用月份权威边界（GET /available-months 倒序列表），用于周期栏钳制
+let CACHED_AVAILABLE_MONTHS = [];
 
 // ════════════════════════════════════════════════
 //  工具
@@ -1712,11 +1719,12 @@ async function checkAuth() {
     // P10-fix: 登录后补当前月份（P6 删登录前 monthPicker 后未补，period-bar 需在登录后立即可用）
     if (_authState.logged_in && !STATE.currentMonth) {
       try {
-        const sRes = await fetch(api('/salary'));
+        const sRes = await fetch(api('/salary?month=' + encodeURIComponent(STATE.currentMonth)));
         const sData = await sRes.json();
         const m = (sData.result && sData.result.month) || sData.month;
         if (m) {
           STATE.currentMonth = m;
+          STATE._monthStamp = m;
           updatePeriodBar();
         }
       } catch(e) {}
@@ -1914,11 +1922,12 @@ async function submitLogin() {
       await loadDashboard();
       // 同时加载薪资/员工数据供其他页面使用
       try {
-        const sr = await fetch(api('/salary'));
+        const sr = await fetch(api('/salary?month=' + encodeURIComponent(STATE.currentMonth)));
         const sd = await sr.json();
         if (sd.result && sd.result.employees) {
           STATE.salaryResult = sd.result;
           STATE.currentMonth = sd.result.month || sd.month;
+          STATE._monthStamp = STATE.currentMonth;
           updatePeriodBar();
           const er = await fetch(api('/api/employees'));
           const ed = await er.json();
@@ -2241,9 +2250,20 @@ function showTargetPage(module, subPage) {
     showPlaceholder(module, subPage);
   }
 
-  // 触发页面加载
-  if (targetId === 'attendance') loadAttendance();
-  if (targetId === 'dailywages') loadDailyWages();
+  // P27 过期兜底：若戳与当前月不一致，所有按月缓存视为过期（直接改 STATE.currentMonth 而未走 changeMonth 的场景）
+  if (STATE._monthStamp && STATE._monthStamp !== STATE.currentMonth) {
+    if (STATE.attendanceData) STATE.attendanceData = null;
+    if (STATE._dailyWages) STATE._dailyWages = null;
+    if (STATE._verifyData) STATE._verifyData = null;
+  }
+  // 触发页面加载（P27：以 _monthStamp 判过期，戳不一致或无缓存则强制重取，确保切月后无需 F5）
+  if (targetId === 'attendance') {
+    if (!STATE.attendanceData || STATE._monthStamp !== STATE.currentMonth) loadAttendance();
+    else { renderAttendance(); _updateAttendanceMonthLabel(); }
+  }
+  if (targetId === 'dailywages') {
+    if (!STATE._dailyWages || STATE._monthStamp !== STATE.currentMonth) loadDailyWages();
+  }
   if (targetId === 'salary' && STATE.salaryResult) { renderSalaryTable(STATE.salaryResult); }
   if (targetId === 'settings') { loadConfig(); loadUserList(); loadGroupsAdmin(); loadCaptainsAdmin(); }
   if (targetId === 'employees') {
@@ -2370,24 +2390,111 @@ function parseHash() {
 
 window.addEventListener('hashchange', parseHash);
 
-/* ── 周期上下文条 ── */
+/* ── 周期上下文条（P27 钳制） ── */
+// 月份转数值，用于比较大小
+function _monthToNum(ym) {
+  const p = (ym || '').split('-');
+  const y = parseInt(p[0] || '0'), m = parseInt(p[1] || '0');
+  return y * 12 + m;
+}
+// 钳制：requested 若在可用列表内则直通，否则钳制到最近的边界（min/max）
+function clampMonth(requested, availableMonths) {
+  if (!availableMonths || !availableMonths.length) return requested;
+  if (availableMonths.includes(requested)) return requested;
+  const sorted = [...availableMonths].sort(); // 升序 YYYY-MM 字符串等价于时间升序
+  const min = sorted[0], max = sorted[sorted.length - 1];
+  if (requested < min) return min;
+  if (requested > max) return max;
+  // 中间缺口：找数值上最接近的可用月份
+  let closest = sorted[0];
+  let best = Math.abs(_monthToNum(requested) - _monthToNum(closest));
+  for (let i = 1; i < sorted.length; i++) {
+    const d = Math.abs(_monthToNum(requested) - _monthToNum(sorted[i]));
+    if (d < best) { best = d; closest = sorted[i]; }
+  }
+  return closest;
+}
+// 刷新可用月份缓存（权威边界）
+async function refreshAvailableMonthsCache() {
+  try {
+    const res = await fetch(api('/available-months'));
+    const months = await res.json();
+    if (Array.isArray(months) && months.length) {
+      CACHED_AVAILABLE_MONTHS = months;
+      // 同步刷新箭头禁用态
+      _updatePeriodArrowState();
+    }
+  } catch (e) {}
+}
+// 箭头禁用态：到边界时 disabled + 透明度 0.4
+function _updatePeriodArrowState() {
+  const prev = document.getElementById('periodPrev');
+  const next = document.getElementById('periodNext');
+  if (!prev || !next) return;
+  if (!CACHED_AVAILABLE_MONTHS || !CACHED_AVAILABLE_MONTHS.length || !STATE.currentMonth) {
+    prev.disabled = false; next.disabled = false;
+    prev.style.opacity = ''; next.style.opacity = '';
+    return;
+  }
+  const sorted = [...CACHED_AVAILABLE_MONTHS].sort();
+  const min = sorted[0], max = sorted[sorted.length - 1];
+  const atMin = STATE.currentMonth <= min;
+  const atMax = STATE.currentMonth >= max;
+  prev.disabled = atMin;
+  next.disabled = atMax;
+  prev.style.opacity = atMin ? '0.4' : '';
+  next.style.opacity = atMax ? '0.4' : '';
+  prev.style.cursor = atMin ? 'not-allowed' : '';
+  next.style.cursor = atMax ? 'not-allowed' : '';
+}
+
 function shiftMonth(delta) {
   if (!STATE.currentMonth) return;
+  // 若缓存为空，尝试异步刷新但不阻塞本次钳制（下一次生效）
+  if (!CACHED_AVAILABLE_MONTHS.length) { refreshAvailableMonthsCache(); }
   const parts = STATE.currentMonth.split('-');
   let y = parseInt(parts[0]), m = parseInt(parts[1]);
   m += delta;
   if (m > 12) { m = 1; y++; }
   if (m < 1) { m = 12; y--; }
-  STATE.currentMonth = `${y}-${String(m).padStart(2,'0')}`;
+  let requested = `${y}-${String(m).padStart(2,'0')}`;
+  // P27 钳制：超出可用边界则钳制到最近边界
+  if (CACHED_AVAILABLE_MONTHS.length) {
+    const clamped = clampMonth(requested, CACHED_AVAILABLE_MONTHS);
+    if (clamped !== requested) {
+      requested = clamped;
+      // 已到边界且钳制后与当前相同 → 无操作，仅刷新箭头态
+      if (requested === STATE.currentMonth) {
+        _updatePeriodArrowState();
+        return;
+      }
+    }
+  }
+  STATE.currentMonth = requested;
   updatePeriodBar();
   changeMonth(STATE.currentMonth);
 }
 
 function updatePeriodBar() {
-  document.getElementById('periodLabel').textContent = STATE.currentMonth || '—';
+  const label = STATE.currentMonth || '—';
+  const el = document.getElementById('periodLabel');
+  if (el) el.textContent = label;
   // 同步隐藏 monthSelect（兼容旧代码引用）
   const sel = document.getElementById('monthSelect');
   if (sel && STATE.currentMonth) sel.value = STATE.currentMonth;
+  // 同步出勤网格月份徽标
+  _updateAttendanceMonthLabel();
+  // 同步箭头禁用态
+  _updatePeriodArrowState();
+}
+// 出勤网格粘性月份徽标（与周期栏同源，headless 时附加“· 预览”）
+function _updateAttendanceMonthLabel() {
+  const a = document.getElementById('attMonthLabel');
+  if (!a) return;
+  const ym = STATE.currentMonth || '—';
+  const suffix = STATE._headless ? ' · 预览' : '';
+  a.textContent = ym + suffix;
+  // 粘性样式已在 CSS 中定义，确保可见
 }
 
 /* ── 移动端侧边栏 ── */
@@ -2442,7 +2549,7 @@ function toggleCollapseSidebar() {
 async function loadDashboard() {
   try {
     // P15: 数据台改为纯产量仪表盘，仅请求 /api/production/dashboard
-    const res = await fetch(api('/api/production/dashboard'));
+    const res = await fetch(api('/api/production/dashboard?month=' + encodeURIComponent(STATE.currentMonth)));
     const data = await res.json();
     STATE._dashData = data;
     STATE._dashFilters = {
@@ -2471,6 +2578,8 @@ async function loadDashboard() {
     }
   });
   await checkAuth();
+  // P27 预取可用月份边界（周期栏钳制用）
+  refreshAvailableMonthsCache();
   // P14.1: 未登录直接弹出登录框，不再空白加载
   if (!_authState.logged_in) {
     openLoginModal();
@@ -2482,11 +2591,12 @@ async function loadDashboard() {
     try {
       // P29-c Req①: 档案薪资板块硬角色门控——仅 super_admin/admin/viewer 预载薪资数据（collector/applicant 永不拉取）
       if (['super_admin', 'admin', 'viewer'].includes(_authState.role)) {
-        const sr = await fetch(api('/salary'));
+        const sr = await fetch(api('/salary?month=' + encodeURIComponent(STATE.currentMonth)));
         const sd = await sr.json();
         if (sd.result && sd.result.employees) {
           STATE.salaryResult = sd.result;
           STATE.currentMonth = sd.result.month || sd.month;
+          STATE._monthStamp = STATE.currentMonth;
           updatePeriodBar();
           const er = await fetch(api('/api/employees'));
           const ed = await er.json();
@@ -2565,7 +2675,7 @@ function initDashControls(data) {
       STATE.currentMonth = m;
       updatePeriodBar();
       fetch(api('/set-month'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month: m }) })
-        .then(() => fetch(api('/api/production/dashboard')))
+        .then(() => fetch(api('/api/production/dashboard?month=' + encodeURIComponent(STATE.currentMonth))))
         .then(r => r.json())
         .then(d => {
           STATE._dashData = d;
@@ -3101,24 +3211,92 @@ function destroyAllDashCharts() {
 // ════════════════════════════════════════════════
 function populateMonthSelect() {
   const sel = document.getElementById('monthSelect');
-  const now = new Date();
-  const currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-  sel.innerHTML = '<option value="all">' + t('month_all') + '</option>';
-  // 从数据库获取历史月份
+  if (!sel) return;
+  // 从数据库获取历史月份（权威边界），幂等：重复调用不翻转已选月份
   fetch(api('/available-months')).then(r=>r.json()).then(months => {
+    if (!Array.isArray(months)) months = [];
+    CACHED_AVAILABLE_MONTHS = months;
+    const prevVal = sel.value;
+    // 重建选项（去重）
+    sel.innerHTML = '<option value="all">' + t('month_all') + '</option>';
     months.forEach(m => {
       sel.innerHTML += `<option value="${m}">${m}</option>`;
     });
-    // 默认选中当前真实月份
-    if (months.includes(currentMonth)) {
-      sel.value = currentMonth;
+    // 选中逻辑：优先保留已有 STATE.currentMonth；否则用服务端首月作为默认，不使用客户端时钟
+    let toSelect = '';
+    if (STATE.currentMonth && [...sel.options].some(o => o.value === STATE.currentMonth)) {
+      toSelect = STATE.currentMonth;
+    } else if (STATE.currentMonth && !months.includes(STATE.currentMonth)) {
+      // 当前月不在可用列表（如 headless 预览），补充 option 以保证显示
+      if (![...sel.options].some(o => o.value === STATE.currentMonth)) {
+        sel.innerHTML += `<option value="${STATE.currentMonth}">${STATE.currentMonth}</option>`;
+      }
+      toSelect = STATE.currentMonth;
+    } else if (!STATE.currentMonth && months.length) {
+      // 首次进入且无全局月份：取服务端首月（最新）作为默认
+      toSelect = months[0];
+      STATE.currentMonth = toSelect;
+      updatePeriodBar();
+    } else if (prevVal && [...sel.options].some(o => o.value === prevVal)) {
+      toSelect = prevVal;
     }
+    if (toSelect) sel.value = toSelect;
+    _updatePeriodArrowState();
+    _updateAttendanceMonthLabel();
   }).catch(() => {
-    // fallback: 当前月份
-    const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    sel.innerHTML += `<option value="${ym}">${ym}</option>`;
-    sel.value = ym;
+    // 静默失败：保持现有选择，不使用客户端时钟（幂等）
   });
+}
+
+// P27 切月后失效的过期缓存（出勤/日工资/OA/评分/采集/审计）
+function _invalidateMonthCaches(month) {
+  // 戳更新：下一次 showTargetPage 以戳比对决定是否重取
+  STATE._monthStamp = month;
+  // 核心缓存置空，触发下一次进入页面时重取
+  STATE.attendanceData = null;
+  STATE._dailyWages = null;
+  STATE._verifyData = null;
+  // OA / 评分 / 采集 的 DOM 亦视为过期，戳已足；额外清标识避免旧数据闪现
+  STATE._oaPendingStamp = null;
+  STATE._oaHistoryStamp = null;
+  STATE._scoringStamp = null;
+  // 采集历史与审计无需内存缓存，戳失效即可（下次 showTargetPage 重取）
+}
+// 停留在某页时切月后立即刷新该页，无需 F5
+async function _refreshCurrentPageAfterMonthSwitch() {
+  const activeId = document.querySelector('.page.active')?.id || '';
+  try {
+    if (activeId === 'page-attendance') { await loadAttendance(); }
+    else if (activeId === 'page-dailywages') { await loadDailyWages(); }
+    else if (activeId === 'page-employees') {
+      // 员工列表 + OA Tab（如在审批中心）
+      renderEmployeeTable();
+      // 若在审批中心子页，刷新 OA 列表
+      if (STATE.currentModule === 'oa') {
+        if (STATE.currentSubPage === 'pending') await loadOAPending();
+        else if (STATE.currentSubPage === 'history') await loadOAHistory();
+      }
+    }
+    else if (activeId.startsWith('page-scoring')) {
+      await loadScoreTeams();
+      if (activeId === 'page-scoring-summary') { try { await loadScoringSummary(); } catch(e) {} }
+      else if (activeId === 'page-scoring-objective') { /* objective 随 team 刷新 */ }
+      else if (activeId === 'page-scoring-weekly') { try { renderWeeklyDashboard(); } catch(e) {} }
+    }
+    else if (activeId.startsWith('page-collection')) {
+      const map = {
+        'page-collection-underground': ['underground','colUgHistory'],
+        'page-collection-driller': ['driller','colDrHistory'],
+        'page-collection-crush': ['crush','colCrHistory'],
+        'page-collection-attendance': ['attendance','colAttHistory'],
+      };
+      const m = map[activeId];
+      if (m) await loadColHistory(m[0], m[1]);
+    }
+    else if (activeId === 'page-system-users') {
+      try { await loadAuditLog(); } catch(e) {}
+    }
+  } catch(e) {}
 }
 
 async function changeMonth(month) {
@@ -3144,8 +3322,12 @@ async function changeMonth(month) {
         STATE._headless = d2.headless || STATE._headless;
         renderEmployeeTable();
         loadProductionData();
+        // 成功后再更新全局月份，避免显示与数据错位
         STATE.currentMonth = month;
+        STATE._monthStamp = month;
+        _invalidateMonthCaches(month);
         updatePeriodBar();
+        await _refreshCurrentPageAfterMonthSwitch();
         showToast(data.message || t('toast_month_switched'));
         return;
       }
@@ -3165,7 +3347,10 @@ async function changeMonth(month) {
       renderEmployeeTable();
       loadProductionData();
       STATE.currentMonth = month;
+      STATE._monthStamp = month;
+      _invalidateMonthCaches(month);
       updatePeriodBar();
+      await _refreshCurrentPageAfterMonthSwitch();
       showToast(t('toast_month_switched'));
     }
   } catch(e) { showToast(t('toast_month_fail'), 'error'); }
@@ -4818,7 +5003,7 @@ function startSalaryInlineEdit(td, eid, field, curVal) {
 // ════════════════════════════════════════════════
 async function loadSalaryVerification() {
   try {
-    const res = await fetch(api('/salary/verify'));
+    const res = await fetch(api('/salary/verify?month=' + encodeURIComponent(STATE.currentMonth)));
     if (!res.ok) {
       document.getElementById('salaryVerifyPanel').style.display = 'none';
       return;
@@ -5017,7 +5202,7 @@ async function toggleNssf(eid, enrolled) {
 // ════════════════════════════════════════════════
 async function loadDailyWages() {
   try {
-    const res = await fetch(api('/daily-wages'));
+    const res = await fetch(api('/daily-wages?month=' + encodeURIComponent(STATE.currentMonth)));
     STATE._dailyWages = await res.json();
     // Populate department filter
     const depts = new Set();
@@ -5182,7 +5367,7 @@ async function exportAll() {
   if (!STATE.salaryResult) { showToast(t('toast_need_calc'), 'error'); return; }
   showToast(t('toast_exporting'));
   try {
-    const res = await fetch(api('/export/all'), {method:'POST'});
+    const res = await fetch(api('/export/all?month=' + encodeURIComponent(STATE.currentMonth)), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({month: STATE.currentMonth})});
     if (!res.ok) throw new Error();
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -5198,7 +5383,7 @@ async function exportAll() {
 async function exportAttendanceReport() {
   showToast(t('toast_exporting'));
   try {
-    const res = await fetch(api('/export/attendance-report'));
+    const res = await fetch(api('/export/attendance-report?month=' + encodeURIComponent(STATE.currentMonth)));
     if (!res.ok) throw new Error('export failed');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -5268,7 +5453,7 @@ async function exportPayslipsByDept() {
 async function loadProductionData() {
   // P15: 数据台改用 /api/production/dashboard
   try {
-    const res = await fetch(api('/api/production/dashboard'));
+    const res = await fetch(api('/api/production/dashboard?month=' + encodeURIComponent(STATE.currentMonth)));
     const data = await res.json();
     STATE._dashData = data;
     initDashControls(data);
@@ -5311,12 +5496,14 @@ function renderChart(canvasId, type, data, opts) {
 // ════════════════════════════════════════════════
 async function loadAttendance() {
   try {
-    const res = await fetch(api('/attendance'));
+    const res = await fetch(api('/attendance?month=' + encodeURIComponent(STATE.currentMonth)));
     const data = await res.json();
     STATE.attendanceData = data;
     // Headless banner
     const banner = document.getElementById('headlessBannerAtt');
     if (banner) banner.style.display = STATE._headless ? 'block' : 'none';
+    // 同步粘性月份徽标（与周期栏同源）
+    _updateAttendanceMonthLabel();
     STATE._attendanceDirty = false;
     STATE._attendancePending = {};
     renderAttendance();
@@ -5478,9 +5665,9 @@ async function saveAttendance() {
     const pending = STATE._attendancePending || {};
     for (const [eid, dates] of Object.entries(pending)) {
       for (const [date, status] of Object.entries(dates)) {
-        await authFetch(api('/attendance/toggle'), {
+        await authFetch(api('/attendance/toggle?month=' + encodeURIComponent(STATE.currentMonth)), {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({employee_id: eid, date, status}),
+          body: JSON.stringify({employee_id: eid, date, status, month: STATE.currentMonth}),
         });
       }
     }
@@ -8136,7 +8323,7 @@ async function renderWeeklyDashboard() {
   if (!container) return;
   container.innerHTML = '<div style="color:var(--text-muted);">' + t('loading') + '</div>';
   try {
-    const res = await fetch(api('/salary'));
+    const res = await fetch(api('/salary?month=' + encodeURIComponent(STATE.currentMonth)));
     const data = await res.json();
     if (!data.ok || !data.employees) {
       container.innerHTML = '<div style="color:var(--text-muted);">' + t('weekly_no_data') + '</div>';
