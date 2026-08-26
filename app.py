@@ -3701,11 +3701,8 @@ def get_driller_captains():
 #  API: 出勤网格
 # ═══════════════════════════════════════════════════════════
 
-@app.route('/attendance', methods=['GET'])
-@login_required
-@require_permission('attendance', 'view')
-def get_attendance():
-    """返回出勤网格：每人每天的状态。P=出勤 A=旷工 L=请假"""
+def _build_attendance_grid():
+    """构建出勤网格数据 {dates, rows}。供 /attendance 与导出共用（单一实现，防漂移）。"""
     import json as _json
     from collections import defaultdict
     md = APP_STATE.get('main_data', {})
@@ -3831,7 +3828,15 @@ def get_attendance():
             'editable': True,  # 所有人都可手动标记 A/L
         })
 
-    return jsonify({'dates': all_dates, 'rows': rows})
+    return {'dates': all_dates, 'rows': rows}
+
+
+@app.route('/attendance', methods=['GET'])
+@login_required
+@require_permission('attendance', 'view')
+def get_attendance():
+    """返回出勤网格：每人每天的状态。P=出勤 A=旷工 L=请假"""
+    return jsonify(_build_attendance_grid())
 
 
 @app.route('/attendance/toggle', methods=['POST'])
@@ -4213,6 +4218,27 @@ def export_attendance():
     return send_file(buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True, download_name=fname)
+
+
+@app.route('/export/attendance-report', methods=['GET'])
+@login_required
+@require_permission('attendance', 'export')
+def export_attendance_report():
+    """导出出勤数据报表（分部门横版）：每个部门一个 Sheet，格式对齐参考模板"""
+    data = _build_attendance_grid()
+    dates = data['dates']
+    rows = data['rows']
+    if not rows:
+        return jsonify({'ok': False, 'error': '无出勤数据'})
+    from core.atten_report import build_attendance_report
+    wb = build_attendance_report(dates, rows)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    month = APP_STATE.get('month', '')
+    fname = f'ENPRIZON_LINDI_Attendance_Report_{month}.xlsx' if month else 'ENPRIZON_LINDI_Attendance_Report.xlsx'
+    return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name=fname)
 
 # ═══════════════════════════════════════════════════════════
 #  API: 统一导出（所有报表合并为一个文件）

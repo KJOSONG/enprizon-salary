@@ -875,6 +875,7 @@
         </select>
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn-cancel" onclick="exportAttendanceReport()" data-perm="attendance:export" data-i18n="att_export_report_btn">导出出勤报表</button>
         <button id="attSaveBtn" class="btn-primary editor-only" onclick="saveAttendance()" data-i18n="att_save_btn" data-perm="attendance:edit" style="display:none;">保存并计算</button>
         <span style="font-size:11px;color:var(--text-muted);" data-i18n="att_legend">D=白班 N=夜班 B=全天 P=出勤 A=旷工 L=请假 S=事假 SK=病假 T=调休 E=豁免 NU=年假(计薪) (P)=月薪默认</span>
       </div>
@@ -5183,6 +5184,22 @@ async function exportAll() {
   try {
     const res = await fetch(api('/export/all'), {method:'POST'});
     if (!res.ok) throw new Error();
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const disp = decodeURIComponent(res.headers.get('Content-Disposition') || '');
+    const m = disp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    a.download = m ? m[1].replace(/['"]/g,'') : t('export_filename');
+    a.href = url; a.click(); URL.revokeObjectURL(url);
+    showToast(t('toast_export_done'));
+  } catch(e) { showToast(t('toast_export_fail'), 'error'); }
+}
+// 出勤板块分部门横版报表导出
+async function exportAttendanceReport() {
+  showToast(t('toast_exporting'));
+  try {
+    const res = await fetch(api('/export/attendance-report'));
+    if (!res.ok) throw new Error('export failed');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
