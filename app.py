@@ -4224,18 +4224,18 @@ def export_attendance():
 @login_required
 @require_permission('attendance', 'export')
 def export_attendance_report():
-    """导出出勤数据报表（分部门横版）：每个部门一个 Sheet，格式对齐参考模板"""
+    """导出出勤数据报表（分部门横版）：每个部门一个 Sheet，首行标题=部门，列宽自适应，便于打印"""
     data = _build_attendance_grid()
     dates = data['dates']
     rows = data['rows']
     if not rows:
         return jsonify({'ok': False, 'error': '无出勤数据'})
+    month = APP_STATE.get('month', '')
     from core.atten_report import build_attendance_report
-    wb = build_attendance_report(dates, rows)
+    wb = build_attendance_report(dates, rows, month)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    month = APP_STATE.get('month', '')
     fname = f'ENPRIZON_LINDI_Attendance_Report_{month}.xlsx' if month else 'ENPRIZON_LINDI_Attendance_Report.xlsx'
     return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                      as_attachment=True, download_name=fname)
