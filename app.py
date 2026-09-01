@@ -825,15 +825,26 @@ def _month_cache_evict_if_needed():
 
 # ── P2 Cache invalidation (per-month) ─────────────────────
 # Write endpoint -> invalidated MONTH_CACHE key (per-month only):
-#   POST /api/collection/submit               -> month = submission_date[:7]
-#   POST /attendance/toggle                   -> month = body date[:7] (fallback g.view_month)
-#   POST /employees/override                  -> month = effective_from or start_date[:7] or g.view_month
-#   POST /employees/remove-override           -> month = g.view_month
-#   POST /employees/remove-temp-override      -> month = g.view_month
-#   POST /employees/remove-override-by-id     -> month = override row effective_from/start_date or g.view_month
+#   POST /api/collection/submit               -> month = submission_date[:7] + __all__（2026-09-01 补：__all__ 全量快照失效，防旧快照回写）
+#   POST /api/collection/edit/<id>            -> old_date[:7] + new_date[:7] + __all__
+#   POST /attendance/toggle                   -> month = body date[:7] (fallback g.view_month) + __all__
+#   POST /employees/override                  -> month = effective_from or start_date[:7] or g.view_month（_refresh_employees_cache 已全量重建刷新 APP_STATE）
+#   POST /employees/remove-override           -> month = g.view_month（同上）
+#   POST /employees/remove-temp-override      -> month = g.view_month（同上）
+#   POST /employees/remove-override-by-id     -> month = override row effective_from/start_date or g.view_month（同上）
 #   POST /employees/bonus-penalty             -> month = body month[:7]
+#   POST /api/salary/inline-edit              -> month = body month[:7]
 #   POST /recalculate                         -> month = g.view_month (per-month recompute)
 #   POST /reload                              -> full clear (all keys) + recompute current month
+# 不变量：MONTH_CACHE miss 后必须走完整 _run_pipeline（含出勤重建+事件推导覆盖），
+#        禁止用 __all__/APP_STATE 旧快照 deepcopy-filter 回写（2026-08-31 数据缺失 bug 根因）。
+
+def _invalidate_all_cache_base():
+    """失效 __all__ 全量快照（数据事实变更点：采集提交/编辑/出勤标记）。
+    __all__ 条目由 _run_pipeline(month_filter=None) 构建，失效后由下一次
+    view_month='all' 读自动重建，保证全量视图不携带陈旧数据。"""
+    with MONTH_CACHE_LOCK:
+        MONTH_CACHE.pop('__all__', None)
 
 def _invalidate_month_cache(month: str | None):
     """Evict single MONTH_CACHE entry for `month` (per-month only). No-op if month invalid."""
@@ -1299,9 +1310,9 @@ def _get_month_data(month: str | None) -> dict | None:
     """
     Cache-aware accessor.
     - hit: return MONTH_CACHE[month] directly
-    - miss deepcopy-filter path: if base full data available, deepcopy filter + temp calculate_all (reuses GET /salary?month= logic)
-    - otherwise full pipeline build via _run_pipeline
-    Headless derived outside lock (not bool(md_filtered['dates']) inside lock).
+    - miss: full pipeline build via _run_pipeline (deepcopy-filter fast path removed 2026-09-01,
+      it rebuilt from stale __all__/APP_STATE base and poisoned the month cache)
+    Headless derived inside _run_pipeline per month.
     """
     if not month or month == 'all':
         try:
@@ -1318,78 +1329,11 @@ def _get_month_data(month: str | None) -> dict | None:
         if cached is not None:
             return cached
 
-    # Try deepcopy-filter from any cached 'all' or from APP_STATE's main_data if it spans requested month
-    # For isolation, we deep copy before filtering and recalc outside lock.
-    base_md = None
-    base_emps = None
-    base_cfg = None
-    with MONTH_CACHE_LOCK:
-        all_entry = MONTH_CACHE.get('__all__')
-        if all_entry is not None:
-            base_md = all_entry.get('main_data')
-            base_emps = all_entry.get('employees')
-            base_cfg = all_entry.get('config_snapshot')
-    if base_md is None:
-        base_md = APP_STATE.get('main_data')
-        base_emps = APP_STATE.get('employees')
-        base_cfg = APP_STATE.get('config')
-    # If base contains requested month dates, use deepcopy-filter fast path
-    if base_md and base_emps and base_cfg is not None:
-        has_month = any(d.startswith(month) for d in base_md.get('dates', [])) if base_md.get('dates') else False
-        # also check production dates to avoid false negative when dates empty but production has month
-        if not has_month:
-            for k in ('shift_production', 'driller_production', 'crush_production', 'attendance'):
-                for rec in base_md.get(k, []):
-                    if rec.get('date', '').startswith(month):
-                        has_month = True
-                        break
-                if has_month:
-                    break
-        if has_month:
-            import copy as _cpy2
-            from core.calculator import calculate_all as _calc2
-            from core.exceptions import load_overrides as _ldov2, load_daily_exclusions as _ldex2
-            from core.database import load_bonus_penalties as _ldbp2
-            md = _cpy2.deepcopy(base_md)
-            for key in ('dates', 'shift_production', 'driller_production', 'attendance', 'crush_production'):
-                if md.get(key):
-                    if key == 'dates':
-                        md[key] = [d for d in md[key] if d.startswith(month)]
-                    else:
-                        md[key] = [d for d in md[key] if d.get('date', '').startswith(month)]
-            headless = not bool(md.get('dates'))
-            overrides = _ldov2(app.config.get('DATA_FOLDER'), month=month)
-            exclusions = _ldex2(app.config.get('DATA_FOLDER'))
-            bonus_penalties = _ldbp2(app.config.get('DATA_FOLDER'), month)
-            result = _calc2(md, _cpy2.deepcopy(base_emps), overrides=overrides, exclusions=exclusions,
-                            pricing=base_cfg, data_folder=app.config.get('DATA_FOLDER'),
-                            bonus_penalties=bonus_penalties)
-            # headless per-month derived outside lock (already computed)
-            # Cache the filtered result as new entry (with its own built_at)
-            built_at = time.time()
-            month_data = {
-                'main_data': md,
-                'employees': _cpy2.deepcopy(base_emps),
-                'salary_result': result,
-                'config_snapshot': _cpy2.deepcopy(base_cfg),
-                'headless': headless,
-                'built_at': built_at,
-                'month': month,
-                'advance_data': None,
-                'parsed': True,
-                'calculated': True,
-            }
-            per_lock = _get_month_lock(month)
-            with per_lock:
-                with MONTH_CACHE_LOCK:
-                    # double-check hit after recalc
-                    if month in MONTH_CACHE:
-                        return MONTH_CACHE[month]
-                    MONTH_CACHE[month] = month_data
-                    _month_cache_evict_if_needed()
-            return month_data
-
-    # Fallback: full pipeline build
+    # ── 缓存 miss → 一律走完整管线 ──
+    # 快路径(deepcopy-filter: __all__ 快照或 APP_STATE['main_data'] 作 base 过滤重算)已移除。
+    # 该路径用陈旧 base 回写单月缓存，绕过出勤重建与事件推导覆盖，
+    # 导致跨月补交后数据台/薪资缺最新提交日（2026-09-01: 8/31 井下钻工 9/1 补交后
+    # 数据台只显示到 8/30 的 bug 根因）。miss 即全量重建，成本可接受（LRU 命中时无重建）。
     md = _run_pipeline(month_filter=month)
     if md is not None:
         return md
@@ -3001,8 +2945,9 @@ def collection_submit():
         sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username,
                                            department=dept)
 
-    # map: POST /api/collection/submit -> MONTH_CACHE[submission_date[:7]] per-month evict
+    # map: POST /api/collection/submit -> MONTH_CACHE[submission_date[:7]] per-month evict + __all__ base evict
     _invalidate_month_cache(date[:7])
+    _invalidate_all_cache_base()
 
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
               json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept, 'month': date[:7]}))
@@ -3176,12 +3121,13 @@ def collection_edit(submission_id):
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
             except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
                 return jsonify({'ok': False, 'error': str(e)}), 400
-    # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict
+    # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict + __all__ base evict
     _invalidate_month_cache(old_date[:7])
     if new_date != old_date:
         _invalidate_month_cache(new_date[:7])
     else:
         _invalidate_month_cache(new_date[:7])
+    _invalidate_all_cache_base()
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
               json.dumps({'submission_id': submission_id, 'form_type': form_type,
                           'date': new_date, 'old_date': old_date, 'month': new_date[:7]}))
@@ -4293,8 +4239,9 @@ def toggle_attendance():
         save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
     except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
         return jsonify({'ok': False, 'error': str(e)}), 400
-    # map: POST /attendance/toggle -> MONTH_CACHE[date[:7] or g.view_month] per-month evict
+    # map: POST /attendance/toggle -> MONTH_CACHE[date[:7] or g.view_month] per-month evict + __all__ base evict
     _invalidate_month_cache((date or '')[:7] or month)
+    _invalidate_all_cache_base()
     _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status, 'month': month, 'invalidated': (date or '')[:7] or month}))
     return jsonify({'ok': True, 'month': month})
 
