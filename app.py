@@ -3401,7 +3401,7 @@ def api_collection_roster():
     if not ok:
         _audit('perm_denied', '', json.dumps({'user': u, 'module': 'collection', 'action': 'roster'}))
         return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
-    emps = list_employees_extended(app.config['DATA_FOLDER']) or []
+    emps = list_employees_extended(app.config['DATA_FOLDER'], status_filter='active') or []
     keep = ('id', 'name', 'department', 'default_type', 'team_id', 'custom_number', 'alias')
     slim = [{k: e.get(k) for k in keep} for e in emps]
     return jsonify({'ok': True, 'employees': slim})
