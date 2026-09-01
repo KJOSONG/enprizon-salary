@@ -282,4 +282,28 @@ OA 同构: 申请三端点 (POST /api/oa/events, /api/oa/leave, /api/leave/sick)
 
 ---
 
+## 十二、井下采集班组化 (P30, feature/ug-attendance-collection)
+
+### 12.1 为什么按 payload 形状分支而不是迁移
+
+井下采集历史 payload `{day:{},night:{}}` 与新格式 `{"teams":[{team_id,nh,nl,mw,exempt,remark}]}` 在 DB 里共存 (collection_submissions 逐日一行)。选择**消费端形状检测** (`'teams' in rec` → 新, `'day_prod' in rec` → 旧) 而非一次性迁移: 8 月及更早的薪资结果必须逐分不变 (历史工资是法律事实), 迁移任何旧 payload 都会引入重新解释的风险。分支点集中在四处: `_merge_collection_to_main_data` (构建 rec)、`calc_underground_piece` + `compute_daily_breakdown` (计算)、`_path1_underground` (核对)、dashboard 聚合。**新旧 rec 永不出现在同一日期**。
+
+### 12.2 出勤与产量的解耦 (需求 5 的架构含义)
+
+旧格式里井下工人的出勤隐含在产量提交的 `emps` 字段——产量和出勤是同一个 payload, "谁在场"由采集产量的人顺手决定。P30 把两者拆开: **工资池的产量来源 = 井下出渣采集 (teams)**, **池分母/出勤事实 = 出勤收集 (attendance UG 班组提交)**。计算链用 `ug_team_members` kwarg (app 从 employees 表构建 {team_id: [ids]}, 逐层传到 calculator/verification), 池分母 = 班组当日 attendance_overrides status='P' 人数; 零出勤班组整池跳过 + 警告 (与 team_id=0 同策略, 宁可不发也不错发)。驾驶标记改为 `_reapply_driver_flags_for_date` 双源合并: 旧格式读 payload day/night.drivers, 新格式读出勤收集 payload.drivers——8 月只有前者, 9 月起只有后者, 按日期天然隔离。
+
+### 12.3 驾驶白名单的"非空才校验"语义
+
+生产 `driver_roster` 表为空但 8 月有 38 个驾驶日——历史行为是前端提示、后端不强制。若照抄"名单外拒绝", 空名单会把驾驶标记全部锁死。故语义定为: **driver_roster 非空 = 白名单启用 (名单外 400); 为空 = 未启用 (放行)**。前端同语义 (空名单不 disable 勾选框)。
+
+### 12.4 豁免二次编辑只开一个窄端点
+
+super_admin 改已提交记录的豁免标志, 不复用整包替换的 collection_edit (会绕过"只改豁免"的意图且要求持有采集表单键), 而是新开 `POST /api/collection/exempt/<id>`: 仅 super_admin、只 patch exempt 字段、走 update_collection_submission 版本归档、审计 `collection_exempt_edit` 记录新旧值、缓存失效惰性重算。窄接口 = 小审计面。
+
+### 12.5 数据台的格式自适应
+
+Dashboard 是实时重算 (非快照), 所以"9 月起按班组展示"不需要月份硬编码: 新格式 rec 在响应元素上**追加** `teams:[{team_id,team_name,nh,nl,mw,total}]` (老键不动), 前端按元素有无 `teams` 键分流渲染班组对比图/班组 KPI 或白夜班图。8 月自动保持原样。
+
+---
+
 *原则: 本文档存于项目根目录随代码一起维护, 代码大改时同步更新。*

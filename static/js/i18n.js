@@ -1142,6 +1142,9 @@ const I18N_DICT = {
     col_ug_team: '班组', col_ug_team_placeholder: '请选择班组', col_ug_exempt: '设备故障豁免',
     col_ug_exempt_hint: '豁免日倍率锁1.0', col_ug_team_required: 'V2模式下请选择班组',
     col_emp_not_in_team: '所选出勤人员中有不属于该班组的成员',
+    col_ug_team_row: '班组', col_ug_add_team: '添加班组', col_ug_remove_team: '删除班组',
+    col_att_ug_team: '选择班组', col_att_driver: '驾驶', col_att_driver_not_roster: '该员工不在司机名单',
+    col_ug_no_attendance_warn: '该班组当日无出勤人员，产量池将跳过', dash_team_compare: '班组产量对比', dash_team_title: '班组',
     /* V2: 配置页 */
     settings_ug_mode_v2: '⚡ 凸性计件 V2',
     settings_ug_mode_v2_desc: 'V2模式: 班组日池凸性加速 + 月末出勤/行为系数零和再分配',
@@ -2299,6 +2302,9 @@ const I18N_DICT = {
     col_ug_team: 'Team', col_ug_team_placeholder: 'Select team', col_ug_exempt: 'Equipment Fault Exempt',
     col_ug_exempt_hint: 'Exempt day multiplier locked 1.0',     col_ug_team_required: 'Team is required in V2 mode',
     col_emp_not_in_team: 'Some selected workers are not in the selected team',
+    col_ug_team_row: 'Team', col_ug_add_team: 'Add Team', col_ug_remove_team: 'Remove Team',
+    col_att_ug_team: 'Select Team', col_att_driver: 'Driver', col_att_driver_not_roster: 'Not in driver roster',
+    col_ug_no_attendance_warn: 'No attendance for this team; pool will be skipped', dash_team_compare: 'Team Production', dash_team_title: 'Team',
     /* V2: Config page */
     settings_ug_mode_v2: '⚡ Convex Piecework V2',
     settings_ug_mode_v2_desc: 'V2: Team daily pool convex acceleration + month-end attendance/behavior coefficient zero-sum redistribution',

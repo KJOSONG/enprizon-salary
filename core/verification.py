@@ -21,7 +21,7 @@ DEFAULT_PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 
 
 
 def verify_salary(main_data, salary_result, prices_underground=None, prices_driller=None,
-                  underground_mode=None, pricing=None):
+                  underground_mode=None, pricing=None, ug_team_members=None):
     """
     执行双路径薪资核对
     ──────────────────────────────
@@ -60,6 +60,7 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
     ug_path1, ug_daily = _path1_underground(
         main_data.get('shift_production', []), pu,
         underground_mode=underground_mode, pricing=pricing,
+        ug_team_members=ug_team_members,
     )
     dr_path1, dr_daily = _path1_driller(main_data.get('driller_production', []), pd)
 
@@ -137,21 +138,63 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
 #  路径一 内部实现
 # ═══════════════════════════════════════════════════════════
 
-def _path1_underground(shift_production, prices, underground_mode=None, pricing=None):
+def _path1_underground(shift_production, prices, underground_mode=None, pricing=None, ug_team_members=None):
     """
     路径一 — 井下计件基准计算
     直接从产量数据求和，不涉及人员分配
     V2 mode: 按 (date, shift) 算 convex pool = Σ(prod×accel_price) × multiplier
+    新格式（C2）：含 'teams' 键时按 team 维度计池，ug_team_members 缺失则跳过
     返回: (总金额, 逐日明细)
     """
     v2_active = (underground_mode == 'v2' and pricing is not None)
     v2_accel_target = int(pricing.get('accel_target', 40) or 40) if v2_active else 40
     v2_prices = (pricing.get('accel_prices') or {}) if v2_active else {}
+    _v2_default_prices = {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000}
+    if v2_active and not v2_prices:
+        v2_prices = _v2_default_prices
 
     daily = []
     total = 0
 
     for day in shift_production:
+        # 新格式分支：teams 维度
+        if 'teams' in day:
+            _teams = day.get('teams') or []
+            _day_total_new = 0
+            _nh = _nl = _mw = 0
+            for _t in _teams:
+                _tid = _t.get('team_id', 0)
+                _prod = _t.get('prod') or {}
+                _exempt = _t.get('exempt', False)
+                if _tid == 0:
+                    continue
+                if ug_team_members is None or _tid not in ug_team_members:
+                    continue
+                # 与 calculator 一致：缺考勤导致零分母在 path1 视为跳过仅当能判定？无 DB 时按存在处理
+                # 若需严格零考勤跳过，调用方应传 data_folder 感知；此处按 roster 存在即计池，保证 piecework 总额一致
+                if v2_active:
+                    _prices = v2_prices if v2_prices else _v2_default_prices
+                    _base = sum((_prod.get(k, 0) or 0) * _prices.get(k, 0) for k in _prices)
+                    _cars = sum(_prod.get(k, 0) or 0 for k in _prices)
+                    _mult = 1.0 if _exempt else (_cars / v2_accel_target if v2_accel_target else 1.0)
+                    _pool = _base * _mult
+                else:
+                    _pool = sum((_prod.get(k, 0) or 0) * prices.get(k, 0) for k in prices)
+                _day_total_new += _pool
+                _nh += _prod.get('NICKEL（H）', 0) or 0
+                _nl += _prod.get('NICKEL（L）', 0) or 0
+                _mw += _prod.get('MAWE', 0) or 0
+            total += _day_total_new
+            daily.append({
+                'date': day.get('date', ''),
+                'day_total': _day_total_new,
+                'night_total': 0,
+                'combined': _day_total_new,
+                'nh': _nh,
+                'nl': _nl,
+                'mw': _mw,
+            })
+            continue
         day_prod = day.get('day_prod') or {}
         night_prod = day.get('night_prod') or {}
 

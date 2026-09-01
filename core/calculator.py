@@ -66,11 +66,12 @@ CURRENT_YEAR = TODAY.year
 #  1. 生产薪资计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None, mode=None, pricing=None):
+def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None, mode=None, pricing=None, ug_team_members=None):
     """
     计算井下工人计件工资
     白班+夜班合并，总金额均分给出勤人员
     V2 mode: 按班组做凸性加速池（accel_prices + multiplier）
+    新格式（C2）：shift_data 中 rec 含 'teams' 键时按 team 维度计池，分母来自 ug_team_members + P 考勤
     返回: { employee_id: total_salary }, { employee_id: { date: amount } }
     """
     result = defaultdict(float)
@@ -81,6 +82,10 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
     v2_active = (mode == 'v2' and pricing is not None)
     v2_accel_target = int(pricing.get('accel_target', 40) or 40) if v2_active else 40
     v2_prices = (pricing.get('accel_prices') or {}) if v2_active else {}
+    # 新格式默认单价兜底（与 config 默认一致）
+    _v2_default_prices = {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000}
+    if v2_active and not v2_prices:
+        v2_prices = _v2_default_prices
 
     # 加载手动加入计件分配（从 overrides 表读取，展开日期区间）
     shift_adds = {}
@@ -115,8 +120,72 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                 if eid_check:
                     attendance_pairs.add((eid_check, dt))
 
+    # 新格式 P 考勤集合（ug_team_members 定分母：仅 P 且未被排除者计入）
+    _p_pairs = None
+    if ug_team_members is not None and data_folder:
+        _dbp_p = os.path.join(data_folder, 'kilwa.db')
+        if os.path.exists(_dbp_p):
+            try:
+                import sqlite3 as _sql_p
+                _cp = _sql_p.connect(_dbp_p)
+                rows_p = _cp.execute("SELECT employee_id, date FROM attendance_overrides WHERE status='P'").fetchall()
+                _p_pairs = set((r[0], r[1]) for r in rows_p)
+                _cp.close()
+            except Exception:
+                _p_pairs = set()
+
     for day in shift_data:
         date_str = day['date']
+        # ── 新格式：teams 维度（C2）──
+        if 'teams' in day:
+            teams = day.get('teams') or []
+            for _team in teams:
+                _tid = _team.get('team_id', 0)
+                _prod = _team.get('prod') or {}
+                _exempt = _team.get('exempt', False)
+                if _tid == 0:
+                    v2_warnings.append(f"team_id=0 {date_str} team {_tid} skipped")
+                    continue
+                if ug_team_members is None or _tid not in ug_team_members:
+                    v2_warnings.append(f"no team roster / zero attendance, pool skipped team {_tid} {date_str}")
+                    continue
+                _roster = ug_team_members.get(_tid) or []
+                # P 筛选 + 防御性排除
+                if _p_pairs is not None:
+                    _candidates = [eid for eid in _roster if (eid, date_str) in _p_pairs]
+                else:
+                    _candidates = list(_roster)
+                _valid = _filter_valid(_candidates, exclusions, override_excludes, date_str)
+                # 去重（与旧分支一致）
+                _seen = set()
+                _deduped = []
+                for _e in _valid:
+                    _eid_tmp = make_employee_id(_e)
+                    if _eid_tmp and _eid_tmp not in _seen:
+                        _seen.add(_eid_tmp)
+                        _deduped.append(_e)
+                _valid = _deduped
+                if not _valid:
+                    v2_warnings.append(f"team {_tid} {date_str} zero attendance, pool skipped")
+                    continue
+                # 计池
+                if v2_active:
+                    _prices = v2_prices if v2_prices else _v2_default_prices
+                    _total_cars = sum(_prod.get(k, 0) or 0 for k in _prices)
+                    _mult = 1.0 if _exempt else (_total_cars / v2_accel_target if v2_accel_target else 1.0)
+                    _pool = sum((_prod.get(k, 0) or 0) * _prices.get(k, 0) for k in _prices) * _mult
+                else:
+                    _pool = sum((_prod.get(k, 0) or 0) * PRICES_UNDERGROUND.get(k, 0) for k in PRICES_UNDERGROUND)
+                if _pool <= 0:
+                    continue
+                _per = _pool / len(_valid)
+                for _e in _valid:
+                    _eid = make_employee_id(_e)
+                    if _eid:
+                        result[_eid] += _per
+                        daily[_eid][date_str] += _per
+                        daily_shifts[_eid][date_str].add(str(_tid))
+            continue
         day_emps = day.get('day_emps', [])
         night_emps = day.get('night_emps', [])
         day_prod = day.get('day_prod')
@@ -715,7 +784,7 @@ def calc_monthly_salary(employees, overrides, underground_mode='piecework'):
         if is_monthly and emp.get('monthly_salary', 0) > 0:
             result[eid] = emp['monthly_salary']
     return result
-def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, bonus_penalties=None):
+def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, bonus_penalties=None, ug_team_members=None):
     overrides = overrides or {}
     exclusions = exclusions or set()
     pricing = pricing or {}
@@ -892,7 +961,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
-        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing)
+        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing, ug_team_members=ug_team_members)
         driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_exclusions | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         monthly_base = calc_monthly_salary(employees, overrides, underground_mode=underground_mode)
@@ -1184,7 +1253,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 #  日工资明细（复用逐日单轨逻辑）
 # ═══════════════════════════════════════════════════════════
 
-def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None):
+def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, ug_team_members=None):
     """逐日工资明细，与 calculate_all 共用 per_date_type + 子函数结果"""
     overrides = overrides or {}
     exclusions = exclusions or set()
@@ -1349,7 +1418,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
-        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing)
+        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing, ug_team_members=ug_team_members)
         dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_excl | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
 

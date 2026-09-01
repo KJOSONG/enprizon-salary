@@ -147,6 +147,8 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 ```
 月份范围由采集数据中的日期生成（不再扫描 `data/source/`，该目录已清空）。`scan_source_files()` 与 `parser.parse_all()`（Excel 解析）已在纯采集改造中移除；Excel 仅保留于历史归档（`data/archived_*`）。
 
+> **P30 井下采集班组化（feature/ug-attendance-collection，待部署）**：井下出渣采集改为**班组产量制**——payload 新格式 `{"teams":[{team_id,nh,nl,mw,exempt,remark}]}`（无 day/night/emps/drivers），一日一条提交；井下工人出勤并入**出勤收集**（部门选 `Production TEAM （underground）` → 选班组 → 人员逐人标 P/A/L/SK/T/E + 驾驶勾选），payload `{department,team_id,marks,drivers}`，upsert 键扩为 (form,date,department,team_id)（`collection_submissions` 懒迁移 `team_id` 列）。**格式分支原则**：消费端一律按"rec 含 `teams` 键=新格式 / 含 `day_prod`=旧格式"分流，旧 payload 逐字保留 → 8 月及更早零改动（验收=改动前后 2026-08 全员薪资逐分 0 差异）。计算链 `ug_team_members` kwarg（app 构建花名册 → calculator/verification），池分母=班组当日 P 人数，零出勤班组跳过+警告。驾驶白名单语义：`driver_roster` **非空才校验**（空=未启用，兼容生产现状）。新增豁免二次编辑端点 `POST /api/collection/exempt/<id>`（仅 super_admin，版本归档+审计 `collection_exempt_edit`）。数据台按数据格式分支：新格式月渲染班组对比图+班组 KPI，旧月白夜班原样。
+
 > `employee_id` 生成链路（`namematch.py`）在纯采集模式下从 **DB `employees` 表**构建 `_AB_INDEX`（不再依赖通讯录 Excel），其余三级匹配逻辑不变（见下）。
 
 ### employee_id 生成链路（`namematch.py`）
@@ -523,7 +525,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ### 下一步
 
 0. **P29 权限体系 V2.1 ✅ 已部署（2026-08-23）**：main=be3efce 上线，服务器首启迁移日志确认「P29 权限目录 V2.1 迁移完成」，perm_v2_migrated=1、五内置角色行数精确、存量 editor 平移保留；回滚预案=data/backups/kilwa_before_p29_20260823_194713.db。后续观察项：各角色登录走查 + 权限编辑器分组显示
-1. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）
-2. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
-3. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
-4. **移动端真机验收**：采集班组选择器 + 出勤 E 在真机走查
+1. **P30 井下班组化 ✅ 开发完成（feature/ug-attendance-collection，待用户批准部署）**：班组产量制 + 出勤收集并入 UG 班组 + 数据台班组图 + 豁免超管二次编辑（详见上方 §数据流水线 P30 注）；验收证据：pytest 25 绿（19 新 + 6 旧）、改动前后 2026-08 全员薪资逐分 0 差异（`_work/ug-attendance/compare_august.py`）、沙箱 piecework+v2 双模式端到端走查全过、浏览器三表面实测（截图 `_work/ug-attendance/screenshots/`）
+2. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）；**注意生产 settings.config 当前 `underground_mode='scoring'`**（2026-09-01 快照确认），切 V2 前新格式班组产量在 scoring 下不计件
+3. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
+4. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
+5. **移动端真机验收**：采集班组选择器 + 出勤 E 在真机走查

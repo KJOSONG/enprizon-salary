@@ -428,6 +428,7 @@
     var r=(STATE.auth||{}).role;
     return r==='admin'||r==='super_admin';
   }
+  function isSuperAdmin(){ return (STATE.auth||{}).role==='super_admin'; }
   function checkAuth(){
     return api('/api/auth/status').then(a=>{
       if(!a.permissions) a.permissions = [];
@@ -541,9 +542,21 @@
   function setDnTab(v){ STATE.dnTab=v; document.querySelectorAll('#dn-cmp-tab .cmp-tab__item').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); drawDayNight(); }
 
   // 按班次 + 矿石类型双重过滤，返回逐日 {date, nh, nl, mw, total}
+  // C8: 新格式(teams)存在时按 teams 聚合(不受 shiftFilter)，旧格式保持原逻辑
   function filteredShift(){
     const d = STATE.dashboard; if(!d) return [];
-    const ore = STATE.dashOreFilter; // all 时取合计
+    const ore = STATE.dashOreFilter;
+    const isNew = (d.shift_production||[]).some(s=>Array.isArray(s.teams));
+    if(isNew){
+      return (d.shift_production||[]).map(s=>{
+        let nh=0,nl=0,mw=0;
+        (s.teams||[]).forEach(tm=>{ nh+=(tm.nh||0); nl+=(tm.nl||0); mw+=(tm.mw||0); });
+        if(ore==='nh'){ nl=0; mw=0; }
+        else if(ore==='nl'){ nh=0; mw=0; }
+        else if(ore==='mw'){ nh=0; nl=0; }
+        return { date:s.date, nh, nl, mw, total:nh+nl+mw, teams:s.teams||[] };
+      });
+    }
     return (d.shift_production||[]).map(s=>{
       let nh, nl, mw;
       if(STATE.shiftFilter==='day'){ nh=s.day_nh||0; nl=s.day_nl||0; mw=s.day_mw||0; }
@@ -564,23 +577,39 @@
     const dayTot = data.map(s=>s.total).filter(x=>x>0);
     const avg = dayTot.length? dayTot.reduce((a,b)=>a+b,0)/dayTot.length : 0;
     const maxVal = dayTot.length? Math.max(...dayTot) : 0;
-    // 日最高对应日期
     const maxDate = maxVal? (data.find(s=>s.total===maxVal)||{}).date||'' : '';
-    // 白夜班比（不受矿石过滤影响，用原始 shift 数据）
-    const daySum = (STATE.dashboard.shift_production||[]).reduce((a,s)=>a+s.day_nh+s.day_nl+s.day_mw,0);
-    const nightSum = (STATE.dashboard.shift_production||[]).reduce((a,s)=>a+s.night_nh+s.night_nl+s.night_mw,0);
-    const ratio = nightSum? (daySum/nightSum).toFixed(2)+':1' : '—';
-
-    // 6 KPI：本月NH/NL/MW + 日均 + 日最高(带kpi-sub) + 白夜班比
-    const kpis = [
-      { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
-      { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
-      { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
-      { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
-      { l:t('kpi_day_max'), v:fmt(maxVal), sub:maxDate? maxDate.slice(5).replace('-','/') : '', ind:'ind-i2' },
-      { l:t('kpi_ratio'), v:ratio, ind:'ind-i4' },
-    ];
-    document.getElementById('kpi-grid').innerHTML = kpis.map(k=>'<div class="kpi '+k.ind+'"><div class="kpi__label">'+k.l+'</div><div class="kpi__value">'+k.v+'</div>'+(k.sub?'<div class="kpi-sub">'+k.sub+'</div>':'')+'</div>').join('');
+    const isNew = (STATE.dashboard.shift_production||[]).some(s=>Array.isArray(s.teams));
+    let kpis;
+    if(isNew){
+      // C8: 新格式按班组 totals 替代白夜班比
+      const teamTotals={};
+      (STATE.dashboard.shift_production||[]).forEach(s=>{(s.teams||[]).forEach(tm=>{
+        const nm=tm.team_name||('T'+tm.team_id);
+        teamTotals[nm]=(teamTotals[nm]||0)+(tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0)));
+      });});
+      const teamStr = Object.keys(teamTotals).length? Object.entries(teamTotals).map(([k,v])=>k+':'+fmt(v)).join('  ') : '—';
+      kpis = [
+        { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
+        { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
+        { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
+        { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
+        { l:t('kpi_day_max'), v:fmt(maxVal), sub:maxDate? maxDate.slice(5).replace('-','/') : '', ind:'ind-i2' },
+        { l:t('dash_team_title'), v:teamStr, ind:'ind-i4' },
+      ];
+    } else {
+      const daySum = (STATE.dashboard.shift_production||[]).reduce((a,s)=>a+s.day_nh+s.day_nl+s.day_mw,0);
+      const nightSum = (STATE.dashboard.shift_production||[]).reduce((a,s)=>a+s.night_nh+s.night_nl+s.night_mw,0);
+      const ratio = nightSum? (daySum/nightSum).toFixed(2)+':1' : '—';
+      kpis = [
+        { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
+        { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
+        { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
+        { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
+        { l:t('kpi_day_max'), v:fmt(maxVal), sub:maxDate? maxDate.slice(5).replace('-','/') : '', ind:'ind-i2' },
+        { l:t('kpi_ratio'), v:ratio, ind:'ind-i4' },
+      ];
+    }
+    document.getElementById('kpi-grid').innerHTML = kpis.map(k=>'<div class="kpi '+k.ind+'"><div class="kpi__label">'+k.l+'</div><div class="kpi__value" style="font-size:'+(k.v.length>18?'11px':'')+'">'+k.v+'</div>'+(k.sub?'<div class="kpi-sub">'+k.sub+'</div>':'')+'</div>').join('');
 
     drawTrend();
     drawDayNight();
@@ -628,22 +657,34 @@
   function drawTrend(){
     const sp = STATE.dashboard.shift_production || [];
     if(!sp.length) return;
+    const isNew = sp.some(s=>Array.isArray(s.teams));
     const labels = sp.map(s=>s.date.slice(5));
-    // 线 = 矿石维度(对齐桌面端);取值 = 班次维度(#dash-shift-seg: all/day/night)
     const oreKeys = STATE.dashOreFilter==='all' ? ['nh','nl','mw'] : [STATE.dashOreFilter];
-    const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
     const colors = { nh:'hsl(30 92% 52%)', nl:'hsl(210 85% 52%)', mw:'hsl(150 70% 38%)' };
+    let datasets, tooltipCb;
+    if(isNew){
+      // C8: 新格式趋势用 teams 聚合 totals（total_ 前缀语义）
+      const fs = filteredShift();
+      tooltipCb = (ctx)=>{
+        const k = ctx.dataset.oreKey;
+        return ' '+k.toUpperCase()+': '+fmt(ctx.parsed.y||0);
+      };
+      datasets = oreKeys.map(k=>({ label:k.toUpperCase(), oreKey:k, data: fs.map(s=>s[k]||0), borderColor:colors[k], backgroundColor:'transparent', fill:false, tension:0.3, pointRadius:0 }));
+    } else {
+      const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
+      tooltipCb = (ctx)=>{
+        const k = ctx.dataset.oreKey;
+        const s = sp[ctx.dataIndex];
+        const dayV = s ? (s['day_'+k]||0) : 0;
+        const nightV = s ? (s['night_'+k]||0) : 0;
+        return ' '+k.toUpperCase()+': '+fmt(ctx.parsed.y||0)+'  ('+t('day_shift')+' '+fmt(dayV)+' / '+t('night_shift')+' '+fmt(nightV)+')';
+      };
+      datasets = oreKeys.map(k=>({ label:k.toUpperCase(), oreKey:k, data: sp.map(s=>s[prefix+k]||0), borderColor:colors[k], backgroundColor:'transparent', fill:false, tension:0.3, pointRadius:0 }));
+    }
     const opts = Object.assign(baseOpts(), {
       plugins:{
         legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
-        tooltip:{ mode:'index', intersect:false, callbacks:{ label:(ctx)=>{
-          // 当前班次值 + 白/夜拆分
-          const k = ctx.dataset.oreKey;
-          const s = sp[ctx.dataIndex];
-          const dayV = s ? (s['day_'+k]||0) : 0;
-          const nightV = s ? (s['night_'+k]||0) : 0;
-          return ' '+k.toUpperCase()+': '+fmt(ctx.parsed.y||0)+'  ('+t('day_shift')+' '+fmt(dayV)+' / '+t('night_shift')+' '+fmt(nightV)+')';
-        } } },
+        tooltip:{ mode:'index', intersect:false, callbacks:{ label:tooltipCb } },
       },
       hover:{ mode:'index', intersect:false },
       onHover: trendHover,
@@ -654,12 +695,7 @@
         zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode:'x' },
       };
     }
-    newChart('chart-trend', { type:'line', data:{ labels, datasets: oreKeys.map((k,i)=>({
-      label:k.toUpperCase(), oreKey:k,
-      data: sp.map(s=>s[prefix+k]||0),
-      borderColor:colors[k], backgroundColor:'transparent',
-      fill: false, tension:0.3, pointRadius:0,
-    })) }, options: opts, plugins:[crosshairPlugin] });
+    newChart('chart-trend', { type:'line', data:{ labels, datasets }, options: opts, plugins:[crosshairPlugin] });
     // 修复: zoom 插件精简版(12KB)defaults 无 doubleClick 配置,双击重置不生效。
     // 改手动 dblclick 监听调用 chart.resetZoom()(函数存在且可用),防重复绑定用 canvas 标志。
     const _trendEl = document.getElementById('chart-trend');
@@ -668,10 +704,37 @@
       _trendEl.addEventListener('dblclick', ()=>{ const c=STATE.charts['chart-trend']; if(c && c.resetZoom) c.resetZoom(); });
     }
   }
-  // 白班 vs 夜班：按 dnTab 切换 NH/NL/MW/合计 双柱
+  // 白班 vs 夜班：按 dnTab 切换 NH/NL/MW/合计 双柱 — C8 新格式用班组对比
   function drawDayNight(){
     const sp = STATE.dashboard.shift_production || [];
     const labels = sp.map(s=>s.date.slice(5));
+    const isNew = sp.some(s=>Array.isArray(s.teams));
+    // 标题切换
+    const titleEl = document.querySelector('#tab-dashboard .chart-box:nth-of-type(2) .chart-box__title');
+    if(titleEl) titleEl.textContent = isNew ? t('dash_team_compare') : t('day_night');
+    const tabEl = document.getElementById('dn-cmp-tab');
+    if(tabEl) tabEl.style.display = isNew ? 'none' : '';
+    if(isNew){
+      // 按班组对比：每组一个数据集，值按 ore 过滤
+      const ore = STATE.dnTab;
+      const teamIds = [...new Set(sp.flatMap(s=>(s.teams||[]).map(tm=>tm.team_id)))].sort((a,b)=>a-b);
+      const teamNames = {};
+      sp.forEach(s=>{(s.teams||[]).forEach(tm=>{ teamNames[tm.team_id]=tm.team_name||('T'+tm.team_id); });});
+      const colors = ['hsl(200 60% 45%)','hsl(180 50% 40%)','hsl(30 80% 50%)','hsl(150 40% 40%)','hsl(280 50% 50%)'];
+      const datasets = teamIds.map((tid,i)=>{
+        const data = sp.map(s=>{
+          const tm=(s.teams||[]).find(x=>x.team_id===tid);
+          if(!tm) return 0;
+          if(ore==='nh') return tm.nh||0;
+          if(ore==='nl') return tm.nl||0;
+          if(ore==='mw') return tm.mw||0;
+          return tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0));
+        });
+        return { label:teamNames[tid]||('T'+tid), data, backgroundColor:colors[i%colors.length], borderRadius:3 };
+      });
+      newChart('chart-daynight', { type:'bar', data:{ labels, datasets }, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
+      return;
+    }
     const ore = STATE.dnTab;
     const field = ore==='nh'?'nh':(ore==='nl'?'nl':(ore==='mw'?'mw':null));
     const dayData = sp.map(s=> field? (s['day_'+field]||0) : (s.day_nh+s.day_nl+s.day_mw));
@@ -1121,23 +1184,46 @@
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
       const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
       el.innerHTML = subs.length? subs.map(s=>{
-        // 解析班次标注 + 部门
-        let shiftChip='', sub='', dept='';
+        let shiftChip='', sub='', dept='', exemptBadges='';
         try{
           const p = JSON.parse(s.payload||'{}');
           dept = s.department || (p.department||'');
           if(s.form_type==='underground'){
-            const dayEmps=(p.day&&p.day.emps)||[], nightEmps=(p.night&&p.night.emps)||[];
-            if(dayEmps.length && nightEmps.length){ shiftChip='<span class="shift-chip day">D</span><span class="shift-chip night">N</span>'; }
-            else if(dayEmps.length) shiftChip='<span class="shift-chip day">D</span>';
-            else if(nightEmps.length) shiftChip='<span class="shift-chip night">N</span>';
-            sub = (dayEmps.length+nightEmps.length)+' '+t('emp');
+            if(Array.isArray(p.teams)){
+              sub = p.teams.length+' '+t('col_ug_team_row');
+              p.teams.forEach(tm=>{
+                if(tm && tm.exempt){
+                  exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+' T'+esc(tm.team_id)+'</span>';
+                  if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(tm.exempt?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄</button>';
+                } else if(isSuperAdmin() && tm){
+                  exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,false)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;opacity:0.6;">⇄</button>';
+                }
+              });
+            } else {
+              const dayEmps=(p.day&&p.day.emps)||[], nightEmps=(p.night&&p.night.emps)||[];
+              if(dayEmps.length && nightEmps.length){ shiftChip='<span class="shift-chip day">D</span><span class="shift-chip night">N</span>'; }
+              else if(dayEmps.length) shiftChip='<span class="shift-chip day">D</span>';
+              else if(nightEmps.length) shiftChip='<span class="shift-chip night">N</span>';
+              sub = (dayEmps.length+nightEmps.length)+' '+t('emp');
+              if(p.day && p.day.exempt){
+                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+' D</span>';
+                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,true)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄</button>';
+              } else if(isSuperAdmin() && p.day){
+                exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,false)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;opacity:0.6;">⇄</button>';
+              }
+              if(p.night && p.night.exempt){
+                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+' N</span>';
+                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,true)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄</button>';
+              } else if(isSuperAdmin() && p.night){
+                exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,false)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;opacity:0.6;">⇄</button>';
+              }
+            }
           } else if(s.form_type==='driller'){ const teams=p.teams||[]; sub = teams.length+' '+t('add_team'); }
           else if(s.form_type==='crush'){ sub = (p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
           else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
         }catch(e){}
         const deptChip = dept ? ' · '+esc(dept) : '';
-        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+'</span></div>';
+        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+exemptBadges+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
@@ -1153,16 +1239,26 @@
     const e=(STATE.employees||[]).find(x=>String(x.id)===String(id));
     return e? (e.name||id) : String(id||'');
   }
-  function colDetailSummary(ty, p){
+  function colDetailSummary(ty, p, sid){
     const names=(ids)=>(ids||[]).map(colMobEidName).join(', ')||'—';
     const ST={D:t('st_d'),N:t('st_n'),P:t('st_p'),A:t('st_a'),L:t('st_l'),C:t('st_c'),R:t('st_r'),B:t('st_b')};
+    const _badge='<span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+'</span>';
+    const _btn=(tid,isOld,cur)=> isSuperAdmin() && sid ? '<button onclick="toggleColExempt(\''+sid+'\','+(isOld?'\''+tid+'\'':tid)+','+(isOld?'true':'false')+','+(cur?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:4px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄ '+t('col_ug_exempt')+'</button>' : '';
     if(ty==='underground'){
+      if(Array.isArray(p.teams)){
+        if(!p.teams.length) return '<div class="detail-line">'+t('no_history')+'</div>';
+        return p.teams.map(tm=>'<div class="detail-line" style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
+          + '<div style="font-weight:600;">'+t('col_ug_team_row')+' '+esc(String(tm.team_id))+(tm.exempt?' '+_badge:'')+_btn(tm.team_id,false,!!tm.exempt)+'</div>'
+          + '<div>NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
+          + (tm.remark?'<div>'+esc(tm.remark)+'</div>':'')
+          + '</div>').join('');
+      }
       const day=p.day||{}, night=p.night||{};
-      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+'</div>'
+      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+(day.exempt?' '+_badge:'')+_btn('day',true,!!day.exempt)+'</div>'
         + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(day.emps))+'</div>'
         + '<div class="detail-line">🚗 '+t('col_drivers')+': '+esc(names(day.drivers))+'</div>'
         + (day.remark?'<div class="detail-line">'+t('remark_day')+': '+esc(day.remark)+'</div>':'')
-        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+'</div>'
+        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+(night.exempt?' '+_badge:'')+_btn('night',true,!!night.exempt)+'</div>'
         + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(night.emps))+'</div>'
         + '<div class="detail-line">🚗 '+t('col_drivers')+': '+esc(names(night.drivers))+'</div>'
         + (night.remark?'<div class="detail-line">'+t('remark_night')+': '+esc(night.remark)+'</div>':'');
@@ -1206,10 +1302,33 @@
       + '<div class="info-row"><span class="info-row__label">'+t('col_version')+'</span><span class="info-row__value">'+(s.version||1)+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('col_operator')+'</span><span class="info-row__value">'+esc(s.operator_id||'')+'</span></div>'
       + '<div style="margin:10px 0;border-top:1px solid var(--border);"></div>'
-      + colDetailSummary(s.form_type, p)
+      + colDetailSummary(s.form_type, p, s.id)
       + (canEdit ? '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="editColDetail('+s.id+',\''+s.form_type+'\')">'+t('col_edit_btn')+'</button>'
         : '<div style="margin-top:12px;font-size:12px;color:var(--muted-foreground);">'+t('col_readonly_hint')+'</div>');
     openSheet(typeLabel[s.form_type]||'', body);
+  }
+  async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt){
+    if(!isSuperAdmin()){ toast(t('need_super_admin')||'need super admin','error'); return; }
+    const newVal=!currentExempt;
+    const body = isOldFormat ? {shift:String(teamOrShift), exempt:newVal} : {team_id:parseInt(teamOrShift,10), exempt:newVal};
+    try{
+      const res = await apiStatus('/api/collection/exempt/'+submissionId, {method:'POST', body:JSON.stringify(body)});
+      const j=res.json;
+      if(res.status===200 && j.ok){
+        toast(t('saved'));
+        closeSheet();
+        renderColHistoryList();
+        // also refresh detail if needed - re-open detail with updated payload
+        const upd = (STATE._colSubs||[]).find(x=>String(x.id)===String(submissionId));
+        if(upd){
+          // optimistically bump version and payload in local cache
+          try{ const pl=JSON.parse(upd.payload||'{}'); if(isOldFormat){ const sh=String(teamOrShift); if(pl[sh]) pl[sh].exempt=newVal; upd.payload=JSON.stringify(pl);} else { (pl.teams||[]).forEach(tm=>{ if(String(tm.team_id)===String(teamOrShift)) tm.exempt=newVal; }); upd.payload=JSON.stringify(pl);} }catch(e){}
+          upd.version=j.version||((upd.version||1)+1);
+        }
+      } else {
+        toast((j&&j.error)||t('fail'),'error');
+      }
+    }catch(e){ toast(t('fail'),'error'); }
   }
   function editColDetail(id, ty){
     const s=(STATE._colSubs||[]).find(x=>x.id===id);
@@ -1251,53 +1370,130 @@
     }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
   }
 
-  // 井下出渣：白/夜分段卡片展示双段数据（payload 结构不变；init 为编辑预填 payload）
+  // 井下出渣(C1): 新格式 teams[]，旧格式 day/night 兼容保留
   async function renderUgForm(init){
+    const isOld = !!(init && (init.day || init.night) && !init.teams);
+    if(isOld){
+      const d = (init && init.submission_date) || '';
+      const day = (init && init.day) || {}, night = (init && init.night) || {};
+      let ugGroups = [];
+      try { const gRes = await api('/api/employee_groups'); ugGroups = gRes.groups || []; } catch(e) { ugGroups = []; }
+      STATE._ugGroups = ugGroups;
+      const teamOpts = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
+      const seg=(p, title, dotClass, s)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
+        + '<div style="display:flex;gap:6px;">'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="'+((s&&s.nl)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="'+((s&&s.mw)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;align-items:center;margin:4px 0;">'
+        + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('col_ug_team')+'</label><select id="'+p+'Team" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts((s&&s.team_id)||'')+'</select></div>'
+        + '<label class="field__label" style="display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;padding-top:18px;"><input type="checkbox" id="'+p+'Exempt" '+(s&&s.exempt?'checked':'')+'><span style="font-size:12px;">'+t('col_ug_exempt')+'</span></label>'
+        + '</div>'
+        + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:((s&&s.emps)||[]).length})+'</div><div id="'+p+'EmpsBox"></div></div>'
+        + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:((s&&s.drivers)||[]).length})+'</div><div id="'+p+'DriversBox"></div></div>'
+        + '</div>';
+      document.getElementById('col-form').innerHTML =
+        '<div class="form-head"><span class="form-head__title">'+t('col_ug')+'</span></div>'
+        + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
+        + '<div class="form-message" id="colFormMsg"></div>'
+        + seg('ugDay', t('day_shift'), 'day', day)
+        + seg('ugNight', t('night_shift'), 'night', night)
+        + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark" value="'+esc(init&&init.remark||'')+'"></div>'
+        + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2" value="'+esc(init&&init.remark2||'')+'"></div>'
+        + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
+      document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',(day.emps||[]),'ugDay', deptPool('underground'));
+      document.getElementById('ugDayDriversBox').innerHTML=(day.emps||[]).length ? empChecklistHTML('ugDayDrivers',(day.drivers||[]),'ugDayDrv', STATE.employees.filter(e=>(day.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+      document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',(night.emps||[]),'ugNight', deptPool('underground'));
+      document.getElementById('ugNightDriversBox').innerHTML=(night.emps||[]).length ? empChecklistHTML('ugNightDrivers',(night.drivers||[]),'ugNightDrv', STATE.employees.filter(e=>(night.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
+      document.getElementById('ugDayEmps').value=(day.emps||[]).join(',');
+      document.getElementById('ugDayDrivers').value=(day.drivers||[]).join(',');
+      document.getElementById('ugNightEmps').value=(night.emps||[]).join(',');
+      document.getElementById('ugNightDrivers').value=(night.drivers||[]).join(',');
+      if(document.getElementById('ugDay-count')) document.getElementById('ugDay-count').textContent=t('col_selected_count',{n:(day.emps||[]).length});
+      if(document.getElementById('ugDayDrv-count')) document.getElementById('ugDayDrv-count').textContent=t('col_selected_count',{n:(day.drivers||[]).length});
+      if(document.getElementById('ugNight-count')) document.getElementById('ugNight-count').textContent=t('col_selected_count',{n:(night.emps||[]).length});
+      if(document.getElementById('ugNightDrv-count')) document.getElementById('ugNightDrv-count').textContent=t('col_selected_count',{n:(night.drivers||[]).length});
+      ['ugDay','ugNight'].forEach(p=>{const s=document.getElementById(p+'Team');if(s)s.onchange=()=>onUgTeamChange(p);});
+      STATE._ugIsOld=true;
+      return;
+    }
     const d = (init && init.submission_date) || '';
-    const day = (init && init.day) || {}, night = (init && init.night) || {};
-    // T16: fetch employee groups for team select
     let ugGroups = [];
     try { const gRes = await api('/api/employee_groups'); ugGroups = gRes.groups || []; } catch(e) { ugGroups = []; }
     STATE._ugGroups = ugGroups;
-    const teamOpts = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>'
-      + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
-    const seg=(p, title, dotClass, s)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
-      + '<div style="display:flex;gap:6px;">'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="'+((s&&s.nl)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
-      + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="'+((s&&s.mw)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
-      + '</div>'
-      + '<div style="display:flex;gap:6px;align-items:center;margin:4px 0;">'
-      + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('col_ug_team')+'</label><select id="'+p+'Team" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts((s&&s.team_id)||'')+'</select></div>'
-      + '<label class="field__label" style="display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;padding-top:18px;"><input type="checkbox" id="'+p+'Exempt" '+(s&&s.exempt?'checked':'')+'><span style="font-size:12px;">'+t('col_ug_exempt')+'</span></label>'
-      + '</div>'
-      + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:((s&&s.emps)||[]).length})+'</div><div id="'+p+'EmpsBox"></div></div>'
-      + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:((s&&s.drivers)||[]).length})+'</div><div id="'+p+'DriversBox"></div></div>'
-      + '</div>';
+    STATE._ugIsOld=false;
+    let rows;
+    if(init && Array.isArray(init.teams) && init.teams.length){
+      rows = init.teams.map(t=>({team_id: t.team_id!=null?String(t.team_id):'', nh:t.nh||0, nl:t.nl||0, mw:t.mw||0, exempt:!!t.exempt, remark:t.remark||''}));
+    } else {
+      rows = [{team_id:'', nh:0, nl:0, mw:0, exempt:false, remark:''}];
+    }
+    STATE._ugTeams = rows;
+    const teamOpts2 = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
+    function ugRowHtml(idx, r){
+      return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;">'
+        + '<div class="seg-card__title"><span class="dot day"></span>'+t('col_ug_team_row')+' '+(idx+1)+(rows.length>1?' <button onclick="removeUgTeamRow('+idx+')" style="float:right;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);">✕ '+t('col_ug_remove_team')+'</button>':'')+'</div>'
+        + '<div class="field"><label class="field__label">'+t('col_ug_team')+'</label><select id="ugTeamSel'+idx+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts2(r.team_id)+'</select></div>'
+        + '<div style="display:flex;gap:6px;">'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="ugNh'+idx+'" value="'+r.nh+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="ugNl'+idx+'" value="'+r.nl+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="ugMw'+idx+'" value="'+r.mw+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;">'
+        + '<label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="ugExempt'+idx+'" '+(r.exempt?'checked':'')+'> '+t('col_ug_exempt')+'</label>'
+        + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
+        + '</div>'
+        + '</div>';
+    }
     document.getElementById('col-form').innerHTML =
       '<div class="form-head"><span class="form-head__title">'+t('col_ug')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + seg('ugDay', t('day_shift'), 'day', day)
-      + seg('ugNight', t('night_shift'), 'night', night)
-      + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark" value="'+esc(init&&init.remark||'')+'"></div>'
-      + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2" value="'+esc(init&&init.remark2||'')+'"></div>'
+      + '<div id="ugTeamsBox">'+rows.map((r,i)=>ugRowHtml(i,r)).join('')+'</div>'
+      + '<button class="btn btn-block" onclick="addUgTeamRow()" style="margin:8px 0;">+ '+t('col_ug_add_team')+'</button>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
-    document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',(day.emps||[]),'ugDay', deptPool('underground'));
-    document.getElementById('ugDayDriversBox').innerHTML=(day.emps||[]).length ? empChecklistHTML('ugDayDrivers',(day.drivers||[]),'ugDayDrv', STATE.employees.filter(e=>(day.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
-    document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',(night.emps||[]),'ugNight', deptPool('underground'));
-    document.getElementById('ugNightDriversBox').innerHTML=(night.emps||[]).length ? empChecklistHTML('ugNightDrivers',(night.drivers||[]),'ugNightDrv', STATE.employees.filter(e=>(night.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
-    // 预填: hidden value 同步(empChecklistHTML 只渲染 checkbox 选中态)
-    document.getElementById('ugDayEmps').value=(day.emps||[]).join(',');
-    document.getElementById('ugDayDrivers').value=(day.drivers||[]).join(',');
-    document.getElementById('ugNightEmps').value=(night.emps||[]).join(',');
-    document.getElementById('ugNightDrivers').value=(night.drivers||[]).join(',');
-    if(document.getElementById('ugDay-count')) document.getElementById('ugDay-count').textContent=t('col_selected_count',{n:(day.emps||[]).length});
-    if(document.getElementById('ugDayDrv-count')) document.getElementById('ugDayDrv-count').textContent=t('col_selected_count',{n:(day.drivers||[]).length});
-    if(document.getElementById('ugNight-count')) document.getElementById('ugNight-count').textContent=t('col_selected_count',{n:(night.emps||[]).length});
-    if(document.getElementById('ugNightDrv-count')) document.getElementById('ugNightDrv-count').textContent=t('col_selected_count',{n:(night.drivers||[]).length});
-    // T16: bind team onchange → filter emp checklist by team
-    ['ugDay','ugNight'].forEach(p=>{const s=document.getElementById(p+'Team');if(s)s.onchange=()=>onUgTeamChange(p);});
+  }
+  function addUgTeamRow(){
+    STATE._ugTeams.push({team_id:'', nh:0, nl:0, mw:0, exempt:false, remark:''});
+    renderUgTeamsOnly();
+  }
+  function removeUgTeamRow(idx){
+    if(STATE._ugTeams.length<=1) return;
+    // preserve DOM values before re-render
+    syncUgTeamsFromDom();
+    STATE._ugTeams.splice(idx,1);
+    renderUgTeamsOnly();
+  }
+  function syncUgTeamsFromDom(){
+    (STATE._ugTeams||[]).forEach((r,i)=>{
+      const s=document.getElementById('ugTeamSel'+i); if(s) r.team_id=s.value;
+      const nh=document.getElementById('ugNh'+i); if(nh) r.nh=+nh.value||0;
+      const nl=document.getElementById('ugNl'+i); if(nl) r.nl=+nl.value||0;
+      const mw=document.getElementById('ugMw'+i); if(mw) r.mw=+mw.value||0;
+      const ex=document.getElementById('ugExempt'+i); if(ex) r.exempt=ex.checked;
+      const rm=document.getElementById('ugRemark'+i); if(rm) r.remark=rm.value;
+    });
+  }
+  function renderUgTeamsOnly(){
+    const ugGroups = STATE._ugGroups||[];
+    const teamOpts2 = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
+    function ugRowHtml(idx, r){
+      return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;">'
+        + '<div class="seg-card__title"><span class="dot day"></span>'+t('col_ug_team_row')+' '+(idx+1)+(STATE._ugTeams.length>1?' <button onclick="removeUgTeamRow('+idx+')" style="float:right;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);">✕ '+t('col_ug_remove_team')+'</button>':'')+'</div>'
+        + '<div class="field"><label class="field__label">'+t('col_ug_team')+'</label><select id="ugTeamSel'+idx+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts2(r.team_id)+'</select></div>'
+        + '<div style="display:flex;gap:6px;">'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="ugNh'+idx+'" value="'+r.nh+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="ugNl'+idx+'" value="'+r.nl+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
+        + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="ugMw'+idx+'" value="'+r.mw+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;">'
+        + '<label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="ugExempt'+idx+'" '+(r.exempt?'checked':'')+'> '+t('col_ug_exempt')+'</label>'
+        + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
+        + '</div>'
+        + '</div>';
+    }
+    const box=document.getElementById('ugTeamsBox'); if(box) box.innerHTML = STATE._ugTeams.map((r,i)=>ugRowHtml(i,r)).join('');
   }
   // 需求5: 驾驶员候选 = 已选中的出勤人员(天然是 emps 子集)
   function refreshUgDrivers(seg){
@@ -1332,24 +1528,47 @@
     refreshUgDrivers(seg);
   }
   function submitUg(){
-    const payload={ submission_date:document.getElementById('colDate').value,
-      day:{ nh:+document.getElementById('ugDayNh').value||0, nl:+document.getElementById('ugDayNl').value||0, mw:+document.getElementById('ugDayMw').value||0, emps:ck('ugDayEmps'), drivers:ck('ugDayDrivers'),
-        team_id:+(document.getElementById('ugDayTeam')&&document.getElementById('ugDayTeam').value)||0,
-        exempt:document.getElementById('ugDayExempt')&&document.getElementById('ugDayExempt').checked },
-      night:{ nh:+document.getElementById('ugNightNh').value||0, nl:+document.getElementById('ugNightNl').value||0, mw:+document.getElementById('ugNightMw').value||0, emps:ck('ugNightEmps'), drivers:ck('ugNightDrivers'),
-        team_id:+(document.getElementById('ugNightTeam')&&document.getElementById('ugNightTeam').value)||0,
-        exempt:document.getElementById('ugNightExempt')&&document.getElementById('ugNightExempt').checked } };
+    if(STATE._ugIsOld){
+      const payload={ submission_date:document.getElementById('colDate').value,
+        day:{ nh:+document.getElementById('ugDayNh').value||0, nl:+document.getElementById('ugDayNl').value||0, mw:+document.getElementById('ugDayMw').value||0, emps:ck('ugDayEmps'), drivers:ck('ugDayDrivers'),
+          team_id:+(document.getElementById('ugDayTeam')&&document.getElementById('ugDayTeam').value)||0,
+          exempt:document.getElementById('ugDayExempt')&&document.getElementById('ugDayExempt').checked },
+        night:{ nh:+document.getElementById('ugNightNh').value||0, nl:+document.getElementById('ugNightNl').value||0, mw:+document.getElementById('ugNightMw').value||0, emps:ck('ugNightEmps'), drivers:ck('ugNightDrivers'),
+          team_id:+(document.getElementById('ugNightTeam')&&document.getElementById('ugNightTeam').value)||0,
+          exempt:document.getElementById('ugNightExempt')&&document.getElementById('ugNightExempt').checked } };
+      colSubmit('underground', payload, (p)=>{
+        if(p.day.emps.length===0 && p.night.emps.length===0){ showFormMsg('underground', t('val_workers'), false); return false; }
+        if((p.day.emps.length>0 && !p.day.team_id) || (p.night.emps.length>0 && !p.night.team_id)){ showFormMsg('underground', t('col_ug_team_required'), false); return false; }
+        const chkTeam=(emps,tid)=>{
+          if(!tid) return true;
+          return emps.every(id=>{const emp=STATE.employees.find(e=>String(e.id)===String(id));return emp&&String(emp.team_id)===String(tid);});
+        };
+        if(!chkTeam(p.day.emps,p.day.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
+        if(!chkTeam(p.night.emps,p.night.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
+        return true;
+      });
+      return;
+    }
+    // C1 new format
+    syncUgTeamsFromDom();
+    const teams = (STATE._ugTeams||[]).map(r=>({team_id: r.team_id?parseInt(r.team_id,10):0, nh:+r.nh||0, nl:+r.nl||0, mw:+r.mw||0, exempt:!!r.exempt, remark:String(r.remark||'').trim()}));
+    const payload={ teams };
     colSubmit('underground', payload, (p)=>{
-      if(p.day.emps.length===0 && p.night.emps.length===0){ showFormMsg('underground', t('val_workers'), false); return false; }
-      // T16: validate team selected when any workers present
-      if((p.day.emps.length>0 && !p.day.team_id) || (p.night.emps.length>0 && !p.night.team_id)){ showFormMsg('underground', t('col_ug_team_required'), false); return false; }
-      // validate each emp belongs to the selected team
-      const chkTeam=(emps,tid)=>{
-        if(!tid) return true;
-        return emps.every(id=>{const emp=STATE.employees.find(e=>String(e.id)===String(id));return emp&&String(emp.team_id)===String(tid);});
-      };
-      if(!chkTeam(p.day.emps,p.day.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
-      if(!chkTeam(p.night.emps,p.night.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
+      const ts = p.teams||[];
+      if(!ts.length){ showFormMsg('underground', t('col_ug_team_row'), false); return false; }
+      const hasProd = ts.some(t=> (t.nh||0)+(t.nl||0)+(t.mw||0) > 0);
+      if(!hasProd){ showFormMsg('underground', t('col_ug_no_attendance_warn'), false); return false; }
+      for(const tt of ts){
+        const prod=(tt.nh||0)+(tt.nl||0)+(tt.mw||0);
+        if(prod>0 && !tt.team_id){ showFormMsg('underground', t('col_ug_team_required'), false); return false; }
+      }
+      const seen=new Set();
+      for(const tt of ts){
+        if(tt.team_id){
+          if(seen.has(String(tt.team_id))){ showFormMsg('underground', t('col_ug_team_row')+': duplicate', false); return false; }
+          seen.add(String(tt.team_id));
+        }
+      }
       return true;
     });
   }
@@ -1411,43 +1630,93 @@
     if(!ck('crEmps').length){ showFormMsg('crush', t('val_workers'), false); return; }
     colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
-  // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣）(init 为编辑预填 marks)
+  // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣; C3: UG属单独分支带 team_id+drivers）
   async function renderAttForm(init){ const d=(init&&init.submission_date)||'';
-    const pool=deptPool('other');
+    const otherPool=deptPool('other');
+    const ugPool=deptPool('underground');
+    const pool=[...otherPool];
+    // C3: 确保 UG 部门出现在下拉中（full-width brackets）
+    const UG_DEPT='Production TEAM （underground）';
+    // 合并 UG 员工到池但 deptPool 已经独立，此处 pool 用于非UG；UG 花名册另用 deptPool('underground', teamId)
+    // 为下拉去重收集所有部门（含 UG）
+    const allDepts=[...new Set([...otherPool,...ugPool].map(e=>e.department).filter(Boolean))].sort();
+    // 确保 UG 精确字符串在下拉中（即便当月无 UG 员工，仍显示选项以支持采集）
+    if(!allDepts.includes(UG_DEPT)) allDepts.push(UG_DEPT);
+    else { /* already present */ }
+    allDepts.sort();
     STATE._attEditMarks = {};
     (init && init.marks || []).forEach(m=>{ if(m.employee_id) STATE._attEditMarks[String(m.employee_id)] = m.status; });
-    // P1 修复: 编辑模式员工池 = 原 marks 员工(从 STATE.employees 补全,含生产部门)∪ 其他部门,
-    // 避免编辑保存时历史 marks 中的生产部门员工丢失
+    // 驾驶预填
+    STATE._attEditDrivers = new Set((init && init.drivers) || []);
+    // P1 修复: 编辑模式员工池 = 原 marks 员工 ∪ otherPool
     if(init && init.marks && init.marks.length){
       const ids=new Set(init.marks.map(m=>m.employee_id).filter(Boolean));
       const have=ids.has.bind(ids);
       (STATE.employees||[]).forEach(e=>{ if(have(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
+      ugPool.forEach(e=>{ if(have(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
     }
     STATE._attPool = pool;
-    const depts=[...new Set(pool.map(e=>e.department).filter(Boolean))].sort();
-    const selDept=(init&&init.department)||'';  // 编辑态预选记录部门; 新提交不预选
+    STATE._attUgPool = ugPool;
+    // 驾驶员白名单
+    let driverSet=new Set();
+    try{ const r=await api('/api/driver-roster'); (r.drivers||[]).forEach(id=>driverSet.add(String(id))); }catch(e){}
+    STATE._attDriverRoster=driverSet;
+    // 班组下拉
+    let ugGroups=[];
+    try{ const g=await api('/api/employee_groups'); ugGroups=g.groups||[]; }catch(e){}
+    STATE._attUgGroups=ugGroups;
+    const selDept=(init&&init.department)||'';
+    const selTeam=(init&&init.team_id!=null? String(init.team_id):'');
+    STATE._attTeamId=selTeam;
+    const deptOpts=allDepts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('');
+    const teamOpts='<option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
+    const isUgInit = selDept===UG_DEPT;
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="renderAttRoster()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="onAttDeptChange()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+deptOpts+'</select></div>'
+      + '<div class="field" id="attTeamRow" style="display:'+(isUgInit?'block':'none')+';"><label class="field__label">'+t('col_att_ug_team')+'</label><select id="attTeamSel" onchange="renderAttRoster()"><option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button><button class="btn" onclick="attBatchAll(\'E\')">'+t('shift_E_label')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderAttRoster();
   }
-  function attRosterEmpIds(){
+  function onAttDeptChange(){
     const sel=document.getElementById('attColDept').value;
+    const UG_DEPT='Production TEAM （underground）';
+    const row=document.getElementById('attTeamRow');
+    if(row) row.style.display = sel===UG_DEPT ? 'block' : 'none';
+    if(sel!==UG_DEPT) STATE._attTeamId='';
+    renderAttRoster();
+  }
+  function attRosterEmpIds(){
+    const sel=document.getElementById('attColDept')?.value || '';
+    const UG_DEPT='Production TEAM （underground）';
+    if(sel===UG_DEPT){
+      const tid=document.getElementById('attTeamSel')?.value || '';
+      STATE._attTeamId=tid;
+      if(!tid) return [];
+      return deptPool('underground', tid);
+    }
     const pool = STATE._attPool || deptPool('other');
     return pool.filter(e=>!sel||e.department===sel);
   }
   function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
-    const sel=document.getElementById('attColDept').value;
+    const sel=document.getElementById('attColDept')?.value || '';
+    const UG_DEPT='Production TEAM （underground）';
+    const isUg = sel===UG_DEPT;
     const countEl=document.getElementById('attRosterCount');
     const batchRow=document.getElementById('attBatchRow');
-    if(!sel){  // 未选部门 → 隐藏花名册/计数/批量按钮，与桌面一致，防误操作全部员工
+    if(!sel){  // 未选部门 → 隐藏
       box.innerHTML=''; box.style.display='none';
+      if(countEl) countEl.textContent='';
+      if(batchRow) batchRow.style.display='none';
+      return;
+    }
+    if(isUg && !document.getElementById('attTeamSel')?.value){
+      box.innerHTML='<div style="padding:12px;color:var(--muted-foreground);font-size:12px;">'+t('col_att_ug_team')+'</div>'; box.style.display='';
       if(countEl) countEl.textContent='';
       if(batchRow) batchRow.style.display='none';
       return;
@@ -1455,22 +1724,55 @@
     box.style.display='';
     if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
+    const drivers = STATE._attEditDrivers || new Set();
+    const roster = STATE._attDriverRoster || new Set();
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
-      return '<div class="worker-item"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span><select id="attSt'+esc(e.id)+'" onchange="" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','SK','E'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'; }).join('');
+      const isDriverOn = drivers.has(String(e.id));
+      const inRoster = roster.has(String(e.id));
+      const rosterLocked = roster.size > 0 && !inRoster;
+      const dis = isUg && rosterLocked ? ' disabled title="'+t('col_att_driver_not_roster')+'"' : '';
+      const chk = isDriverOn ? ' checked' : '';
+      return '<div class="worker-item" style="gap:6px;"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span>'
+        + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','SK','T','E'].map(s=>'<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+'</option>').join('')+'</select>'
+        + (isUg ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+dis+'> '+t('col_att_driver')+'</label>' : '')
+        + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
   function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
-    // 必须选择部门才能提交(防止误提交全部员工)
     const deptEl=document.getElementById('attColDept');
     if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
-    const marks=attRosterEmpIds().map(e=>({employee_id:e.id, status:document.getElementById('attSt'+e.id).value}));
-    // 编辑保数据: 原 marks 员工(即使不在选中部门)按保留状态并入,避免编辑丢人
+    const UG_DEPT='Production TEAM （underground）';
+    const isUg = deptEl.value===UG_DEPT;
+    if(isUg && !document.getElementById('attTeamSel').value){ showFormMsg('attendance', t('col_att_ug_team'), false); return; }
+    const list=attRosterEmpIds();
+    // B→P 兜底: 若状态为 B 则转 P
+    const marks=list.map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
+    // 编辑保数据: 同 team 的原 marks 保底（UG 仅同 team）
     const submitted=new Set(marks.map(m=>String(m.employee_id)));
     Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
-      if(!submitted.has(String(eid))){ submitted.add(String(eid)); marks.push({employee_id:eid, status:st}); }
+      if(!submitted.has(String(eid))){
+        // UG 时校验是否属于当前 team
+        if(isUg){
+          const tid=document.getElementById('attTeamSel').value;
+          const emp=(STATE.employees||[]).find(x=>String(x.id)===String(eid));
+          if(emp && String(emp.team_id)!==String(tid)) return;
+        }
+        let s=st; if(s==='B') s='P';
+        submitted.add(String(eid)); marks.push({employee_id:eid, status:s});
+      }
     });
-    colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null); }
+    if(isUg){
+      const team_id=parseInt(document.getElementById('attTeamSel').value,10)||0;
+      const drivers=list.filter(e=>{ const cb=document.getElementById('attDrv'+e.id); return cb && cb.checked; }).map(e=>String(e.id));
+      // 校 drivers 子集 + roster 已在前端禁用，仍做兜底校验
+      const marksIds=new Set(marks.map(m=>String(m.employee_id)));
+      for(const d of drivers){ if(!marksIds.has(String(d))){ showFormMsg('attendance', t('col_att_driver_not_roster'), false); return; } }
+      // disabled 复选框的 drivers 不会入 drivers，故 roster 校验在服务端再兜底
+      colSubmit('attendance', { submission_date:date, department:deptEl.value, team_id, marks, drivers }, null);
+    } else {
+      colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null);
+    } }
 
   // ── 出勤模块 (Phase 4 / 2e) ──
   const ATT_STATUS = ['P','A','L','SK','D','N','C','R','B'];

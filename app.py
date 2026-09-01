@@ -955,9 +955,15 @@ def _resolve_export_month_data(requested_month):
     overrides = load_overrides(app.config['DATA_FOLDER'], month=requested_month)
     exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
     bonus_penalties = _load_bp(app.config['DATA_FOLDER'], requested_month)
-    result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
-                           pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
-                           bonus_penalties=bonus_penalties)
+    ug_team_members = _build_ug_team_members(app.config['DATA_FOLDER'])
+    try:
+        result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
+                               pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
+                               bonus_penalties=bonus_penalties, ug_team_members=ug_team_members)
+    except TypeError:
+        result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
+                               pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
+                               bonus_penalties=bonus_penalties)
     return requested_month, result, md
 
 
@@ -1241,9 +1247,15 @@ def _run_pipeline(month_filter=None):
     overrides = _load_override_ov(app.config.get('DATA_FOLDER'), month=month_filter)
     exclusions = _load_excl(app.config.get('DATA_FOLDER'))
     bonus_penalties = _load_bp(app.config.get('DATA_FOLDER'), month_filter) if month_filter else {}
-    result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
-                           pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
-                           bonus_penalties=bonus_penalties)
+    ug_team_members = _build_ug_team_members(app.config.get('DATA_FOLDER'))
+    try:
+        result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
+                               pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
+                               bonus_penalties=bonus_penalties, ug_team_members=ug_team_members)
+    except TypeError:
+        result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
+                               pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
+                               bonus_penalties=bonus_penalties)
 
     headless = not bool(main_data.get('dates'))
     if month_filter and headless and employees:
@@ -2751,10 +2763,84 @@ def _collection_payload_names(payload, form_type):
         return [name_map.get(e, e) for e in (eids or [])]
     return name_map, _names
 
+def _norm_ug_dept(s):
+    """UG 部门规范化：去所有空格 + 全角括号归一半角 + 大写（禁止裸字符串比较）"""
+    return re.sub(r'\s+', '', (s or '')).replace('（', '(').replace('）', ')').upper()
+
+_UG_NORM_TARGET = _norm_ug_dept('Production TEAM （underground）')
+
+def _is_ug_dept(dept):
+    return _norm_ug_dept(dept) == _UG_NORM_TARGET
+
+def _ensure_collection_team_id_column(data_folder):
+    """懒迁移：给 collection_submissions 补 team_id 列（UG 出勤按 team 分行需要）"""
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        try:
+            conn.execute("ALTER TABLE collection_submissions ADD COLUMN team_id INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass
+        conn.close()
+    except Exception:
+        pass
+
+def _driver_roster_active(data_folder):
+    """driver_roster 非空 = 白名单已启用；为空 = 未启用（不校验，兼容生产现状）"""
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        try:
+            n = conn.execute('SELECT COUNT(*) FROM driver_roster').fetchone()[0]
+        finally:
+            conn.close()
+        return n > 0
+    except Exception:
+        return False
+
+def _build_ug_team_members(data_folder):
+    """C5: 构建 ug_team_members: {team_id: [employee_id,...]} 仅 UG 部门按 team_id 分组"""
+    team_map = {}
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        for r in conn.execute("SELECT id, department, team_id FROM employees").fetchall():
+            if _norm_ug_dept(r['department']) == _UG_NORM_TARGET:
+                tid = int(r['team_id'] or 0)
+                if tid:
+                    team_map.setdefault(tid, []).append(str(r['id']))
+        conn.close()
+    except Exception:
+        pass
+    return team_map
+
 def _merge_collection_to_main_data(main_data, form_type, date, payload):
     """P9: 单条采集提交合并进 main_data（Web 采集覆盖 Excel 同日期）"""
     _, _names = _collection_payload_names(payload, form_type)
     if form_type == 'underground':
+        # C1/C2: 检测新格式 teams 存在即按团队数组构建，否则走旧 day/night 路径（保持 byte-identical）
+        if 'teams' in payload:
+            teams = []
+            for t in (payload.get('teams') or []):
+                try:
+                    tid = int(t.get('team_id', 0) or 0)
+                except Exception:
+                    tid = 0
+                teams.append({
+                    'team_id': tid,
+                    'prod': {'NICKEL（H）': t.get('nh', 0), 'NICKEL（L）': t.get('nl', 0), 'MAWE': t.get('mw', 0)},
+                    'exempt': bool(t.get('exempt', False)),
+                    'remark': str(t.get('remark') or ''),
+                })
+            rec = {'date': date, 'teams': teams}
+            shift = main_data.setdefault('shift_production', [])
+            for i, x in enumerate(shift):
+                if x.get('date') == date:
+                    shift[i] = rec
+                    return
+            shift.append(rec)
+            return
         day = payload.get('day') or {}
         night = payload.get('night') or {}
         rec = {
@@ -2823,35 +2909,82 @@ def rebuild_main_data_from_collections(main_data):
         if s.get('form_type') in ('underground', 'driller', 'crush'):
             _merge_collection_to_main_data(main_data, s['form_type'], s['submission_date'], payload)
 
-def _reapply_driver_flags():
-    """B1: 全量重建 main_data 后重设井下 driver 标志。
-    B1b: 先清除再重设——先清除每个井下提交日期上所有残留 is_driver，
-    再对当前 payload.drivers 重设 mark_driver_flag，杜绝编辑移除驾驶勾选后津贴仍被计算"""
+def _reapply_driver_flags_for_date(data_folder, date):
+    """C4: 清除某日 driver 标志后从所有来源重设：
+    (a) 旧 underground payload day/night.drivers
+    (b) attendance submissions drivers array"""
     from core.database import get_collection_submissions, mark_driver_flag, clear_driver_flags_for_date
-    subs = get_collection_submissions(app.config['DATA_FOLDER'])
-    # 第一遍：按井下提交日期清除残留 is_driver（is_driver 只由井下采集驱动，按日期清 0 安全）
-    ug_dates = sorted({s.get('submission_date') for s in subs
-                       if s.get('form_type') == 'underground' and s.get('submission_date')})
-    for _dt in ug_dates:
-        clear_driver_flags_for_date(app.config['DATA_FOLDER'], _dt)
-    # 第二遍：按当前 payload.drivers 重设
+    clear_driver_flags_for_date(data_folder, date)
+    subs = get_collection_submissions(data_folder)
     for s in subs:
-        if s.get('form_type') != 'underground':
+        if s.get('submission_date') != date:
             continue
         try:
             payload = json.loads(s.get('payload', '{}'))
         except (TypeError, ValueError):
             continue
-        drivers = []
-        for _shift in ('day', 'night'):
-            drivers += (payload.get(_shift) or {}).get('drivers') or []
-        for _eid in drivers:
-            mark_driver_flag(app.config['DATA_FOLDER'], _eid, s.get('submission_date'))
+        if s.get('form_type') == 'underground':
+            drivers = []
+            for _shift in ('day', 'night'):
+                drivers += (payload.get(_shift) or {}).get('drivers') or []
+            for _eid in drivers:
+                mark_driver_flag(data_folder, _eid, date)
+        elif s.get('form_type') == 'attendance':
+            for _eid in (payload.get('drivers') or []):
+                mark_driver_flag(data_folder, _eid, date)
 
-def _filter_marks_by_department(marks, dept):
-    """A5: 出勤收集兜底校验 — 仅保留 department 与提交部门一致的员工（防前端漏过滤）"""
+def _reapply_driver_flags():
+    """B1: 全量重建 main_data 后重设井下 driver 标志（遍历日期委托到单日 helper）"""
+    from core.database import get_collection_submissions
+    subs = get_collection_submissions(app.config['DATA_FOLDER'])
+    ug_dates = {s.get('submission_date') for s in subs
+                if s.get('form_type') == 'underground' and s.get('submission_date')}
+    att_dates = set()
+    for s in subs:
+        if s.get('form_type') == 'attendance':
+            try:
+                pl = json.loads(s.get('payload', '{}'))
+            except Exception:
+                continue
+            if pl.get('drivers'):
+                att_dates.add(s.get('submission_date'))
+    all_dates = sorted(ug_dates | att_dates)
+    for _dt in all_dates:
+        _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], _dt)
+
+def _filter_marks_by_department(marks, dept, team_id=None):
+    """A5: 出勤收集兜底校验 — 非 UG 按 department 过滤；UG 时按 team_id 过滤（C3）"""
     if not dept:
         return marks or [], 0
+    is_ug = _is_ug_dept(dept)
+    if is_ug and team_id is not None:
+        # UG 按班组过滤：仅保留同 team_id 的员工（直接查 DB 避免 APP_STATE 陈旧）
+        from core.database import get_conn
+        team_map = {}
+        conn = None
+        try:
+            conn = get_conn(app.config['DATA_FOLDER'])
+            team_map = {str(r['id']): int(r['team_id'] or 0) for r in conn.execute(
+                "SELECT id, team_id FROM employees").fetchall()}
+        except Exception:
+            pass
+        finally:
+            if conn:
+                conn.close()
+        kept, discarded = [], 0
+        try:
+            tid_int = int(team_id)
+        except Exception:
+            tid_int = 0
+        for m in marks or []:
+            eid = str(m.get('employee_id') or '')
+            emp_team = team_map.get(eid) if eid else None
+            if emp_team is not None and emp_team != tid_int:
+                discarded += 1
+                continue
+            kept.append(m)
+        return kept, discarded
+    # 非 UG：原 department 过滤
     dept_map = {}
     try:
         dept_map = {str(e.get('id')): (e.get('department') or '') for e in (APP_STATE.get('employees') or [])}
@@ -2872,7 +3005,6 @@ def _filter_marks_by_department(marks, dept):
     kept, discarded = [], 0
     for m in marks or []:
         eid = str(m.get('employee_id') or '')
-        # 仅当能查到员工部门且与提交部门不符才丢弃；未知员工（离职/通讯录外）保守保留
         emp_dept = dept_map.get(eid) if eid else None
         if emp_dept is not None and emp_dept != dept:
             discarded += 1
@@ -2908,12 +3040,27 @@ def collection_submit():
 
     # 出勤收集：写 attendance_overrides（batch 语义），collection 仅作留痕
     discarded = 0
+    att_team_id = None
     if form_type == 'attendance':
         marks = payload.get('marks') or []
-        # A5: 后端兜底校验 — payload 带 department 时丢弃部门不符员工（防前端漏过滤）
+        is_ug_att = _is_ug_dept(dept)
+        if is_ug_att:
+            att_team_id = payload.get('team_id')
+            try:
+                att_team_id = int(att_team_id) if att_team_id is not None else None
+            except Exception:
+                att_team_id = None
+        # A5 + C3: 非 UG 按 department 过滤；UG 按 team_id 过滤
         if dept:
-            marks, discarded = _filter_marks_by_department(marks, dept)
+            if is_ug_att:
+                marks, discarded = _filter_marks_by_department(marks, dept, team_id=att_team_id)
+            else:
+                marks, discarded = _filter_marks_by_department(marks, dept)
             payload['marks'] = marks
+        # B→P 遗留映射
+        for m in marks:
+            if m.get('status') == 'B':
+                m['status'] = 'P'
         # P21: NU（年假）由审批管理，采集提交不得覆盖——命中即拒绝整批（防部分写入）
         from core.database import get_attendance_status
         for m in marks:
@@ -2921,34 +3068,80 @@ def collection_submit():
             if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
                 return jsonify({'ok': False,
                                 'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {date}）'}), 403
+        # drivers 校验：subset of marks + driver_roster
+        drivers = payload.get('drivers') or []
+        if drivers:
+            marks_ids = {str(m.get('employee_id') or '') for m in marks}
+            for d in drivers:
+                if str(d) not in marks_ids:
+                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中'}), 400
+            from core.database import is_driver
+            # 白名单语义：driver_roster 非空才强制校验（生产名单为空=未启用白名单，与历史行为一致）
+            if _driver_roster_active(app.config['DATA_FOLDER']):
+                for d in drivers:
+                    if not is_driver(app.config['DATA_FOLDER'], str(d)):
+                        return jsonify({'ok': False, 'error': f'员工 {d} 非司机名单，无法标记驾驶'}), 400
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
             if not eid or not status:
                 continue
-            # P12: 只写 status，驾驶标记改由井下采集的 drivers 处理
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
             except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
                 return jsonify({'ok': False, 'error': str(e)}), 400
+        # 标记 driver flag（通过 helper 重设，保证与旧地下 drivers 合并一致）
+        if drivers:
+            for _eid in drivers:
+                try:
+                    mark_driver_flag(app.config['DATA_FOLDER'], str(_eid), date)
+                except Exception:
+                    pass
 
-    # upsert collection_submissions by (form_type, date) [attendance 另加 department 维度]
+    # upsert collection_submissions by (form_type, date) [attendance 另加 department+team_id 维度]
+    _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
     if form_type == 'attendance' and dept:
-        ex = next((e for e in existing if e['submission_date'] == date
-                   and (e.get('department') or '') == dept), None)
+        if _is_ug_dept(dept) and att_team_id is not None:
+            ex = next((e for e in existing if e['submission_date'] == date
+                       and (e.get('department') or '') == dept and int(e.get('team_id') or 0) == int(att_team_id)), None)
+        else:
+            ex = next((e for e in existing if e['submission_date'] == date
+                       and (e.get('department') or '') == dept), None)
     else:
         ex = next((e for e in existing if e['submission_date'] == date), None)
     if ex:
         update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username)
         sid = ex['id']
     else:
-        sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username,
-                                           department=dept)
+        # insert 需要处理 team_id 列——直接 SQL 以兼容旧 DB（get_conn 方式）
+        if form_type == 'attendance' and _is_ug_dept(dept) and att_team_id is not None:
+            from core.database import get_conn
+            conn = get_conn(app.config['DATA_FOLDER'])
+            try:
+                cur = conn.execute(
+                    "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, month, department, team_id, version) VALUES (?,?,?,?,?,?,?,1)",
+                    (form_type, date, json.dumps(payload, ensure_ascii=False), username, date[:7], dept, int(att_team_id)))
+                conn.commit()
+                sid = cur.lastrowid
+            except Exception:
+                # 回退到旧方法（team_id 写入 payload，查询时靠 payload.team_id）
+                sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username, department=dept)
+            finally:
+                conn.close()
+        else:
+            sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username,
+                                               department=dept)
 
     # map: POST /api/collection/submit -> MONTH_CACHE[submission_date[:7]] per-month evict + __all__ base evict
     _invalidate_month_cache(date[:7])
     _invalidate_all_cache_base()
+    # C4: UG 出勤 drivers 变更后重设当日的 driver flags（通过单日 helper 保证多源合并）
+    if form_type == 'attendance' and _is_ug_dept(dept):
+        try:
+            _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], date)
+        except Exception:
+            pass
 
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
               json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept, 'month': date[:7]}))
@@ -3055,7 +3248,39 @@ def collection_edit(submission_id):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
 
     # P21: NU（年假）由审批管理，编辑出勤收集不得覆盖——在任何 DB 修改之前拦截
+    # C3: UG attendance 按 team 过滤 + B→P + drivers 校验
+    edit_att_team_id = None
     if form_type == 'attendance':
+        dept_check = (payload.get('department') or '').strip()
+        is_ug_edit = _is_ug_dept(dept_check)
+        if is_ug_edit:
+            try:
+                edit_att_team_id = int(payload.get('team_id')) if payload.get('team_id') is not None else None
+            except Exception:
+                edit_att_team_id = None
+        # 兜底过滤（与 submit 一致）
+        marks_tmp = payload.get('marks') or []
+        if dept_check:
+            if is_ug_edit:
+                marks_tmp, _ = _filter_marks_by_department(marks_tmp, dept_check, team_id=edit_att_team_id)
+            else:
+                marks_tmp, _ = _filter_marks_by_department(marks_tmp, dept_check)
+            payload['marks'] = marks_tmp
+        for m in payload.get('marks') or []:
+            if m.get('status') == 'B':
+                m['status'] = 'P'
+        # drivers 校验
+        drivers_edit = payload.get('drivers') or []
+        if drivers_edit:
+            marks_ids_edit = {str(m.get('employee_id') or '') for m in (payload.get('marks') or [])}
+            for d in drivers_edit:
+                if str(d) not in marks_ids_edit:
+                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中'}), 400
+            from core.database import is_driver as _is_drv
+            if _driver_roster_active(app.config['DATA_FOLDER']):
+                for d in drivers_edit:
+                    if not _is_drv(app.config['DATA_FOLDER'], str(d)):
+                        return jsonify({'ok': False, 'error': f'员工 {d} 非司机名单，无法标记驾驶'}), 400
         from core.database import get_attendance_status
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')
@@ -3067,18 +3292,34 @@ def collection_edit(submission_id):
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
     merged_target = None  # B1b: 覆盖合并的目标行（attendance 分支需清理其旧 marks）
     sub_dept = ''
+    sub_team_id = None
     if form_type == 'attendance':
         try:
-            sub_dept = (json.loads(sub['payload'] or '{}').get('department') or '').strip()
+            _sp = json.loads(sub['payload'] or '{}')
+            sub_dept = (_sp.get('department') or '').strip()
+            if _is_ug_dept(sub_dept):
+                sub_team_id = _sp.get('team_id')
+                try:
+                    sub_team_id = int(sub_team_id) if sub_team_id is not None else None
+                except Exception:
+                    sub_team_id = None
         except Exception:
             sub_dept = ''
+            sub_team_id = None
     if new_date != old_date:
         existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
         if form_type == 'attendance' and sub_dept:
-            # 出勤留痕按部门×日期：改日期只与同部门的行合并，避免误并到其他部门行
-            ex = next((e for e in existing if e['id'] != submission_id
-                       and e['submission_date'] == new_date
-                       and (e.get('department') or '') == sub_dept), None)
+            if _is_ug_dept(sub_dept) and sub_team_id is not None:
+                # UG 按 department+team_id 合并
+                ex = next((e for e in existing if e['id'] != submission_id
+                           and e['submission_date'] == new_date
+                           and (e.get('department') or '') == sub_dept
+                           and int(e.get('team_id') or 0) == int(sub_team_id)), None)
+            else:
+                # 出勤留痕按部门×日期：改日期只与同部门的行合并，避免误并到其他部门行
+                ex = next((e for e in existing if e['id'] != submission_id
+                           and e['submission_date'] == new_date
+                           and (e.get('department') or '') == sub_dept), None)
         else:
             ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
         if ex:
@@ -3122,6 +3363,13 @@ def collection_edit(submission_id):
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
             except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
                 return jsonify({'ok': False, 'error': str(e)}), 400
+        # C4: 重设 driver flags（编辑后 attendance drivers 可能变）
+        try:
+            _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], new_date)
+            if new_date != old_date:
+                _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], old_date)
+        except Exception:
+            pass
     # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict + __all__ base evict
     _invalidate_month_cache(old_date[:7])
     if new_date != old_date:
@@ -3153,6 +3401,85 @@ def api_collection_roster():
     keep = ('id', 'name', 'department', 'default_type', 'team_id', 'custom_number', 'alias')
     slim = [{k: e.get(k) for k in keep} for e in emps]
     return jsonify({'ok': True, 'employees': slim})
+
+@app.route('/api/collection/exempt/<int:submission_id>', methods=['POST'])
+def api_collection_exempt(submission_id):
+    _block = _require_super_admin()
+    if _block:
+        _audit('perm_denied', '', json.dumps({'user': session.get('username',''), 'module': 'collection', 'action': 'exempt'}))
+        return _block
+    from core.database import get_collection_submission, update_collection_submission
+    sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
+    if not sub:
+        return jsonify({'ok': False, 'error': '提交不存在'}), 404
+    if sub.get('form_type') != 'underground':
+        return jsonify({'ok': False, 'error': '仅井下采集支持豁免切换'}), 404
+    data = request.get_json() or {}
+    # 判定新/旧格式：新含 team_id，旧含 shift
+    try:
+        payload = json.loads(sub.get('payload') or '{}')
+    except Exception:
+        payload = {}
+    is_new = 'teams' in payload
+    month = (sub.get('submission_date') or '')[:7]
+    if is_new:
+        if 'team_id' not in data or 'exempt' not in data:
+            return jsonify({'ok': False, 'error': '缺少 team_id 或 exempt'}), 400
+        try:
+            tid = int(data.get('team_id'))
+        except Exception:
+            return jsonify({'ok': False, 'error': 'team_id 非法'}), 400
+        exempt_val = data.get('exempt')
+        if not isinstance(exempt_val, bool):
+            return jsonify({'ok': False, 'error': 'exempt 必须为布尔值'}), 400
+        # 找到对应 team
+        target = None
+        old_val = None
+        for t in (payload.get('teams') or []):
+            try:
+                if int(t.get('team_id', 0)) == tid:
+                    target = t
+                    old_val = bool(t.get('exempt', False))
+                    break
+            except Exception:
+                continue
+        if target is None:
+            return jsonify({'ok': False, 'error': '团队不存在'}), 404
+        target['exempt'] = exempt_val
+        payload['teams'] = payload.get('teams')
+    else:
+        if 'shift' not in data or 'exempt' not in data:
+            return jsonify({'ok': False, 'error': '缺少 shift 或 exempt'}), 400
+        shift = str(data.get('shift') or '').strip()
+        if shift not in ('day', 'night'):
+            return jsonify({'ok': False, 'error': 'shift 必须为 day 或 night'}), 404
+        exempt_val = data.get('exempt')
+        if not isinstance(exempt_val, bool):
+            return jsonify({'ok': False, 'error': 'exempt 必须为布尔值'}), 400
+        old_val = bool((payload.get(shift) or {}).get('exempt', False))
+        if shift not in payload or not isinstance(payload.get(shift), dict):
+            payload[shift] = {}
+        payload[shift]['exempt'] = exempt_val
+    ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, session.get('username','unknown'))
+    if not ok:
+        return jsonify({'ok': False, 'error': '更新失败'}), 500
+    # 读取新 version
+    sub2 = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
+    new_ver = sub2.get('version', 0) if sub2 else 0
+    _invalidate_month_cache(month)
+    _invalidate_all_cache_base()
+    # audit
+    try:
+        from core.database import log_audit
+        audit_detail = {'submission_id': submission_id, 'date': sub.get('submission_date'), 'old': old_val, 'new': exempt_val}
+        if is_new:
+            audit_detail['team_id'] = tid
+        else:
+            audit_detail['shift'] = shift
+        log_audit(app.config['DATA_FOLDER'], 'collection_exempt_edit', '', json.dumps(audit_detail, ensure_ascii=False))
+    except Exception:
+        pass
+    return jsonify({'ok': True, 'version': new_ver})
 
 @app.route('/api/production/shift', methods=['POST'])
 @editor_required
@@ -3853,23 +4180,46 @@ def get_production_dashboard():
     driller_prod = md.get('driller_production', [])
     crush_prod = md.get('crush_production', [])
 
-    # ── 井下产量: 白班/夜班/合计 三者分离 ──
+    # ── 井下产量: 白班/夜班/合计 三者分离（旧） / 按团队（新 C8） ──
+    group_names = {}
+    try:
+        from core.database import list_employee_groups as _list_groups
+        for g in _list_groups(app.config['DATA_FOLDER']):
+            group_names[int(g['id'])] = g['name']
+    except Exception:
+        pass
     shift_daily = []
     for d in shift_prod:
-        dp = d.get('day_prod') or {}
-        np = d.get('night_prod') or {}
-        shift_daily.append({
-            'date': d['date'],
-            'day_nh': dp.get('NICKEL（H）', 0) or 0,
-            'day_nl': dp.get('NICKEL（L）', 0) or 0,
-            'day_mw': dp.get('MAWE', 0) or 0,
-            'night_nh': np.get('NICKEL（H）', 0) or 0,
-            'night_nl': np.get('NICKEL（L）', 0) or 0,
-            'night_mw': np.get('MAWE', 0) or 0,
-            'total_nh': (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0),
-            'total_nl': (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0),
-            'total_mw': (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0),
-        })
+        if 'teams' in d:
+            teams_out = []
+            for t in (d.get('teams') or []):
+                prod = t.get('prod') or {}
+                nh = prod.get('NICKEL（H）', 0) or 0
+                nl = prod.get('NICKEL（L）', 0) or 0
+                mw = prod.get('MAWE', 0) or 0
+                tid = int(t.get('team_id', 0) or 0)
+                teams_out.append({
+                    'team_id': tid,
+                    'team_name': group_names.get(tid, ''),
+                    'nh': nh, 'nl': nl, 'mw': mw,
+                    'total': nh + nl + mw,
+                })
+            shift_daily.append({'date': d['date'], 'teams': teams_out})
+        else:
+            dp = d.get('day_prod') or {}
+            np = d.get('night_prod') or {}
+            shift_daily.append({
+                'date': d['date'],
+                'day_nh': dp.get('NICKEL（H）', 0) or 0,
+                'day_nl': dp.get('NICKEL（L）', 0) or 0,
+                'day_mw': dp.get('MAWE', 0) or 0,
+                'night_nh': np.get('NICKEL（H）', 0) or 0,
+                'night_nl': np.get('NICKEL（L）', 0) or 0,
+                'night_mw': np.get('MAWE', 0) or 0,
+                'total_nh': (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0),
+                'total_nl': (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0),
+                'total_mw': (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0),
+            })
 
     # ── 钻工产量: 逐日明细（非队长汇总） ──
     driller_daily = []
@@ -3973,14 +4323,26 @@ def get_daily_wages():
         return jsonify({})
     _emps_dw = (_md.get('employees') if _md else []) if _md is not None else []
     _cfg_dw = (_md.get('config_snapshot') if _md else {}) if _md is not None else {}
-    result = compute_daily_breakdown(
-        main_data=cur_md_dw,
-        employees=_emps_dw,
-        overrides=load_overrides(app.config.get('DATA_FOLDER'), month=month),
-        exclusions=load_daily_exclusions(app.config.get('DATA_FOLDER')),
-        pricing=_cfg_dw,
-        data_folder=app.config.get('DATA_FOLDER'),
-    )
+    _ug_dw = _build_ug_team_members(app.config.get('DATA_FOLDER'))
+    try:
+        result = compute_daily_breakdown(
+            main_data=cur_md_dw,
+            employees=_emps_dw,
+            overrides=load_overrides(app.config['DATA_FOLDER'], month=month),
+            exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
+            pricing=_cfg_dw,
+            data_folder=app.config.get('DATA_FOLDER'),
+            ug_team_members=_ug_dw,
+        )
+    except TypeError:
+        result = compute_daily_breakdown(
+            main_data=cur_md_dw,
+            employees=_emps_dw,
+            overrides=load_overrides(app.config['DATA_FOLDER'], month=month),
+            exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
+            pricing=_cfg_dw,
+            data_folder=app.config.get('DATA_FOLDER'),
+        )
     # 合并出勤手动覆盖（P/A/L）到逐日工资结果
     import sqlite3, os
     att_ov = {}
@@ -4856,13 +5218,24 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
     if _eff_md and employees:
         from core.calculator import compute_daily_breakdown
         from core.exceptions import load_overrides as _ld_ov, load_daily_exclusions
-        dw_result = compute_daily_breakdown(
-            main_data=_eff_md, employees=employees,
-            overrides=_ld_ov(app.config['DATA_FOLDER'], month=_eff_month),
-            exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-            pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
-            data_folder=app.config['DATA_FOLDER'],
-        )
+        _ug_exp = _build_ug_team_members(app.config['DATA_FOLDER'])
+        try:
+            dw_result = compute_daily_breakdown(
+                main_data=_eff_md, employees=employees,
+                overrides=_ld_ov(app.config['DATA_FOLDER'], month=_eff_month),
+                exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
+                pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
+                data_folder=app.config['DATA_FOLDER'],
+                ug_team_members=_ug_exp,
+            )
+        except TypeError:
+            dw_result = compute_daily_breakdown(
+                main_data=_eff_md, employees=employees,
+                overrides=_ld_ov(app.config['DATA_FOLDER'], month=_eff_month),
+                exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
+                pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
+                data_folder=app.config['DATA_FOLDER'],
+            )
         # 合并 att_override_dates
         import sqlite3 as _sq, os as _os
         att_ov_map = {}

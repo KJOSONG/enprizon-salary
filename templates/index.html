@@ -1663,6 +1663,7 @@ function hasAnyPermission(module) {
   const acts = CATALOG_ACTIONS[module] || [];
   return acts.some(a => hasPermission(module, a));
 }
+function isSuperAdmin() { return _authState && _authState.role === 'super_admin'; }
 // P29 V2.1: 'module:action' 键判定助手
 function _permKeyOk(key) {
   const parts = key.split(':');
@@ -2709,10 +2710,24 @@ function getFilteredShiftData() {
   return rows;
 }
 
+function isNewDashFormat() {
+  const d = STATE._dashData;
+  if (!d || !d.shift_production || !d.shift_production.length) return false;
+  return d.shift_production.some(x => ('teams' in x));
+}
 // ── 根据班次和矿石获取产量值 ──
 function getProdValue(d, shift, ore) {
+  if (isNewDashFormat()) {
+    // 新格式：统一用 total_ 前缀（无 day/night 拆分）
+    return d['total_' + ore] || 0;
+  }
   const prefix = shift === 'day' ? 'day_' : shift === 'night' ? 'night_' : 'total_';
   return d[prefix + ore] || 0;
+}
+function getTeamProdValue(d, teamId, ore) {
+  if (!d.teams) return 0;
+  const tm = d.teams.find(t => String(t.team_id) === String(teamId));
+  return tm ? (tm[ore] || 0) : 0;
 }
 
 // ── 统一过滤后刷新全部图表 ──
@@ -2764,7 +2779,25 @@ function renderDashboardKPI() {
   });
 
   const dailyAvg = activeDays > 0 ? Math.round((totalNH + totalNL + totalMW) / activeDays) : 0;
-  const ratioStr = nightTotal > 0 ? (dayTotal / nightTotal).toFixed(1) + ' : 1' : dayTotal > 0 ? '∞ : 1' : '—';
+  let ratioStr = nightTotal > 0 ? (dayTotal / nightTotal).toFixed(1) + ' : 1' : dayTotal > 0 ? '∞ : 1' : '—';
+  let ratioLabelKey = 'dash_day_night_ratio';
+  if (isNewDashFormat()) {
+    const teamMap = {};
+    rows.forEach(d => {
+      (d.teams || []).forEach(tm => {
+        const key = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
+        teamMap[key] = (teamMap[key] || 0) + (tm.total || (tm.nh||0)+(tm.nl||0)+(tm.mw||0));
+      });
+    });
+    const entries = Object.entries(teamMap);
+    if (entries.length) {
+      ratioStr = entries.map(([k,v])=> k + ' ' + fmtNum(v)).join(' | ');
+      ratioLabelKey = 'dash_team_compare';
+    } else {
+      ratioStr = '—';
+      ratioLabelKey = 'dash_team_compare';
+    }
+  }
 
   const grid = document.getElementById('dashKpiGrid');
   grid.innerHTML = `
@@ -2789,8 +2822,8 @@ function renderDashboardKPI() {
       <div class="label">${peakDate ? peakDate.slice(5) : ''} <span data-i18n="dash_daily_peak">日最高</span></div>
     </div>
     <div class="stat-glass kpi-ratio">
-      <div class="value">${ratioStr}</div>
-      <div class="label" data-i18n="dash_day_night_ratio">白夜班比</div>
+      <div class="value" style="font-size:11px;word-break:break-all;">${ratioStr}</div>
+      <div class="label" data-i18n="${ratioLabelKey}">${t(ratioLabelKey)}</div>
     </div>
   `;
   // 刷新 i18n
@@ -2850,6 +2883,10 @@ function renderProductionTrend() {
             const d = rows[ctx.dataIndex];
             if (!d) return '';
             const key = ctx.dataset.label.toLowerCase();
+            if (isNewDashFormat() && d.teams) {
+              const parts = d.teams.map(tm => (tm.team_name || t('dash_team_title')+' '+tm.team_id) + ':' + fmtNum(tm[key]||0)).join(' | ');
+              return `${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${parts})`;
+            }
             const day = d['day_' + key] || 0;
             const night = d['night_' + key] || 0;
             return `${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${t('dash_shift_day')}${fmtNum(day)} / ${t('dash_shift_night')}${fmtNum(night)})`;
@@ -2871,6 +2908,12 @@ function renderProductionTrend() {
 
 // ── 当日产量详情弹窗 ──
 function showDayDetailPopup(d) {
+  if (isNewDashFormat() && d.teams) {
+    const teamRows = d.teams.map(tm => `<div style="margin-top:4px;font-size:11px;">${escHtml(tm.team_name|| t('dash_team_title')+' '+tm.team_id)}: NH ${fmtNum(tm.nh||0)} NL ${fmtNum(tm.nl||0)} MW ${fmtNum(tm.mw||0)} = ${fmtNum(tm.total|| (tm.nh||0)+(tm.nl||0)+(tm.mw||0))}</div>`).join('');
+    const html2 = `<div style="text-align:center;"><div style="font-weight:700;">${d.date}</div>${teamRows}</div>`;
+    showToast(html2, '', 4000);
+    return;
+  }
   const html = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;">
       <div><div style="color:#B05A3C;font-size:20px;font-weight:700;">${fmtNum(d.day_nh + d.night_nh)}</div><div style="font-size:11px;color:var(--text-muted);">NH</div><div style="font-size:10px;color:var(--text-muted);">${t('dash_shift_day')} ${fmtNum(d.day_nh)} / ${t('dash_shift_night')} ${fmtNum(d.night_nh)}</div></div>
@@ -2881,27 +2924,103 @@ function showDayDetailPopup(d) {
   showToast(html, '', 4000);
 }
 
-// ── 白班 vs 夜班 对比（双柱图）Golden Time ──
+// ── 班组对比（新格式）/ 白班 vs 夜班 对比（旧格式） ──
 function renderDayNightCompare() {
   const rows = getFilteredShiftData();
   const f = STATE._dashFilters;
   const ore = f.dayNightOre;
   destroyChart('chartDayNight');
-
   if (!rows.length) return;
-
+  const titleEl = document.querySelector('[data-i18n="dash_day_night_compare"]');
+  if (isNewDashFormat()) {
+    if (titleEl) { titleEl.textContent = t('dash_team_compare'); titleEl.setAttribute('data-i18n','dash_team_compare'); }
+    // 收集所有 team_id -> name
+    const teamInfo = {};
+    rows.forEach(d => (d.teams||[]).forEach(tm => { teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title')+' '+tm.team_id); }));
+    const teamIds = Object.keys(teamInfo).sort();
+    const oreKeys = ['nh','nl','mw'];
+    const colors = { nh: ORE_COLORS.nh.line, nl: ORE_COLORS.nl.line, mw: ORE_COLORS.mw.line };
+    // per team total aggregated if ore===total else per ore
+    // For stacked nh/nl/mw per team across dates, we render aggregated totals per team (single bar per team stacked)
+    // But to keep time dimension, we stack per date? Instead show per-team aggregated totals for simplicity (C8: per team total cars; stacked acceptable)
+    // We'll aggregate across filtered rows per team.
+    const teamAgg = {};
+    teamIds.forEach(tid => teamAgg[tid] = { nh:0,nl:0,mw:0, total:0 });
+    rows.forEach(d => (d.teams||[]).forEach(tm => {
+      const tid = String(tm.team_id);
+      if (!teamAgg[tid]) teamAgg[tid] = { nh:0,nl:0,mw:0,total:0 };
+      teamAgg[tid].nh += tm.nh||0;
+      teamAgg[tid].nl += tm.nl||0;
+      teamAgg[tid].mw += tm.mw||0;
+      teamAgg[tid].total += tm.total || (tm.nh||0)+(tm.nl||0)+(tm.mw||0);
+    }));
+    const labels = teamIds.map(tid => teamInfo[tid]);
+    let datasets;
+    if (ore === 'total') {
+      datasets = oreKeys.map(k => ({
+        label: k.toUpperCase(),
+        data: teamIds.map(tid => teamAgg[tid][k]||0),
+        backgroundColor: colors[k] + 'CC',
+        borderColor: colors[k],
+        borderWidth: 1, borderRadius: 4,
+      }));
+    } else {
+      datasets = [{
+        label: ore.toUpperCase(),
+        data: teamIds.map(tid => teamAgg[tid][ore]||0),
+        backgroundColor: (colors[ore]||'#BEAF87') + '99',
+        borderColor: colors[ore]||'#BEAF87',
+        borderWidth: 1, borderRadius: 4,
+      }];
+    }
+    renderChart('chartDayNight', 'bar', { labels, datasets }, {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        datalabels: {
+          display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+          color: '#978365',
+          font: { size: 9, weight: '600' },
+          anchor: 'end', align: 'top',
+          offset: 1,
+          formatter: v => v ? Math.round(v) : '',
+        },
+        legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true } },
+        tooltip: {
+          backgroundColor: 'rgba(59,53,43,0.95)',
+          titleColor: '#cbc0aa',
+          bodyColor: '#fbfaf9',
+          borderColor: 'rgba(203,192,170,0.4)',
+          borderWidth: 1,
+          padding: 12,
+          titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
+          bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
+          callbacks: {
+            afterBody: function(ctx) {
+              const idx = ctx[0] ? ctx[0].dataIndex : 0;
+              const tid = teamIds[idx];
+              const agg = teamAgg[tid]||{};
+              return t('dash_team_title') + ' ' + tid + ': ' + fmtNum(agg.total||0) + ' (NH ' + fmtNum(agg.nh||0) + ' NL ' + fmtNum(agg.nl||0) + ' MW ' + fmtNum(agg.mw||0) + ')';
+            }
+          }
+        },
+      },
+      scales: {
+        x: { stacked: ore==='total', grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+        y: { stacked: ore==='total', grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      },
+    });
+    return;
+  }
+  if (titleEl) { titleEl.textContent = t('dash_day_night_compare'); titleEl.setAttribute('data-i18n','dash_day_night_compare'); }
   const dates = rows.map(d => d.date.slice(5));
-  // Golden Time 暖色：day = 暖金，night = 矿石色
   const dayColor = ore === 'total' ? '#BEAF87' : ORE_COLORS[ore] ? ORE_COLORS[ore].line : '#BEAF87';
   const nightColor = ore === 'total' ? '#574D42' : ORE_COLORS[ore] ? ORE_COLORS[ore].solid : '#574D42';
-
   const getVal = (d, shift) => {
     if (ore === 'total') {
       return (d[shift + '_nh'] || 0) + (d[shift + '_nl'] || 0) + (d[shift + '_mw'] || 0);
     }
     return d[shift + '_' + ore] || 0;
   };
-
   renderChart('chartDayNight', 'bar', {
     labels: dates,
     datasets: [
@@ -6843,10 +6962,43 @@ async function loadColHistory(formType, containerId) {
       <thead><tr><th>${t('col_th_date')}</th><th>${t('col_department')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_actions')}</th></tr></thead>
       <tbody>` + subs.map(s => {
         const d = colSubDept(s);
-        const editable = formType !== 'attendance' || !!d;  // 存量混部门记录（department 空）只读
+        const editable = formType !== 'attendance' || !!d;
+        let exemptBadges = '';
+        try {
+          const _pl = JSON.parse(s.payload || '{}');
+          if (formType === 'underground') {
+            if (Array.isArray(_pl.teams)) {
+              _pl.teams.forEach(tm => {
+                if (tm && tm.exempt) {
+                  exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + ' T' + escHtml(String(tm.team_id)) + '</span>';
+                  if (isSuperAdmin()) {
+                    exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',' + tm.team_id + ',false,' + (tm.exempt ? 'true' : 'false') + ',\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄</button>';
+                  } else {
+                    // non-exempt teams also need toggle if admin wants to enable? show toggle for all teams when super_admin
+                  }
+                } else if (isSuperAdmin() && tm) {
+                  exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',' + tm.team_id + ',false,' + (tm.exempt ? 'true' : 'false') + ',\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;opacity:0.6;">⇄</button>';
+                }
+              });
+            } else {
+              if (_pl.day && _pl.day.exempt) {
+                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + ' D</span>';
+                if (isSuperAdmin()) exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'day\',true,true,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄</button>';
+              } else if (isSuperAdmin() && _pl.day) {
+                exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'day\',true,false,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;opacity:0.6;">⇄</button>';
+              }
+              if (_pl.night && _pl.night.exempt) {
+                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + ' N</span>';
+                if (isSuperAdmin()) exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'night\',true,true,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄</button>';
+              } else if (isSuperAdmin() && _pl.night) {
+                exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'night\',true,false,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;opacity:0.6;">⇄</button>';
+              }
+            }
+          }
+        } catch(e) {}
         return `
         <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
-          <td>${s.submission_date}</td>
+          <td>${s.submission_date}${exemptBadges}</td>
           <td>${d ? escHtml(d) : '—'}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
@@ -6869,20 +7021,36 @@ function colEidToName(id) {
   const e = pool.find(x => String(x.id) === String(id));
   return e ? e.name : String(id || '');
 }
-function renderColPayloadPreview(formType, payload) {
+function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
   const ST = { D: t('st_d'), N: t('st_n'), P: t('st_p'), A: t('st_a'), L: t('st_l'), C: t('st_c'), R: t('st_r'), B: t('st_b') };
   const fmt = (n) => String(n == null ? 0 : n);
+  const _exemptBadge = '<span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + '</span>';
+  const _toggleBtn = (sid, tid, isOld, cur, cid) => isSuperAdmin() ? '<button onclick="toggleColExempt(\'' + sid + '\',' + (isOld ? '\'' + tid + '\'' : tid) + ',' + (isOld ? 'true' : 'false') + ',' + (cur ? 'true' : 'false') + ',\'' + cid + '\')" style="font-size:10px;padding:1px 4px;margin-left:4px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄ ' + t('col_ug_exempt') + '</button>' : '';
   if (formType === 'underground') {
+    if (Array.isArray(payload.teams)) {
+      const sid = _sub ? _sub.id : '';
+      const cid = _containerId || '';
+      if (!payload.teams.length) return '<div style="font-size:12px;color:var(--text-muted);">' + t('no_submissions') + '</div>';
+      return '<div style="font-size:12px;line-height:1.9;">' + payload.teams.map(tm =>
+        '<div style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
+        + '<div style="font-weight:600;">' + t('col_ug_team_row') + ' ' + escHtml(String(tm.team_id)) + (tm.exempt ? ' ' + _exemptBadge : '') + (sid ? _toggleBtn(sid, tm.team_id, false, !!tm.exempt, cid) : '') + '</div>'
+        + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
+        + (tm.remark ? '<div>' + escHtml(tm.remark) + '</div>' : '')
+        + '</div>'
+      ).join('') + '</div>';
+    }
     const day = payload.day || {}, night = payload.night || {};
+    const sid2 = _sub ? _sub.id : '';
+    const cid2 = _containerId || '';
     return '<div style="font-size:12px;line-height:1.9;">'
       + '<div style="font-weight:600;color:var(--accent);">' + t('day_shift') + '</div>'
-      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + (day.exempt ? ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + '</span>' : '') + '</div>'
+      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + (day.exempt ? ' ' + _exemptBadge : '') + (sid2 ? _toggleBtn(sid2, 'day', true, !!day.exempt, cid2) : '') + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(day.emps) + '</div>'
       + '<div>🚗 ' + t('col_drivers') + ': ' + names(day.drivers) + '</div>'
       + (day.remark ? '<div>' + t('remark_day') + ': ' + escHtml(day.remark) + '</div>' : '')
       + '<div style="font-weight:600;color:var(--accent);margin-top:4px;">' + t('night_shift') + '</div>'
-      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + (night.exempt ? ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + '</span>' : '') + '</div>'
+      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + (night.exempt ? ' ' + _exemptBadge : '') + (sid2 ? _toggleBtn(sid2, 'night', true, !!night.exempt, cid2) : '') + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(night.emps) + '</div>'
       + '<div>🚗 ' + t('col_drivers') + ': ' + names(night.drivers) + '</div>'
       + (night.remark ? '<div>' + t('remark_night') + ': ' + escHtml(night.remark) + '</div>' : '')
@@ -6940,7 +7108,7 @@ async function previewColSubmission(formType, sid, containerId) {
           <div>${t('col_version')}: v${sub.version || 1}</div>
           <div>${t('col_operator')}: ${escHtml(sub.operator_id || '')}</div>
         </div>
-        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload)}</div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload, sub, containerId)}</div>
         <div style="display:flex;gap:8px;">
           ${canEdit ? `<button class="btn-primary" onclick="enterColEditFromPreview('${formType}','${sub.id}','${containerId}')" style="padding:6px 16px;font-size:12px;">${t('col_edit_btn')}</button>` : ''}
           <button class="btn-cancel" onclick="document.getElementById('colPreviewModal').remove()" style="padding:6px 16px;font-size:12px;">${t('col_close')}</button>
@@ -6953,6 +7121,25 @@ function enterColEditFromPreview(formType, sid, containerId) {
   const m = document.getElementById('colPreviewModal');
   if (m) m.remove();
   enterColEdit(formType, sid, containerId);
+}
+async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt, containerId) {
+  if (!isSuperAdmin()) { showToast(t('need_super_admin'), 'error'); return; }
+  const newVal = !currentExempt;
+  const body = isOldFormat ? { shift: String(teamOrShift), exempt: newVal } : { team_id: parseInt(teamOrShift,10), exempt: newVal };
+  try {
+    const res = await authFetch(api('/api/collection/exempt/' + submissionId), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(t('saved'));
+      const mp = document.getElementById('colPreviewModal');
+      if (mp) mp.remove();
+      // reload history for underground; containerId passed from row or preview
+      if (containerId) loadColHistory('underground', containerId);
+      else { loadColHistory('underground','colUgHistory'); }
+    } else {
+      showToast(data.error || t('op_fail'), 'error');
+    }
+  } catch(e) { showToast(t('op_fail'), 'error'); }
 }
 
 /* 再编辑入口：加载提交数据预填表单（各表单实现 fill 逻辑） */
@@ -7179,22 +7366,65 @@ function cancelColEdit(formType, historyId) {
   loadColHistory(formType, historyId);
 }
 
-/* ── P9-2/P12 井下出渣采集表单 ── */
-async function renderUgCollectionForm(payload) {
-  payload = payload || {};
+/* ── P9-2/P12 井下出渣采集表单 (C1/C2 新版：teams 数组) ── */
+let _ugGroupsCache = null;
+let _ugTeamRows = [];
+async function _ensureUgGroups() {
+  if (_ugGroupsCache) return _ugGroupsCache;
+  try {
+    const res = await fetch(api('/api/employee_groups'));
+    _ugGroupsCache = (await res.json()).groups || [];
+  } catch(e) { _ugGroupsCache = []; }
+  return _ugGroupsCache;
+}
+function _ugTeamOpts(sel) {
+  const groups = _ugGroupsCache || [];
+  return '<option value="">' + t('col_ug_team_placeholder') + '</option>' + groups.map(g => '<option value="' + g.id + '" ' + (String(sel)===String(g.id)?'selected':'') + '>' + escHtml(g.name) + '</option>').join('');
+}
+function renderUgTeamRows() {
+  const container = document.getElementById('ugTeamContainer');
+  if (!container) return;
+  container.innerHTML = _ugTeamRows.map((row, idx) => `
+    <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+        <label style="font-size:12px;min-width:36px;">${t('col_ug_team_row')}</label>
+        <select data-idx="${idx}" class="ugTeamSel" onchange="onUgTeamRowChange(${idx})" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
+          ${_ugTeamOpts(row.team_id)}
+        </select>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
+          <input type="checkbox" data-idx="${idx}" class="ugTeamExempt" ${row.exempt ? 'checked' : ''} onchange="_ugTeamRows[${idx}].exempt=this.checked"> ${t('col_ug_exempt')}
+        </label>
+        <button class="nav-btn" onclick="removeUgTeamRow(${idx})" style="font-size:11px;padding:3px 8px;" title="${t('col_ug_remove_team')}">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;">
+        <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" data-idx="${idx}" class="ugTeamNh" value="${+row.nh || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].nh=parseFloat(this.value)||0"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" data-idx="${idx}" class="ugTeamNl" value="${+row.nl || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].nl=parseFloat(this.value)||0"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" data-idx="${idx}" class="ugTeamMw" value="${+row.mw || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].mw=parseFloat(this.value)||0"></div>
+      </div>
+      <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:50px;">${t('remark')}</label><input data-idx="${idx}" class="ugTeamRemark" value="${escHtml(row.remark||'')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}" oninput="_ugTeamRows[${idx}].remark=this.value"></div>
+      ${(() => { const _pool=_colEmpPool||STATE._empAll||[]; const _cnt=_pool.filter(e=>String(e.team_id||'')===String(row.team_id)).length; return row.team_id && _cnt===0 ? '<div style="font-size:11px;color:var(--warning);margin-top:4px;">'+t('col_ug_no_attendance_warn')+'</div>' : ''; })()}
+    </div>`).join('');
+}
+function addUgTeamRow() {
+  _ugTeamRows.push({ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' });
+  renderUgTeamRows();
+}
+function removeUgTeamRow(idx) {
+  _ugTeamRows.splice(idx, 1);
+  if (!_ugTeamRows.length) _ugTeamRows.push({ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' });
+  renderUgTeamRows();
+}
+function onUgTeamRowChange(idx) {
+  const sel = document.querySelectorAll('.ugTeamSel')[idx];
+  if (sel) _ugTeamRows[idx].team_id = sel.value;
+}
+/* 旧格式回退渲染（Aug 存量 day/night 保持 byte-identical） */
+async function _renderUgLegacyForm(payload) {
   const day = payload.day || {};
   const night = payload.night || {};
   const date = payload.submission_date || '';
   const empsStr = (arr) => (arr || []).join(',');
-  let ugGroups = [];
-  try {
-    const res = await fetch(api('/api/employee_groups'));
-    ugGroups = (await res.json()).groups || [];
-  } catch(e) { ugGroups = []; }
-  const teamOpts = (sel) => '<option value="">' + t('col_ug_team_placeholder') + '</option>' +
-    ugGroups.map(g => `<option value="${g.id}" ${String(sel)===String(g.id)?'selected':''}>${escHtml(g.name)}</option>`).join('');
-  // P12: 三列产量各带标签（NICKEL(H) | NICKEL(L) | MAWE）
-  // B1c: prodRow 需区分数据源(day/night)，否则夜班输入框误显示白班值
+  await _ensureUgGroups();
   const prodRow = (prefix, data) => `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;">
       <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(H)</label><input type="number" id="${prefix}Nh" value="${+data.nh || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
@@ -7225,7 +7455,7 @@ async function renderUgCollectionForm(payload) {
       <div class="form-row" style="margin-bottom:6px;align-items:center;gap:8px;">
         <label style="font-size:12px;min-width:50px;">${t('col_ug_team')}</label>
         <select id="ugDayTeam" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
-          ${teamOpts(day.team_id)}
+          ${_ugTeamOpts(day.team_id)}
         </select>
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
           <input type="checkbox" id="ugDayExempt" ${day.exempt ? 'checked' : ''}> ${t('col_ug_exempt')}
@@ -7240,7 +7470,7 @@ async function renderUgCollectionForm(payload) {
       <div class="form-row" style="margin-bottom:6px;align-items:center;gap:8px;">
         <label style="font-size:12px;min-width:50px;">${t('col_ug_team')}</label>
         <select id="ugNightTeam" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
-          ${teamOpts(night.team_id)}
+          ${_ugTeamOpts(night.team_id)}
         </select>
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
           <input type="checkbox" id="ugNightExempt" ${night.exempt ? 'checked' : ''}> ${t('col_ug_exempt')}
@@ -7255,45 +7485,39 @@ async function renderUgCollectionForm(payload) {
       ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'underground\',\'colUgHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
     </div>`;
   document.getElementById('colUgForm').innerHTML = html;
-  // 回填已选人员显示（chips）
   ['ugDay', 'ugNight'].forEach(p => {
     const val = document.getElementById(p + 'EmpsVal').value;
     const el = document.getElementById(p + 'Emps');
     el.innerHTML = renderEmpChips(empChipsFromIds(val.split(',')), false, id => "removeEmpChip('" + p + "EmpsVal','" + p + "Emps','" + id + "')");
-    // 驾驶员 chips（若存在驾驶显示容器）
     const drvVal = document.getElementById(p + 'DriversVal').value;
     const drvEl = document.getElementById(p + 'Drivers');
     const drvRow = document.getElementById(p + 'DrvRow');
     if (drvEl) drvEl.innerHTML = drvVal ? renderEmpChips(empChipsFromIds(drvVal.split(',')), true, id => "removeDrvChip('" + p + "DriversVal','" + p + "Drivers','" + p + "DrvRow','" + id + "')") : '';
     if (drvRow) drvRow.style.display = drvVal ? 'flex' : 'none';
   });
-  // 班组切换：移除不属于新班组的已选人员
   ['ugDay', 'ugNight'].forEach(p => {
     const s = document.getElementById(p + 'Team');
     if (s) s.onchange = () => onUgTeamChange(p);
   });
 }
-
-/* 班组切换：移除不属于新班组的已选人员 */
+/* 班组切换：移除不属于新班组的已选人员 (旧版保留) */
 function onUgTeamChange(prefix) {
   const teamId = (document.getElementById(prefix + 'Team') || {}).value || '';
   const pool = _colEmpPool || STATE._empAll || [];
   const empValEl = document.getElementById(prefix + 'EmpsVal');
+  if (!empValEl) return;
   const emps = (empValEl.value || '').split(',').filter(Boolean);
-  let changed = false;
   if (teamId) {
     const tid = String(teamId);
     const filtered = emps.filter(id => {
       const emp = pool.find(e => String(e.id) === String(id));
       return emp && String(emp.team_id || '') === tid;
     });
-    if (filtered.length !== emps.length) { changed = true; empValEl.value = filtered.join(','); }
+    if (filtered.length !== emps.length) empValEl.value = filtered.join(',');
   }
-  // 回填出勤 chips
   const el = document.getElementById(prefix + 'Emps');
   const cur = (empValEl.value || '').split(',').filter(Boolean);
-  el.innerHTML = cur.length ? renderEmpChips(empChipsFromIds(cur), false, id => "removeEmpChip('" + prefix + "EmpsVal','" + prefix + "Emps','" + id + "')") : '';
-  // 驾驶员：若被移除且空则隐藏
+  if (el) el.innerHTML = cur.length ? renderEmpChips(empChipsFromIds(cur), false, id => "removeEmpChip('" + prefix + "EmpsVal','" + prefix + "Emps','" + id + "')") : '';
   const drvValEl = document.getElementById(prefix + 'DriversVal');
   const drvEl = document.getElementById(prefix + 'Drivers');
   const drvRow = document.getElementById(prefix + 'DrvRow');
@@ -7310,15 +7534,49 @@ function onUgTeamChange(prefix) {
       if (drvRow) drvRow.style.display = drvFiltered.length ? 'flex' : 'none';
     }
   }
-  // 若弹窗正开着，同步重绘
   if (_pickerTarget && _pickerTarget.hiddenId === prefix + 'EmpsVal') {
     filterEmpPickerPool(_pickerKw, teamId).then(list => {
-      const cur = (empValEl.value || '').split(',').filter(Boolean);
+      const cur2 = (empValEl.value || '').split(',').filter(Boolean);
       const curDrivers = _pickerTarget.driverHiddenId ? (document.getElementById(_pickerTarget.driverHiddenId).value || '').split(',').filter(Boolean) : [];
-      document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur, curDrivers, !!_pickerTarget.showDriver);
+      document.getElementById('empPickerCol').innerHTML = renderEmpCheckRows(list, cur2, curDrivers, !!_pickerTarget.showDriver);
       updateEmpPickerCountFromDom(!!_pickerTarget.showDriver);
     });
   }
+}
+async function renderUgCollectionForm(payload) {
+  payload = payload || {};
+  if (payload.day || payload.night) {
+    // 存量旧格式：保持原样渲染
+    return _renderUgLegacyForm(payload);
+  }
+  await _ensureUgGroups();
+  const date = payload.submission_date || '';
+  if (Array.isArray(payload.teams) && payload.teams.length) {
+    _ugTeamRows = payload.teams.map(tm => ({ team_id: String(tm.team_id || ''), nh: tm.nh || 0, nl: tm.nl || 0, mw: tm.mw || 0, exempt: !!tm.exempt, remark: tm.remark || '' }));
+  } else if (!_ugTeamRows.length) {
+    _ugTeamRows = [{ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' }];
+  } else {
+    // 保留内存中的行（新提交空白时）
+    if (_colEditing && _colEditing.payload) {
+      try { const pp = JSON.parse(_colEditing.payload); if (!pp.teams) _ugTeamRows = [{ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' }]; } catch(e) {}
+    }
+  }
+  // 编辑态：若payload有teams则已在上分支设置；若payload空且是编辑则重设
+  if (payload.submission_date && Array.isArray(payload.teams) && payload.teams.length===0) {
+    _ugTeamRows = [{ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' }];
+  }
+  const html = `
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="ugDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
+    <div id="ugTeamContainer" style="margin-top:10px;"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="nav-btn" onclick="addUgTeamRow()" style="font-size:11px;padding:5px 12px;">+ ${t('col_ug_add_team')}</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-primary" onclick="submitUgCollection()" style="padding:6px 16px;font-size:12px;">${_colEditing ? t('btn_save_changes') : t('btn_submit')}</button>
+      ${_colEditing ? '<button class="btn-cancel" onclick="cancelColEdit(\'underground\',\'colUgHistory\')" style="padding:6px 16px;font-size:12px;">' + t('btn_cancel_edit') + '</button>' : ''}
+    </div>`;
+  document.getElementById('colUgForm').innerHTML = html;
+  renderUgTeamRows();
 }
 
 /* ── P9-3 钻工采集表单 ── */
@@ -7575,34 +7833,62 @@ async function submitCrCollection() {
   await submitColPayload('crush', date, payload, 'colCrHistory');
 }
 
-/* ── P9-5 出勤收集表单（花名册点选，井下/钻工/破碎以外部门） ── */
+/* ── P9-5 出勤收集表单（花名册点选，C3 井下按班组） ── */
 const COL_ATT_STATUS = [
-  ['P', 'att_status_p'], ['A', 'att_status_a'], ['S', 'att_status_s'],
-  ['SK', 'att_status_sk'], ['T', 'att_status_t'], ['B', 'att_status_b'],
+  ['P', 'att_status_p'], ['A', 'att_status_a'], ['L', 'att_status_l'],
+  ['SK', 'att_status_sk'], ['T', 'att_status_t'], ['E', 'shift_E_label'],
 ];
+let _driverRosterCache = null;
+async function ensureDriverRoster() {
+  if (_driverRosterCache) return _driverRosterCache;
+  try {
+    const res = await fetch(api('/api/driver-roster'));
+    const data = await res.json();
+    _driverRosterCache = (data.drivers || []).map(String);
+  } catch(e) { _driverRosterCache = []; }
+  return _driverRosterCache;
+}
 
 async function renderAttCollectionForm(payload) {
   payload = payload || {};
   const date = payload.submission_date || '';
   const pool = await getEmpPool();
-  const roster = filterEmpByDept(pool, 'other');
-  // P12: 部门下拉（排除井下/钻工/破碎后剩余部门 + 全部）
-  const depts = [...new Set(roster.map(e => e.department).filter(Boolean))].sort();
-  // 编辑态预选记录所属部门；新提交不预选（防误提交错误部门）
+  await _ensureUgGroups();
+  const rosterOther = filterEmpByDept(pool, 'other');
+  const ugDeptExact = 'Production TEAM （underground）';
+  const ugPool = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)');
+  const deptsOther = [...new Set(rosterOther.map(e => e.department).filter(Boolean))].sort();
+  const depts = deptsOther.slice();
+  if (ugPool.length && !depts.some(d => normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)')) depts.push(ugDeptExact);
+  depts.sort();
   const selDept = payload.department || '';
-  // 预填 marks 映射：eid → {status, is_driver}（旧 payload 的 is_driver 忽略）
+  const selTeamId = payload.team_id != null ? String(payload.team_id) : '';
   const marksMap = {};
-  (payload.marks || []).forEach(m => { marksMap[m.employee_id] = m; });
+  (payload.marks || []).forEach(m => { marksMap[String(m.employee_id)] = m; });
+  const driverRoster = await ensureDriverRoster();
   const attStatusOpts = (selSt) => COL_ATT_STATUS.map(([v, key]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${t(key)}</option>`).join('');
-  const rosterHtml = roster.length ? roster.map(e => {
-    const m = marksMap[e.id] || {};
+  const otherHtml = rosterOther.map(e => {
+    const m = marksMap[String(e.id)] || {};
     const st = m.status || 'P';
-    return `
-      <div class="picker-row att-row" data-dept="${escHtml(e.department || '')}">
+    return `<div class="picker-row att-row" data-dept="${escHtml(e.department || '')}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
         <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
       </div>`;
-  }).join('') : '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
+  }).join('');
+  const ugHtml = ugPool.map(e => {
+    const m = marksMap[String(e.id)] || {};
+    const st = m.status || 'P';
+    const isDrv = (payload.drivers || []).map(String).includes(String(e.id));
+    const inRoster = driverRoster.includes(String(e.id));
+    const rosterLocked = driverRoster.length > 0 && !inRoster;
+    return `<div class="picker-row att-row" data-dept="${escHtml(ugDeptExact)}" data-team-id="${escHtml(String(e.team_id||''))}">
+        <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
+        <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${isDrv ? 'checked' : ''} ${rosterLocked ? 'disabled title="' + t('col_att_driver_not_roster') + '"' : ''}> ${t('col_att_driver')}</label>
+      </div>`;
+  }).join('');
+  const rosterHtml = (otherHtml + ugHtml) || '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
+  const teamOpts = (_ugGroupsCache||[]).map(g=>`<option value="${g.id}" ${selTeamId===String(g.id)?'selected':''}>${escHtml(g.name)}</option>`).join('');
   document.getElementById('colAttForm').innerHTML = `
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
@@ -7610,6 +7896,9 @@ async function renderAttCollectionForm(payload) {
         <option value="">${t('col_select_dept_placeholder')}</option>
         ${depts.map(d => `<option value="${escHtml(d)}" ${selDept === d ? 'selected' : ''}>${escHtml(d)}</option>`).join('')}
       </select>
+    </div>
+    <div id="attUgTeamWrap" style="margin-top:8px;${normDept(selDept) === 'PRODUCTIONTEAM(UNDERGROUND)' ? '' : 'display:none;'}">
+      <div class="form-row"><label style="min-width:70px;">${t('col_att_ug_team')}</label><select id="attUgTeamSel" onchange="filterAttRoster()" style="${colInStyle(true)}"><option value="">${t('col_ug_team_placeholder')}</option>${teamOpts}</select></div>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
     <div style="max-height:50vh;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);" id="attRoster">
@@ -7623,66 +7912,155 @@ async function renderAttCollectionForm(payload) {
   filterAttRoster();
 }
 
-// P12: 按部门过滤出勤花名册（仅显示，不重绘，保留已选状态）
 function filterAttRoster() {
-  const d = document.getElementById('attDeptSel').value;
+  const dEl = document.getElementById('attDeptSel');
+  const d = dEl ? dEl.value : '';
   const box = document.getElementById('attRoster');
+  const wrap = document.getElementById('attUgTeamWrap');
+  const isUg = normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  if (wrap) wrap.style.display = isUg ? '' : 'none';
   if (!box) return;
-  if (!d) { box.style.display = 'none'; return; }  // 未选部门 → 隐藏花名册，防误提交全部
+  if (!d) { box.style.display = 'none'; return; }
   box.style.display = '';
+  const teamSel = document.getElementById('attUgTeamSel');
+  const teamVal = isUg && teamSel ? teamSel.value : '';
   document.querySelectorAll('#attRoster .att-row').forEach(row => {
-    row.style.display = (row.getAttribute('data-dept') === d) ? '' : 'none';
+    const dept = row.getAttribute('data-dept') || '';
+    if (dept !== d) { row.style.display = 'none'; return; }
+    if (isUg) {
+      const tid = row.getAttribute('data-team-id') || '';
+      if (!teamVal) { row.style.display = 'none'; return; }
+      row.style.display = (tid === teamVal) ? '' : 'none';
+    } else {
+      row.style.display = '';
+    }
   });
 }
 
 function resetAttStatus() {
-  document.querySelectorAll('#attRoster select').forEach(sel => sel.value = 'P');
+  const d = (document.getElementById('attDeptSel')||{}).value || '';
+  const isUg = normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const teamVal = isUg ? ((document.getElementById('attUgTeamSel')||{}).value || '') : '';
+  document.querySelectorAll('#attRoster .att-row').forEach(row => {
+    if (row.style.display === 'none') return;
+    const sel = row.querySelector('select');
+    if (sel) sel.value = 'P';
+    const chk = row.querySelector('input[type=checkbox]');
+    if (chk) chk.checked = false;
+  });
 }
 
 async function submitAttCollection() {
   const date = document.getElementById('attDate').value;
   if (!date) { showToast(t('pick_date'), 'error'); return; }
-  // 必须选择部门才能提交(防止误提交全部员工)
   const deptEl = document.getElementById('attDeptSel');
   if (!deptEl || !deptEl.value) { showToast(t('col_att_need_dept'), 'error'); return; }
   const dept = deptEl.value;
+  const isUg = normDept(dept) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  let teamId = null;
+  if (isUg) {
+    const tsel = document.getElementById('attUgTeamSel');
+    if (!tsel || !tsel.value) { showToast(t('col_ug_team_required'), 'error'); return; }
+    teamId = parseInt(tsel.value,10);
+  }
   const pool = await getEmpPool();
-  const roster = filterEmpByDept(pool, 'other');
+  let roster;
+  if (isUg) {
+    roster = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)' && String(e.team_id||'') === String(teamId));
+  } else {
+    roster = filterEmpByDept(pool, 'other').filter(e => e.department === dept);
+  }
   const marks = [];
   for (const e of roster) {
-    if (e.department !== dept) continue; // 仅选中部门
     const sel = document.getElementById('attSt' + e.id);
     if (!sel) continue;
     let status = sel.value;
-    if (status === 'B') status = 'P'; // 病假 → 出勤 P（与 P8 病假一致，不参与计件）
+    if (status === 'B') status = 'P';
     marks.push({ employee_id: e.id, status });
   }
-  // 编辑保数据: 原 marks 员工(即使不在选中部门)按原状态并入,避免编辑丢人
+  let drivers = [];
+  if (isUg) {
+    for (const e of roster) {
+      const chk = document.getElementById('attDrv' + e.id);
+      if (chk && chk.checked) {
+        if (chk.disabled) { showToast(t('col_att_driver_not_roster'), 'error'); return; }
+        drivers.push(e.id);
+      }
+    }
+  }
+  // 编辑保数据：UG 时仅合并同 team_id 的旧 marks；非 UG 合并全量旧 marks
   if (_colEditing) {
-    let oldMarks = [];
-    try { oldMarks = (_colEditing.payload && JSON.parse(_colEditing.payload).marks) || []; } catch(e) {}
+    let oldPayload = {};
+    try { oldPayload = _colEditing.payload ? JSON.parse(_colEditing.payload) : {}; } catch(e) {}
+    const oldMarks = oldPayload.marks || [];
+    const oldTeam = oldPayload.team_id;
     const submitted = new Set(marks.map(m => String(m.employee_id)));
     oldMarks.forEach(m => {
+      if (isUg) {
+        if (String(oldTeam) !== String(teamId)) return;
+      }
       if (!submitted.has(String(m.employee_id))) {
         submitted.add(String(m.employee_id));
         marks.push({ employee_id: m.employee_id, status: m.status === 'B' ? 'P' : m.status });
       }
     });
+    if (isUg && oldPayload.drivers) {
+      const oldDrivers = oldPayload.drivers.map(String);
+      oldDrivers.forEach(d => { if (!drivers.map(String).includes(d) && submitted.has(d)) drivers.push(d); });
+    }
   }
-  await submitColPayload('attendance', date, { marks, department: dept }, 'colAttHistory');
+  const payload = isUg ? { department: dept, team_id: teamId, marks, drivers } : { marks, department: dept };
+  await submitColPayload('attendance', date, payload, 'colAttHistory');
 }
 
 async function submitUgCollection() {
-  const date = document.getElementById('ugDate').value;
+  const dateEl = document.getElementById('ugDate');
+  const date = dateEl ? dateEl.value : '';
   if (!date) { showToast(t('pick_date'), 'error'); return; }
+  // 检测新版 teams 容器是否存在
+  const teamContainer = document.getElementById('ugTeamContainer');
+  if (teamContainer) {
+    // 同步输入框到 _ugTeamRows（防 oninput 未触发）
+    document.querySelectorAll('.ugTeamSel').forEach((sel, i) => { if (_ugTeamRows[i]) _ugTeamRows[i].team_id = sel.value; });
+    document.querySelectorAll('.ugTeamNh').forEach((el, i) => { if (_ugTeamRows[i]) _ugTeamRows[i].nh = parseFloat(el.value) || 0; });
+    document.querySelectorAll('.ugTeamNl').forEach((el, i) => { if (_ugTeamRows[i]) _ugTeamRows[i].nl = parseFloat(el.value) || 0; });
+    document.querySelectorAll('.ugTeamMw').forEach((el, i) => { if (_ugTeamRows[i]) _ugTeamRows[i].mw = parseFloat(el.value) || 0; });
+    document.querySelectorAll('.ugTeamExempt').forEach((el, i) => { if (_ugTeamRows[i]) _ugTeamRows[i].exempt = el.checked; });
+    document.querySelectorAll('.ugTeamRemark').forEach((el, i) => { if (_ugTeamRows[i]) _ugTeamRows[i].remark = el.value.trim(); });
+    // Validation: at least one row with production>0
+    let hasProd = false;
+    const seen = new Set();
+    for (const row of _ugTeamRows) {
+      const prod = (parseFloat(row.nh)||0) + (parseFloat(row.nl)||0) + (parseFloat(row.mw)||0);
+      if (prod > 0) {
+        hasProd = true;
+        if (!row.team_id) { showToast(t('col_ug_team_required'), 'error'); return; }
+        if (seen.has(String(row.team_id))) { showToast(t('col_emp_not_in_team') + ' duplicate team', 'error'); return; }
+        seen.add(String(row.team_id));
+      } else {
+        if (row.team_id && seen.has(String(row.team_id))) { showToast('duplicate team ' + row.team_id, 'error'); return; }
+        if (row.team_id) seen.add(String(row.team_id));
+      }
+    }
+    if (!hasProd) { showToast(t('pick_date') + ' need production', 'error'); return; }
+    // duplicate check for rows with production plus also for all rows with team_id
+    const payloadTeams = _ugTeamRows.filter(r => String(r.team_id)).map(r => ({ team_id: parseInt(r.team_id,10)||0, nh: parseFloat(r.nh)||0, nl: parseFloat(r.nl)||0, mw: parseFloat(r.mw)||0, exempt: !!r.exempt, remark: r.remark||'' }));
+    if (!payloadTeams.length) { showToast(t('col_ug_team_required'), 'error'); return; }
+    const ids = payloadTeams.map(x=>String(x.team_id));
+    if (new Set(ids).size !== ids.length) { showToast('duplicate team', 'error'); return; }
+    for (const tm of payloadTeams) { if (!tm.team_id) { showToast(t('col_ug_team_required'), 'error'); return; } }
+    if (!payloadTeams.some(x=> (x.nh+x.nl+x.mw)>0 )) { showToast(t('pick_date'), 'error'); return; }
+    const payload = { teams: payloadTeams };
+    await submitColPayload('underground', date, payload, 'colUgHistory');
+    return;
+  }
+  // 旧版 fallback（存量 day/night 编辑）
   const dayTeamEl = document.getElementById('ugDayTeam');
   const nightTeamEl = document.getElementById('ugNightTeam');
   const dayTeamId = dayTeamEl ? parseInt(dayTeamEl.value) || 0 : 0;
   const nightTeamId = nightTeamEl ? parseInt(nightTeamEl.value) || 0 : 0;
-  const dayExemptEl = document.getElementById('ugDayExempt');
-  const nightExemptEl = document.getElementById('ugNightExempt');
-  const dayExempt = dayExemptEl ? dayExemptEl.checked : false;
-  const nightExempt = nightExemptEl ? nightExemptEl.checked : false;
+  const dayExempt = document.getElementById('ugDayExempt') ? document.getElementById('ugDayExempt').checked : false;
+  const nightExempt = document.getElementById('ugNightExempt') ? document.getElementById('ugNightExempt').checked : false;
   const payload = {
     day: {
       nh: parseFloat(document.getElementById('ugDayNh').value) || 0,
@@ -7705,7 +8083,6 @@ async function submitUgCollection() {
       exempt: nightExempt,
     },
   };
-  // 校验：出勤人员非空时必须选班组，且人员须属于该班组
   const pool = _colEmpPool || STATE._empAll || [];
   for (const shift of [{ label: 'DAY', data: payload.day }, { label: 'NIGHT', data: payload.night }]) {
     if (shift.data.emps.length && !shift.data.team_id) {
