@@ -3066,19 +3066,78 @@ def collection_submit():
             if m.get('status') == 'B':
                 m['status'] = 'P'
         # P21: NU（年假）由审批管理，采集提交不得覆盖——命中即拒绝整批（防部分写入）
+        # P31: E 已从采集摘除（产量豁免仅在井下出渣采集 teams[].exempt），L/SK/T 转 OA pending
         from core.database import get_attendance_status
         for m in marks:
             eid = m.get('employee_id', '')
+            st = m.get('status', '')
             if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
                 return jsonify({'ok': False,
                                 'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {date}）'}), 403
-        # drivers 校验：subset of marks + driver_roster
+            if st == 'E':
+                return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除：设备豁免请在井下出渣产量中勾选，出勤豁免请走 OA 或由管理员在出勤网格标记'}), 400
+            if st == 'NU':
+                return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止采集提交（员工 {eid} · {date}）'}), 403
+        # 采集分流：P/A 直写，L/SK/T 转 OA pending（定向 maua，KEJU 超管兜底可见）
+        _OA_MAP = {'L': 'casual', 'SK': 'sick', 'T': 'comp_leave'}
+        _oa_created = []
+        _oa_skipped = []
+        _direct_marks = []
+        for m in marks:
+            st = m.get('status', '')
+            if st in _OA_MAP:
+                eid = m.get('employee_id', '')
+                if not eid:
+                    continue
+                etype = _OA_MAP[st]
+                # 去重：同 eid+date+type pending 已存在则跳过
+                try:
+                    from core.database import get_conn as _gc
+                    _conn = _gc(app.config['DATA_FOLDER'])
+                    _pend = _conn.execute(
+                        "SELECT id FROM employee_events WHERE employee_id=? AND effective_date=? AND event_type=? AND status='pending'",
+                        (eid, date, etype)).fetchone()
+                    _conn.close()
+                    if _pend:
+                        _oa_skipped.append({'employee_id': eid, 'status': st, 'event_type': etype, 'existing_event_id': _pend['id']})
+                        continue
+                except Exception:
+                    pass
+                try:
+                    from core.database import create_event, get_approver_for_event, log_audit as _log
+                    _approver = get_approver_for_event(app.config['DATA_FOLDER'], etype) or 'maua'
+                    # 校验 maua 账号存在性，不存在则回退 ''（所有 oa:approve 可见，KEJU 超管必见）
+                    try:
+                        from core.database import get_user_role as _gur
+                        if _approver == 'maua' and not _gur(app.config['DATA_FOLDER'], 'maua'):
+                            _approver = ''
+                    except Exception:
+                        pass
+                    _eid2 = create_event(app.config['DATA_FOLDER'], {
+                        'employee_id': eid,
+                        'event_type': etype,
+                        'effective_date': date,
+                        'payload': json.dumps({'days': 1, 'note': f'由出勤采集自动转OA({st})', 'event_type': etype, 'source': 'collection_routing'}, ensure_ascii=False),
+                        'snapshot': '{}',
+                        'operator_id': username,
+                        'approver': _approver,
+                    })
+                    _log(app.config['DATA_FOLDER'], 'oa_create_event', eid,
+                         json.dumps({'event_type': etype, 'event_id': _eid2, 'date': date, 'source': 'collection_routing', 'orig_status': st}, ensure_ascii=False))
+                    _oa_created.append({'employee_id': eid, 'status': st, 'event_type': etype, 'event_id': _eid2, 'approver': _approver})
+                except Exception as e:
+                    return jsonify({'ok': False, 'error': f'创建OA事件失败({eid}/{st}): {e}'}), 500
+            else:
+                _direct_marks.append(m)
+        # 重置 marks 为仅 P/A 直写集合（payload 留痕仍保留原始 marks 供审计，但直写仅 P/A）
+        marks = _direct_marks
+        # drivers 校验：subset of marks + driver_roster（仅 P/A 集合内）
         drivers = payload.get('drivers') or []
         if drivers:
             marks_ids = {str(m.get('employee_id') or '') for m in marks}
             for d in drivers:
                 if str(d) not in marks_ids:
-                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中'}), 400
+                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中（仅 P/A 人员可标记驾驶，L/SK/T 已转审批）'}), 400
             from core.database import is_driver
             # 白名单语义：driver_roster 非空才强制校验（生产名单为空=未启用白名单，与历史行为一致）
             if _driver_roster_active(app.config['DATA_FOLDER']):
@@ -3090,6 +3149,8 @@ def collection_submit():
             status = m.get('status', '')
             if not eid or not status:
                 continue
+            if status not in ('P', 'A'):
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A 直写，{status} 已转OA或不支持'}), 400
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
             except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
@@ -3101,6 +3162,9 @@ def collection_submit():
                     mark_driver_flag(app.config['DATA_FOLDER'], str(_eid), date)
                 except Exception:
                     pass
+        # 供外层返回体使用
+        _collection_oa_created = _oa_created
+        _collection_oa_skipped = _oa_skipped
 
     # upsert collection_submissions by (form_type, date) [attendance 另加 department+team_id 维度]
     _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
@@ -3148,8 +3212,15 @@ def collection_submit():
             pass
 
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
-              json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept, 'month': date[:7]}))
+              json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept, 'month': date[:7],
+                          'oa_created': _collection_oa_created if form_type=='attendance' and '_collection_oa_created' in locals() else [],
+                          'oa_skipped': _collection_oa_skipped if form_type=='attendance' and '_collection_oa_skipped' in locals() else []}, ensure_ascii=False))
     result = {'ok': True, 'submission_id': sid}
+    if form_type == 'attendance' and '_collection_oa_created' in locals():
+        if _collection_oa_created:
+            result['oa_created'] = _collection_oa_created
+        if _collection_oa_skipped:
+            result['oa_skipped'] = _collection_oa_skipped
     if discarded:
         result['discarded'] = discarded
         result['warning'] = '已忽略 %d 名部门不符的员工' % discarded
@@ -3288,9 +3359,14 @@ def collection_edit(submission_id):
         from core.database import get_attendance_status
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')
+            st = m.get('status', '')
             if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'NU':
                 return jsonify({'ok': False,
                                 'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {new_date}）'}), 403
+            if st == 'E':
+                return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除'}), 400
+            if st == 'NU':
+                return jsonify({'ok': False, 'error': f'NU 禁止采集提交（员工 {eid}）'}), 403
 
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
@@ -3358,11 +3434,54 @@ def collection_edit(submission_id):
                         delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
             except Exception:
                 pass
+        _OA_MAP_EDIT = {'L': 'casual', 'SK': 'sick', 'T': 'comp_leave'}
+        _oa_created_edit = []
+        _oa_skipped_edit = []
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')
             status = m.get('status', '')
             if not eid or not status:
                 continue
+            if status in _OA_MAP_EDIT:
+                etype = _OA_MAP_EDIT[status]
+                try:
+                    from core.database import get_conn as _gc2
+                    _conn2 = _gc2(app.config['DATA_FOLDER'])
+                    _pend2 = _conn2.execute(
+                        "SELECT id FROM employee_events WHERE employee_id=? AND effective_date=? AND event_type=? AND status='pending'",
+                        (eid, new_date, etype)).fetchone()
+                    _conn2.close()
+                    if _pend2:
+                        _oa_skipped_edit.append({'employee_id': eid, 'status': status, 'existing_event_id': _pend2['id']})
+                        continue
+                except Exception:
+                    pass
+                try:
+                    from core.database import create_event as _ce2, get_approver_for_event as _g2, log_audit as _lg2
+                    _ap2 = _g2(app.config['DATA_FOLDER'], etype) or 'maua'
+                    try:
+                        from core.database import get_user_role as _gur2
+                        if _ap2 == 'maua' and not _gur2(app.config['DATA_FOLDER'], 'maua'):
+                            _ap2 = ''
+                    except Exception:
+                        pass
+                    _eid2 = _ce2(app.config['DATA_FOLDER'], {
+                        'employee_id': eid,
+                        'event_type': etype,
+                        'effective_date': new_date,
+                        'payload': json.dumps({'days': 1, 'note': f'由出勤采集编辑转OA({status})', 'event_type': etype, 'source': 'collection_edit_routing'}, ensure_ascii=False),
+                        'snapshot': '{}',
+                        'operator_id': username,
+                        'approver': _ap2,
+                    })
+                    _lg2(app.config['DATA_FOLDER'], 'oa_create_event', eid,
+                         json.dumps({'event_type': etype, 'event_id': _eid2, 'date': new_date, 'source': 'collection_edit_routing', 'orig_status': status}, ensure_ascii=False))
+                    _oa_created_edit.append({'employee_id': eid, 'status': status, 'event_id': _eid2})
+                except Exception as e:
+                    return jsonify({'ok': False, 'error': f'创建OA事件失败({eid}/{status}): {e}'}), 500
+                continue
+            if status not in ('P', 'A'):
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A 直写，{status} 已转OA或不支持'}), 400
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
             except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
@@ -3383,8 +3502,16 @@ def collection_edit(submission_id):
     _invalidate_all_cache_base()
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
               json.dumps({'submission_id': submission_id, 'form_type': form_type,
-                          'date': new_date, 'old_date': old_date, 'month': new_date[:7]}))
-    return jsonify({'ok': True, 'submission_id': submission_id})
+                          'date': new_date, 'old_date': old_date, 'month': new_date[:7],
+                          'oa_created': _oa_created_edit if form_type=='attendance' and '_oa_created_edit' in locals() else [],
+                          'oa_skipped': _oa_skipped_edit if form_type=='attendance' and '_oa_skipped_edit' in locals() else []}, ensure_ascii=False))
+    _res = {'ok': True, 'submission_id': submission_id}
+    if form_type == 'attendance' and '_oa_created_edit' in locals():
+        if _oa_created_edit:
+            _res['oa_created'] = _oa_created_edit
+        if _oa_skipped_edit:
+            _res['oa_skipped'] = _oa_skipped_edit
+    return jsonify(_res)
 
 @app.route('/api/collection/roster', methods=['GET'])
 @login_required
