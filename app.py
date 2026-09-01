@@ -4673,7 +4673,12 @@ def get_attendance():
     month = resolve_month(request)
     md = _get_month_data(month)
     if md is not None:
-        grid = _build_attendance_grid(md.get('main_data'), md.get('employees'))
+        # 当前在职全员兜底：即便当月无出勤也显示，防止漏提交无法补录
+        try:
+            _fresh_emps = load_employees_from_db(app.config['DATA_FOLDER'])
+        except Exception:
+            _fresh_emps = md.get('employees')
+        grid = _build_attendance_grid(md.get('main_data'), _fresh_emps or md.get('employees'))
         grid['month'] = month
         return jsonify(grid)
     return jsonify(_build_attendance_grid())
@@ -4918,9 +4923,12 @@ def export_attendance():
         if stamp and month != stamp:
             return jsonify({'ok': False, 'error': 'month_mismatch', 'expected': stamp}), 409
     eff_month = month
-    # P3 single source of truth: derive dates/rows via _build_attendance_grid (includes D/N/B/R/C/P/(P) + manual)
     if md_wrap is not None:
-        _grid = _build_attendance_grid(md_wrap.get('main_data'), md_wrap.get('employees'))
+        try:
+            _fresh2 = load_employees_from_db(app.config['DATA_FOLDER'])
+        except Exception:
+            _fresh2 = md_wrap.get('employees')
+        _grid = _build_attendance_grid(md_wrap.get('main_data'), _fresh2 or md_wrap.get('employees'))
     else:
         _grid = _build_attendance_grid()
     all_dates = _grid['dates']
@@ -5048,8 +5056,11 @@ def export_attendance_report():
     eff_month = month
     if md_wrap is not None:
         _md_rep = md_wrap.get('main_data')
-        _emps_rep = md_wrap.get('employees')
-        data = _build_attendance_grid(_md_rep, _emps_rep)
+        try:
+            _emps_rep = load_employees_from_db(app.config['DATA_FOLDER'])
+        except Exception:
+            _emps_rep = md_wrap.get('employees')
+        data = _build_attendance_grid(_md_rep, _emps_rep or md_wrap.get('employees'))
     else:
         data = _build_attendance_grid()
     dates = data['dates']
