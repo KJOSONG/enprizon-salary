@@ -5697,7 +5697,8 @@ function closeAttPopup() {
 const ROLE_OPTIONS = [
   { value: 'super_admin', label: 'role_super_admin' },
   { value: 'admin', label: 'role_admin' },
-  { value: 'editor', label: 'role_editor' },
+  { value: 'collector', label: 'role_collector' },
+  { value: 'applicant', label: 'role_applicant' },
   { value: 'viewer', label: 'role_viewer' },
 ];
 
@@ -5713,7 +5714,7 @@ async function loadUserList() {
         <td>${escHtml(u.username)}</td>
         <td>
           <select onchange="changeUserRole('${escHtml(u.username)}', this.value)" style="font-size:11px;padding:2px 6px;background:var(--bg-primary);color:var(--text);border:1px solid var(--border);border-radius:4px;">
-            ${ROLE_OPTIONS.map(r => `<option value="${r.value}" ${u.role === r.value ? 'selected' : ''}>${t(r.label)}</option>`).join('')}
+            ${(u.role === 'editor' ? `<option value="editor" selected disabled>${t('role_editor_deprecated')}</option>` : '') + ROLE_OPTIONS.map(r => `<option value="${r.value}" ${u.role === r.value ? 'selected' : ''}>${t(r.label)}</option>`).join('')}
           </select>
         </td>
         <td>
@@ -6969,29 +6970,24 @@ async function loadColHistory(formType, containerId) {
           if (formType === 'underground') {
             if (Array.isArray(_pl.teams)) {
               _pl.teams.forEach(tm => {
-                if (tm && tm.exempt) {
-                  exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + ' T' + escHtml(String(tm.team_id)) + '</span>';
-                  if (isSuperAdmin()) {
-                    exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',' + tm.team_id + ',false,' + (tm.exempt ? 'true' : 'false') + ',\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄</button>';
-                  } else {
-                    // non-exempt teams also need toggle if admin wants to enable? show toggle for all teams when super_admin
-                  }
-                } else if (isSuperAdmin() && tm) {
-                  exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',' + tm.team_id + ',false,' + (tm.exempt ? 'true' : 'false') + ',\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;opacity:0.6;">⇄</button>';
-                }
+                if (!tm) return;
+                const _on = !!tm.exempt;
+                const _lbl = _on ? t('col_ug_exempt_badge_on') : t('col_ug_exempt_badge_off');
+                const _style = _on ? 'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;' : 'background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);';
+                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px;' + _style + '">' + _lbl + ' T' + escHtml(String(tm.team_id)) + '</span>';
               });
             } else {
-              if (_pl.day && _pl.day.exempt) {
-                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + ' D</span>';
-                if (isSuperAdmin()) exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'day\',true,true,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄</button>';
-              } else if (isSuperAdmin() && _pl.day) {
-                exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'day\',true,false,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;opacity:0.6;">⇄</button>';
+              if (_pl.day) {
+                const _onD = !!_pl.day.exempt;
+                const _lblD = _onD ? t('col_ug_exempt_badge_on') : t('col_ug_exempt_badge_off');
+                const _styleD = _onD ? 'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;' : 'background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);';
+                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px;' + _styleD + '">' + _lblD + ' D</span>';
               }
-              if (_pl.night && _pl.night.exempt) {
-                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + ' N</span>';
-                if (isSuperAdmin()) exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'night\',true,true,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄</button>';
-              } else if (isSuperAdmin() && _pl.night) {
-                exemptBadges += '<button onclick="event.stopPropagation();toggleColExempt(\'' + s.id + '\',\'night\',true,false,\'' + containerId + '\')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;opacity:0.6;">⇄</button>';
+              if (_pl.night) {
+                const _onN = !!_pl.night.exempt;
+                const _lblN = _onN ? t('col_ug_exempt_badge_on') : t('col_ug_exempt_badge_off');
+                const _styleN = _onN ? 'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;' : 'background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);';
+                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px;' + _styleN + '">' + _lblN + ' N</span>';
               }
             }
           }
@@ -7025,8 +7021,15 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
   const ST = { D: t('st_d'), N: t('st_n'), P: t('st_p'), A: t('st_a'), L: t('st_l'), C: t('st_c'), R: t('st_r'), B: t('st_b') };
   const fmt = (n) => String(n == null ? 0 : n);
-  const _exemptBadge = '<span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">' + t('col_ug_exempt') + '</span>';
-  const _toggleBtn = (sid, tid, isOld, cur, cid) => isSuperAdmin() ? '<button onclick="toggleColExempt(\'' + sid + '\',' + (isOld ? '\'' + tid + '\'' : tid) + ',' + (isOld ? 'true' : 'false') + ',' + (cur ? 'true' : 'false') + ',\'' + cid + '\')" style="font-size:10px;padding:1px 4px;margin-left:4px;border:1px solid var(--border);border-radius:3px;background:var(--bg-secondary);cursor:pointer;">⇄ ' + t('col_ug_exempt') + '</button>' : '';
+  const _badgeFor = (on) => on
+    ? '<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;margin-left:6px;">' + t('col_ug_exempt_badge_on') + '</span>'
+    : '<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);margin-left:6px;">' + t('col_ug_exempt_badge_off') + '</span>';
+  const _toggleBtn = (sid, tid, isOld, cur, cid) => {
+    if (!isSuperAdmin() || !sid) return '';
+    const label = cur ? t('col_ug_exempt_unset') : t('col_ug_exempt_set');
+    const btnStyle = cur ? 'background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);' : 'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;';
+    return '<button onclick="toggleColExempt(\'' + sid + '\',' + (isOld ? '\'' + tid + '\'' : tid) + ',' + (isOld ? 'true' : 'false') + ',' + (cur ? 'true' : 'false') + ',\'' + cid + '\')" style="font-size:11px;padding:3px 10px;margin-left:6px;border-radius:4px;cursor:pointer;' + btnStyle + '">' + escHtml(label) + '</button>';
+  };
   if (formType === 'underground') {
     if (Array.isArray(payload.teams)) {
       const sid = _sub ? _sub.id : '';
@@ -7034,7 +7037,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
       if (!payload.teams.length) return '<div style="font-size:12px;color:var(--text-muted);">' + t('no_submissions') + '</div>';
       return '<div style="font-size:12px;line-height:1.9;">' + payload.teams.map(tm =>
         '<div style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
-        + '<div style="font-weight:600;">' + t('col_ug_team_row') + ' ' + escHtml(String(tm.team_id)) + (tm.exempt ? ' ' + _exemptBadge : '') + (sid ? _toggleBtn(sid, tm.team_id, false, !!tm.exempt, cid) : '') + '</div>'
+        + '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + t('col_ug_team_row') + ' ' + escHtml(String(tm.team_id)) + _badgeFor(!!tm.exempt) + (sid ? _toggleBtn(sid, tm.team_id, false, !!tm.exempt, cid) : '') + '</div>'
         + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
         + (tm.remark ? '<div>' + escHtml(tm.remark) + '</div>' : '')
         + '</div>'
@@ -7045,12 +7048,12 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
     const cid2 = _containerId || '';
     return '<div style="font-size:12px;line-height:1.9;">'
       + '<div style="font-weight:600;color:var(--accent);">' + t('day_shift') + '</div>'
-      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + (day.exempt ? ' ' + _exemptBadge : '') + (sid2 ? _toggleBtn(sid2, 'day', true, !!day.exempt, cid2) : '') + '</div>'
+      + '<div>NH ' + fmt(day.nh) + ' · NL ' + fmt(day.nl) + ' · MW ' + fmt(day.mw) + _badgeFor(!!day.exempt) + (sid2 ? _toggleBtn(sid2, 'day', true, !!day.exempt, cid2) : '') + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(day.emps) + '</div>'
       + '<div>🚗 ' + t('col_drivers') + ': ' + names(day.drivers) + '</div>'
       + (day.remark ? '<div>' + t('remark_day') + ': ' + escHtml(day.remark) + '</div>' : '')
       + '<div style="font-weight:600;color:var(--accent);margin-top:4px;">' + t('night_shift') + '</div>'
-      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + (night.exempt ? ' ' + _exemptBadge : '') + (sid2 ? _toggleBtn(sid2, 'night', true, !!night.exempt, cid2) : '') + '</div>'
+      + '<div>NH ' + fmt(night.nh) + ' · NL ' + fmt(night.nl) + ' · MW ' + fmt(night.mw) + _badgeFor(!!night.exempt) + (sid2 ? _toggleBtn(sid2, 'night', true, !!night.exempt, cid2) : '') + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(night.emps) + '</div>'
       + '<div>🚗 ' + t('col_drivers') + ': ' + names(night.drivers) + '</div>'
       + (night.remark ? '<div>' + t('remark_night') + ': ' + escHtml(night.remark) + '</div>' : '')
@@ -7125,6 +7128,8 @@ function enterColEditFromPreview(formType, sid, containerId) {
 async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt, containerId) {
   if (!isSuperAdmin()) { showToast(t('need_super_admin'), 'error'); return; }
   const newVal = !currentExempt;
+  const confirmKey = newVal ? 'col_ug_exempt_confirm_set' : 'col_ug_exempt_confirm_unset';
+  if (!confirm(t(confirmKey))) return;
   const body = isOldFormat ? { shift: String(teamOrShift), exempt: newVal } : { team_id: parseInt(teamOrShift,10), exempt: newVal };
   try {
     const res = await authFetch(api('/api/collection/exempt/' + submissionId), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -7384,16 +7389,20 @@ function _ugTeamOpts(sel) {
 function renderUgTeamRows() {
   const container = document.getElementById('ugTeamContainer');
   if (!container) return;
-  container.innerHTML = _ugTeamRows.map((row, idx) => `
-    <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;">
+  container.innerHTML = _ugTeamRows.map((row, idx) => {
+    const _exOn = !!row.exempt;
+    const _badge = _exOn
+      ? '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:10px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;">' + t('col_ug_exempt_badge_on') + '</span>'
+      : '<span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);">' + t('col_ug_exempt_badge_off') + '</span>';
+    const _rowStyle = _exOn ? 'padding:10px;background:#fffbeb;border:1px solid #f59e0b;border-radius:var(--radius);margin-bottom:8px;' : 'padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;';
+    return `
+    <div style="${_rowStyle}">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
         <label style="font-size:12px;min-width:36px;">${t('col_ug_team_row')}</label>
         <select data-idx="${idx}" class="ugTeamSel" onchange="onUgTeamRowChange(${idx})" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
           ${_ugTeamOpts(row.team_id)}
         </select>
-        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
-          <input type="checkbox" data-idx="${idx}" class="ugTeamExempt" ${row.exempt ? 'checked' : ''} onchange="_ugTeamRows[${idx}].exempt=this.checked"> ${t('col_ug_exempt')}
-        </label>
+        ${_badge}
         <button class="nav-btn" onclick="removeUgTeamRow(${idx})" style="font-size:11px;padding:3px 8px;" title="${t('col_ug_remove_team')}">✕</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;">
@@ -7402,8 +7411,14 @@ function renderUgTeamRows() {
         <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" data-idx="${idx}" class="ugTeamMw" value="${+row.mw || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].mw=parseFloat(this.value)||0"></div>
       </div>
       <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:50px;">${t('remark')}</label><input data-idx="${idx}" class="ugTeamRemark" value="${escHtml(row.remark||'')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}" oninput="_ugTeamRows[${idx}].remark=this.value"></div>
+      <div style="margin-top:8px;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;">
+          <input type="checkbox" data-idx="${idx}" class="ugTeamExempt" ${row.exempt ? 'checked' : ''} onchange="_ugTeamRows[${idx}].exempt=this.checked;renderUgTeamRows();" style="accent-color:#f59e0b;width:15px;height:15px;"> ${t('col_ug_exempt')}
+        </label>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${t('col_ug_exempt_hint')}</div>
+      </div>
       ${(() => { const _pool=_colEmpPool||STATE._empAll||[]; const _cnt=_pool.filter(e=>String(e.team_id||'')===String(row.team_id)).length; return row.team_id && _cnt===0 ? '<div style="font-size:11px;color:var(--warning);margin-top:4px;">'+t('col_ug_no_attendance_warn')+'</div>' : ''; })()}
-    </div>`).join('');
+    </div>`; }).join('');
 }
 function addUgTeamRow() {
   _ugTeamRows.push({ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' });
@@ -7901,6 +7916,7 @@ async function renderAttCollectionForm(payload) {
       <div class="form-row"><label style="min-width:70px;">${t('col_att_ug_team')}</label><select id="attUgTeamSel" onchange="filterAttRoster()" style="${colInStyle(true)}"><option value="">${t('col_ug_team_placeholder')}</option>${teamOpts}</select></div>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
+    <div id="attUgPickHint" style="display:none;padding:16px;text-align:center;color:var(--text-muted);font-size:12px;margin-top:8px;border:1px dashed var(--border);border-radius:var(--radius);">${t('col_att_ug_pick_team')}</div>
     <div style="max-height:50vh;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);" id="attRoster">
       ${rosterHtml}
     </div>
@@ -7917,20 +7933,29 @@ function filterAttRoster() {
   const d = dEl ? dEl.value : '';
   const box = document.getElementById('attRoster');
   const wrap = document.getElementById('attUgTeamWrap');
+  const hint = document.getElementById('attUgPickHint');
   const isUg = normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)';
   if (wrap) wrap.style.display = isUg ? '' : 'none';
+  if (hint) hint.textContent = t('col_att_ug_pick_team');
   if (!box) return;
-  if (!d) { box.style.display = 'none'; return; }
+  if (!d) { box.style.display = 'none'; if (hint) hint.style.display = 'none'; return; }
   box.style.display = '';
   const teamSel = document.getElementById('attUgTeamSel');
   const teamVal = isUg && teamSel ? teamSel.value : '';
+  if (isUg && !teamVal) {
+    if (hint) hint.style.display = '';
+    document.querySelectorAll('#attRoster .att-row').forEach(row => { row.style.display = 'none'; });
+    return;
+  }
+  if (hint) hint.style.display = 'none';
   document.querySelectorAll('#attRoster .att-row').forEach(row => {
     const dept = row.getAttribute('data-dept') || '';
     if (dept !== d) { row.style.display = 'none'; return; }
     if (isUg) {
       const tid = row.getAttribute('data-team-id') || '';
-      if (!teamVal) { row.style.display = 'none'; return; }
-      row.style.display = (tid === teamVal) ? '' : 'none';
+      // Belt-and-braces: team-less (''/0/null) never matches any team
+      if (!tid) { row.style.display = 'none'; return; }
+      row.style.display = (String(tid) === String(teamVal)) ? '' : 'none';
     } else {
       row.style.display = '';
     }
@@ -9130,7 +9155,7 @@ function switchPermTab(tab) {
 // ── P18C: 角色列表(角色管理 Tab) ──
 // 角色显示名(内置走翻译,自定义直接显示)
 function roleLabel(role) {
-  const builtin = { viewer: 'perm_role_viewer', editor: 'perm_role_editor', admin: 'perm_role_admin' };
+  const builtin = { viewer: 'perm_role_viewer', editor: 'perm_role_editor', admin: 'perm_role_admin', collector: 'perm_role_collector', applicant: 'perm_role_applicant' };
   return builtin[role] ? t(builtin[role]) : role;
 }
 
@@ -9707,9 +9732,10 @@ async function fillUserRoleSel(selectedRole) {
     const res = await authFetch(api('/api/permissions/roles'));
     const data = await res.json();
     if (!data.ok) return;
-    const roles = (data.roles || []).filter(r => r.role !== 'super_admin');
+    const roles = (data.roles || []).filter(r => r.role !== 'super_admin' && r.role !== 'editor');
     sel.innerHTML = roles.map(r =>
       `<option value="${r.role}">${roleLabel(r.role)}${r.builtin ? ' · ' + t('perm_role_builtin') : ''}</option>`).join('');
+    if (selectedRole === 'editor') sel.innerHTML = `<option value="editor" selected disabled>${t('role_editor_deprecated')}</option>` + sel.innerHTML;
     sel.value = selectedRole || 'viewer';
   } catch(e) {}
 }

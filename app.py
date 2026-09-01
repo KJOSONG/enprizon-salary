@@ -262,6 +262,8 @@ def update_user_role():
     role = data.get('role', '').strip()
     if not username or not role:
         return jsonify({'ok': False, 'error': '无效参数'}), 400
+    if role == 'editor':
+        return jsonify({'ok': False, 'error': 'editor 角色已弃用，请选择 super_admin/admin/collector/applicant/viewer'}), 400
     try:
         set_user_role(app.config['DATA_FOLDER'], username, role)
         _audit('role_change', username, json.dumps({'new_role': role}))
@@ -278,6 +280,8 @@ def create_user():
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
     role = (data.get('role') or 'viewer').strip()
+    if role == 'editor':
+        return jsonify({'ok': False, 'error': 'editor 角色已弃用，请选择 super_admin/admin/collector/applicant/viewer'}), 400
     result = create_admin_user(app.config['DATA_FOLDER'], username, password, role)
     if result == 'ok':
         _audit('user_create', username, json.dumps({'role': role}))

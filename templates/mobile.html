@@ -1192,12 +1192,12 @@
             if(Array.isArray(p.teams)){
               sub = p.teams.length+' '+t('col_ug_team_row');
               p.teams.forEach(tm=>{
-                if(tm && tm.exempt){
-                  exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+' T'+esc(tm.team_id)+'</span>';
-                  if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(tm.exempt?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄</button>';
-                } else if(isSuperAdmin() && tm){
-                  exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,false)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;opacity:0.6;">⇄</button>';
-                }
+                if(!tm) return;
+                const isEx=!!tm.exempt;
+                const badgeText=isEx?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
+                const badgeStyle=isEx?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
+                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyle+'">'+esc(badgeText)+' T'+esc(tm.team_id)+'</span>';
+                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(isEx?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isEx?'':'opacity:0.6;')+'">⇄</button>';
               });
             } else {
               const dayEmps=(p.day&&p.day.emps)||[], nightEmps=(p.night&&p.night.emps)||[];
@@ -1205,17 +1205,19 @@
               else if(dayEmps.length) shiftChip='<span class="shift-chip day">D</span>';
               else if(nightEmps.length) shiftChip='<span class="shift-chip night">N</span>';
               sub = (dayEmps.length+nightEmps.length)+' '+t('emp');
-              if(p.day && p.day.exempt){
-                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+' D</span>';
-                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,true)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄</button>';
-              } else if(isSuperAdmin() && p.day){
-                exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,false)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;opacity:0.6;">⇄</button>';
+              if(p.day){
+                const isExD=!!p.day.exempt;
+                const badgeTextD=isExD?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
+                const badgeStyleD=isExD?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
+                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyleD+'">'+esc(badgeTextD)+' D</span>';
+                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,'+(isExD?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isExD?'':'opacity:0.6;')+'">⇄</button>';
               }
-              if(p.night && p.night.exempt){
-                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+' N</span>';
-                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,true)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄</button>';
-              } else if(isSuperAdmin() && p.night){
-                exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,false)" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;opacity:0.6;">⇄</button>';
+              if(p.night){
+                const isExN=!!p.night.exempt;
+                const badgeTextN=isExN?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
+                const badgeStyleN=isExN?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
+                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyleN+'">'+esc(badgeTextN)+' N</span>';
+                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,'+(isExN?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isExN?'':'opacity:0.6;')+'">⇄</button>';
               }
             }
           } else if(s.form_type==='driller'){ const teams=p.teams||[]; sub = teams.length+' '+t('add_team'); }
@@ -1242,23 +1244,28 @@
   function colDetailSummary(ty, p, sid){
     const names=(ids)=>(ids||[]).map(colMobEidName).join(', ')||'—';
     const ST={D:t('st_d'),N:t('st_n'),P:t('st_p'),A:t('st_a'),L:t('st_l'),C:t('st_c'),R:t('st_r'),B:t('st_b')};
-    const _badge='<span style="display:inline-block;font-size:10px;padding:1px 5px;background:var(--accent);color:#fff;border-radius:3px;margin-left:4px;">'+t('col_ug_exempt')+'</span>';
-    const _btn=(tid,isOld,cur)=> isSuperAdmin() && sid ? '<button onclick="toggleColExempt(\''+sid+'\','+(isOld?'\''+tid+'\'':tid)+','+(isOld?'true':'false')+','+(cur?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:4px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;">⇄ '+t('col_ug_exempt')+'</button>' : '';
+    const _badgeOn='<span style="display:inline-block;font-size:10px;padding:2px 6px;background:var(--warning);color:#fff;border-radius:999px;margin-left:6px;">'+t('col_ug_exempt_badge_on')+'</span>';
+    const _badgeOff='<span style="display:inline-block;font-size:10px;padding:2px 6px;background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);border-radius:999px;margin-left:6px;">'+t('col_ug_exempt_badge_off')+'</span>';
+    const _btn=(tid,isOld,cur)=> isSuperAdmin() && sid ? '<button onclick="toggleColExempt(\''+sid+'\','+(isOld?'\''+tid+'\'':tid)+','+(isOld?'true':'false')+','+(cur?'true':'false')+')" style="font-size:11px;padding:4px 10px;margin-left:6px;border:1px solid '+(cur?'var(--border)':'var(--warning)')+';border-radius:var(--radius-sm);background:'+(cur?'var(--card)':'var(--warning)')+';color:'+(cur?'var(--foreground)':'#fff')+';cursor:pointer;font-weight:600;">'+(cur?t('col_ug_exempt_unset'):t('col_ug_exempt_set'))+'</button>' : '';
     if(ty==='underground'){
       if(Array.isArray(p.teams)){
         if(!p.teams.length) return '<div class="detail-line">'+t('no_history')+'</div>';
-        return p.teams.map(tm=>'<div class="detail-line" style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
-          + '<div style="font-weight:600;">'+t('col_ug_team_row')+' '+esc(String(tm.team_id))+(tm.exempt?' '+_badge:'')+_btn(tm.team_id,false,!!tm.exempt)+'</div>'
+        return p.teams.map(tm=>{
+          const isEx=!!tm.exempt;
+          return '<div class="detail-line" style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
+          + '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">'+t('col_ug_team_row')+' '+esc(String(tm.team_id))+(isEx?_badgeOn:_badgeOff)+_btn(tm.team_id,false,isEx)+'</div>'
           + '<div>NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
           + (tm.remark?'<div>'+esc(tm.remark)+'</div>':'')
-          + '</div>').join('');
+          + '</div>';
+        }).join('');
       }
       const day=p.day||{}, night=p.night||{};
-      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+(day.exempt?' '+_badge:'')+_btn('day',true,!!day.exempt)+'</div>'
+      const isExD=!!day.exempt, isExN=!!night.exempt;
+      return '<div class="detail-line">'+t('day_shift')+': NH '+esc(day.nh||0)+' · NL '+esc(day.nl||0)+' · MW '+esc(day.mw||0)+(isExD?_badgeOn:_badgeOff)+_btn('day',true,isExD)+'</div>'
         + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(day.emps))+'</div>'
         + '<div class="detail-line">🚗 '+t('col_drivers')+': '+esc(names(day.drivers))+'</div>'
         + (day.remark?'<div class="detail-line">'+t('remark_day')+': '+esc(day.remark)+'</div>':'')
-        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+(night.exempt?' '+_badge:'')+_btn('night',true,!!night.exempt)+'</div>'
+        + '<div class="detail-line">'+t('night_shift')+': NH '+esc(night.nh||0)+' · NL '+esc(night.nl||0)+' · MW '+esc(night.mw||0)+(isExN?_badgeOn:_badgeOff)+_btn('night',true,isExN)+'</div>'
         + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(night.emps))+'</div>'
         + '<div class="detail-line">🚗 '+t('col_drivers')+': '+esc(names(night.drivers))+'</div>'
         + (night.remark?'<div class="detail-line">'+t('remark_night')+': '+esc(night.remark)+'</div>':'');
@@ -1309,6 +1316,11 @@
   }
   async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt){
     if(!isSuperAdmin()){ toast(t('need_super_admin')||'need super admin','error'); return; }
+    if(!currentExempt){
+      if(!confirm(t('col_ug_exempt_confirm_set'))) return;
+    } else {
+      if(!confirm(t('col_ug_exempt_confirm_unset'))) return;
+    }
     const newVal=!currentExempt;
     const body = isOldFormat ? {shift:String(teamOrShift), exempt:newVal} : {team_id:parseInt(teamOrShift,10), exempt:newVal};
     try{
@@ -1380,19 +1392,41 @@
       try { const gRes = await api('/api/employee_groups'); ugGroups = gRes.groups || []; } catch(e) { ugGroups = []; }
       STATE._ugGroups = ugGroups;
       const teamOpts = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
-      const seg=(p, title, dotClass, s)=> '<div class="seg-card"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
+      window.onUgOldExemptToggle = window.onUgOldExemptToggle || function(prefix){
+        const cb=document.getElementById(prefix+'Exempt'); if(!cb) return;
+        const on=!!cb.checked;
+        const card=document.getElementById(prefix+'Card'); if(card){ card.style.borderColor=on?'var(--warning)':''; card.style.background=on?'var(--warning-bg)':''; }
+        const box=document.getElementById(prefix+'ExemptBox'); if(box){ box.style.borderColor=on?'var(--warning)':'var(--border)'; box.style.background=on?'var(--warning-bg)':'var(--card)'; }
+        const chip=document.getElementById(prefix+'Chip'); if(chip){ const lab=on?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off'); chip.textContent=lab; chip.style.background=on?'var(--warning)':'var(--muted)'; chip.style.color=on?'#fff':'var(--muted-foreground)'; chip.style.border=on?'none':'1px solid var(--border)'; }
+        const knob=document.getElementById(prefix+'SwitchKnob'); if(knob) knob.style.left=on?'22px':'2px';
+        const track=document.getElementById(prefix+'SwitchTrack'); if(track) track.style.background=on?'var(--warning)':'var(--muted)';
+      };
+      const seg=(p, title, dotClass, s)=>{
+        const isEx=!!(s&&s.exempt);
+        return '<div class="seg-card" id="'+p+'Card" style="'+(isEx?'border-color:var(--warning);background:var(--warning-bg);':'')+'"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
         + '<div style="display:flex;gap:6px;">'
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="'+p+'Nl" value="'+((s&&s.nl)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="'+p+'Mw" value="'+((s&&s.mw)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
         + '</div>'
-        + '<div style="display:flex;gap:6px;align-items:center;margin:4px 0;">'
-        + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('col_ug_team')+'</label><select id="'+p+'Team" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts((s&&s.team_id)||'')+'</select></div>'
-        + '<label class="field__label" style="display:flex;align-items:center;gap:4px;white-space:nowrap;margin:0;padding-top:18px;"><input type="checkbox" id="'+p+'Exempt" '+(s&&s.exempt?'checked':'')+'><span style="font-size:12px;">'+t('col_ug_exempt')+'</span></label>'
+        + '<div class="field" style="margin:4px 0 0;"><label class="field__label">'+t('col_ug_team')+'</label><select id="'+p+'Team" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts((s&&s.team_id)||'')+'</select></div>'
+        + '<div id="'+p+'ExemptBox" style="display:flex;flex-direction:column;gap:4px;margin:6px 0 8px;padding:8px 10px;border:1px solid '+(isEx?'var(--warning)':'var(--border)')+';border-radius:var(--radius-sm);background:'+(isEx?'var(--warning-bg)':'var(--card)')+';">'
+        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0;">'
+        + '<span style="font-size:12px;font-weight:600;">'+t('col_ug_exempt')+'</span>'
+        + '<span style="display:inline-flex;align-items:center;gap:8px;">'
+        + '<span id="'+p+'Chip" style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;'+(isEx?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);')+'">'+esc(isEx?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off'))+'</span>'
+        + '<span id="'+p+'SwitchTrack" style="position:relative;display:inline-block;width:44px;height:24px;background:'+(isEx?'var(--warning)':'var(--muted)')+';border-radius:12px;transition:background 0.2s;vertical-align:middle;">'
+        + '<input type="checkbox" id="'+p+'Exempt" '+(isEx?'checked':'')+' onchange="onUgOldExemptToggle(\''+p+'\')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:pointer;z-index:1;">'
+        + '<span id="'+p+'SwitchKnob" style="position:absolute;top:2px;left:'+(isEx?'22px':'2px')+';width:20px;height:20px;background:#fff;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;"></span>'
+        + '</span>'
+        + '</span>'
+        + '</label>'
+        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+t('col_ug_exempt_hint')+'</div>'
         + '</div>'
         + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:((s&&s.emps)||[]).length})+'</div><div id="'+p+'EmpsBox"></div></div>'
         + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:((s&&s.drivers)||[]).length})+'</div><div id="'+p+'DriversBox"></div></div>'
         + '</div>';
+      };
       document.getElementById('col-form').innerHTML =
         '<div class="form-head"><span class="form-head__title">'+t('col_ug')+'</span></div>'
         + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
@@ -1431,8 +1465,35 @@
     }
     STATE._ugTeams = rows;
     const teamOpts2 = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
+    window.ugExemptChip = window.ugExemptChip || function(idx, isOn){
+      const lab = isOn ? t('col_ug_exempt_badge_on') : t('col_ug_exempt_badge_off');
+      const bg = isOn ? 'background:var(--warning);color:#fff;' : 'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
+      return '<span id="ugChip'+idx+'" style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;'+bg+'">'+esc(lab)+'</span>';
+    };
+    function ugExemptChip(idx,isOn){ return window.ugExemptChip(idx,isOn); }
+    window.onUgExemptToggle = window.onUgExemptToggle || function(idx){
+      const cb=document.getElementById('ugExempt'+idx); if(!cb) return;
+      const on=!!cb.checked;
+      const row=document.getElementById('ugTeamRow'+idx);
+      if(row){ row.style.borderColor = on ? 'var(--warning)' : ''; row.style.background = on ? 'var(--warning-bg)' : ''; }
+      const box=document.getElementById('ugExemptBox'+idx);
+      if(box){ box.style.borderColor = on ? 'var(--warning)' : 'var(--border)'; box.style.background = on ? 'var(--warning-bg)' : 'var(--card)'; }
+      const chip=document.getElementById('ugChip'+idx);
+      if(chip){
+        const lab = on ? t('col_ug_exempt_badge_on') : t('col_ug_exempt_badge_off');
+        chip.textContent = lab;
+        chip.style.background = on ? 'var(--warning)' : 'var(--muted)';
+        chip.style.color = on ? '#fff' : 'var(--muted-foreground)';
+        chip.style.border = on ? 'none' : '1px solid var(--border)';
+      }
+      const knob=document.getElementById('ugSwitchKnob'+idx);
+      if(knob) knob.style.left = on ? '22px' : '2px';
+      const track=document.getElementById('ugSwitchTrack'+idx);
+      if(track) track.style.background = on ? 'var(--warning)' : 'var(--muted)';
+    }
     function ugRowHtml(idx, r){
-      return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;">'
+      const isEx=!!r.exempt;
+      return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;'+(isEx?'border-color:var(--warning);background:var(--warning-bg);':'')+'">'
         + '<div class="seg-card__title"><span class="dot day"></span>'+t('col_ug_team_row')+' '+(idx+1)+(rows.length>1?' <button onclick="removeUgTeamRow('+idx+')" style="float:right;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);">✕ '+t('col_ug_remove_team')+'</button>':'')+'</div>'
         + '<div class="field"><label class="field__label">'+t('col_ug_team')+'</label><select id="ugTeamSel'+idx+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts2(r.team_id)+'</select></div>'
         + '<div style="display:flex;gap:6px;">'
@@ -1440,10 +1501,20 @@
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="ugNl'+idx+'" value="'+r.nl+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="ugMw'+idx+'" value="'+r.mw+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
         + '</div>'
-        + '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;">'
-        + '<label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="ugExempt'+idx+'" '+(r.exempt?'checked':'')+'> '+t('col_ug_exempt')+'</label>'
-        + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
+        + '<div id="ugExemptBox'+idx+'" style="display:flex;flex-direction:column;gap:4px;margin:6px 0 8px;padding:8px 10px;border:1px solid '+(isEx?'var(--warning)':'var(--border)')+';border-radius:var(--radius-sm);background:'+(isEx?'var(--warning-bg)':'var(--card)')+';">'
+        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0;">'
+        + '<span style="font-size:12px;font-weight:600;">'+t('col_ug_exempt')+'</span>'
+        + '<span style="display:inline-flex;align-items:center;gap:8px;">'
+        + ugExemptChip(idx,isEx)
+        + '<span id="ugSwitchTrack'+idx+'" style="position:relative;display:inline-block;width:44px;height:24px;background:'+(isEx?'var(--warning)':'var(--muted)')+';border-radius:12px;transition:background 0.2s;vertical-align:middle;">'
+        + '<input type="checkbox" id="ugExempt'+idx+'" '+(isEx?'checked':'')+' onchange="onUgExemptToggle('+idx+')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:pointer;z-index:1;">'
+        + '<span id="ugSwitchKnob'+idx+'" style="position:absolute;top:2px;left:'+(isEx?'22px':'2px')+';width:20px;height:20px;background:#fff;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;"></span>'
+        + '</span>'
+        + '</span>'
+        + '</label>'
+        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+t('col_ug_exempt_hint')+'</div>'
         + '</div>'
+        + '<div class="field" style="margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
         + '</div>';
     }
     document.getElementById('col-form').innerHTML =
@@ -1479,7 +1550,8 @@
     const ugGroups = STATE._ugGroups||[];
     const teamOpts2 = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
     function ugRowHtml(idx, r){
-      return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;">'
+      const isEx=!!r.exempt;
+      return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;'+(isEx?'border-color:var(--warning);background:var(--warning-bg);':'')+'">'
         + '<div class="seg-card__title"><span class="dot day"></span>'+t('col_ug_team_row')+' '+(idx+1)+(STATE._ugTeams.length>1?' <button onclick="removeUgTeamRow('+idx+')" style="float:right;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);">✕ '+t('col_ug_remove_team')+'</button>':'')+'</div>'
         + '<div class="field"><label class="field__label">'+t('col_ug_team')+'</label><select id="ugTeamSel'+idx+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts2(r.team_id)+'</select></div>'
         + '<div style="display:flex;gap:6px;">'
@@ -1487,10 +1559,20 @@
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="ugNl'+idx+'" value="'+r.nl+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="ugMw'+idx+'" value="'+r.mw+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
         + '</div>'
-        + '<div style="display:flex;gap:8px;align-items:center;margin:6px 0;">'
-        + '<label style="display:flex;align-items:center;gap:4px;font-size:12px;"><input type="checkbox" id="ugExempt'+idx+'" '+(r.exempt?'checked':'')+'> '+t('col_ug_exempt')+'</label>'
-        + '<div class="field" style="flex:1;margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
+        + '<div id="ugExemptBox'+idx+'" style="display:flex;flex-direction:column;gap:4px;margin:6px 0 8px;padding:8px 10px;border:1px solid '+(isEx?'var(--warning)':'var(--border)')+';border-radius:var(--radius-sm);background:'+(isEx?'var(--warning-bg)':'var(--card)')+';">'
+        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0;">'
+        + '<span style="font-size:12px;font-weight:600;">'+t('col_ug_exempt')+'</span>'
+        + '<span style="display:inline-flex;align-items:center;gap:8px;">'
+        + ugExemptChip(idx,isEx)
+        + '<span id="ugSwitchTrack'+idx+'" style="position:relative;display:inline-block;width:44px;height:24px;background:'+(isEx?'var(--warning)':'var(--muted)')+';border-radius:12px;transition:background 0.2s;vertical-align:middle;">'
+        + '<input type="checkbox" id="ugExempt'+idx+'" '+(isEx?'checked':'')+' onchange="onUgExemptToggle('+idx+')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:pointer;z-index:1;">'
+        + '<span id="ugSwitchKnob'+idx+'" style="position:absolute;top:2px;left:'+(isEx?'22px':'2px')+';width:20px;height:20px;background:#fff;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;"></span>'
+        + '</span>'
+        + '</span>'
+        + '</label>'
+        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+t('col_ug_exempt_hint')+'</div>'
         + '</div>'
+        + '<div class="field" style="margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
         + '</div>';
     }
     const box=document.getElementById('ugTeamsBox'); if(box) box.innerHTML = STATE._ugTeams.map((r,i)=>ugRowHtml(i,r)).join('');
@@ -1716,7 +1798,7 @@
       return;
     }
     if(isUg && !document.getElementById('attTeamSel')?.value){
-      box.innerHTML='<div style="padding:12px;color:var(--muted-foreground);font-size:12px;">'+t('col_att_ug_team')+'</div>'; box.style.display='';
+      box.innerHTML='<div style="padding:12px;color:var(--muted-foreground);font-size:12px;">'+t('col_att_ug_pick_team')+'</div>'; box.style.display='';
       if(countEl) countEl.textContent='';
       if(batchRow) batchRow.style.display='none';
       return;
@@ -1738,13 +1820,18 @@
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
-  function attBatchAll(status){ const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; }); }
+  function attBatchAll(status){
+    const deptSel=document.getElementById('attColDept')?.value || '';
+    const UG_DEPT='Production TEAM （underground）';
+    if(deptSel===UG_DEPT && !document.getElementById('attTeamSel')?.value) return;
+    const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
+  }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
     const deptEl=document.getElementById('attColDept');
     if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
     const UG_DEPT='Production TEAM （underground）';
     const isUg = deptEl.value===UG_DEPT;
-    if(isUg && !document.getElementById('attTeamSel').value){ showFormMsg('attendance', t('col_att_ug_team'), false); return; }
+    if(isUg && !document.getElementById('attTeamSel').value){ showFormMsg('attendance', t('col_att_ug_pick_team'), false); return; }
     const list=attRosterEmpIds();
     // B→P 兜底: 若状态为 B 则转 P
     const marks=list.map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
