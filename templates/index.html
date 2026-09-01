@@ -3576,7 +3576,13 @@ async function renderEmployeeTable() {
       if (q && !(e.name || '').toLowerCase().includes(q) && !(e.alias || '').toLowerCase().includes(q)
           && !String(e.custom_number || e.id).toLowerCase().includes(q)) return false;
       if (d && e.department !== d) return false;
-      if (tFilter && e.team_id && String(e.team_id) !== tFilter) return false;
+      if (isUgDept) {
+        if (tFilter) {
+          if (String(e.team_id || '') !== tFilter) return false;
+        } else {
+          if (e.team_id) return false;
+        }
+      }
       return true;
     });
 
