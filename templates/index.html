@@ -213,8 +213,8 @@
     <!-- ═══ 产量趋势图（主图，全宽） ═══ -->
     <div class="card dash-chart-card">
       <h2 class="dash-chart-title" data-i18n="dash_prod_trend_new">产量趋势</h2>
-      <div class="chart-box">
-        <canvas id="chartProdTrend" height="280"></canvas>
+      <div class="chart-fixed-h">
+        <canvas id="chartProdTrend"></canvas>
       </div>
     </div>
 
@@ -229,8 +229,8 @@
           <button class="dash-seg-btn" data-value="mw" style="color:var(--mw-pink);">MW</button>
         </div>
       </div>
-      <div class="chart-box">
-        <canvas id="chartDayNight" height="260"></canvas>
+      <div class="chart-fixed-h">
+        <canvas id="chartDayNight"></canvas>
       </div>
     </div>
 
@@ -238,14 +238,14 @@
     <div class="dash-two-col">
       <div class="card dash-chart-card">
         <h2 class="dash-chart-title" data-i18n="dash_driller_group">钻工组产量对比</h2>
-        <div class="chart-box">
-          <canvas id="chartDrillerGroup" height="280"></canvas>
+        <div class="chart-fixed-h h260">
+          <canvas id="chartDrillerGroup"></canvas>
         </div>
       </div>
       <div class="card dash-chart-card">
         <h2 class="dash-chart-title" data-i18n="dash_ore_ratio">矿石类型占比</h2>
-        <div class="chart-box" style="max-width:320px;margin:0 auto;">
-          <canvas id="chartOrePie" height="280"></canvas>
+        <div class="chart-fixed-h h260">
+          <canvas id="chartOrePie"></canvas>
         </div>
       </div>
     </div>
@@ -2947,10 +2947,16 @@ function renderProductionTrend() {
 
   renderChart('chartProdTrend', 'line', { labels: dates, datasets }, {
     responsive: true, maintainAspectRatio: false,
+    resizeDelay: 120,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       datalabels: {
-        display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+        display: function(ctx) {
+          // P31 C2: >16 天按步长抽样显示，仅显示值 >0 的点
+          const n = ctx.chart.data.labels.length;
+          if (n > 16 && ctx.dataIndex % Math.ceil(n / 16) !== 0) return false;
+          return ctx.dataset.data[ctx.dataIndex] > 0;
+        },
         color: function(ctx) { const c = ORE_COLORS[ctx.dataset.label.toLowerCase()]; return c ? c.line : '#978365'; },
         font: { size: 9, weight: '600' },
         anchor: 'end', align: 'top',
@@ -2981,7 +2987,7 @@ function renderProductionTrend() {
       },
     },
     scales: {
-      x: { grid: { color: 'rgba(203,192,170,0.15)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      x: { grid: { color: 'rgba(203,192,170,0.15)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" }, autoSkip: true, maxRotation: 0, maxTicksLimit: isSmallScreen() ? 8 : 15 } },
       y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
     },
     onClick: function(e, elements) {
@@ -3037,9 +3043,14 @@ function renderDayNightCompare() {
     });
     renderChart('chartDayNight', 'bar', { labels: rows.map(d => d.date.slice(5)), datasets }, {
       responsive: true, maintainAspectRatio: false,
+      resizeDelay: 120,
       plugins: {
         datalabels: {
-          display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+          display: function(ctx) {
+            const n = ctx.chart.data.labels.length;
+            if (n > 16 && ctx.dataIndex % Math.ceil(n / 16) !== 0) return false;
+            return ctx.dataset.data[ctx.dataIndex] > 0;
+          },
           color: '#978365',
           font: { size: 9, weight: '600' },
           anchor: 'end', align: 'top',
@@ -3059,7 +3070,7 @@ function renderDayNightCompare() {
         },
       },
       scales: {
-        x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+        x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" }, autoSkip: true, maxRotation: 0, maxTicksLimit: isSmallScreen() ? 8 : 15 } },
         y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
       },
     });
@@ -3095,9 +3106,14 @@ function renderDayNightCompare() {
     ]
   }, {
     responsive: true, maintainAspectRatio: false,
+    resizeDelay: 120,
     plugins: {
       datalabels: {
-        display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
+        display: function(ctx) {
+          const n = ctx.chart.data.labels.length;
+          if (n > 16 && ctx.dataIndex % Math.ceil(n / 16) !== 0) return false;
+          return ctx.dataset.data[ctx.dataIndex] > 0;
+        },
         color: '#978365',
         font: { size: 9, weight: '600' },
         anchor: 'end', align: 'top',
@@ -3117,7 +3133,7 @@ function renderDayNightCompare() {
       },
     },
     scales: {
-      x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" }, autoSkip: true, maxRotation: 0, maxTicksLimit: isSmallScreen() ? 8 : 15 } },
       y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
     },
   });
@@ -3165,6 +3181,7 @@ function renderDrillerGroupChart() {
     datasets: datasets,
   }, {
     responsive: true, maintainAspectRatio: false,
+    resizeDelay: 120,
     plugins: {
       datalabels: {
         display: function(ctx) {
@@ -3261,6 +3278,7 @@ function renderCategoryPie() {
     }]
   }, {
     responsive: true, maintainAspectRatio: false,
+    resizeDelay: 120,
     cutout: '60%',
     plugins: {
       datalabels: {
