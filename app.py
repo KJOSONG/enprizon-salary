@@ -4395,26 +4395,43 @@ def get_production_dashboard():
 
 @app.route('/production-verify', methods=['GET'])
 @login_required
-@require_permission('salary', 'view')  # P29 T4 A10: production:view → salary:view
 def get_production_verify():
-    """返回逐日钻工组产量与井下白班+夜班产量对比"""
+    """返回逐日钻工组产量与井下产量对比（P31 A1: teams 新格式分支 + 双键门控）"""
+    # P31 A1: 权限放宽 salary:view OR dashboard:view（沿用 P29 _oa_read_gate 双键写法，
+    # 403 形状与 @require_permission 一致；核验卡随 P31 对 dashboard:view 用户开放）
+    from core.database import check_permission
+    _u = session.get('username', '')
+    if not (check_permission(app.config['DATA_FOLDER'], _u, 'salary', 'view')
+            or check_permission(app.config['DATA_FOLDER'], _u, 'dashboard', 'view')):
+        _audit('perm_denied', '', json.dumps({'user': _u, 'module': 'salary', 'action': 'view'}))
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'salary'}), 403
     month = resolve_month(request)
     _md = _get_month_data(month)
     md = (_md.get('main_data') if _md else {}) if _md is not None else {}
     shift_prod = md.get('shift_production', [])
     driller_prod = md.get('driller_production', [])
 
-    # 井下逐日合计
+    # 井下逐日合计（P31 A1 格式分支铁律：rec 含 teams 键=新格式 Σ班组 / 否则旧格式 白+夜逐字保留）
     shift_daily = {}
+    _has_teams_fmt = False
     for d in shift_prod:
-        dp = d.get('day_prod') or {}
-        np = d.get('night_prod') or {}
         dt = d['date']
-        if dt not in shift_daily:
-            shift_daily[dt] = {'nh': 0, 'nl': 0, 'mw': 0}
-        shift_daily[dt]['nh'] += (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0)
-        shift_daily[dt]['nl'] += (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0)
-        shift_daily[dt]['mw'] += (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0)
+        if 'teams' in d:
+            _has_teams_fmt = True
+            if dt not in shift_daily:
+                shift_daily[dt] = {'nh': 0, 'nl': 0, 'mw': 0}
+            for _t in (d.get('teams') or []):
+                shift_daily[dt]['nh'] += _t.get('nh', 0) or 0
+                shift_daily[dt]['nl'] += _t.get('nl', 0) or 0
+                shift_daily[dt]['mw'] += _t.get('mw', 0) or 0
+        else:
+            dp = d.get('day_prod') or {}
+            np = d.get('night_prod') or {}
+            if dt not in shift_daily:
+                shift_daily[dt] = {'nh': 0, 'nl': 0, 'mw': 0}
+            shift_daily[dt]['nh'] += (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0)
+            shift_daily[dt]['nl'] += (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0)
+            shift_daily[dt]['mw'] += (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0)
 
     # 钻工逐日分组
     from collections import defaultdict
@@ -4443,6 +4460,12 @@ def get_production_verify():
             'match': dtot['nh'] == st['nh'] and dtot['nl'] == st['nl'] and dtot['mw'] == st['mw'],
         }
     result['month'] = month
+    # P31 A2: 顶层汇总（仅 teams 新格式月下发；旧格式月响应与改造前逐字段一致）
+    if _has_teams_fmt:
+        _days = [v for k, v in result.items() if k != 'month']
+        result['verify_days'] = len(_days)
+        result['match_days'] = sum(1 for v in _days if v['match'])
+        result['mismatch_days'] = result['verify_days'] - result['match_days']
     return jsonify(result)
 
 # ═══════════════════════════════════════════════════════════
