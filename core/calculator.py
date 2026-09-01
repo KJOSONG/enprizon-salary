@@ -1098,6 +1098,17 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             absent = att_overrides.get((eid, dt)) in ('A', 'L', 'E')   # P21 R2: absent 含 E（豁免不出勤）
             nu = att_overrides.get((eid, dt)) == 'NU'             # P21 R2: 年假（计薪）
 
+            # 年假 NU 跨模式计薪（ENPRIZON 除外；月薪<40万按原月薪逐日，其余一律 400k/26）
+            if nu:
+                _dept = emp.get('department','')
+                if _dept == 'ENPRIZON LINDI PROJECT':
+                    pass  # ENPRIZON 走下方月薪 present 计数，不额外 per_day
+                elif dtype == 'monthly' and 0 < emp.get('monthly_salary',0) < 400000:
+                    pass  # 月薪<40万按原月薪逐日，已在下方 monthly 分支计入
+                else:
+                    dr_total += ug_al_per_day
+                    continue
+
             # P21 R2: NU 天在计件轨道排除（同 L），在日薪/月薪轨道计入出勤天数
             if dtype == 'piece_underground' and not absent and not nu:
                 pu += ug_daily.get(eid, {}).get(dt, 0)
@@ -1106,14 +1117,15 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             elif dtype == 'piece_crush' and not absent and not nu:
                 cr_total += crush_daily.get(eid, {}).get(dt, 0)
             elif dtype == 'day_rate' and not absent and (dt in present_dates[eid] or nu):
+                # 其他部门日薪的 NU 已在上方按 15384 处理，此处仅处理非 NU 或 ENPRIZON
+                if nu and emp.get('department') != 'ENPRIZON LINDI PROJECT':
+                    continue
                 dr_total += get_day_rate_for_date(overrides, emp_map, eid, dt)
             elif dtype == 'monthly' and not absent and (dt in present_dates[eid] or nu):
+                # 其他部门月薪>=40万的 NU 已按 15384 处理，不计入月薪天数
+                if nu and emp.get('department') != 'ENPRIZON LINDI PROJECT' and not (0 < emp.get('monthly_salary',0) < 400000):
+                    continue
                 monthly_present_count += 1
-
-            # P28 R4: v2 生效月 UG 生产工 NU（年假）天按配置月薪折算，走日薪轨道展示；
-            # 属 V2 零和体系之外（不入 pu/ug_base，不影响 apply_v2_month_end 守恒）
-            if ug_al_per_day and nu and dtype == 'piece_underground' and is_ug_production_emp(emp):
-                dr_total += ug_al_per_day
 
         # 月薪：实际出勤 >= 26天封顶为满勤基薪
         mb = monthly_base.get(eid, 0)
@@ -1645,19 +1657,29 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             daily = defaultdict(float)
             shifts_info = {}
             for dt in final_dates:
+                dt_eff = per_date_type.get(eid, {}).get(dt, pdt.get(dt, eff))
+                # 年假 NU 统一：其他部门按 15384（月薪<40k 除外），ENPRIZON 保持原逻辑
+                if att_all.get((eid, dt)) == 'NU' and emp.get('department') != 'ENPRIZON LINDI PROJECT' and not (dt_eff == 'monthly' and 0 < emp.get('monthly_salary',0) < 400000):
+                    if dt_eff != 'piece_underground':
+                        daily[dt] = round(ug_al_per_day_br)
+                        continue
                 # P14.3: 轨道类型统一以 per_date_type 为准（含 scoring 改写后的 monthly，
                 # 与 calculate_all 861 行保持一致），pdt/eff 仅作兜底
-                dt_eff = per_date_type.get(eid, {}).get(dt, pdt.get(dt, eff))
                 if dt_eff == 'piece_underground':
                     amt = ug_daily.get(eid, {}).get(dt, 0)
                     if amt > 0:
                         daily[dt] = round(amt)
                         s = ug_shifts.get(eid, {}).get(dt, '')
                         if s: shifts_info[dt] = s
-                    # P28 R4: UG 生产工 NU（年假）天折算计发（NU 天计件池排除，amt 恒 0，
-                    # 此处金额即年假折算本身；V2 重缩放按 NU 日期跳过，见下方镜像块）
-                    if ug_al_per_day_br and att_all.get((eid, dt)) == 'NU' and is_ug_production_emp(emp):
-                        daily[dt] = round(daily.get(dt, 0) + ug_al_per_day_br)
+                    # 年假 NU 跨模式：ENPRIZON 除外；月薪<40万按原月薪，其余 15384
+                    if att_all.get((eid, dt)) == 'NU':
+                        _dept_br2 = emp.get('department','')
+                        if _dept_br2 == 'ENPRIZON LINDI PROJECT':
+                            pass
+                        elif dt_eff == 'monthly' and 0 < emp.get('monthly_salary',0) < 400000:
+                            pass
+                        elif ug_al_per_day_br:
+                            daily[dt] = round(daily.get(dt, 0) + ug_al_per_day_br)
                 elif dt_eff == 'piece_driller':
                     amt = dr_daily.get(eid, {}).get(dt, 0)
                     if amt > 0: daily[dt] = round(amt)
