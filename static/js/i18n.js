@@ -655,6 +655,22 @@ const I18N_DICT = {
     /* ── 产量核验表头 ── */
     verify_day_amt: '白班金额',
     verify_night_amt: '夜班金额',
+    /* ── P31 E3: 数据台产量核验卡 ── */
+    verify_title: '产量核验',
+    verify_scope_note: '口径：钻工逐日上报合计与井下班组采集合计逐日比对；差值 = 钻工合计 − 井下合计。本卡仅对具备薪资查看权限的用户显示。',
+    verify_all: '全部',
+    verify_only_diff: '仅看差异',
+    verify_days: '核验',
+    verify_match_days: '一致',
+    verify_mismatch_days: '差异',
+    verify_col_date: '日期',
+    verify_col_group: '钻工组',
+    verify_col_dtotal: '钻工合计',
+    verify_col_stotal: '井下合计',
+    verify_col_diff: '差值',
+    verify_col_status: '状态',
+    verify_match: '一致',
+    verify_badge_diff: '差异',
 
     /* ── 图表数据集 ── */
     chart_nh: 'NH',
@@ -1834,6 +1850,22 @@ const I18N_DICT = {
     /* ── Verification Table Headers ── */
     verify_day_amt: 'Day Amount',
     verify_night_amt: 'Night Amount',
+    /* ── P31 E3: Dashboard Production Verify Card ── */
+    verify_title: 'Production Verify',
+    verify_scope_note: 'Daily driller reported totals vs underground team collection totals; diff = driller − underground. Visible to salary-view users only.',
+    verify_all: 'All',
+    verify_only_diff: 'Diffs only',
+    verify_days: 'Days',
+    verify_match_days: 'Matched',
+    verify_mismatch_days: 'Mismatched',
+    verify_col_date: 'Date',
+    verify_col_group: 'Groups',
+    verify_col_dtotal: 'Driller Total',
+    verify_col_stotal: 'UG Total',
+    verify_col_diff: 'Diff',
+    verify_col_status: 'Status',
+    verify_match: 'Match',
+    verify_badge_diff: 'Diff',
 
     /* ── Chart Datasets ── */
     chart_nh: 'NH',

@@ -70,7 +70,7 @@
 
   /* ── 字体（决策 §8.4：Inter 为主 + Fraunces 品牌/可选 KPI）── */
   --font-ui: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-display: 'Fraunces', 'Times New Roman', ui-serif, serif; /* P31 E4/决策 7: Georgia 数字为 oldstyle，移除 */
   --font-sans: var(--font-ui);
   --font-serif: var(--font-display);
   --font-mono: ui-monospace, SFMono-Regular, monospace;
@@ -196,6 +196,7 @@
 html, body { height: 100%; }
 body {
   font-family: var(--font-ui);
+  font-variant-numeric: lining-nums tabular-nums; /* P31 E4/决策 7: 全站数字 lining+等宽 */
   background: var(--background);
   color: var(--foreground);
   font-size: var(--text-base);

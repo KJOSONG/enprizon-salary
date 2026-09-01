@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据台班组化改版预览 · P31</title>
+<style>
+/* ════════════════════════════════════════════════
+   P31 数据台班组化改版预览
+   Tokens 绑定自 enprizon-salary/static/css/style.css（Golden Time 体系）
+   ════════════════════════════════════════════════ */
+:root {
+  --background: hsl(40 16% 98%);
+  --card: hsl(40 16% 98%);
+  --foreground: hsl(37.5 15.69% 20%);
+  --muted-foreground: hsl(36 19.84% 49.41%);
+  --primary: hsl(37.5 15.69% 20%);
+  --secondary: hsl(55 24% 49.02%);
+  --muted: hsl(44 26.32% 88.82%);
+  --accent: hsl(40 24.09% 73.14%);
+  --accent-foreground: hsl(30 14% 30%);
+  --border: hsl(43.33 23.08% 84.71%);
+  --input: hsl(44 26.32% 88.82%);
+  --ring: hsl(37.5 15.69% 20%);
+  --radius: 2rem;
+  --shadow: 0 2px 4px 0 hsl(35 15% 50% / 0.06);
+  --success: hsl(120 15% 46%);
+  --success-bg: hsl(120 15% 46% / 0.12);
+  --warning: hsl(28.99 91.75% 61.96%);
+  --warning-bg: hsl(28.99 91.75% 61.96% / 0.12);
+  /* 矿石语义色（style.css:2377-2382） */
+  --nh-color: #B05A3C;
+  --nh-color-bg: rgba(176,90,60,0.12);
+  --nl-color: #B09F4A;
+  --nl-color-bg: rgba(176,159,74,0.12);
+  --mw-color: #E8923E;
+  --mw-color-bg: rgba(232,146,62,0.12);
+  /* 班组线色（P31 新增，暖色系派生） */
+  --team-1: #B05A3C;
+  --team-2: #7A8B5C;
+  /* 全局字体：Georgia 的数字默认为 oldstyle（高低不齐），改用默认 lining 的 Times 回退；
+     body 上全局声明 lining+tabular，Fraunces 加载时同样生效 */
+  --font-main: 'Fraunces', 'Times New Roman', ui-serif, serif;
+  --text: var(--foreground);
+  --text-muted: var(--muted-foreground);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--font-main);
+  font-variant-numeric: lining-nums tabular-nums;
+  background: var(--background);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: var(--font-main); cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; border-radius: 4px; }
+
+/* ── 预览横幅（评审用，非产品 UI） ── */
+.preview-banner {
+  max-width: 1440px;
+  margin: 20px auto 0;
+  padding: 14px 20px;
+  border: 1px dashed var(--accent);
+  border-radius: 12px;
+  background: hsl(44 26.32% 92%);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.preview-banner strong { color: var(--text); font-size: 13.5px; }
+.preview-banner .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.rev-chip {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  vertical-align: 2px;
+}
+.rev-chip.new { background: var(--warning-bg); color: color-mix(in srgb, var(--warning) 55%, var(--foreground)); border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent); }
+.rev-chip.mod { background: var(--nh-color-bg); color: var(--nh-color); border: 1px solid color-mix(in srgb, var(--nh-color) 35%, transparent); }
+.rev-chip.keep { background: var(--muted); color: var(--text-muted); border: 1px solid var(--border); }
+
+/* ── 主内容（对齐 .main） ── */
+.main { max-width: 1440px; margin: 0 auto; padding: 20px; }
+.data-dashboard { display: grid; gap: 16px; grid-template-columns: 1fr; }
+.data-dashboard > .card { min-width: 0; } /* R3 修复：grid 子项可收缩 */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.card:hover { border-color: var(--accent); }
+
+/* ── 控制栏（对齐 .dash-controls） ── */
+.dash-controls { padding: 12px 16px; }
+.dash-controls-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+.dash-ctrl-group { display: flex; flex-direction: column; gap: 4px; }
+.dash-ctrl-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+.dash-select {
+  background: var(--input); color: var(--foreground);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; min-width: 110px;
+  cursor: pointer; font-family: var(--font-main);
+}
+.dash-input {
+  background: var(--input); color: var(--foreground);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; width: 130px;
+  font-family: var(--font-main);
+}
+.dash-segmented { display: inline-flex; background: var(--input); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.dash-seg-btn {
+  border: none; background: transparent; color: var(--text);
+  padding: 7px 14px; font-size: 12.5px; line-height: 1.2;
+  border-right: 1px solid var(--border);
+  transition: background 0.15s ease;
+  min-width: 44px;
+}
+.dash-seg-btn:last-child { border-right: none; }
+.dash-seg-btn:hover { background: hsl(44 26% 82%); } /* L 88.82→82，仅背景位移 */
+.dash-seg-btn.active { background: var(--accent); color: var(--accent-foreground); font-weight: 600; }
+
+/* ── KPI（对齐 .dash-kpi-grid / .stat-glass） ── */
+.dash-kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.stat-glass {
+  padding: 14px 12px; text-align: center;
+  border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--card); box-shadow: var(--shadow);
+  transition: border-color 0.2s ease;
+}
+.stat-glass:hover { border-color: var(--accent); }
+.stat-glass .value { font-size: 24px; font-weight: 700; line-height: 1.2; }
+/* KPI 数值字体规范：lining + 等宽数字，回退栈保证无 webfont 时数字依旧等高等宽 */
+.dash-kpi-grid .stat-glass .value {
+  font-family: 'Fraunces', 'Times New Roman', Georgia, serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: 'lnum' 1, 'tnum' 1;
+}
+.dash-kpi-grid .stat-glass .value .kpi-unit { font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 4px; letter-spacing: 0; }
+.dash-kpi-grid .stat-glass .sub, .dash-kpi-grid .stat-glass .small { font-variant-numeric: lining-nums tabular-nums; }
+.stat-glass .label { font-size: 11px; margin-top: 4px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-glass .sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.kpi-nh .value { color: var(--nh-color); }
+.kpi-nl .value { color: var(--nl-color); }
+.kpi-mw .value { color: var(--mw-color); }
+.kpi-peak .value { color: color-mix(in srgb, var(--warning) 60%, var(--foreground)); font-size: 20px; }
+/* 班组汇总卡：仅显示占比，百分比上移至数值位，垂直居中 */
+.dash-kpi-grid .stat-glass.kpi-team { display: flex; align-items: center; justify-content: center; }
+.dash-kpi-grid .stat-glass.kpi-team .value { font-size: 15px; font-weight: 600; color: var(--text-muted); display: flex; flex-direction: column; gap: 3px; }
+.kpi-team .pct-l { color: color-mix(in srgb, var(--team-1) 70%, var(--foreground)); }
+.kpi-team .pct-s { color: color-mix(in srgb, var(--team-2) 70%, var(--foreground)); }
+
+/* ── 图表卡 ── */
+.dash-chart-title { font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dash-chart-title .title-note { font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 400; }
+.chart-fixed-h { position: relative; width: 100%; height: 300px; } /* R3：固定高容器 */
+.chart-fixed-h.h260 { height: 260px; }
+.chart-fixed-h svg { display: block; }
+.chart-tip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: rgba(59,53,43,0.95); color: #fbfaf9;
+  border: 1px solid rgba(203,192,170,0.4); border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; line-height: 1.55;
+  display: none; max-width: 260px;
+  box-shadow: 0 4px 16px rgba(40,35,25,0.25);
+}
+.chart-tip .tip-title { color: #cbc0aa; font-weight: 600; margin-bottom: 2px; }
+.chart-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: #978365; }
+.chart-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+/* ── 双栏 ── */
+.dash-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dash-two-col > .card { min-width: 0; }
+
+/* ── 破碎表格（不变卡） ── */
+.mini-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mini-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); padding: 6px 10px; border-bottom: 1px solid var(--border); font-weight: 600; }
+.mini-table td { padding: 7px 10px; border-bottom: 1px solid hsl(43 23% 89%); }
+
+/* ── 产量核验卡（R6 新增） ── */
+.verify-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.verify-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.v-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 5px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--input); }
+.v-chip b { font-size: 15px; }
+.v-chip.total b { color: var(--text); }
+.v-chip.ok { background: var(--success-bg); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.v-chip.ok b, .v-chip.ok { color: color-mix(in srgb, var(--success) 60%, var(--foreground)); }
+.v-chip.warn { background: var(--warning-bg); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+.v-chip.warn b { color: color-mix(in srgb, var(--warning) 45%, var(--foreground)); }
+.v-chip.warn { color: color-mix(in srgb, var(--warning) 45%, var(--foreground)); }
+.verify-table-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+.verify-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.verify-table thead th {
+  position: sticky; top: 0; background: var(--input); z-index: 2;
+  text-align: right; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-muted); padding: 8px 12px; font-weight: 600;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.verify-table thead th:first-child, .verify-table td:first-child { text-align: left; }
+.verify-table td { padding: 7px 12px; border-bottom: 1px solid hsl(43 23% 91%); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.verify-table tbody tr { cursor: pointer; transition: background 0.12s ease; }
+.verify-table tbody tr:hover { background: var(--muted); }
+.verify-table tbody tr.is-bad td { background: hsl(29 92% 61.96% / 0.05); }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 1px 10px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--success-bg); color: color-mix(in srgb, var(--success) 65%, var(--foreground)); }
+.badge.warn { background: var(--warning-bg); color: color-mix(in srgb, var(--warning) 45%, var(--foreground)); }
+.badge .bd { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.badge.ok .bd { background: var(--success); }
+.badge.warn .bd { background: var(--warning); }
+td.diff-bad { color: color-mix(in srgb, var(--warning) 50%, var(--foreground)); font-weight: 600; }
+.verify-note { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+
+/* ── Toast（对齐 showToast 弹层） ── */
+.toast-box {
+  position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%);
+  background: rgba(59,53,43,0.96); color: #fbfaf9;
+  border: 1px solid rgba(203,192,170,0.4); border-radius: 12px;
+  padding: 12px 20px; font-size: 12.5px; z-index: 50;
+  box-shadow: 0 8px 24px rgba(40,35,25,0.3);
+  display: none; max-width: min(480px, 92vw); text-align: center;
+}
+.toast-box .tt { color: #cbc0aa; font-weight: 700; margin-bottom: 4px; }
+
+/* ── 响应式（对齐 900/600 断点） ── */
+@media (max-width: 1100px) {
+  .dash-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 900px) {
+  .chart-fixed-h { height: 240px; }
+  .chart-fixed-h.h260 { height: 200px; }
+  .dash-two-col { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .main { padding: 10px; }
+  .card { padding: 14px; border-radius: 1.2rem; }
+  .dash-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .chart-fixed-h { height: 200px; }
+  .chart-fixed-h.h260 { height: 180px; }
+  .verify-table-wrap { max-height: 260px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ 预览横幅（评审标注，非产品 UI） ═══ -->
+<div class="preview-banner" data-od-id="preview-banner">
+  <strong>P31 数据台班组化改版预览</strong> · 2026-09 新格式月（班组产量制）· 桌面端。<br>
+  演示数据为 9/1–9/26 的<b>模拟值</b>（班组 LAMBA LAMBA / SAKA SAKA 取自真实班组名，数值非真实产量），用于评审图表密度、核验卡样式与交互。
+  8 月及更早的旧格式月（白班/夜班）不在本预览范围，界面保持现状。
+  <div class="legend">
+    <span>标注图例：</span>
+    <span class="rev-chip mod">R1 改版</span><span>趋势班组化</span>
+    <span class="rev-chip mod">R2 改版</span><span>班组筛选</span>
+    <span class="rev-chip mod">R5 改版</span><span>班组总产量对比</span>
+    <span class="rev-chip new">R6 新增</span><span>产量核验卡</span>
+    <span class="rev-chip keep">未改动</span>
+  </div>
+</div>
+
+<main class="main">
+  <div class="data-dashboard">
+
+    <!-- ═══ 控制栏 ═══ -->
+    <div class="card dash-controls" data-od-id="dash-controls">
+      <div class="dash-controls-row">
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" for="monthSel">月份</label>
+          <select id="monthSel" class="dash-select" data-od-id="month-select">
+            <option selected>2026-09</option>
+            <option>2026-08</option>
+            <option>2026-07</option>
+          </select>
+        </div>
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" for="dateFrom">日期起</label>
+          <input type="date" id="dateFrom" class="dash-input" value="2026-09-01">
+        </div>
+        <div class="dash-ctrl-group">
+          <label class="dash-ctrl-label" for="dateTo">日期止</label>
+          <input type="date" id="dateTo" class="dash-input" value="2026-09-26">
+        </div>
+        <div class="dash-ctrl-group">
+          <span class="dash-ctrl-label">班组 <span class="rev-chip mod">R2 改版</span></span>
+          <div class="dash-segmented" id="teamSeg" data-od-id="team-filter" role="group" aria-label="班组筛选"></div>
+        </div>
+        <div class="dash-ctrl-group">
+          <span class="dash-ctrl-label">矿石</span>
+          <div class="dash-segmented" id="oreSeg" data-od-id="ore-filter" role="group" aria-label="矿石筛选">
+            <button class="dash-seg-btn active" data-v="all">全部</button>
+            <button class="dash-seg-btn" data-v="nh" style="color:var(--nh-color);">NH</button>
+            <button class="dash-seg-btn" data-v="nl" style="color:var(--nl-color);">NL</button>
+            <button class="dash-seg-btn" data-v="mw" style="color:var(--mw-color);">MW</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ KPI ═══ -->
+    <div class="dash-kpi-grid" id="kpiGrid" data-od-id="kpi-grid"></div>
+
+    <!-- ═══ 产量趋势（R1 改版：班组线） ═══ -->
+    <div class="card" data-od-id="card-trend">
+      <h2 class="dash-chart-title">产量趋势
+        <span class="rev-chip mod">R1 改版</span>
+        <span class="title-note">每班组一条线 · 悬停查看逐班组值 · 点击查看当日明细 · 窗口缩放自适应</span>
+      </h2>
+      <div class="chart-fixed-h" id="trendBox" data-od-id="trend-chart"><div class="chart-tip" id="trendTip"></div></div>
+      <div class="chart-legend" id="trendLegend"></div>
+    </div>
+
+    <!-- ═══ 班组产量对比（R5 改版：替代白班 vs 夜班） ═══ -->
+    <div class="card" data-od-id="card-team-compare">
+      <h2 class="dash-chart-title">班组产量对比
+        <span class="rev-chip mod">R5 改版</span>
+        <span class="title-note">仅对比总产量 · 原矿石类型 tab 已移除</span>
+      </h2>
+      <div class="chart-fixed-h" id="cmpBox" data-od-id="team-compare-chart"><div class="chart-tip" id="cmpTip"></div></div>
+      <div class="chart-legend" id="cmpLegend"></div>
+    </div>
+
+    <!-- ═══ 双栏（未改动卡） ═══ -->
+    <div class="dash-two-col">
+      <div class="card" data-od-id="card-driller">
+        <h2 class="dash-chart-title">钻工组产量对比 <span class="rev-chip keep">未改动</span></h2>
+        <div class="chart-fixed-h h260" id="drillerBox" data-od-id="driller-chart"><div class="chart-tip" id="drillerTip"></div></div>
+      </div>
+      <div class="card" data-od-id="card-ore-pie">
+        <h2 class="dash-chart-title">矿石类型占比 <span class="rev-chip keep">未改动</span></h2>
+        <div class="chart-fixed-h h260" id="pieBox" data-od-id="ore-pie-chart"></div>
+      </div>
+    </div>
+
+    <!-- ═══ 破碎产量（未改动卡） ═══ -->
+    <div class="card" data-od-id="card-crush">
+      <h2 class="dash-chart-title">破碎产量 <span class="rev-chip keep">未改动</span></h2>
+      <table class="mini-table" data-od-id="crush-table">
+        <thead><tr><th>日期</th><th>破碎袋数</th><th>人数</th></tr></thead>
+        <tbody id="crushBody"></tbody>
+      </table>
+    </div>
+
+    <!-- ═══ 产量核验（R6 新增卡） ═══ -->
+    <div class="card" data-od-id="card-verify">
+      <div class="verify-head">
+        <h2 class="dash-chart-title" style="margin-bottom:0;">产量核验
+          <span class="rev-chip new">R6 新增</span>
+          <span class="title-note">钻工组合计 vs 班组采集合计 · 点击行查看明细</span>
+        </h2>
+        <div class="dash-segmented" id="verifySeg" data-od-id="verify-filter" role="group" aria-label="核验筛选">
+          <button class="dash-seg-btn active" data-v="all">全部</button>
+          <button class="dash-seg-btn" data-v="diff">仅看差异</button>
+        </div>
+      </div>
+      <div class="verify-chips" id="verifyChips" data-od-id="verify-chips"></div>
+      <div class="verify-table-wrap" data-od-id="verify-table">
+        <table class="verify-table">
+          <thead><tr>
+            <th>日期</th><th>钻工组</th><th>钻工合计</th><th>井下合计</th><th>差值</th><th>状态</th>
+          </tr></thead>
+          <tbody id="verifyBody"></tbody>
+        </table>
+      </div>
+      <p class="verify-note">口径：钻工逐日上报合计与井下班组采集合计逐日比对；差值 = 钻工合计 − 井下合计。本卡仅对具备薪资查看权限的用户显示。</p>
+    </div>
+
+  </div>
+</main>
+
+<div class="toast-box" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ════════════════════════════════════════════════
+   演示数据（确定性伪随机，非真实产量）
+   班组名取自项目 employee_groups：LAMBA LAMBA / SAKA SAKA
+   ════════════════════════════════════════════════ */
+function rng(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const TEAMS = [
+  { id: 1, name: 'LAMBA LAMBA', color: '#B05A3C', base: { nh: 22, nl: 15, mw: 11 } },
+  { id: 2, name: 'SAKA SAKA',  color: '#7A8B5C', base: { nh: 17, nl: 12, mw: 9 } },
+];
+const DAYS = [];          // [{date:'2026-09-01', teams:[{id,name,nh,nl,mw,total}]}]
+const VERIFY = [];        // [{date, groups, drillerTotal, shiftTotal, diff, match, detail}]
+const CRUSH = [];
+(function buildData() {
+  const r = rng(20260901);
+  const zeroDays = { 14: true }; // 9/14 停产日（测试零值处理）
+  const MIS = { 8: 6.5, 17: 4.0, 22: 9.0 }; // 差异日：钻工合计 < 井下合计
+  for (let d = 1; d <= 26; d++) {
+    const date = '2026-09-' + String(d).padStart(2, '0');
+    const swing = zeroDays[d] ? 0 : (0.72 + r() * 0.56);
+    const teams = TEAMS.map((t, ti) => {
+      const s = swing * (0.85 + r() * 0.3);
+      const nh = Math.round(t.base.nh * s * 2) / 2;
+      const nl = Math.round(t.base.nl * s * 2) / 2;
+      const mw = Math.round(t.base.mw * s * 2) / 2;
+      return { id: t.id, name: t.name, color: t.color, nh, nl, mw, total: nh + nl + mw };
+    });
+    DAYS.push({ date, teams });
+    // 核验：两个钻工组，合计 ≈ 井下合计；差异日少报
+    const shiftTotal = teams.reduce((a, t) => a + t.total, 0);
+    const cut = MIS[d] || 0;
+    const gA = Math.round((shiftTotal * 0.58 - cut * 0.6) * 2) / 2;
+    const gB = Math.round((shiftTotal * 0.42 - cut * 0.4) * 2) / 2;
+    const drillerTotal = Math.round((gA + gB) * 2) / 2;
+    VERIFY.push({
+      date, groups: zeroDays[d] ? 0 : 2,
+      drillerTotal, shiftTotal,
+      diff: Math.round((drillerTotal - shiftTotal) * 2) / 2,
+      match: drillerTotal === shiftTotal,
+      detail: [
+        { name: '钻工组 A', total: gA },
+        { name: '钻工组 B', total: gB },
+      ],
+    });
+    if (d % 9 === 1 || d === 26) {
+      CRUSH.push({ date, bags: 120 + Math.round(r() * 80), ppl: 3 + Math.round(r() * 2) });
+    }
+  }
+})();
+
+/* ── 工具 ── */
+const $ = (id) => document.getElementById(id);
+const fmt = (v) => (Math.round(v * 10) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 });
+const mmdd = (d) => d.slice(5).replace('-', '/');
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function niceMax(v) {
+  if (v <= 0) return 10;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  return Math.ceil(v / (mag / 2)) * (mag / 2);
+}
+let toastTimer = null;
+function showToast(html, ms) {
+  const t = $('toast');
+  t.innerHTML = html;
+  t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display = 'none'; }, ms || 4000);
+}
+function bindSeg(segId, fn) {
+  const seg = $(segId);
+  seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('.dash-seg-btn');
+    if (!btn) return;
+    seg.querySelectorAll('.dash-seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    fn(btn.dataset.v);
+  });
+}
+
+/* ── 筛选状态 ── */
+const F = { team: 'all', ore: 'all', verify: 'all' };
+
+/* ════════════════ KPI ════════════════ */
+function renderKPI() {
+  let nh = 0, nl = 0, mw = 0, peak = 0, peakDate = '', days = 0;
+  DAYS.forEach(d => {
+    d.teams.forEach(t => { nh += t.nh; nl += t.nl; mw += t.mw; });
+    const tot = d.teams.reduce((a, t) => a + t.total, 0);
+    if (tot > 0) { days++; if (tot > peak) { peak = tot; peakDate = d.date; } }
+  });
+  const avg = days ? (nh + nl + mw) / days : 0;
+  // KPI 数值统一规格：固定 1 位小数 + 千分位（与图表/表格区隔，仅 KPI 使用）
+  const fmtK = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  // 班组占比（数据驱动，替代原"2 班组/班组汇总"卡内容）
+  const teamSum = {};
+  DAYS.forEach(d => d.teams.forEach(t => { teamSum[t.name] = (teamSum[t.name] || 0) + t.total; }));
+  const grand = Object.values(teamSum).reduce((a, b) => a + b, 0) || 1;
+  const pct = (name) => Math.round((teamSum[name] || 0) / grand * 100);
+  const kpis = [
+    { cls: 'kpi-nh', v: fmtK(nh), l: 'NH · 月累计' },
+    { cls: 'kpi-nl', v: fmtK(nl), l: 'NL · 月累计' },
+    { cls: 'kpi-mw', v: fmtK(mw), l: 'MW · 月累计' },
+    { cls: '', v: fmtK(avg), l: '日均总产量', sub: days + ' 个生产日' },
+    { cls: 'kpi-peak', v: fmtK(peak), l: '单日峰值', sub: peakDate ? mmdd(peakDate) : '' },
+    { cls: 'kpi-team', pctOnly: true },
+  ];
+  $('kpiGrid').innerHTML = kpis.map(k => {
+    if (k.pctOnly) {
+      return '<div class="stat-glass kpi-team"><div class="value">' +
+        '<span class="pct-l">' + TEAMS[0].name + ' ' + pct(TEAMS[0].name) + '%</span>' +
+        '<span class="pct-s">' + TEAMS[1].name + ' ' + pct(TEAMS[1].name) + '%</span>' +
+        '</div></div>';
+    }
+    return '<div class="stat-glass ' + k.cls + '"><div class="value">' + k.v +
+      (k.unit ? '<span class="kpi-unit">' + k.unit + '</span>' : '') + '</div>' +
+      '<div class="label">' + k.l + '</div>' +
+      (k.sub ? '<div class="sub">' + k.sub + '</div>' : '') + '</div>';
+  }).join('');
+}
+
+/* ════════════════ 产量趋势（R1：班组线） ════════════════ */
+function trendSeries() {
+  const ore = F.ore;
+  return TEAMS
+    .filter(t => F.team === 'all' || String(t.id) === F.team)
+    .map(t => ({
+      name: t.name, color: t.color,
+      data: DAYS.map(d => {
+        const tm = d.teams.find(x => x.id === t.id);
+        if (!tm) return 0;
+        return ore === 'all' ? tm.total : (tm[ore] || 0);
+      }),
+    }));
+}
+function catmullPath(pts) {
+  if (pts.length < 2) return '';
+  let p = 'M' + pts[0].x + ',' + pts[0].y;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    p += 'C' + c1x.toFixed(1) + ',' + c1y.toFixed(1) + ' ' + c2x.toFixed(1) + ',' + c2y.toFixed(1) + ' ' + p2.x.toFixed(1) + ',' + p2.y.toFixed(1);
+  }
+  return p;
+}
+function renderTrend() {
+  const box = $('trendBox'), tip = $('trendTip');
+  box.querySelectorAll('svg, .hover-line').forEach(n => n.remove());
+  const W = box.clientWidth, H = box.clientHeight;
+  if (W < 60) return;
+  const M = { l: 46, r: 16, t: 18, b: 26 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const n = DAYS.length;
+  const series = trendSeries();
+  const maxY = niceMax(Math.max(1, ...series.flatMap(s => s.data)));
+  const x = (i) => M.l + (n === 1 ? iw / 2 : i * iw / (n - 1));
+  const y = (v) => M.t + ih - (v / maxY) * ih;
+
+  const svg = el('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': '产量趋势图（按班组）' });
+  // 网格 + y 刻度
+  for (let g = 0; g <= 4; g++) {
+    const gy = M.t + ih * g / 4;
+    svg.appendChild(el('line', { x1: M.l, x2: W - M.r, y1: gy, y2: gy, stroke: 'rgba(203,192,170,0.15)', 'stroke-width': 1 }));
+    const lbl = el('text', { x: M.l - 8, y: gy + 3.5, 'text-anchor': 'end', 'font-size': 10, fill: '#978365', 'font-family': 'inherit' });
+    lbl.textContent = fmt(maxY * (4 - g) / 4);
+    svg.appendChild(lbl);
+  }
+  // x 刻度（autoSkip：≥15 条上限）
+  const step = Math.ceil(n / (W < 700 ? 8 : 15));
+  for (let i = 0; i < n; i += step) {
+    const lbl = el('text', { x: x(i), y: H - 8, 'text-anchor': 'middle', 'font-size': 10, fill: '#978365', 'font-family': 'inherit' });
+    lbl.textContent = mmdd(DAYS[i].date);
+    svg.appendChild(lbl);
+  }
+  // 班组线 + 面积 + 抽样数据标签（>16 天每 2 个标 1 个）
+  const labelStep = n > 16 ? 2 : 1;
+  series.forEach(s => {
+    const pts = s.data.map((v, i) => ({ x: x(i), y: y(v) }));
+    svg.appendChild(el('path', { d: catmullPath(pts) + 'L' + pts[pts.length - 1].x + ',' + (M.t + ih) + 'L' + pts[0].x + ',' + (M.t + ih) + 'Z', fill: s.color, opacity: 0.08 }));
+    svg.appendChild(el('path', { d: catmullPath(pts), fill: 'none', stroke: s.color, 'stroke-width': 2.5, 'stroke-linecap': 'round' }));
+    pts.forEach((p, i) => {
+      svg.appendChild(el('circle', { cx: p.x, cy: p.y, r: i === hoverIdx.trend ? 4.5 : 2, fill: s.color, stroke: '#fbfaf9', 'stroke-width': 1.5 }));
+      if (i % labelStep === 0 && s.data[i] > 0) {
+        const t = el('text', { x: p.x, y: p.y - 7, 'text-anchor': 'middle', 'font-size': 9, 'font-weight': 600, fill: s.color, 'font-family': 'inherit' });
+        t.textContent = fmt(s.data[i]);
+        svg.appendChild(t);
+      }
+    });
+  });
+  // 悬停参考线
+  const guide = el('line', { x1: 0, x2: 0, y1: M.t, y2: M.t + ih, stroke: 'rgba(60,53,43,0.28)', 'stroke-dasharray': '3,3', visibility: 'hidden' });
+  svg.appendChild(guide);
+  // 悬停捕获层
+  const hit = el('rect', { x: M.l, y: M.t, width: iw, height: ih, fill: 'transparent' });
+  svg.appendChild(hit);
+  box.appendChild(svg);
+
+  hit.addEventListener('mousemove', (e) => {
+    const r = box.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - M.l) / (iw / (n - 1)))));
+    guide.setAttribute('x1', x(i)); guide.setAttribute('x2', x(i));
+    guide.setAttribute('visibility', 'visible');
+    const d = DAYS[i];
+    let html = '<div class="tip-title">' + d.date + '</div>';
+    d.teams.forEach(t => {
+      const v = F.ore === 'all' ? t.total : (t[F.ore] || 0);
+      html += '<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + t.color + ';margin-right:6px;"></span>' + t.name + '：' + fmt(v) + '</div>';
+    });
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(x(i) - tw / 2, 4), W - tw - 4) + 'px';
+    tip.style.top = '8px';
+  });
+  hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; guide.setAttribute('visibility', 'hidden'); });
+  hit.addEventListener('click', (e) => {
+    const r = box.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.round(((e.clientX - r.left) - M.l) / (iw / (n - 1)))));
+    const d = DAYS[i];
+    const rows = d.teams.map(t => '<div style="margin-top:3px;">' + t.name + '：NH ' + fmt(t.nh) + ' · NL ' + fmt(t.nl) + ' · MW ' + fmt(t.mw) + ' ＝ <b>' + fmt(t.total) + '</b></div>').join('');
+    showToast('<div class="tt">' + d.date + ' 当日明细</div>' + rows);
+  });
+
+  $('trendLegend').innerHTML = series.map(s =>
+    '<span class="lg"><span class="dot" style="background:' + s.color + '"></span>' + s.name + '</span>').join('');
+}
+const hoverIdx = { trend: -1 };
+
+/* ════════════════ 班组产量对比（R5：总产量分组柱） ════════════════ */
+function renderCompare() {
+  const box = $('cmpBox'), tip = $('cmpTip');
+  box.querySelectorAll('svg').forEach(n => n.remove());
+  const W = box.clientWidth, H = box.clientHeight;
+  if (W < 60) return;
+  const M = { l: 46, r: 16, t: 18, b: 26 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const n = DAYS.length;
+  const maxY = niceMax(Math.max(1, ...DAYS.map(d => Math.max(...d.teams.map(t => t.total)))));
+  const y = (v) => M.t + ih - (v / maxY) * ih;
+  const band = iw / n;
+  const barW = Math.max(3, Math.min(14, band / 2.8));
+
+  const svg = el('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': '班组总产量对比柱状图' });
+  for (let g = 0; g <= 4; g++) {
+    const gy = M.t + ih * g / 4;
+    svg.appendChild(el('line', { x1: M.l, x2: W - M.r, y1: gy, y2: gy, stroke: 'rgba(203,192,170,0.15)', 'stroke-width': 1 }));
+    const lbl = el('text', { x: M.l - 8, y: gy + 3.5, 'text-anchor': 'end', 'font-size': 10, fill: '#978365', 'font-family': 'inherit' });
+    lbl.textContent = fmt(maxY * (4 - g) / 4);
+    svg.appendChild(lbl);
+  }
+  const step = Math.ceil(n / (W < 700 ? 8 : 15));
+  for (let i = 0; i < n; i += step) {
+    const lbl = el('text', { x: M.l + band * i + band / 2, y: H - 8, 'text-anchor': 'middle', 'font-size': 10, fill: '#978365', 'font-family': 'inherit' });
+    lbl.textContent = mmdd(DAYS[i].date);
+    svg.appendChild(lbl);
+  }
+  DAYS.forEach((d, i) => {
+    const cx = M.l + band * i + band / 2;
+    d.teams.forEach((t, ti) => {
+      const cnt = d.teams.length;
+      const bx = cx - (cnt * barW + (cnt - 1) * 3) / 2 + ti * (barW + 3);
+      svg.appendChild(el('rect', {
+        x: bx.toFixed(1), y: y(t.total).toFixed(1),
+        width: barW.toFixed(1), height: Math.max(1, (M.t + ih - y(t.total))).toFixed(1),
+        rx: 2.5, fill: t.color, opacity: 0.92,
+      }));
+    });
+  });
+  const hit = el('rect', { x: M.l, y: M.t, width: iw, height: ih, fill: 'transparent' });
+  svg.appendChild(hit);
+  box.appendChild(svg);
+
+  hit.addEventListener('mousemove', (e) => {
+    const r = box.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.floor((e.clientX - r.left - M.l) / band)));
+    const d = DAYS[i];
+    let html = '<div class="tip-title">' + d.date + '</div>';
+    d.teams.forEach(t => { html += '<div><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + t.color + ';margin-right:6px;"></span>' + t.name + '：' + fmt(t.total) + '</div>'; });
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const cxp = M.l + band * i + band / 2;
+    tip.style.left = Math.min(Math.max(cxp - tip.offsetWidth / 2, 4), W - tip.offsetWidth - 4) + 'px';
+    tip.style.top = '8px';
+  });
+  hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+  $('cmpLegend').innerHTML = TEAMS.map(t =>
+    '<span class="lg"><span class="dot" style="background:' + t.color + ';border-radius:2px;"></span>' + t.name + ' · 总产量</span>').join('');
+}
+
+/* ════════════════ 钻工组对比（未改动示意） ════════════════ */
+function renderDriller() {
+  const box = $('drillerBox'), tip = $('drillerTip');
+  box.querySelectorAll('svg').forEach(n => n.remove());
+  const W = box.clientWidth, H = box.clientHeight;
+  if (W < 60) return;
+  const M = { l: 14, r: 46, t: 16, b: 26 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const caps = [
+    { name: '钻工组 A（演示）', v: 0 },
+    { name: '钻工组 B（演示）', v: 0 },
+  ];
+  VERIFY.forEach(v => { caps[0].v += v.detail[0].total; caps[1].v += v.detail[1].total; });
+  const maxV = Math.max(...caps.map(c => c.v)) || 1;
+  const svg = el('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': '钻工组月累计对比' });
+  const rowH = ih / caps.length;
+  caps.forEach((c, i) => {
+    const by = M.t + rowH * i + rowH * 0.22;
+    const bh = rowH * 0.42;
+    svg.appendChild(el('text', { x: M.l, y: by - 5, 'font-size': 11, fill: 'hsl(36 19.84% 41%)', 'font-family': 'inherit' })).textContent = c.name;
+    svg.appendChild(el('rect', { x: M.l, y: by, width: iw, height: bh, rx: bh / 2, fill: 'var(--muted)' }));
+    const w = Math.max(bh, c.v / maxV * iw);
+    svg.appendChild(el('rect', { x: M.l, y: by, width: w.toFixed(1), height: bh, rx: bh / 2, fill: i ? 'var(--team-2)' : 'var(--team-1)', opacity: 0.9 }));
+    const lbl = el('text', { x: M.l + w + 8, y: by + bh / 2 + 4, 'font-size': 12, 'font-weight': 600, fill: 'hsl(37.5 15.69% 30%)', 'font-family': 'inherit' });
+    lbl.textContent = fmt(c.v);
+    svg.appendChild(lbl);
+  });
+  box.appendChild(svg);
+}
+
+/* ════════════════ 矿石占比（未改动示意） ════════════════ */
+function renderPie() {
+  const box = $('pieBox');
+  box.innerHTML = '';
+  const W = box.clientWidth, H = box.clientHeight;
+  if (W < 60) return;
+  let nh = 0, nl = 0, mw = 0;
+  DAYS.forEach(d => d.teams.forEach(t => { nh += t.nh; nl += t.nl; mw += t.mw; }));
+  const parts = [
+    { k: 'NICKEL(H)', v: nh, c: '#B05A3C' },
+    { k: 'NICKEL(L)', v: nl, c: '#B09F4A' },
+    { k: 'MAWE', v: mw, c: '#E8923E' },
+  ];
+  const tot = nh + nl + mw;
+  const cx = Math.min(W * 0.34, 150), cy = H / 2, R = Math.min(H, W * 0.5) * 0.32;
+  const svg = el('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': '矿石类型占比' });
+  const C = 2 * Math.PI * R;
+  let acc = 0;
+  parts.forEach(p => {
+    const frac = p.v / tot;
+    const seg = el('circle', {
+      cx, cy, r: R, fill: 'none', stroke: p.c, 'stroke-width': 26,
+      'stroke-dasharray': (frac * C - 2).toFixed(1) + ' ' + (C - frac * C + 2).toFixed(1),
+      'stroke-dashoffset': (-acc * C).toFixed(1),
+      transform: 'rotate(-90 ' + cx + ' ' + cy + ')',
+    });
+    svg.appendChild(seg);
+    acc += frac;
+  });
+  const t1 = el('text', { x: cx, y: cy - 2, 'text-anchor': 'middle', 'font-size': 20, 'font-weight': 700, fill: 'hsl(37.5 15.69% 25%)', 'font-family': 'inherit' });
+  t1.textContent = fmt(tot);
+  const t2 = el('text', { x: cx, y: cy + 16, 'text-anchor': 'middle', 'font-size': 10, fill: 'var(--text-muted)', 'font-family': 'inherit' });
+  t2.textContent = '月度总量';
+  svg.appendChild(t1); svg.appendChild(t2);
+  parts.forEach((p, i) => {
+    const ly = cy - 30 + i * 26;
+    svg.appendChild(el('circle', { cx: W * 0.62, cy: ly - 4, r: 5, fill: p.c }));
+    const lt = el('text', { x: W * 0.62 + 12, y: ly, 'font-size': 12, fill: 'hsl(36 19.84% 38%)', 'font-family': 'inherit' });
+    lt.textContent = p.k + '  ' + fmt(p.v) + '（' + Math.round(p.v / tot * 100) + '%）';
+    svg.appendChild(lt);
+  });
+  box.appendChild(svg);
+}
+
+/* ════════════════ 产量核验（R6 新增） ════════════════ */
+function renderVerify() {
+  const rows = VERIFY.filter(v => F.verify === 'all' || !v.match);
+  const okCnt = VERIFY.filter(v => v.match).length;
+  const badCnt = VERIFY.length - okCnt;
+  $('verifyChips').innerHTML =
+    '<span class="v-chip total">核验 <b>' + VERIFY.length + '</b>&nbsp;天</span>' +
+    '<span class="v-chip ok">✓&nbsp;一致 <b>' + okCnt + '</b>&nbsp;天</span>' +
+    '<span class="v-chip warn">▲&nbsp;差异 <b>' + badCnt + '</b>&nbsp;天</span>';
+  $('verifyBody').innerHTML = rows.map(v => {
+    const cls = v.match ? 'ok' : 'warn';
+    const badge = v.match
+      ? '<span class="badge ok"><span class="bd"></span>一致</span>'
+      : '<span class="badge warn"><span class="bd"></span>差异</span>';
+    return '<tr data-date="' + v.date + '" class="' + (v.match ? '' : 'is-bad') + '">' +
+      '<td>' + v.date + '</td>' +
+      '<td>' + v.groups + '</td>' +
+      '<td>' + fmt(v.drillerTotal) + '</td>' +
+      '<td>' + fmt(v.shiftTotal) + '</td>' +
+      '<td class="' + (v.match ? '' : 'diff-bad') + '">' + (v.diff > 0 ? '+' : '') + fmt(v.diff) + '</td>' +
+      '<td>' + badge + '</td></tr>';
+  }).join('');
+}
+$('verifyBody').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  const v = VERIFY.find(x => x.date === tr.dataset.date);
+  if (!v) return;
+  const rows = v.detail.map(g => '<div style="margin-top:3px;">' + g.name + '：<b>' + fmt(g.total) + '</b></div>').join('');
+  const head = v.match ? '当日一致 ✓' : '当日差异 ▲（差 ' + fmt(v.diff) + '）';
+  showToast('<div class="tt">' + v.date + ' · ' + head + '</div>' + rows +
+    '<div style="margin-top:6px;color:#cbc0aa;">钻工合计 ' + fmt(v.drillerTotal) + ' / 井下合计 ' + fmt(v.shiftTotal) + '</div>');
+});
+
+/* ════════════════ 破碎（未改动示意） ════════════════ */
+function renderCrush() {
+  $('crushBody').innerHTML = CRUSH.map(c =>
+    '<tr><td>' + c.date + '</td><td>' + c.bags + ' 袋</td><td>' + c.ppl + ' 人</td></tr>').join('');
+}
+
+/* ════════════════ 初始化与交互 ════════════════ */
+function renderAll() { renderKPI(); renderTrend(); renderCompare(); renderDriller(); renderPie(); renderCrush(); renderVerify(); }
+(function initControls() {
+  // 班组 segmented（R2：按当月数据动态生成；演示固定两个班组）
+  const seg = $('teamSeg');
+  seg.innerHTML = '<button class="dash-seg-btn active" data-v="all">全部</button>' +
+    TEAMS.map(t => '<button class="dash-seg-btn" data-v="' + t.id + '">' + t.name + '</button>').join('');
+  bindSeg('teamSeg', v => { F.team = v; renderTrend(); });
+  bindSeg('oreSeg', v => { F.ore = v; renderTrend(); });
+  bindSeg('verifySeg', v => { F.verify = v; renderVerify(); });
+})();
+let rsz = null;
+window.addEventListener('resize', () => { clearTimeout(rsz); rsz = setTimeout(() => { renderTrend(); renderCompare(); renderDriller(); renderPie(); }, 120); });
+renderAll();
+</script>
+</body>
+</html>

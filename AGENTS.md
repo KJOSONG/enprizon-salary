@@ -394,7 +394,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 | GET | `/nssf/list` | editor+ | NSSF 社保名单 |
 | GET | `/production` | editor+ | 产量数据 |
 | GET | `/api/production/dashboard` | login_required | 数据台产量仪表盘 |
-| GET | `/production-verify` | editor+ | 钻工产量核对 |
+| GET | `/production-verify` | salary:view OR dashboard:view（P31 双键） | 产量核验（P31: teams 分支+顶层汇总） |
 | GET | `/daily-wages` | editor+ | 日工资明细 |
 | GET/POST/PUT/DELETE | `/api/driller-captains` | admin+ | 钻工队长名单 CRUD |
 | GET | `/audit-log` | admin+ | 审计日志 |
@@ -526,6 +526,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 0. **P29 权限体系 V2.1 ✅ 已部署（2026-08-23）**：main=be3efce 上线，服务器首启迁移日志确认「P29 权限目录 V2.1 迁移完成」，perm_v2_migrated=1、五内置角色行数精确、存量 editor 平移保留；回滚预案=data/backups/kilwa_before_p29_20260823_194713.db。后续观察项：各角色登录走查 + 权限编辑器分组显示
 1. **P30 井下班组化 ✅ 已部署（2026-09-01，main=9abd4cc + UX修正 adbf787）**：班组产量制 + 出勤收集并入 UG 班组 + 数据台班组图 + 豁免超管二次编辑（详见上方 §数据流水线 P30 注）；同日 UX 修正（adbf787）：用户角色下拉弃用 editor 补 collector/applicant（后端两端点拒 editor）、豁免操作明朗化（琥珀高亮+徽章+confirm）、出勤 UG 班组过滤严格化（无班组井下员工不出现）；验收证据：pytest 25 绿（19 新 + 6 旧）、同库新旧代码（3c9484c vs 9abd4cc）2026-08 逐人逐字段 0 差异、沙箱 piecework+v2 双模式端到端走查全过、浏览器三表面实测（UX 修正截图 _work/ux-fixes/）；回滚预案=data/backups/kilwa_before_uxfix_20260901_210000.db；⚠️ 部署当晚生产 8 月总额较 17:02 基线 −133,846 TZS 系用户业务操作（员工30罚款100000→0、43 转月薪、94/LARISAIDLARI 日薪清零，audit_log 可查），非代码回归
+1b. **P31 数据台班组化 ✅ 完成（2026-09-02，feature/p31-dashboard-team 待批准合并部署）**：数据台消费端全面适配 P30 `teams` 新格式——趋势图每班组一条线（`TEAM_COLORS` #B05A3C/#7A8B5C/#E8923E 循环，桌面/移动共享）、「班次」筛选新格式月动态替换为班组筛选（`_dashFilters.shift` 语义扩 `all|team_id`，作用面=趋势+KPI+对比卡）、白夜班对比卡新格式月改班组总产量单指标分组柱（隐藏矿石 tab 强制 total，移动端同步重置 `dnTab='all'`）、KPI 第 6 卡新格式月改班组占比卡（上下堆叠各班组线色实时 pct）、KPI 数值全站统一 `fmtK`（1 位小数+千分位）+ body `font-variant-numeric: lining-nums tabular-nums` + `--font-main` 去 Georgia、桌面图表布局自适应（`.chart-fixed-h` 固定高 300/260 + `.data-dashboard>.card{min-width:0}` + x 轴 autoSkip/maxTicksLimit 8|15 + datalabels >16 天抽样 + resizeDelay:120）、移动端 `loadDashboard` 显式 `?month=`（修切月时序错月）+ `drawTrend` 单一数据源 + labels 首末日期月份断言（console.warn）、新增 `/production-verify` teams 分支（`shift_daily[dt]=Σteams`，旧格式逐字保留；权限放宽 `salary:view OR dashboard:view`；新格式月顶层下发 `verify_days/match_days/mismatch_days`）+ 数据台底部产量核验卡（仅 `salary:view` 且新格式月渲染，chips/sticky 表格/仅看差异筛选/行点击 toast）。**红线遵守**：不改 `/api/production/dashboard`/采集 payload/`core/calculator.py`/`core/verification.py`；8 月及更早旧格式月界面与数据零改动（旧格式响应与改造前逐字段一致有 pytest 断言）。验证：pytest 9/9 绿（新格式 4+旧格式回归 2+边界 1+权限 2；P30 既有 25 例已被 TTL 清理不可执行，其保护面=计算链红线未触碰）、浏览器实测 8 月桌面+移动零改动回归、9 月合成数据全功能走查（班组筛选联动/占比 53%÷47% 复核/核验卡筛选 26→3 行/toast 明细）、1920/1440/1366 三档 31 天无横向滚动、880/560 断点高度正确、375px 无横滚。规格=docs/P31_DASHBOARD_TEAM_SPEC.md（定稿 10 决策），视觉=docs/P31_DASHBOARD_TEAM_PREVIEW.html；测试 _work/p31-dashboard-team/。**回滚：整分支不合并即可，无数据迁移无计算链触碰**
 2. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）；**注意生产 settings.config 当前 `underground_mode='scoring'`**（2026-09-01 快照确认），切 V2 前新格式班组产量在 scoring 下不计件
 3. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 4. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n

@@ -258,6 +258,32 @@
       </div>
     </div>
 
+    <!-- ═══ P31 E1: 产量核验卡（salary:view 权限可见，破碎卡之后全宽） ═══ -->
+    <div class="card dash-chart-card" id="dashVerifyCard" style="display:none;">
+      <div class="verify-head">
+        <h2 class="dash-chart-title" style="margin-bottom:0;" data-i18n="verify_title">产量核验</h2>
+        <div class="dash-segmented" id="dashVerifySeg">
+          <button class="dash-seg-btn active" data-value="all" data-i18n="verify_all">全部</button>
+          <button class="dash-seg-btn" data-value="diff" data-i18n="verify_only_diff">仅看差异</button>
+        </div>
+      </div>
+      <div class="verify-chips" id="dashVerifyChips"></div>
+      <div class="verify-table-wrap">
+        <table class="verify-table">
+          <thead><tr>
+            <th data-i18n="verify_col_date">日期</th>
+            <th data-i18n="verify_col_group">钻工组</th>
+            <th data-i18n="verify_col_dtotal">钻工合计</th>
+            <th data-i18n="verify_col_stotal">井下合计</th>
+            <th data-i18n="verify_diff">差值</th>
+            <th data-i18n="verify_col_status">状态</th>
+          </tr></thead>
+          <tbody id="dashVerifyBody"></tbody>
+        </table>
+      </div>
+      <p class="verify-note" data-i18n="verify_scope_note"></p>
+    </div>
+
     <!-- ═══ 钻工组逐日明细 Modal ═══ -->
     <div class="modal-overlay" id="drillerDetailModal" style="display:none;">
       <div class="modal-panel modal-lg">
@@ -2799,6 +2825,7 @@ function renderDashboard() {
   renderDrillerGroupChart();
   renderCategoryPie();
   renderCrushTable();
+  ensureDashVerify();
 }
 
 // ── KPI 卡片（6 张） ──
@@ -3370,6 +3397,79 @@ function renderCrushTable() {
     </div>
   `;
   if (typeof refreshI18n === 'function') refreshI18n();
+}
+
+// ── P31 E1: 产量核验卡（salary:view 权限可见；月级数据 memoize，随 renderDashboard 刷新） ──
+let _dashVerify = { month: '', data: null, filter: 'all' };
+const sum3 = o => (o.nh || 0) + (o.nl || 0) + (o.mw || 0);
+function ensureDashVerify() {
+  const card = document.getElementById('dashVerifyCard');
+  const seg = document.getElementById('dashVerifySeg');
+  if (seg && !seg._p31Bound) {
+    seg._p31Bound = true;
+    seg.querySelectorAll('.dash-seg-btn').forEach(btn => btn.addEventListener('click', () => {
+      seg.querySelectorAll('.dash-seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _dashVerify.filter = btn.dataset.value;
+      renderVerifyCard();
+    }));
+  }
+  const body = document.getElementById('dashVerifyBody');
+  if (body && !body._p31Bound) {
+    body._p31Bound = true;
+    body.addEventListener('click', onVerifyRowClick);
+  }
+  if (!hasPermission('salary', 'view')) { card.style.display = 'none'; return; }
+  // 决策 6 口径为 teams 语义 → 核验卡仅新格式月渲染；旧格式月（8月及更早）DOM 零改动
+  if (!isNewDashFormat()) { card.style.display = 'none'; return; }
+  const m = STATE.currentMonth;
+  if (_dashVerify.month !== m) {
+    _dashVerify.month = m; _dashVerify.data = null;
+    card.style.display = 'none';
+    fetch(api('/production-verify?month=' + encodeURIComponent(m))).then(r => r.json()).then(j => {
+      if (_dashVerify.month === m && _dashVerify) { _dashVerify.data = j; renderVerifyCard(); }
+    }).catch(() => {});
+    return;
+  }
+  renderVerifyCard();
+}
+function renderVerifyCard() {
+  const card = document.getElementById('dashVerifyCard');
+  const j = _dashVerify.data;
+  if (!j || !hasPermission('salary', 'view')) { card.style.display = 'none'; return; }
+  const dates = Object.keys(j).filter(k => k !== 'month').sort();
+  if (!dates.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const rows = dates.map(dt => Object.assign({ date: dt }, j[dt]));
+  const matchDays = rows.filter(r => r.match).length;
+  document.getElementById('dashVerifyChips').innerHTML =
+    '<span class="v-chip total">' + t('verify_days') + ' <b>' + rows.length + '</b></span>' +
+    '<span class="v-chip ok">✓ ' + t('verify_match_days') + ' <b>' + matchDays + '</b></span>' +
+    '<span class="v-chip warn">▲ ' + t('verify_mismatch_days') + ' <b>' + (rows.length - matchDays) + '</b></span>';
+  const visible = rows.filter(r => _dashVerify.filter === 'all' || !r.match);
+  document.getElementById('dashVerifyBody').innerHTML = visible.map(r => {
+    const dtot = sum3(r.driller_total || {}), stot = sum3(r.shift_total || {});
+    const diff = dtot - stot;
+    return '<tr data-date="' + escHtml(r.date) + '" class="' + (r.match ? '' : 'is-bad') + '">' +
+      '<td>' + r.date + '</td>' +
+      '<td>' + ((r.driller_groups || []).length) + '</td>' +
+      '<td>' + fmtNum(dtot) + '</td>' +
+      '<td>' + fmtNum(stot) + '</td>' +
+      '<td class="' + (r.match ? '' : 'diff-bad') + '">' + (diff > 0 ? '+' : '') + fmtNum(diff) + '</td>' +
+      '<td>' + (r.match
+        ? '<span class="badge ok"><span class="bd"></span>' + escHtml(t('verify_match')) + '</span>'
+        : '<span class="badge warn"><span class="bd"></span>' + escHtml(t('verify_badge_diff')) + '</span>') + '</td></tr>';
+  }).join('');
+  if (typeof refreshI18n === 'function') refreshI18n();
+}
+function onVerifyRowClick(e) {
+  const tr = e.target.closest('tr');
+  if (!tr || !_dashVerify.data) return;
+  const d = _dashVerify.data[tr.dataset.date];
+  if (!d) return;
+  const groups = (d.driller_groups || []).map(g => g.captain + ' ' + fmtNum((g.nh || 0) + (g.nl || 0) + (g.mw || 0))).join('｜');
+  const diff = sum3(d.driller_total || {}) - sum3(d.shift_total || {});
+  showToast(tr.dataset.date + ' · ' + (d.match ? t('verify_match') : t('verify_badge_diff') + ' (' + (diff > 0 ? '+' : '') + fmtNum(diff) + ')') + ' ｜ ' + groups + ' ｜ ' + t('verify_col_dtotal') + ' ' + fmtNum(sum3(d.driller_total || {})) + ' / ' + t('verify_col_stotal') + ' ' + fmtNum(sum3(d.shift_total || {})), 'info');
 }
 
 // ── 销毁所有数据台图表 ──

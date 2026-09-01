@@ -87,7 +87,7 @@
   --shadow-hover: var(--shadow-sm);
   --radius-lg: var(--radius);
   --radius-xl: var(--radius);
-  --font-main: 'Fraunces', ui-serif, serif;
+  --font-main: 'Fraunces', 'Times New Roman', ui-serif, serif; /* P31 E4/决策 7 */
   --font-mono: monospace;
 
   /* ── 动画（保留） ── */
@@ -162,7 +162,7 @@
   --shadow-hover: var(--shadow-sm);
   --radius-lg: var(--radius);
   --radius-xl: var(--radius);
-  --font-main: 'Fraunces', ui-serif, serif;
+  --font-main: 'Fraunces', 'Times New Roman', ui-serif, serif; /* P31 E4/决策 7 */
   --font-mono: monospace;
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
@@ -201,6 +201,7 @@ html {
 
 body {
   font-family: var(--font-main);
+  font-variant-numeric: lining-nums tabular-nums; /* P31 E4/决策 7: 全站数字 lining+等宽 */
   background: var(--background);
   color: var(--text);
   font-size: 14px;
@@ -2506,6 +2507,41 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+/* ── P31 E2: 产量核验卡 ── */
+.verify-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.verify-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.v-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 5px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--input); }
+.v-chip b { font-size: 15px; }
+.v-chip.total b { color: var(--foreground); }
+.v-chip.ok { background: var(--success-bg); border-color: color-mix(in srgb, var(--success) 35%, transparent); color: color-mix(in srgb, var(--success) 60%, var(--foreground)); }
+.v-chip.ok b { color: color-mix(in srgb, var(--success) 60%, var(--foreground)); }
+.v-chip.warn { background: var(--warning-bg); border-color: color-mix(in srgb, var(--warning) 40%, transparent); color: color-mix(in srgb, var(--warning) 45%, var(--foreground)); }
+.v-chip.warn b { color: color-mix(in srgb, var(--warning) 45%, var(--foreground)); }
+.verify-table-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+.verify-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.verify-table thead th {
+  position: sticky; top: 0; background: var(--input); z-index: 2;
+  text-align: right; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-muted); padding: 8px 12px; font-weight: 600;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.verify-table thead th:first-child, .verify-table td:first-child { text-align: left; }
+.verify-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.verify-table tbody tr { cursor: pointer; transition: background 0.12s ease; }
+.verify-table tbody tr:hover { background: var(--muted); }
+.verify-table tbody tr.is-bad td { background: hsl(29 92% 61.96% / 0.05); }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 1px 10px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--success-bg); color: color-mix(in srgb, var(--success) 65%, var(--foreground)); }
+.badge.warn { background: var(--warning-bg); color: color-mix(in srgb, var(--warning) 45%, var(--foreground)); }
+.badge .bd { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.badge.ok .bd { background: var(--success); }
+.badge.warn .bd { background: var(--warning); }
+td.diff-bad { color: color-mix(in srgb, var(--warning) 50%, var(--foreground)); font-weight: 600; }
+.verify-note { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
+@media (max-width: 600px) {
+  .verify-table-wrap { max-height: 260px; }
 }
 
 /* ── 图表卡片 ── */
