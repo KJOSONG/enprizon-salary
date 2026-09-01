@@ -170,6 +170,9 @@ table .subtotal {
     <table>
       <tr><td class="item">NSSF (10%)</td><td class="amount">{{ "{:,.0f}".format(slip.nssf) }}</td></tr>
       <tr><td class="item">PAYE (Income Tax)</td><td class="amount">{{ "{:,.0f}".format(slip.paye) }}</td></tr>
+      {% if slip.paye_half > 0 %}
+      <tr><td class="item">Company PAYE Subsidy (50%)</td><td class="amount">-{{ "{:,.0f}".format(slip.paye_half) }}</td></tr>
+      {% endif %}
       {% if slip.advance > 0 %}
       <tr><td class="item">Advance</td><td class="amount">{{ "{:,.0f}".format(slip.advance) }}</td></tr>
       {% endif %}

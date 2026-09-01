@@ -19,6 +19,9 @@ PRICE_CRUSH = 300  # TZS/bag
 # P21 R4: 井下计件目标部门（注意 DB 实际值含空格 + 全角括号，匹配一律经 _norm_dept 规范化）
 PRODUCTION_UG_DEPT = 'Production TEAM （underground）'
 
+# PAYE 公司代付比例（2026-09 用户决定：公司帮工人承担一半 PAYE，实发少扣 paye//2）
+PAYE_COMPANY_RATIO = 0.5
+
 def compute_paye(taxable_income):
     """
     坦桑尼亚个人所得税（PAYE）累进税率计算
@@ -1091,7 +1094,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         taxable_income = gross + driver_allowance - nssf
         tin_number = (emp.get('tin_number') or '').strip()
         paye = round(compute_paye(taxable_income)) if tin_number else 0
-        net = gross + bonus + driver_allowance - nssf - paye - advance - penalty
+        paye_half = int(paye * PAYE_COMPANY_RATIO)  # 公司代付部分（floor，公司不多付）
+        net = gross + bonus + driver_allowance - nssf - paye - advance - penalty + paye_half
 
         temp_exception = ''
         temp_overrides = []
@@ -1122,7 +1126,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'overtime': ot,  # P23 R2: 加班费（已含于 gross）
             'gross': gross, 'bonus': bonus, 'penalty': penalty,
             'driver_allowance': driver_allowance,
-            'advance': round(advance), 'nssf': nssf, 'paye': paye, 'net': net,
+            'advance': round(advance), 'nssf': nssf, 'paye': paye, 'paye_half': paye_half, 'net': net,
             'temp_exception': temp_exception, 'temp_overrides': temp_overrides,
         })
 
@@ -1144,10 +1148,12 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 taxable = gross + e['driver_allowance'] - nssf
                 tin = (_emp.get('tin_number') or '').strip()
                 paye = round(compute_paye(taxable)) if tin else 0
-                net = gross + e['bonus'] + e['driver_allowance'] - nssf - paye - e['advance'] - e['penalty']
+                paye_half = int(paye * PAYE_COMPANY_RATIO)
+                net = gross + e['bonus'] + e['driver_allowance'] - nssf - paye - e['advance'] - e['penalty'] + paye_half
                 e['gross'] = gross
                 e['nssf'] = nssf
                 e['paye'] = paye
+                e['paye_half'] = paye_half
                 e['net'] = net
                 e['ug_base'] = round(base_val)
                 e['ug_coefficient'] = v2_f_w[eid]
@@ -1161,6 +1167,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         'total_advance': sum(e['advance'] for e in result_employees),
         'total_nssf': sum(e['nssf'] for e in result_employees),
         'total_paye': sum(e['paye'] for e in result_employees),
+        'total_paye_half': sum(e['paye_half'] for e in result_employees),
         'total_net': sum(e['net'] for e in result_employees),
         'duplications': [],
         'ug_daily': {eid: {dt: round(amt) for dt, amt in ds.items()} for eid, ds in ug_daily.items()},
