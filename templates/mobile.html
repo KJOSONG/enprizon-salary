@@ -406,7 +406,7 @@
   function selectMonth(m){
     closeSheet();
     api('/set-month', { method:'POST', body: JSON.stringify({ month:m }) }).then(r=>{
-      if(r.ok){ STATE.dashboard=null; loadDashboard(); toast(m); } else { toast('无权限切换月份', 'warning'); }
+      if(r.ok){ STATE.currentMonth = m; STATE.dashboard=null; loadDashboard(); toast(m); } else { toast('无权限切换月份', 'warning'); }
     }).catch(()=>toast('切换失败','error'));
   }
 
@@ -510,6 +510,12 @@
   }
 
   // ── 数据台 ──
+  // P31 决策 9: 班组线色（与 index.html TEAM_COLORS 保持一致：暖陶土/金橄榄/琥珀）
+  const TEAM_COLORS = [
+    { line: '#B05A3C', bg: 'rgba(176,90,60,0.12)' },
+    { line: '#7A8B5C', bg: 'rgba(122,139,92,0.12)' },
+    { line: '#E8923E', bg: 'rgba(232,146,62,0.12)' },
+  ];
   STATE.dashOreFilter = 'all';   // all|nh|nl|mw
   STATE.dnTab = 'all';           // all|nh|nl|mw
   STATE.dashLoaded = false;
@@ -517,7 +523,8 @@
   function loadDashboard(){
     const sk=document.getElementById('dash-skeleton'), err=document.getElementById('dash-error'), empty=document.getElementById('dash-empty'), content=document.getElementById('dash-content');
     sk.style.display='block'; err.style.display='none'; empty.style.display='none'; content.style.display='none';
-    api('/api/production/dashboard').then(d=>{
+    // P31 D1: 显式携带月份，防时序错月；以响应 d.month 回写为准
+    api('/api/production/dashboard?month=' + encodeURIComponent(STATE.currentMonth||'')).then(d=>{
       // 需求1: 后端 shift_production 未排序,按日期升序(ISO 字符串可直接比较)
       if(Array.isArray(d.shift_production)) d.shift_production.sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
       if(Array.isArray(d.driller_production)) d.driller_production.sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
@@ -663,13 +670,24 @@
     const colors = { nh:'hsl(30 92% 52%)', nl:'hsl(210 85% 52%)', mw:'hsl(150 70% 38%)' };
     let datasets, tooltipCb;
     if(isNew){
-      // C8: 新格式趋势用 teams 聚合 totals（total_ 前缀语义）
-      const fs = filteredShift();
-      tooltipCb = (ctx)=>{
-        const k = ctx.dataset.oreKey;
-        return ' '+k.toUpperCase()+': '+fmt(ctx.parsed.y||0);
-      };
-      datasets = oreKeys.map(k=>({ label:k.toUpperCase(), oreKey:k, data: fs.map(s=>s[k]||0), borderColor:colors[k], backgroundColor:'transparent', fill:false, tension:0.3, pointRadius:0 }));
+      // P31 D2: 新格式 = 每班组一条线，labels 与 datasets 同源于 sp（决策 3：矿石筛选取 tm[ore]/否则 tm.total）
+      const teamInfo = {};
+      sp.forEach(s=>{(s.teams||[]).forEach(tm=>{ teamInfo[tm.team_id]=tm.team_name||('T'+tm.team_id); });});
+      const teamIds = Object.keys(teamInfo).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+      const ore = STATE.dashOreFilter;
+      tooltipCb = (ctx)=> ' '+(ctx.dataset.teamName||ctx.dataset.label)+': '+fmt(ctx.parsed.y||0);
+      datasets = teamIds.map((tid,i)=>{
+        const c = TEAM_COLORS[i % TEAM_COLORS.length];
+        return {
+          label: teamInfo[tid], teamName: teamInfo[tid],
+          data: sp.map(s=>{
+            const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
+            if(!tm) return 0;
+            return ore==='all' ? (tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0))) : (tm[ore]||0);
+          }),
+          borderColor: c.line, backgroundColor: 'transparent', fill:false, tension:0.3, pointRadius:0,
+        };
+      });
     } else {
       const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
       tooltipCb = (ctx)=>{
@@ -696,6 +714,13 @@
       };
     }
     newChart('chart-trend', { type:'line', data:{ labels, datasets }, options: opts, plugins:[crosshairPlugin] });
+    // P31 D4/决策 10: 月份断言 — labels 首末日期必须属于当前所选月
+    (function(){
+      const cm = STATE.currentMonth;
+      if(!cm || !sp.length) return;
+      const first = (sp[0].date||'').slice(0,7), last = (sp[sp.length-1].date||'').slice(0,7);
+      if(first !== cm || last !== cm) console.warn('[P31] 趋势图月份错位: labels ' + first + '~' + last + ' ≠ 所选月 ' + cm);
+    })();
     // 修复: zoom 插件精简版(12KB)defaults 无 doubleClick 配置,双击重置不生效。
     // 改手动 dblclick 监听调用 chart.resetZoom()(函数存在且可用),防重复绑定用 canvas 标志。
     const _trendEl = document.getElementById('chart-trend');
@@ -715,22 +740,23 @@
     const tabEl = document.getElementById('dn-cmp-tab');
     if(tabEl) tabEl.style.display = isNew ? 'none' : '';
     if(isNew){
-      // 按班组对比：每组一个数据集，值按 ore 过滤
-      const ore = STATE.dnTab;
-      const teamIds = [...new Set(sp.flatMap(s=>(s.teams||[]).map(tm=>tm.team_id)))].sort((a,b)=>a-b);
+      // P31 D3/决策 4: 新格式强制 total-only，重置 dnTab 并同步 tab 高亮
+      if(STATE.dnTab !== 'all'){
+        STATE.dnTab = 'all';
+        document.querySelectorAll('#dn-cmp-tab .cmp-tab__item').forEach(o=>o.classList.toggle('active', o.dataset.v==='all'));
+      }
+      // 按班组对比：每组一个数据集（班组线色，与趋势图一致）
+      const teamIds = [...new Set(sp.flatMap(s=>(s.teams||[]).map(tm=>tm.team_id)))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
       const teamNames = {};
       sp.forEach(s=>{(s.teams||[]).forEach(tm=>{ teamNames[tm.team_id]=tm.team_name||('T'+tm.team_id); });});
-      const colors = ['hsl(200 60% 45%)','hsl(180 50% 40%)','hsl(30 80% 50%)','hsl(150 40% 40%)','hsl(280 50% 50%)'];
       const datasets = teamIds.map((tid,i)=>{
+        const c = TEAM_COLORS[i % TEAM_COLORS.length];
         const data = sp.map(s=>{
-          const tm=(s.teams||[]).find(x=>x.team_id===tid);
+          const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
           if(!tm) return 0;
-          if(ore==='nh') return tm.nh||0;
-          if(ore==='nl') return tm.nl||0;
-          if(ore==='mw') return tm.mw||0;
           return tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0));
         });
-        return { label:teamNames[tid]||('T'+tid), data, backgroundColor:colors[i%colors.length], borderRadius:3 };
+        return { label:teamNames[tid]||('T'+tid), data, backgroundColor:c.line+'CC', borderColor:c.line, borderWidth:1, borderRadius:3 };
       });
       newChart('chart-daynight', { type:'bar', data:{ labels, datasets }, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
       return;
