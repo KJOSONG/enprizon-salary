@@ -543,6 +543,13 @@ def init_db(data_folder):
         );
     """)
     conn.commit()
+    # P31: 出勤采集 L/SK/T 转 OA 默认审批人 maua（幂等种子，KEJU 超管兜底可见）
+    try:
+        for _et in ('casual', 'sick', 'comp_leave'):
+            conn.execute("INSERT OR IGNORE INTO approval_routes (event_type, approver) VALUES (?, 'maua')", (_et,))
+        conn.commit()
+    except Exception:
+        pass
     _migrate_json(conn, data_folder)
     _migrate_localtime_timestamps(conn)
     conn.close()

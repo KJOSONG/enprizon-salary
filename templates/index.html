@@ -7856,8 +7856,8 @@ async function submitCrCollection() {
 
 /* ── P9-5 出勤收集表单（花名册点选，C3 井下按班组） ── */
 const COL_ATT_STATUS = [
-  ['P', 'att_status_p'], ['A', 'att_status_a'], ['L', 'att_status_l'],
-  ['SK', 'att_status_sk'], ['T', 'att_status_t'], ['E', 'shift_E_label'],
+  ['P', 'att_status_p'], ['A', 'att_status_a'], ['L', 'att_status_l_pending'],
+  ['SK', 'att_status_sk_pending'], ['T', 'att_status_t_pending'],
 ];
 let _driverRosterCache = null;
 async function ensureDriverRoster() {
@@ -8153,8 +8153,21 @@ async function submitColPayload(formType, date, payload, historyId) {
     _colEditing = null;
     loadColHistory(formType, historyId);
     refreshAfterCollection();
-    if (data.discarded) showToast(t('col_discarded_some', {n: data.discarded}), 'error');
-    else showToast(wasEditing ? t('col_updated') : t('col_submitted'));
+    if (formType === 'attendance' && (data.oa_created || data.oa_skipped)) {
+      const oaN = (data.oa_created || []).length;
+      const skN = (data.oa_skipped || []).length;
+      if (oaN) {
+        const msg = t('col_att_mixed_result', {a: 'P/A', b: oaN});
+        showToast(msg + (skN ? ' ('+skN+' 已存在待审批)' : '') + ' → maua', 'info');
+      } else if (skN) {
+        showToast(skN + ' 条已存在待审批（maua）', 'info');
+      }
+      if (!oaN && !skN) showToast(wasEditing ? t('col_updated') : t('col_submitted'));
+      else if (!oaN) {} else showToast(t('col_att_direct_written', {n: 'P/A'}), 'success');
+    } else {
+      if (data.discarded) showToast(t('col_discarded_some', {n: data.discarded}), 'error');
+      else showToast(wasEditing ? t('col_updated') : t('col_submitted'));
+    }
   } else {
     showToast(data.error || t('submit_fail'), 'error');
   }
