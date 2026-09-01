@@ -1073,7 +1073,7 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, nssf_number, nida_number, phone, team_id, custom_number, tin_number
+               nssf_enrolled, nssf_number, nida_number, phone, team_id, custom_number, tin_number, status
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -1082,6 +1082,13 @@ def load_employees_from_db(data_folder):
     for r in rows:
         eid = r['id']
         if not eid or eid in HARD_EXCLUDE_IDS:
+            continue
+        # status 优先于 dismissed_employees 旧表（rehire 后旧 dismissed 残留不应隐藏）
+        try:
+            _st = (r['status'] or '').strip().lower()
+        except Exception:
+            _st = ''
+        if _st == 'dismissed':
             continue
         employees.append({
             'id': eid,
@@ -1096,16 +1103,17 @@ def load_employees_from_db(data_folder):
             'advance_total': 0,
             'phone': r['phone'] or '',
             'nssf_enrolled': bool(r['nssf_enrolled']),
-            'nssf_number': r['nssf_number'] or '',  # NSSF 社保号（有号即参保）
-            'nida_number': r['nida_number'] or '',  # NIDA 证件号（导出 Employee Info 用）
-            'team_id': r['team_id'] or 0,   # P15: 评分奖金按班组归属
-            'custom_number': r['custom_number'] or '',  # 工号（新入职自动递增生成）
-            'tin_number': r['tin_number'] or '',  # TIN号码（无TIN不扣PAYE）
+            'nssf_number': r['nssf_number'] or '',
+            'nida_number': r['nida_number'] or '',
+            'team_id': r['team_id'] or 0,
+            'custom_number': r['custom_number'] or '',
+            'tin_number': r['tin_number'] or '',
+            'status': r['status'] or 'active',
         })
 
-    # 离职过滤
+    # 离职过滤（仅对 status 非 active 的旧数据兜底；active 员工即便在 dismissed_employees 有残留也显示）
     dismissed = load_dismissed(data_folder)
-    employees = [e for e in employees if e['id'] not in dismissed]
+    employees = [e for e in employees if e.get('status') == 'active' or e['id'] not in dismissed]
     return employees
 
 
