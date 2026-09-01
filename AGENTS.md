@@ -85,10 +85,15 @@ bash test-workflow.sh clean       # 删除测试库（`prod_kilwa.db` 存在时�
 ```
 `test-workflow.sh` 使用 `$HOME/WorkBuddy/kilwa-system/data` 和 `$HOME/Desktop/enprizon_backups` 路径。
 
-### 测试产物清理（TTL 机制，2026-08-16）
+### 测试产物清理（TTL 机制，2026-08-16；任务完成即清理为硬规则，2026-09-02）
 - `_work/` 目录**永久保留**（gitignored），产物按任务放 `_work/<任务名>/`
 - 新任务开始：`bash cleanup-test-artifacts.sh`（清 >3 天旧产物）
 - 部署完成：`bash cleanup-test-artifacts.sh --dir <任务名>`（删本次产物）
+- 🚨 **任务完成即清理（2026-09-02 用户明令，硬规则）**：每个任务收尾时**必须**删除本次产生的全部临时产物，不等 TTL——
+  ① `_work/<任务名>/`（脚本/截图/pycache）用 `--dir` 清；
+  ② 系统临时文件：`/tmp` 下的脚本/PDF/补丁、浏览器 QA 会话目录（如 `.playwright-mcp/`）、**会话 cookie 文件（含凭据，必删）**；
+  ③ 测试期间写入业务目录的文件（如 `data/payslips/` 测试导出）与测试库数据：只删**自己本次生成的**，按时间戳+字节数精确匹配，严禁误删用户/生产既有文件；
+  ④ 收尾时自查：`git status` 应干净（无任务残留未跟踪文件）。
 - 详见记忆 `feedback_test_artifacts.md` / `backup_spec.md`
 
 ### 代码风格
@@ -471,6 +476,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ## 原则
 
 - 临时分析脚本、测试产物放 `_work/`（已 gitignore），按 TTL 机制清理，**`_work/` 目录本身保留**
+- **任务完成即删除全部临时文件（硬规则）**：临时脚本/测试产物/cookie/QA 会话目录/测试生成的业务文件，收尾必清（见 §测试产物清理）
 - 复杂任务（≥3 需求）用 KEJU 团队并行（designer/dev/qa），简单任务直接做
 - 判断薪资类型用 `override_type or default_type`
 
