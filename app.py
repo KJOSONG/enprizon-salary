@@ -5678,13 +5678,88 @@ def _build_slip_data(emp, salary_result, employees_db, month):
     }
 
 
+# ═══════════════════════════════════════════════════════════
+#  PDF 自适应渲染（工资单导出用）
+# ═══════════════════════════════════════════════════════════
+
+_PDF_SCALE_LADDER = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6]
+_PDF_SCALE_FLOOR = 0.6
+
+
+def _render_pdf_fit_pages(template_name, max_pages, **ctx):
+    """渲染模板并按缩放阶梯重试，直到 PDF 页数 <= max_pages。
+
+    适用于"内容溢出必然增加页数"的模板（如 payslip_single.html：
+    .slip 固定为整页高，条目再多也只会溢出到下一页）。
+    返回 (pdf_bytes, 使用的缩放比例)。
+    """
+    from weasyprint import HTML
+
+    doc = None
+    used = _PDF_SCALE_FLOOR
+    for s in _PDF_SCALE_LADDER:
+        ctx['scale'] = s
+        doc = HTML(string=render_template(template_name, **ctx)).render()
+        used = s
+        if len(doc.pages) <= max_pages:
+            return doc.write_pdf(), used
+    print(f'[PDF ADAPTIVE] {template_name}: 已到缩放下限 {used}，'
+          f'页数 {len(doc.pages)} 仍超过上限 {max_pages}', file=sys.stderr, flush=True)
+    return doc.write_pdf(), used
+
+
+def _count_payslip_rows(slip):
+    """统计单张工资单的条目行数（用于估算批量导出的初始缩放）。"""
+    earn_keys = ('piece_underground', 'piece_driller', 'piece_crush', 'day_rate',
+                 'monthly', 'overtime', 'bonus', 'driver_allowance')
+    ded_keys = ('paye_half', 'advance', 'penalty')
+    earn = sum(1 for k in earn_keys if (slip.get(k) or 0) > 0) + 1        # + GROSS
+    ded = 2 + sum(1 for k in ded_keys if (slip.get(k) or 0) > 0) + 1      # NSSF/PAYE + TOTAL
+    return earn + ded
+
+
+def _render_batch_payslips_pdf(slips):
+    """批量工资单自适应渲染：每页固定 4 人，且每格内容完整不裁切。
+
+    批量模板的 .page 固定 277mm 高，格子内容溢出只会发生格间重叠而
+    不增加页数——页数信号失效，因此用"探针渲染"验证：把每张工资单
+    放入与网格单元格等大（90mm × 133.5mm）的独立页面渲染，
+    页数 == 张数 ⟺ 全部放得下；否则缩小 scale 重试。
+    返回 (pdf_bytes, 使用的缩放比例)。
+    """
+    from weasyprint import HTML
+
+    if not slips:
+        return HTML(string=render_template('payslip.html', slips=slips, scale=1.0)).write_pdf(), 1.0
+
+    # 初始缩放按最满一张的行数估算（单元格内容区高约 127.5mm，
+    # 固定版面开销约 86mm，每行约 3.5mm）。估算不必精确，探针会逐级校验。
+    worst_rows = max(_count_payslip_rows(s) for s in slips)
+    budget, overhead, row_h = 127.5, 86.0, 3.5
+    start = min(1.0, round(0.98 * budget / (overhead + row_h * worst_rows), 2))
+    start = max(start, _PDF_SCALE_FLOOR)
+
+    s = start
+    pages = 0
+    while True:
+        probe_html = render_template('payslip.html', slips=slips, scale=s, probe=True)
+        pages = len(HTML(string=probe_html).render().pages)
+        if pages <= len(slips) or s <= _PDF_SCALE_FLOOR:
+            break
+        s = max(round(s - 0.05, 2), _PDF_SCALE_FLOOR)
+    if pages > len(slips):
+        print(f'[PDF ADAPTIVE] payslip.html: 缩放下限 {s} 下仍有条目放不下，'
+              f'请检查模板尺寸', file=sys.stderr, flush=True)
+
+    final_html = render_template('payslip.html', slips=slips, scale=s)
+    return HTML(string=final_html).write_pdf(), s
+
+
 @app.route('/export/payslip/<employee_id>', methods=['GET'])
 @login_required
 @require_permission('salary', 'export')
 def export_payslip_single(employee_id):
     try:
-        from weasyprint import HTML
-        from flask import render_template
         import io, os
         from datetime import datetime
         
@@ -5706,8 +5781,7 @@ def export_payslip_single(employee_id):
             return jsonify({'error': f'Employee {employee_id} not found', 'ok': False}), 404
         
         slip_data = _build_slip_data(emp, result, md.get('employees', []), month)
-        html_content = render_template('payslip_single.html', slip=slip_data)
-        pdf_bytes = HTML(string=html_content).write_pdf()
+        pdf_bytes, used_scale = _render_pdf_fit_pages('payslip_single.html', max_pages=1, slip=slip_data)
         
         pays_dir = os.path.join(app.config['DATA_FOLDER'], 'payslips')
         os.makedirs(pays_dir, exist_ok=True)
@@ -5736,11 +5810,9 @@ def export_payslip_single(employee_id):
 @require_permission('salary', 'export')
 def export_payslips_all():
     try:
-        from weasyprint import HTML
-        from flask import render_template
         import io, os
         from datetime import datetime
-        
+
         data = request.get_json(silent=True) or {}
         month = (data.get('month') or '').strip() or resolve_month(request)
         department = data.get('department', '')
@@ -5764,8 +5836,7 @@ def export_payslips_all():
             if slip_data.get('net', 0) > 0:
                 slips.append(slip_data)
         
-        html_content = render_template('payslip.html', slips=slips)
-        pdf_bytes = HTML(string=html_content).write_pdf()
+        pdf_bytes, used_scale = _render_batch_payslips_pdf(slips)
         
         pays_dir = os.path.join(app.config['DATA_FOLDER'], 'payslips')
         os.makedirs(pays_dir, exist_ok=True)

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+{% set s = scale | default(1) %}
 <style>
 @page {
   size: A4 portrait;
@@ -15,6 +16,10 @@ body {
   color: #000;
 }
 
+/* 每页 4 人骨架保持不变：190×277mm，2×2 网格。
+   单元格 = 90mm × 133.5mm（(190-10)/2 × (277-10)/2）。
+   自适应：.slip 内所有尺寸为 em 相对单位，根字号由后端按
+   "探针渲染→数页→缩小"结果注入（scale），整体等比缩放。 */
 .page {
   width: 190mm;
   height: 277mm;
@@ -29,189 +34,207 @@ body {
 
 .slip {
   border: 1px solid #000;
-  padding: 3mm;
-  font-size: 6.5pt;
-  overflow: hidden;
+  padding: 1.31em; /* 3mm */
+  font-size: {{ '%.3f' % (6.5 * s) }}pt;
+  overflow: hidden; /* 探针已保证放得下；仅作极端兜底防止格间重叠 */
 }
 
 .header {
   text-align: center;
   border-bottom: 1px solid #000;
-  padding-bottom: 2mm;
-  margin-bottom: 2.5mm;
+  padding-bottom: 0.87em;
+  margin-bottom: 1.09em;
 }
-.company { font-size: 7.5pt; font-weight: bold; }
-.month-label { font-size: 5.5pt; margin-top: 1mm; }
+.company { font-size: 1.15em; font-weight: bold; }
+.month-label { font-size: 0.85em; margin-top: 0.44em; }
 
 .emp-info {
-  margin-bottom: 2.5mm;
-  font-size: 5.5pt;
+  margin-bottom: 1.09em;
+  font-size: 0.85em;
 }
 .emp-info .field {
   display: flex;
-  gap: 1mm;
-  margin-bottom: 0.8mm;
+  gap: 0.44em;
+  margin-bottom: 0.35em;
 }
-.emp-info .label { min-width: 14mm; color: #333; }
+.emp-info .label { min-width: 6.11em; color: #333; }
 .emp-info .value { font-weight: bold; }
 
 .attendance {
   border-top: 1px solid #000;
   border-bottom: 1px solid #000;
-  padding: 1.2mm 0;
-  margin-bottom: 2.5mm;
-  font-size: 5pt;
+  padding: 0.52em 0;
+  margin-bottom: 1.09em;
+  font-size: 0.77em;
   display: flex;
-  gap: 4mm;
+  gap: 1.74em;
 }
 .attendance span { white-space: nowrap; }
 
 .section-title {
   font-weight: bold;
   border-bottom: 1px solid #000;
-  padding-bottom: 0.5mm;
-  margin-bottom: 1.2mm;
-  font-size: 6pt;
+  padding-bottom: 0.22em;
+  margin-bottom: 0.52em;
+  font-size: 0.92em;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 5.5pt;
+  font-size: 0.85em;
 }
-table tr {
-  height: 3.5mm;
-}
+table td { padding: 0.21em 0; } /* 替代原固定行高 3.5mm，随字号缩放 */
 table .item { text-align: left; }
 table .amount { text-align: right; font-family: "Courier New", monospace; }
 table .subtotal {
   font-weight: bold;
   border-top: 1px solid #000;
-  padding-top: 1mm;
-  margin-top: 1mm;
+  padding-top: 0.44em;
+  margin-top: 0.44em;
 }
 
-.deductions { margin-top: 2.5mm; }
+.deductions { margin-top: 1.09em; }
 
 .summary {
-  margin-top: 2.5mm;
+  margin-top: 1.09em;
   border-top: 1px solid #000;
-  padding-top: 1.2mm;
+  padding-top: 0.52em;
 }
 .summary-row {
   display: flex;
   justify-content: space-between;
-  font-size: 5.5pt;
-  padding: 0.5mm 0;
+  font-size: 0.85em;
+  padding: 0.22em 0;
 }
 .summary-row.total {
   font-weight: bold;
-  font-size: 7pt;
+  font-size: 1.08em;
   border-top: 1px solid #000;
-  padding-top: 1mm;
-  margin-top: 1mm;
+  padding-top: 0.44em;
+  margin-top: 0.44em;
 }
 
+/* 签名区：固定间距，随 scale 收缩 */
 .signature {
-  margin-top: auto;
-  padding-top: 14mm;
+  padding-top: 6.11em; /* 14mm 签名空间 */
   display: flex;
   justify-content: space-between;
-  font-size: 7pt;
+  font-size: 1.08em;
 }
 .sig-line {
   width: 45%;
   border-top: 1px solid #000;
-  padding-top: 8mm;
+  padding-top: 3.49em; /* 8mm */
   text-align: center;
   font-weight: bold;
 }
 </style>
+{% if probe %}
+<style>
+/* 探针模式：每张工资单独占一个与网格单元格等大（90×133.5mm）的页面，
+   纯块级流排版（勿用网格/固定高度——WeasyPrint 对其溢出是裁切而非分页）。
+   页数 == 张数 ⟺ 全部放得下；否则必然溢出分页，供后端缩小 scale 重试。 */
+@page { size: 90mm 133.5mm; margin: 0; }
+.ppage { page-break-after: always; }
+.ppage:last-child { page-break-after: auto; }
+.ppage .slip { overflow: visible; } /* 探针测量自然流高度，禁止裁切 */
+</style>
+{% endif %}
 </head>
 <body>
+{% macro slip_inner(slip) %}
+  <div class="header">
+    <div class="company">ENPRIZON LINDI PROJECT</div>
+    <div class="month-label">{{ slip.month }}</div>
+  </div>
+
+  <div class="emp-info">
+    <div class="field"><span class="label">NAME:</span><span class="value">{{ slip.name }}</span></div>
+    <div class="field"><span class="label">DEPT:</span><span class="value">{{ slip.department }}</span></div>
+    <div class="field"><span class="label">POS:</span><span class="value">{{ slip.position }}</span></div>
+    <div class="field"><span class="label">ID:</span><span class="value">{{ slip.employee_id }}</span></div>
+  </div>
+
+  <div class="attendance">
+    <span>{{ slip.salary_type_label }}</span>
+    <span>NSSF:{{ 'Y' if slip.nssf_enrolled else 'N' }}</span>
+  </div>
+
+  <div class="section-title">EARNINGS</div>
+  <table>
+    {% if slip.piece_underground > 0 %}
+    <tr><td class="item">Underground</td><td class="amount">{{ "{:,.0f}".format(slip.piece_underground) }}</td></tr>
+    {% endif %}
+    {% if slip.piece_driller > 0 %}
+    <tr><td class="item">Driller</td><td class="amount">{{ "{:,.0f}".format(slip.piece_driller) }}</td></tr>
+    {% endif %}
+    {% if slip.piece_crush > 0 %}
+    <tr><td class="item">Crush</td><td class="amount">{{ "{:,.0f}".format(slip.piece_crush) }}</td></tr>
+    {% endif %}
+    {% if slip.day_rate > 0 %}
+    <tr><td class="item">Day Rate</td><td class="amount">{{ "{:,.0f}".format(slip.day_rate) }}</td></tr>
+    {% endif %}
+    {% if slip.monthly > 0 %}
+    <tr><td class="item">Monthly</td><td class="amount">{{ "{:,.0f}".format(slip.monthly) }}</td></tr>
+    {% endif %}
+    {% if slip.overtime > 0 %}
+    <tr><td class="item">OT</td><td class="amount">{{ "{:,.0f}".format(slip.overtime) }}</td></tr>
+    {% endif %}
+    {% if slip.bonus > 0 %}
+    <tr><td class="item">Bonus</td><td class="amount">{{ "{:,.0f}".format(slip.bonus) }}</td></tr>
+    {% endif %}
+    {% if slip.driver_allowance > 0 %}
+    <tr><td class="item">Driver</td><td class="amount">{{ "{:,.0f}".format(slip.driver_allowance) }}</td></tr>
+    {% endif %}
+    <tr class="subtotal"><td class="item">GROSS</td><td class="amount">{{ "{:,.0f}".format(slip.gross) }}</td></tr>
+  </table>
+
+  <div class="deductions">
+    <div class="section-title">DEDUCTIONS</div>
+    <table>
+      <tr><td class="item">NSSF</td><td class="amount">{{ "{:,.0f}".format(slip.nssf) }}</td></tr>
+      <tr><td class="item">PAYE</td><td class="amount">{{ "{:,.0f}".format(slip.paye) }}</td></tr>
+      {% if slip.paye_half > 0 %}
+      <tr><td class="item">Company PAYE Subsidy (50%)</td><td class="amount">-{{ "{:,.0f}".format(slip.paye_half) }}</td></tr>
+      {% endif %}
+      {% if slip.advance > 0 %}
+      <tr><td class="item">Advance</td><td class="amount">{{ "{:,.0f}".format(slip.advance) }}</td></tr>
+      {% endif %}
+      {% if slip.penalty > 0 %}
+      <tr><td class="item">Penalty</td><td class="amount">{{ "{:,.0f}".format(slip.penalty) }}</td></tr>
+      {% endif %}
+      <tr class="subtotal"><td class="item">TOTAL</td><td class="amount">{{ "{:,.0f}".format(slip.total_deductions) }}</td></tr>
+    </table>
+  </div>
+
+  <div class="summary">
+    <div class="summary-row"><span>TAXABLE</span><span>{{ "{:,.0f}".format(slip.taxable_income) }}</span></div>
+    <div class="summary-row total"><span>NET PAY</span><span>{{ "{:,.0f}".format(slip.net) }}</span></div>
+  </div>
+
+  <div class="signature">
+    <div class="sig-line">Employee</div>
+    <div class="sig-line">Auth.</div>
+  </div>
+{% endmacro %}
+{% if probe %}
+{% for slip in slips %}
+<div class="ppage">
+  <div class="slip">{{ slip_inner(slip) }}</div>
+</div>
+{% endfor %}
+{% else %}
 {% for i in range(0, slips|length, 4) %}
 <div class="page">
   {% for slip in slips[i:i+4] %}
-  <div class="slip">
-    <div class="header">
-      <div class="company">ENPRIZON LINDI PROJECT</div>
-      <div class="month-label">{{ slip.month }}</div>
-    </div>
-
-    <div class="emp-info">
-      <div class="field"><span class="label">NAME:</span><span class="value">{{ slip.name }}</span></div>
-      <div class="field"><span class="label">DEPT:</span><span class="value">{{ slip.department }}</span></div>
-      <div class="field"><span class="label">POS:</span><span class="value">{{ slip.position }}</span></div>
-      <div class="field"><span class="label">ID:</span><span class="value">{{ slip.employee_id }}</span></div>
-    </div>
-
-    <div class="attendance">
-      <span>{{ slip.salary_type_label }}</span>
-      <span>NSSF:{{ 'Y' if slip.nssf_enrolled else 'N' }}</span>
-    </div>
-
-    <div class="section-title">EARNINGS</div>
-    <table>
-      {% if slip.piece_underground > 0 %}
-      <tr><td class="item">Underground</td><td class="amount">{{ "{:,.0f}".format(slip.piece_underground) }}</td></tr>
-      {% endif %}
-      {% if slip.piece_driller > 0 %}
-      <tr><td class="item">Driller</td><td class="amount">{{ "{:,.0f}".format(slip.piece_driller) }}</td></tr>
-      {% endif %}
-      {% if slip.piece_crush > 0 %}
-      <tr><td class="item">Crush</td><td class="amount">{{ "{:,.0f}".format(slip.piece_crush) }}</td></tr>
-      {% endif %}
-      {% if slip.day_rate > 0 %}
-      <tr><td class="item">Day Rate</td><td class="amount">{{ "{:,.0f}".format(slip.day_rate) }}</td></tr>
-      {% endif %}
-      {% if slip.monthly > 0 %}
-      <tr><td class="item">Monthly</td><td class="amount">{{ "{:,.0f}".format(slip.monthly) }}</td></tr>
-      {% endif %}
-      {% if slip.overtime > 0 %}
-      <tr><td class="item">OT</td><td class="amount">{{ "{:,.0f}".format(slip.overtime) }}</td></tr>
-      {% endif %}
-      {% if slip.bonus > 0 %}
-      <tr><td class="item">Bonus</td><td class="amount">{{ "{:,.0f}".format(slip.bonus) }}</td></tr>
-      {% endif %}
-      {% if slip.driver_allowance > 0 %}
-      <tr><td class="item">Driver</td><td class="amount">{{ "{:,.0f}".format(slip.driver_allowance) }}</td></tr>
-      {% endif %}
-      <tr class="subtotal"><td class="item">GROSS</td><td class="amount">{{ "{:,.0f}".format(slip.gross) }}</td></tr>
-    </table>
-
-    <div class="deductions">
-      <div class="section-title">DEDUCTIONS</div>
-      <table>
-        <tr><td class="item">NSSF</td><td class="amount">{{ "{:,.0f}".format(slip.nssf) }}</td></tr>
-        <tr><td class="item">PAYE</td><td class="amount">{{ "{:,.0f}".format(slip.paye) }}</td></tr>
-        {% if slip.paye_half > 0 %}
-        <tr><td class="item">Company PAYE Subsidy (50%)</td><td class="amount">-{{ "{:,.0f}".format(slip.paye_half) }}</td></tr>
-        {% endif %}
-        {% if slip.advance > 0 %}
-        <tr><td class="item">Advance</td><td class="amount">{{ "{:,.0f}".format(slip.advance) }}</td></tr>
-        {% endif %}
-        {% if slip.penalty > 0 %}
-        <tr><td class="item">Penalty</td><td class="amount">{{ "{:,.0f}".format(slip.penalty) }}</td></tr>
-        {% endif %}
-        <tr class="subtotal"><td class="item">TOTAL</td><td class="amount">{{ "{:,.0f}".format(slip.total_deductions) }}</td></tr>
-      </table>
-    </div>
-
-    <div class="summary">
-      <div class="summary-row"><span>TAXABLE</span><span>{{ "{:,.0f}".format(slip.taxable_income) }}</span></div>
-      <div class="summary-row total"><span>NET PAY</span><span>{{ "{:,.0f}".format(slip.net) }}</span></div>
-    </div>
-
-    <div class="signature">
-      <div class="sig-line">Employee</div>
-      <div class="sig-line">Auth.</div>
-    </div>
-  </div>
+  <div class="slip">{{ slip_inner(slip) }}</div>
   {% endfor %}
   {% for _ in range(4 - slips[i:i+4]|length) %}
   <div class="slip" style="border: none;"></div>
   {% endfor %}
 </div>
 {% endfor %}
+{% endif %}
 </body>
 </html>
