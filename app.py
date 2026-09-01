@@ -3790,37 +3790,6 @@ def api_salary_inline_edit():
     return jsonify({'ok': True})
 
 # ═══════════════════════════════════════════════════════════
-#  API: 薪资双路径核对
-# ═══════════════════════════════════════════════════════════
-
-@app.route('/salary/verify', methods=['GET'])
-@login_required
-@require_permission('salary', 'view')
-def verify_salary():
-    """双路径薪资核对：路径一（产量×单价基准计算）vs 路径二（实际汇总）"""
-    from core.verification import verify_salary as do_verify
-    from core.calculator import PRICES_UNDERGROUND, PRICES_DRILLER
-
-    month = resolve_month(request)
-    md = _get_month_data(month)
-    main_data = (md.get('main_data') if md else {}) if md is not None else {}
-    salary_result = (md.get('salary_result') if md else None) if md is not None else None
-
-    if not main_data or not salary_result:
-        return jsonify({'error': '数据尚未就绪，请先加载源文件并执行计算', 'month': month}), 400
-
-    try:
-        config = (md.get('config_snapshot') if md else {}) if md is not None else {}
-        up = config.get('underground_prices') or PRICES_UNDERGROUND
-        dp = config.get('driller_prices') or PRICES_DRILLER
-        result = do_verify(main_data, salary_result, up, dp,
-                           underground_mode=config.get('underground_mode'),
-                           pricing=config)
-        return jsonify({'ok': True, 'data': result, 'month': month})
-    except Exception as e:
-        return jsonify({'error': f'核对失败: {str(e)}'}), 500
-
-# ═══════════════════════════════════════════════════════════
 #  API: 产量
 # ═══════════════════════════════════════════════════════════
 
@@ -5001,104 +4970,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         ws5.freeze_panes = 'A2'
 
     # ═══════════════════════════════════════════════════════
-    #  Sheet 6: 钻工计件双路径核对
-    # ═══════════════════════════════════════════════════════
-    if _eff_result and _eff_md and _eff_md.get('driller_production'):
-        try:
-            from core.verification import verify_salary
-            from core.calculator import PRICES_UNDERGROUND, PRICES_DRILLER
-            _cfg = (_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {}
-            ver = verify_salary(_eff_md, _eff_result, PRICES_UNDERGROUND, PRICES_DRILLER,
-                                underground_mode=_cfg.get('underground_mode'),
-                                pricing=_cfg)
-            d_info = ver.get('driller', {})
-            d_p1 = ver.get('path1_details', {}).get('driller', [])
-            d_dc = ver.get('daily_comparison', {}).get('driller', [])
-
-            if d_p1 or d_dc:
-                ws7 = wb.create_sheet('Driller Verification')
-                diff_fill = PatternFill('solid', fgColor='FEF2F2')
-                diff_font = Font(color='DC2626', bold=True)
-                round_font = Font(color='9CA3AF', italic=True)
-                section_font = Font(bold=True, size=12, color='185FA5')
-                r = 1
-
-                # ── 路径一：基准计算（产量 × 单价）──
-                ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
-                c = ws7.cell(r, 1, 'Path 1: Production x Price')
-                c.font = section_font; r += 1
-                for ci, h in enumerate(['Date', 'Captain', 'NH', 'NL', 'MW', 'Amount(TZS)'], 1):
-                    c = ws7.cell(r, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
-                r += 1
-                for d in d_p1:
-                    ws7.cell(r, 1, d['date']).border = tb
-                    ws7.cell(r, 2, d.get('captain', '')).border = tb
-                    ws7.cell(r, 3, d.get('nh', 0)).border = tb
-                    ws7.cell(r, 4, d.get('nl', 0)).border = tb
-                    ws7.cell(r, 5, d.get('mw', 0)).border = tb
-                    c_amt = ws7.cell(r, 6, d.get('total', 0))
-                    c_amt.border = tb; c_amt.number_format = '#,##0'
-                    c_amt.font = Font(bold=True)
-                    r += 1
-
-                # ── 路径一合计行 ──
-                c = ws7.cell(r, 1, 'Path 1 Total')
-                c.font = Font(bold=True); c.fill = total_fill; c.border = tb
-                for ci in range(2, 6): ws7.cell(r, ci, '').fill = total_fill; ws7.cell(r, ci).border = tb
-                c_total = ws7.cell(r, 6, f'=SUM(F{r-len(d_p1)}:F{r-1})')
-                c_total.font = Font(bold=True); c_total.fill = total_fill; c_total.border = tb
-                c_total.number_format = '#,##0'
-                r += 2
-
-                # ── 逐日对比（路径一 vs 路径二）──
-                ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-                c = ws7.cell(r, 1, 'Driller Daily Comparison: Path 1 vs Path 2')
-                c.font = section_font; r += 1
-                for ci, h in enumerate(['Date', 'Path 1(TZS)', 'Path 2(TZS)', 'Diff(TZS)', 'Note'], 1):
-                    c = ws7.cell(r, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
-                r += 1
-                for dc_row in d_dc:
-                    ws7.cell(r, 1, dc_row['date']).border = tb
-                    ws7.cell(r, 2, dc_row['path1']).border = tb
-                    ws7.cell(r, 3, dc_row['path2']).border = tb
-                    c_diff = ws7.cell(r, 4, dc_row['diff'])
-                    c_diff.border = tb; c_diff.number_format = '#,##0'
-                    note = ''
-                    if dc_row['diff'] != 0:
-                        if dc_row.get('is_rounding'):
-                            note = 'Rounding'
-                            c_diff.font = round_font
-                        else:
-                            c_diff.font = diff_font
-                            ws7.cell(r, 1).fill = diff_fill
-                            ws7.cell(r, 2).fill = diff_fill
-                            ws7.cell(r, 3).fill = diff_fill
-                            ws7.cell(r, 4).fill = diff_fill
-                    ws7.cell(r, 5, note).border = tb
-                    if note: ws7.cell(r, 5).font = round_font
-                    r += 1
-
-                # ── 汇总行 ──
-                c = ws7.cell(r, 1, 'Summary')
-                c.font = Font(bold=True); c.fill = total_fill; c.border = tb
-                for ci in [2, 3, 4]:
-                    col_l = chr(64+ci)
-                    c = ws7.cell(r, ci, f'=SUM({col_l}{r-len(d_dc)}:{col_l}{r-1})')
-                    c.font = Font(bold=True); c.fill = total_fill; c.border = tb
-                    c.number_format = '#,##0'
-                ws7.cell(r, 5, f'Path1={d_info.get("path1",0):,}  Path2={d_info.get("path2",0):,}').fill = total_fill
-                ws7.cell(r, 5).border = tb; ws7.cell(r, 5).font = Font(size=10)
-
-                for i, w in enumerate([14, 18, 8, 8, 8, 14, 6], 1):
-                    ws7.column_dimensions[chr(64+i)].width = w
-                ws7.freeze_panes = 'A2'
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            pass  # 核对失败不影响导出
-
-    # ═══════════════════════════════════════════════════════
-    #  Sheet 7: 钻工计件出勤明细
+    #  Sheet 6: 钻工计件出勤明细
     # ═══════════════════════════════════════════════════════
     if _eff_md and _eff_md.get('driller_production'):
         # ── 队长名规范化（通过员工账号匹配，避免通讯录别名差异）──

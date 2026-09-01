@@ -757,32 +757,6 @@
     </div>
     <div class="stats-bar" id="salaryStats" style="display:none;"></div>
 
-    <!-- ═══ 双路径核对面板 ═══ -->
-    <div class="verify-panel" id="salaryVerifyPanel" style="display:none;">
-      <div class="verify-header" onclick="toggleVerifyDetail()" style="cursor:pointer;">
-        <h3 style="margin:0;font-size:14px;display:flex;align-items:center;gap:8px;">
-          🔍 <span data-i18n="salary_verify_title">薪资双路径核对</span>
-          <span id="verifyStatusBadge" class="verify-badge"></span>
-        </h3>
-        <span id="verifyToggleIcon" style="font-size:12px;color:var(--text-muted);" data-i18n="salary_verify_expand">▼ 展开明细</span>
-      </div>
-      <div class="verify-summary" id="verifySummary"></div>
-      <div class="verify-detail" id="verifyDetail" style="display:none;">
-        <div class="verify-tabs">
-          <button class="verify-tab active" onclick="switchVerifyTab('underground')" data-i18n="verify_ug_piece">生产薪资</button>
-          <button class="verify-tab" onclick="switchVerifyTab('driller')" data-i18n="verify_dr_piece">钻工计件</button>
-        </div>
-        <div class="verify-tab-content" id="verifyTabUnderground">
-          <div class="verify-compare"></div>
-          <div class="verify-daily" id="verifyDailyUnderground"></div>
-        </div>
-        <div class="verify-tab-content" id="verifyTabDriller" style="display:none;">
-          <div class="verify-compare"></div>
-          <div class="verify-daily" id="verifyDailyDriller"></div>
-        </div>
-      </div>
-    </div>
-
     <div id="duplicateWarnings" style="margin-bottom:12px;"></div>
     <div class="table-wrap">
       <table class="data-table" id="salaryTable">
@@ -2254,7 +2228,6 @@ function showTargetPage(module, subPage) {
   if (STATE._monthStamp && STATE._monthStamp !== STATE.currentMonth) {
     if (STATE.attendanceData) STATE.attendanceData = null;
     if (STATE._dailyWages) STATE._dailyWages = null;
-    if (STATE._verifyData) STATE._verifyData = null;
   }
   // 触发页面加载（P27：以 _monthStamp 判过期，戳不一致或无缓存则强制重取，确保切月后无需 F5）
   if (targetId === 'attendance') {
@@ -3260,7 +3233,6 @@ function _invalidateMonthCaches(month) {
   // 核心缓存置空，触发下一次进入页面时重取
   STATE.attendanceData = null;
   STATE._dailyWages = null;
-  STATE._verifyData = null;
   // OA / 评分 / 采集 的 DOM 亦视为过期，戳已足；额外清标识避免旧数据闪现
   STATE._oaPendingStamp = null;
   STATE._oaHistoryStamp = null;
@@ -4836,7 +4808,6 @@ async function renderSalaryTable(result) {
   }
 
   filterSalaryTable();
-  loadSalaryVerification();
 }
 
 function filterSalaryTable() {
@@ -5001,190 +4972,6 @@ function startSalaryInlineEdit(td, eid, field, curVal) {
     else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cancel(); }
   });
   inp.addEventListener('blur', () => commit());
-}
-
-// ════════════════════════════════════════════════
-//  薪资双路径核对
-// ════════════════════════════════════════════════
-async function loadSalaryVerification() {
-  try {
-    const res = await fetch(api('/salary/verify?month=' + encodeURIComponent(STATE.currentMonth)));
-    if (!res.ok) {
-      document.getElementById('salaryVerifyPanel').style.display = 'none';
-      return;
-    }
-    const json = await res.json();
-    if (!json.ok) {
-      document.getElementById('salaryVerifyPanel').style.display = 'none';
-      return;
-    }
-    STATE._verifyData = json.data;
-    renderSalaryVerification(json.data);
-  } catch(e) {
-    document.getElementById('salaryVerifyPanel').style.display = 'none';
-  }
-}
-
-function renderSalaryVerification(data) {
-  const panel = document.getElementById('salaryVerifyPanel');
-  const summary = document.getElementById('verifySummary');
-  const badge = document.getElementById('verifyStatusBadge');
-
-  // 状态徽章
-  if (data.overall_match) {
-    badge.className = 'verify-badge verify-pass';
-    badge.textContent = t('salary_verify_pass');
-  } else {
-    badge.className = 'verify-badge verify-fail';
-    badge.textContent = t('salary_verify_fail');
-  }
-
-  // 汇总对比卡片
-  summary.innerHTML = `
-    <div class="verify-cards">
-      <div class="verify-card">
-        <div class="verify-card-title">${t('verify_ug_piece')}</div>
-        <div class="verify-card-row">
-          <span class="verify-label">${t('verify_path1')}</span>
-          <span class="verify-val">${fmtNum(data.underground.path1)}</span>
-        </div>
-        <div class="verify-card-row">
-          <span class="verify-label">${t('verify_path2')}</span>
-          <span class="verify-val">${fmtNum(data.underground.path2)}</span>
-        </div>
-        <div class="verify-card-row verify-diff-row ${data.underground.match ? '' : 'has-diff'}">
-          <span class="verify-label">${t('verify_diff')}</span>
-          <span class="verify-val ${data.underground.match ? 'diff-zero' : 'diff-warn'}">${data.underground.match ? '0' : (data.underground.diff > 0 ? '+' : '') + fmtNum(data.underground.diff)}</span>
-        </div>
-      </div>
-      <div class="verify-card">
-        <div class="verify-card-title">${t('verify_dr_piece')}</div>
-        <div class="verify-card-row">
-          <span class="verify-label">${t('verify_path1')}</span>
-          <span class="verify-val">${fmtNum(data.driller.path1)}</span>
-        </div>
-        <div class="verify-card-row">
-          <span class="verify-label">${t('verify_path2')}</span>
-          <span class="verify-val">${fmtNum(data.driller.path2)}</span>
-        </div>
-        <div class="verify-card-row verify-diff-row ${data.driller.match ? '' : 'has-diff'}">
-          <span class="verify-label">${t('verify_diff')}</span>
-          <span class="verify-val ${data.driller.match ? 'diff-zero' : 'diff-warn'}">${data.driller.match ? '0' : (data.driller.diff > 0 ? '+' : '') + fmtNum(data.driller.diff)}</span>
-        </div>
-      </div>
-    </div>
-  `;
-
-  panel.style.display = 'block';
-
-  // 预渲染明细（默认隐藏）
-  renderVerifyDetail(data, 'underground');
-  renderVerifyDetail(data, 'driller');
-}
-
-function toggleVerifyDetail() {
-  const detail = document.getElementById('verifyDetail');
-  const icon = document.getElementById('verifyToggleIcon');
-  if (detail.style.display === 'none') {
-    detail.style.display = 'block';
-    icon.textContent = t('salary_verify_collapse');
-  } else {
-    detail.style.display = 'none';
-    icon.textContent = t('salary_verify_expand');
-  }
-}
-
-function switchVerifyTab(tab) {
-  document.querySelectorAll('.verify-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.verify-tab-content').forEach(c => c.style.display = 'none');
-  document.querySelector(`.verify-tab:nth-child(${tab === 'underground' ? '1' : '2'})`).classList.add('active');
-  document.getElementById(`verifyTab${tab === 'underground' ? 'Underground' : 'Driller'}`).style.display = 'block';
-}
-
-function renderVerifyDetail(data, type) {
-  const container = document.getElementById(type === 'underground' ? 'verifyTabUnderground' : 'verifyTabDriller');
-  const details = data.path1_details[type] || [];
-
-  // 路径一 逐日/逐队明细
-  const isUnderground = type === 'underground';
-  let path1Rows = '';
-  if (isUnderground) {
-    path1Rows = details.map(d => `<tr>
-      <td>${d.date}</td>
-      <td class="num">${fmtNum(d.nh)}</td>
-      <td class="num">${fmtNum(d.nl)}</td>
-      <td class="num">${fmtNum(d.mw)}</td>
-      <td class="num">${fmtNum(d.day_total)}</td>
-      <td class="num">${fmtNum(d.night_total)}</td>
-      <td class="num bold">${fmtNum(d.combined)}</td>
-    </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">'+t('verify_no_data_row')+'</td></tr>';
-  } else {
-    path1Rows = details.map(d => `<tr>
-      <td>${d.date}</td>
-      <td>${escHtml(d.captain)}</td>
-      <td class="num">${fmtNum(d.nh)}</td>
-      <td class="num">${fmtNum(d.nl)}</td>
-      <td class="num">${fmtNum(d.mw)}</td>
-      <td class="num bold">${fmtNum(d.total)}</td>
-    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">'+t('verify_no_data_row')+'</td></tr>';
-  }
-
-  // ── 逐日对比（路径一 vs 路径二按日对齐，替换原路径二位置） ──
-  const dc = (data.daily_comparison || {})[type] || [];
-  let rightContent = '';
-  if (dc.length > 0) {
-    const realDiffs = dc.filter(r => r.diff !== 0);
-    const onlyRounding = realDiffs.length === 0;
-    const dailyRows = dc.map(r => {
-      const isBad = r.diff !== 0;
-      const cls = isBad ? 'diff-highlight' : '';
-      const diffCls = r.diff < 0 ? 'diff-neg' : r.diff > 0 ? 'diff-pos' : '';
-      const diffText = r.diff === 0 ? '0' : (r.diff > 0 ? '+' : '') + fmtNum(r.diff);
-      const note = r.is_rounding && isBad ? ' <span style="font-size:10px;color:#9ca3af;">' + t('verify_rounding') + '</span>' : '';
-      return `<tr class="${cls}">
-        <td>${r.date}</td>
-        <td class="num">${fmtNum(r.path1)}</td>
-        <td class="num">${fmtNum(r.path2)}</td>
-        <td class="num ${diffCls}">${diffText}${note}</td>
-      </tr>`;
-    }).join('');
-    const status = onlyRounding
-      ? '<span style="font-size:11px;color:var(--success);font-weight:normal;">' + t('verify_perfect') + '</span>'
-      : '<span style="font-size:11px;color:var(--danger);font-weight:normal;">⚠ ' + realDiffs.length + ' ' + t('verify_day_diff') + '</span>';
-    rightContent = `
-      <h4>${t('verify_daily_compare')}${status}</h4>
-      <table class="data-table verify-mini-table verify-daily-table">
-        <thead>
-          <tr><th>${t('verify_col_date')}</th><th>${t('verify_col_path1')}</th><th>${t('verify_col_path2')}</th><th>${t('verify_col_diff')}</th></tr>
-        </thead>
-        <tbody>${dailyRows}</tbody>
-      </table>`;
-  } else {
-    rightContent = '<p style="text-align:center;color:var(--text-muted);padding:20px;">' + t('verify_no_data') + '</p>';
-  }
-
-  container.querySelector('.verify-compare').innerHTML = `
-    <div class="verify-dual-table">
-      <div class="verify-half">
-        <h4>${t('verify_path1_title')}</h4>
-        <table class="data-table verify-mini-table">
-          <thead>
-            ${isUnderground
-              ? t('verify_ug_headers')
-              : t('verify_dr_headers')}
-          </thead>
-          <tbody>${path1Rows}</tbody>
-        </table>
-      </div>
-      <div class="verify-half">
-        ${rightContent}
-      </div>
-    </div>
-  `;
-
-  // ── 清空原逐日对比区域（已移至右侧）──
-  const dailyContainer = document.getElementById(`verifyDaily${type === 'underground' ? 'Underground' : 'Driller'}`);
-  if (dailyContainer) dailyContainer.innerHTML = '';
 }
 
 async function toggleNssf(eid, enrolled) {
