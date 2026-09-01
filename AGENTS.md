@@ -525,7 +525,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 ### 下一步
 
 0. **P29 权限体系 V2.1 ✅ 已部署（2026-08-23）**：main=be3efce 上线，服务器首启迁移日志确认「P29 权限目录 V2.1 迁移完成」，perm_v2_migrated=1、五内置角色行数精确、存量 editor 平移保留；回滚预案=data/backups/kilwa_before_p29_20260823_194713.db。后续观察项：各角色登录走查 + 权限编辑器分组显示
-1. **P30 井下班组化 ✅ 已部署（2026-09-01，main=9abd4cc）**：班组产量制 + 出勤收集并入 UG 班组 + 数据台班组图 + 豁免超管二次编辑（详见上方 §数据流水线 P30 注）；验收证据：pytest 25 绿（19 新 + 6 旧）、同库新旧代码（3c9484c vs 9abd4cc）2026-08 逐人逐字段 0 差异、沙箱 piecework+v2 双模式端到端走查全过、浏览器三表面实测；回滚预案=data/backups/kilwa_before_p30_20260901_200000.db；⚠️ 部署当晚生产 8 月总额较 17:02 基线 −133,846 TZS 系用户业务操作（员工30罚款100000→0、43 转月薪、94/LARISAIDLARI 日薪清零，audit_log 可查），非代码回归
+1. **P30 井下班组化 ✅ 已部署（2026-09-01，main=9abd4cc + UX修正 adbf787）**：班组产量制 + 出勤收集并入 UG 班组 + 数据台班组图 + 豁免超管二次编辑（详见上方 §数据流水线 P30 注）；同日 UX 修正（adbf787）：用户角色下拉弃用 editor 补 collector/applicant（后端两端点拒 editor）、豁免操作明朗化（琥珀高亮+徽章+confirm）、出勤 UG 班组过滤严格化（无班组井下员工不出现）；验收证据：pytest 25 绿（19 新 + 6 旧）、同库新旧代码（3c9484c vs 9abd4cc）2026-08 逐人逐字段 0 差异、沙箱 piecework+v2 双模式端到端走查全过、浏览器三表面实测（UX 修正截图 _work/ux-fixes/）；回滚预案=data/backups/kilwa_before_uxfix_20260901_210000.db；⚠️ 部署当晚生产 8 月总额较 17:02 基线 −133,846 TZS 系用户业务操作（员工30罚款100000→0、43 转月薪、94/LARISAIDLARI 日薪清零，audit_log 可查），非代码回归
 2. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）；**注意生产 settings.config 当前 `underground_mode='scoring'`**（2026-09-01 快照确认），切 V2 前新格式班组产量在 scoring 下不计件
 3. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 4. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
