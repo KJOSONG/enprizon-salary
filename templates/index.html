@@ -736,6 +736,7 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="salary_title">全员工资表</h2>
+      <span id="salaryFilterStats" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
     <div class="filter-bar" style="margin-bottom:12px;">
       <input type="text" id="salarySearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
@@ -4889,7 +4890,7 @@ function filterSalaryTable() {
       ${inlineTd(eid, 'advance', emp.advance||0, fmtNum(emp.advance||0), 'var(--danger)')}
       <td class="num bold" style="color:var(--success)">${fmtNum(n)}</td>
       <td style="font-size:10px;color:var(--text-muted);max-width:180px;">
-        ${(emp.temp_overrides||[]).map(to => 
+        ${(emp.temp_overrides||[]).map(to =>
           '<span class="temp-tag" style="display:inline-flex;align-items:center;background:var(--bg-surface);border-radius:3px;padding:0 4px;margin:1px 2px;white-space:nowrap;color:var(--text);">' +
           escHtml(to.label) +
           '</span>'
@@ -4897,6 +4898,20 @@ function filterSalaryTable() {
       </td>
     </tr>`;
   }).join('');
+  // 筛选统计徽章（右上角实时更新：人数/税前合计/实发合计，与上方全月统计卡同口径）
+  const statsEl = document.getElementById('salaryFilterStats');
+  if (statsEl) {
+    if (filtered.length === 0) {
+      statsEl.innerHTML = '<span style="color:var(--text-dim);">' + t('dw_no_data') + '</span>';
+    } else {
+      const sumGross = filtered.reduce((s, e) => s + (e.gross || 0), 0);
+      const sumNet = filtered.reduce((s, e) => s + (e.net || 0), 0);
+      statsEl.innerHTML =
+        `<b>${filtered.length}</b> ${t('salary_stats_emp')} ｜ ` +
+        `${t('salary_stats_gross')} <b>${fmtNum(sumGross)}</b> ｜ ` +
+        `${t('salary_stats_net')} <b style="color:var(--success)">${fmtNum(sumNet)}</b>`;
+    }
+  }
 }
 
 // ═══ P29-c Req②: 薪资总表行内编辑（奖金/罚款/预支） ═══
@@ -5070,7 +5085,20 @@ function renderDailyWages() {
     for (const dt in e.daily) dates.add(dt);
   }
   const sortedDates = [...dates].sort();
-  document.getElementById('dwCount').textContent = entries.length + ' ' + t('dw_person');
+  // 筛选统计（右上角实时更新：人数/当月合计/薪资应发合计，与列口径一致可自查）
+  const dwStatsEl = document.getElementById('dwCount');
+  if (dwStatsEl) {
+    if (entries.length === 0) {
+      dwStatsEl.innerHTML = '<span style="color:var(--text-dim);">' + t('dw_no_data') + '</span>';
+    } else {
+      const sumTotal = entries.reduce((s, e) => s + (e.total || 0), 0);
+      const sumSalary = entries.reduce((s, e) => s + ((STATE._salaryMap && STATE._salaryMap[e.id]) || 0), 0);
+      dwStatsEl.innerHTML =
+        '<b>' + entries.length + '</b> ' + t('dw_person') + ' ｜ ' +
+        t('dw_total') + ' <b>' + fmtNum(sumTotal) + '</b> ｜ ' +
+        t('dw_salary_gross') + ' <b style="color:var(--success)">' + fmtNum(sumSalary) + '</b>';
+    }
+  }
   // 第一行：日期表头
   let headHtml = '<tr><th data-i18n="th_name">' + t('th_name') + '</th>';
   sortedDates.forEach(d => {
