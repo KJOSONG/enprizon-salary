@@ -924,7 +924,12 @@
 
   // ── OA 审批 ──
   function loadOAPendingCount(){
-    // P29 V2.1: 徽标与 OA 列表同门槛(view||apply);无权限时隐藏徽标且不发请求
+    // 徽标仅审批人可见（oa:approve），采集员/申请人仅看自己提交的不显示待审批角标
+    if(!hasPermission('oa','approve')){
+      const b0=document.getElementById('oa-pending-n'); if(b0) b0.style.display='none';
+      const tb0=document.getElementById('oaTabBadge'); if(tb0) tb0.style.display='none';
+      return;
+    }
     if(!(hasPermission('oa','view') || hasPermission('oa','apply'))){
       const b0=document.getElementById('oa-pending-n'); if(b0) b0.style.display='none';
       const tb0=document.getElementById('oaTabBadge'); if(tb0) tb0.style.display='none';
@@ -971,7 +976,11 @@
       + '<div class="oa-card__date">'+esc(ev.effective_date||'')+'</div>'
       + '<div class="oa-card__date">'+t('oa_submitter')+': '+esc(ev.operator_id||'—')+'</div>';
     if(mode==='pending'){
-      html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="event.stopPropagation();approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn" onclick="event.stopPropagation();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
+      if(hasPermission('oa','approve')){
+        html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="event.stopPropagation();approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn" onclick="event.stopPropagation();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
+      } else {
+        html += '<div class="oa-card__desc" style="margin-top:6px;color:var(--muted-foreground);font-size:12px;">'+t('oa_pending_own_hint')+'</div>';
+      }
     } else {
       const st = ev.status==='approved';
       html += '<div class="oa-card__desc" style="margin-top:6px;"><span class="oa-status-badge '+(st?'approved':'rejected')+'">'+(st?t('approved'):t('rejected'))+'</span>'+(ev.reject_reason?(' <span style="color:var(--muted-foreground);">'+esc(ev.reject_reason)+'</span>'):'')+'</div>';
