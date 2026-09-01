@@ -1063,7 +1063,7 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, nssf_number, phone, team_id, custom_number, tin_number
+               nssf_enrolled, nssf_number, nida_number, phone, team_id, custom_number, tin_number
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -1087,6 +1087,7 @@ def load_employees_from_db(data_folder):
             'phone': r['phone'] or '',
             'nssf_enrolled': bool(r['nssf_enrolled']),
             'nssf_number': r['nssf_number'] or '',  # NSSF 社保号（有号即参保）
+            'nida_number': r['nida_number'] or '',  # NIDA 证件号（导出 Employee Info 用）
             'team_id': r['team_id'] or 0,   # P15: 评分奖金按班组归属
             'custom_number': r['custom_number'] or '',  # 工号（新入职自动递增生成）
             'tin_number': r['tin_number'] or '',  # TIN号码（无TIN不扣PAYE）
@@ -4370,7 +4371,7 @@ def export_employees():
     tb = Border(left=Side(style='thin'), right=Side(style='thin'),
                 top=Side(style='thin'), bottom=Side(style='thin'))
 
-    headers = ['Name', 'Department', 'Type', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance This Month(TZS)', 'Notes']
+    headers = ['Name', 'Department', 'Type', 'NIDA Number', 'NSSF Number', 'TIN Number', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance This Month(TZS)', 'Notes']
     for ci, h in enumerate(headers, 1):
         c = ws.cell(1, ci, h); c.font = hf; c.fill = hfill; c.alignment = ha; c.border = tb
 
@@ -4388,6 +4389,7 @@ def export_employees():
             emp.get('name', ''),
             emp.get('department', ''),
             type_map.get(emp.get('default_type',''), emp.get('default_type','')),
+            emp.get('nida_number','') or '', emp.get('nssf_number','') or '', emp.get('tin_number','') or '',
             int(emp.get('day_rate', 0) or 0),
             int(emp.get('monthly_salary', 0) or 0),
             int(emp.get('advance_total', 0) or 0),
@@ -4395,10 +4397,10 @@ def export_employees():
         ]
         for ci, v in enumerate(vals, 1):
             c = ws.cell(i, ci, v); c.border = tb
-            c.alignment = Alignment(horizontal='left' if ci in (1,2,3,7) else 'right')
-            if 4 <= ci <= 6: c.number_format = '#,##0'
+            c.alignment = Alignment(horizontal='left' if ci in (1,2,3,4,5,6,10) else 'right')
+            if 7 <= ci <= 9: c.number_format = '#,##0'
 
-    for i, w in enumerate([16, 22, 12, 16, 16, 16, 30], 1):
+    for i, w in enumerate([16, 22, 12, 24, 16, 14, 16, 16, 16, 30], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
@@ -4638,7 +4640,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         from core.exceptions import load_overrides
         overrides = load_overrides(app.config['DATA_FOLDER'], month=_eff_month)
         ws1 = wb.create_sheet('Employee Info')
-        headers1 = ['Name', 'Department', 'Type', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance(TZS)', 'Notes']
+        headers1 = ['Name', 'Department', 'Type', 'NIDA Number', 'NSSF Number', 'TIN Number', 'Day Rate(TZS)', 'Monthly Base(TZS)', 'Advance(TZS)', 'Notes']
         for ci, h in enumerate(headers1, 1):
             c = ws1.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
         for i, emp in enumerate(employees, 2):
@@ -4649,14 +4651,15 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             vals = [
                 emp.get('name',''), emp.get('department',''),
                 type_map.get(emp.get('default_type',''), emp.get('default_type','')),
+                emp.get('nida_number','') or '', emp.get('nssf_number','') or '', emp.get('tin_number','') or '',
                 int(emp.get('day_rate',0) or 0), int(emp.get('monthly_salary',0) or 0),
                 int(emp.get('advance_total',0) or 0), note,
             ]
             for ci, v in enumerate(vals, 1):
                 c = ws1.cell(i, ci, v); c.border = tb
-                c.alignment = Alignment(horizontal='left' if ci in (1,2,3,7) else 'right')
-                if 4 <= ci <= 6: c.number_format = '#,##0'
-        for i, w in enumerate([18, 22, 12, 16, 16, 16, 30], 1):
+                c.alignment = Alignment(horizontal='left' if ci in (1,2,3,4,5,6,10) else 'right')
+                if 7 <= ci <= 9: c.number_format = '#,##0'
+        for i, w in enumerate([18, 22, 12, 24, 16, 14, 16, 16, 16, 30], 1):
             ws1.column_dimensions[chr(64+i)].width = w
         ws1.freeze_panes = 'A2'
 
