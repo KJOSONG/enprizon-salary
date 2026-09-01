@@ -979,11 +979,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if dt: month_prefix = dt[:7]; break
     working_days = 26  # 月薪按 26 天均分
 
-    # V2 gate: underground_mode == 'v2' AND month >= v2_effective_from
     v2_effective_from = pricing.get('v2_effective_from', '') or ''
     v2_active = (underground_mode == 'v2' and (not v2_effective_from or month_prefix >= v2_effective_from))
-    # P28 R4: UG 年假折算逐日金额（仅 v2 生效月；三处共用 ug_annual_leave_per_day 取整）
-    ug_al_per_day = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000)) if v2_active else 0
+    # P28 R4: UG 年假折算逐日金额（跨模式生效，与 v2 无关；三处共用）
+    ug_al_per_day = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000))
 
     # P23 R2: 读本月加班记录（审批通过后落库 overtime_records）
     ot_total = defaultdict(float)
@@ -1435,11 +1434,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     _ym = _dt[:7]
                     break
 
-        # V2 gate (mirrors calculate_all)
         v2_eff = pricing.get('v2_effective_from', '') or ''
         v2_active_br = (underground_mode == 'v2' and (not v2_eff or _ym >= v2_eff))
-        # P28 R4: 与 calculate_all 同源（共用 ug_annual_leave_per_day 取整）
-        ug_al_per_day_br = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000)) if v2_active_br else 0
+        ug_al_per_day_br = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000))
 
         # P23 R2: 读本月加班记录（与 calculate_all 同一来源，保证日明细与薪资页一致）
         ot_daily_br = defaultdict(dict)
