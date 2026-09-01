@@ -191,6 +191,7 @@
             <button class="dash-seg-btn" data-value="day" data-i18n="dash_shift_day">白班</button>
             <button class="dash-seg-btn" data-value="night" data-i18n="dash_shift_night">夜班</button>
           </div>
+          <div class="dash-segmented" id="dashTeamToggle" style="display:none;"></div>
         </div>
         <div class="dash-ctrl-group">
           <label class="dash-ctrl-label" data-i18n="dash_ore">矿石</label>
@@ -2622,6 +2623,15 @@ const ORE_COLORS = {
   mw: { line: '#E8923E', bg: 'rgba(232,146,62,0.12)', solid: '#E8923E', label: 'MW' },
 };
 
+// ── P31 B: 班组线色（决策 9：暖陶土/金橄榄/琥珀，循环取色，桌面/移动共享同一组值） ──
+const TEAM_COLORS = [
+  { line: '#B05A3C', bg: 'rgba(176,90,60,0.12)' },
+  { line: '#7A8B5C', bg: 'rgba(122,139,92,0.12)' },
+  { line: '#E8923E', bg: 'rgba(232,146,62,0.12)' },
+];
+// P31 决策 7：KPI 数值固定 1 位小数+千分位
+function fmtK(n) { return (n || 0).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+
 // ── 初始化控制栏 ──
 function initDashControls(data) {
   // 月份选择
@@ -2647,6 +2657,44 @@ function initDashControls(data) {
     document.getElementById('dashDateTo').value = dates[dates.length - 1];
     STATE._dashFilters.dateFrom = dates[0];
     STATE._dashFilters.dateTo = dates[dates.length - 1];
+  }
+
+  // P31 B1: 班组筛选（新格式月隐藏原三钮、动态渲染班组 segmented；旧格式月原样）
+  const shiftSeg = document.getElementById('dashShiftToggle');
+  const teamSeg = document.getElementById('dashTeamToggle');
+  const shiftLabel = shiftSeg.closest('.dash-ctrl-group').querySelector('.dash-ctrl-label');
+  const oreTab = document.getElementById('dashDayNightOreTab');
+  if (isNewDashFormat()) {
+    const teamInfo = {};
+    (data.shift_production || []).forEach(d => (d.teams || []).forEach(tm => {
+      teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
+    }));
+    teamSeg.innerHTML = '<button class="dash-seg-btn active" data-value="all" data-i18n="dash_ore_all">' + t('dash_ore_all') + '</button>' +
+      Object.keys(teamInfo).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })).map(tid =>
+        '<button class="dash-seg-btn" data-value="' + escHtml(tid) + '">' + escHtml(teamInfo[tid]) + '</button>').join('');
+    teamSeg.style.display = '';
+    shiftSeg.style.display = 'none';
+    shiftLabel.setAttribute('data-i18n', 'dash_team_filter');
+    shiftLabel.textContent = t('dash_team_filter');
+    STATE._dashFilters.shift = 'all';
+    // P31 B4/决策 4: 新格式月对比卡强制 total-only
+    STATE._dashFilters.dayNightOre = 'total';
+    if (oreTab) oreTab.style.display = 'none';
+    teamSeg.querySelectorAll('.dash-seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        teamSeg.querySelectorAll('.dash-seg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        STATE._dashFilters.shift = btn.dataset.value;
+        applyDashFilters();
+      });
+    });
+  } else {
+    shiftSeg.style.display = '';
+    teamSeg.style.display = 'none';
+    teamSeg.innerHTML = '';
+    shiftLabel.setAttribute('data-i18n', 'dash_shift');
+    shiftLabel.textContent = t('dash_shift');
+    if (oreTab) oreTab.style.display = '';
   }
 
   // 事件绑定
@@ -2717,9 +2765,14 @@ function isNewDashFormat() {
 }
 // ── 根据班次和矿石获取产量值 ──
 function getProdValue(d, shift, ore) {
-  if (isNewDashFormat()) {
-    // 新格式：统一用 total_ 前缀（无 day/night 拆分）
-    return d['total_' + ore] || 0;
+  // P31 B2: 新格式 rec 按 teams 键分流（修复旧实现走 total_ 前缀恒 0 的缺陷）；
+  // shift 参数语义 = 'all' | team_id（班组筛选作用于 KPI/趋势，决策 2）
+  if ('teams' in d) {
+    let list = d.teams || [];
+    if (shift !== 'all') list = list.filter(tm => String(tm.team_id) === String(shift));
+    return list.reduce((acc, tm) => acc + (ore === 'all'
+      ? (tm.total || (tm.nh || 0) + (tm.nl || 0) + (tm.mw || 0))
+      : (tm[ore] || 0)), 0);
   }
   const prefix = shift === 'day' ? 'day_' : shift === 'night' ? 'night_' : 'total_';
   return d[prefix + ore] || 0;
@@ -2781,18 +2834,29 @@ function renderDashboardKPI() {
   const dailyAvg = activeDays > 0 ? Math.round((totalNH + totalNL + totalMW) / activeDays) : 0;
   let ratioStr = nightTotal > 0 ? (dayTotal / nightTotal).toFixed(1) + ' : 1' : dayTotal > 0 ? '∞ : 1' : '—';
   let ratioLabelKey = 'dash_day_night_ratio';
+  let kpiTeamCard = '';
   if (isNewDashFormat()) {
-    const teamMap = {};
+    // P31 B3/决策 8: 第 6 卡改为班组占比卡（上下堆叠、各班组线色、实时占比、垂直居中）
+    const teamAgg = {};
     rows.forEach(d => {
       (d.teams || []).forEach(tm => {
-        const key = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
-        teamMap[key] = (teamMap[key] || 0) + (tm.total || (tm.nh||0)+(tm.nl||0)+(tm.mw||0));
+        if (!teamAgg[tm.team_id]) teamAgg[tm.team_id] = { name: tm.team_name || (t('dash_team_title') + ' ' + tm.team_id), total: 0 };
+        teamAgg[tm.team_id].total += tm.total || (tm.nh || 0) + (tm.nl || 0) + (tm.mw || 0);
       });
     });
-    const entries = Object.entries(teamMap);
-    if (entries.length) {
-      ratioStr = entries.map(([k,v])=> k + ' ' + fmtNum(v)).join(' | ');
-      ratioLabelKey = 'dash_team_compare';
+    const tids = Object.keys(teamAgg).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    if (tids.length) {
+      const grand = tids.reduce((a, tid) => a + teamAgg[tid].total, 0) || 1;
+      kpiTeamCard = `
+      <div class="stat-glass kpi-team">
+        <div class="value">
+          ${tids.map((tid, i) => {
+            const pct = Math.round(teamAgg[tid].total / grand * 100);
+            const line = (TEAM_COLORS[i % TEAM_COLORS.length]).line;
+            return `<span style="color:color-mix(in srgb, ${line} 70%, var(--foreground));">${escHtml(teamAgg[tid].name)} ${pct}%</span>`;
+          }).join('')}
+        </div>
+      </div>`;
     } else {
       ratioStr = '—';
       ratioLabelKey = 'dash_team_compare';
@@ -2802,29 +2866,30 @@ function renderDashboardKPI() {
   const grid = document.getElementById('dashKpiGrid');
   grid.innerHTML = `
     <div class="stat-glass kpi-ore kpi-nh">
-      <div class="value">${fmtNum(totalNH)}</div>
+      <div class="value">${fmtK(totalNH)}</div>
       <div class="label">NH <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
     </div>
     <div class="stat-glass kpi-ore kpi-nl">
-      <div class="value">${fmtNum(totalNL)}</div>
+      <div class="value">${fmtK(totalNL)}</div>
       <div class="label">NL <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
     </div>
     <div class="stat-glass kpi-ore kpi-mw">
-      <div class="value">${fmtNum(totalMW)}</div>
+      <div class="value">${fmtK(totalMW)}</div>
       <div class="label">MW <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
     </div>
     <div class="stat-glass">
-      <div class="value">${fmtNum(dailyAvg)}</div>
+      <div class="value">${fmtK(dailyAvg)}</div>
       <div class="label" data-i18n="dash_daily_avg">日均车次</div>
     </div>
     <div class="stat-glass kpi-peak">
-      <div class="value">${peakVal > 0 ? fmtNum(peakVal) : '—'}</div>
+      <div class="value">${peakVal > 0 ? fmtK(peakVal) : '—'}</div>
       <div class="label">${peakDate ? peakDate.slice(5) : ''} <span data-i18n="dash_daily_peak">日最高</span></div>
     </div>
+    ${kpiTeamCard || `
     <div class="stat-glass kpi-ratio">
       <div class="value" style="font-size:11px;word-break:break-all;">${ratioStr}</div>
       <div class="label" data-i18n="${ratioLabelKey}">${t(ratioLabelKey)}</div>
-    </div>
+    </div>`}
   `;
   // 刷新 i18n
   if (typeof refreshI18n === 'function') refreshI18n();
@@ -2840,21 +2905,45 @@ function renderProductionTrend() {
 
   const dates = rows.map(d => d.date.slice(5));
   const datasets = [];
-  const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
-
-  oreKeys.forEach(key => {
-    const c = ORE_COLORS[key];
-    datasets.push({
-      label: key.toUpperCase(),
-      data: rows.map(d => getProdValue(d, f.shift, key)),
-      borderColor: c.line,
-      backgroundColor: c.bg,
-      fill: true, tension: 0.35, borderWidth: 2.5,
-      pointRadius: 2, pointHoverRadius: 6,
-      pointBackgroundColor: c.line,
-      pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
+  // P31 B2/决策 3: 新格式 = 每班组一条线（班组筛选联动，矿石筛选取 tm[ore]/否则 tm.total）
+  if (isNewDashFormat()) {
+    const teamInfo = {};
+    rows.forEach(d => (d.teams || []).forEach(tm => {
+      teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
+    }));
+    const selTids = (f.shift === 'all')
+      ? Object.keys(teamInfo).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+      : [f.shift];
+    selTids.forEach((tid, i) => {
+      const c = TEAM_COLORS[i % TEAM_COLORS.length];
+      datasets.push({
+        label: teamInfo[tid],
+        data: rows.map(d => getProdValue(d, tid, f.ore)),
+        borderColor: c.line,
+        backgroundColor: c.bg,
+        fill: true, tension: 0.35, borderWidth: 2.5,
+        pointRadius: 2, pointHoverRadius: 6,
+        pointBackgroundColor: c.line,
+        pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
+        datalabels: { color: c.line },
+      });
     });
-  });
+  } else {
+    const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
+    oreKeys.forEach(key => {
+      const c = ORE_COLORS[key];
+      datasets.push({
+        label: key.toUpperCase(),
+        data: rows.map(d => getProdValue(d, f.shift, key)),
+        borderColor: c.line,
+        backgroundColor: c.bg,
+        fill: true, tension: 0.35, borderWidth: 2.5,
+        pointRadius: 2, pointHoverRadius: 6,
+        pointBackgroundColor: c.line,
+        pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
+      });
+    });
+  }
 
   renderChart('chartProdTrend', 'line', { labels: dates, datasets }, {
     responsive: true, maintainAspectRatio: false,
@@ -2862,7 +2951,7 @@ function renderProductionTrend() {
     plugins: {
       datalabels: {
         display: function(ctx) { return ctx.dataset.data[ctx.dataIndex] > 0; },
-        color: function(ctx) { return ORE_COLORS[ctx.dataset.label.toLowerCase()].line; },
+        color: function(ctx) { const c = ORE_COLORS[ctx.dataset.label.toLowerCase()]; return c ? c.line : '#978365'; },
         font: { size: 9, weight: '600' },
         anchor: 'end', align: 'top',
         offset: 2,
@@ -2882,11 +2971,8 @@ function renderProductionTrend() {
           label: function(ctx) {
             const d = rows[ctx.dataIndex];
             if (!d) return '';
+            if (isNewDashFormat()) return `${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
             const key = ctx.dataset.label.toLowerCase();
-            if (isNewDashFormat() && d.teams) {
-              const parts = d.teams.map(tm => (tm.team_name || t('dash_team_title')+' '+tm.team_id) + ':' + fmtNum(tm[key]||0)).join(' | ');
-              return `${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${parts})`;
-            }
             const day = d['day_' + key] || 0;
             const night = d['night_' + key] || 0;
             return `${ctx.dataset.label}: ${fmtNum(ctx.raw)} (${t('dash_shift_day')}${fmtNum(day)} / ${t('dash_shift_night')}${fmtNum(night)})`;
@@ -2933,47 +3019,23 @@ function renderDayNightCompare() {
   if (!rows.length) return;
   const titleEl = document.querySelector('[data-i18n="dash_day_night_compare"]');
   if (isNewDashFormat()) {
+    // P31 B4/决策 4: 新格式 = 班组总产量单指标分组柱（无矿石 tab，每班组一线色）
     if (titleEl) { titleEl.textContent = t('dash_team_compare'); titleEl.setAttribute('data-i18n','dash_team_compare'); }
-    // 收集所有 team_id -> name
     const teamInfo = {};
     rows.forEach(d => (d.teams||[]).forEach(tm => { teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title')+' '+tm.team_id); }));
-    const teamIds = Object.keys(teamInfo).sort();
-    const oreKeys = ['nh','nl','mw'];
-    const colors = { nh: ORE_COLORS.nh.line, nl: ORE_COLORS.nl.line, mw: ORE_COLORS.mw.line };
-    // per team total aggregated if ore===total else per ore
-    // For stacked nh/nl/mw per team across dates, we render aggregated totals per team (single bar per team stacked)
-    // But to keep time dimension, we stack per date? Instead show per-team aggregated totals for simplicity (C8: per team total cars; stacked acceptable)
-    // We'll aggregate across filtered rows per team.
-    const teamAgg = {};
-    teamIds.forEach(tid => teamAgg[tid] = { nh:0,nl:0,mw:0, total:0 });
-    rows.forEach(d => (d.teams||[]).forEach(tm => {
-      const tid = String(tm.team_id);
-      if (!teamAgg[tid]) teamAgg[tid] = { nh:0,nl:0,mw:0,total:0 };
-      teamAgg[tid].nh += tm.nh||0;
-      teamAgg[tid].nl += tm.nl||0;
-      teamAgg[tid].mw += tm.mw||0;
-      teamAgg[tid].total += tm.total || (tm.nh||0)+(tm.nl||0)+(tm.mw||0);
-    }));
-    const labels = teamIds.map(tid => teamInfo[tid]);
-    let datasets;
-    if (ore === 'total') {
-      datasets = oreKeys.map(k => ({
-        label: k.toUpperCase(),
-        data: teamIds.map(tid => teamAgg[tid][k]||0),
-        backgroundColor: colors[k] + 'CC',
-        borderColor: colors[k],
+    const teamIds = Object.keys(teamInfo).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+    const datasets = teamIds.map((tid, i) => {
+      const c = TEAM_COLORS[i % TEAM_COLORS.length];
+      return {
+        label: teamInfo[tid],
+        data: rows.map(d => getProdValue(d, tid, 'all')),
+        backgroundColor: c.line + 'CC',
+        borderColor: c.line,
         borderWidth: 1, borderRadius: 4,
-      }));
-    } else {
-      datasets = [{
-        label: ore.toUpperCase(),
-        data: teamIds.map(tid => teamAgg[tid][ore]||0),
-        backgroundColor: (colors[ore]||'#BEAF87') + '99',
-        borderColor: colors[ore]||'#BEAF87',
-        borderWidth: 1, borderRadius: 4,
-      }];
-    }
-    renderChart('chartDayNight', 'bar', { labels, datasets }, {
+        datalabels: { color: c.line },
+      };
+    });
+    renderChart('chartDayNight', 'bar', { labels: rows.map(d => d.date.slice(5)), datasets }, {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         datalabels: {
@@ -2994,19 +3056,11 @@ function renderDayNightCompare() {
           padding: 12,
           titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
           bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
-          callbacks: {
-            afterBody: function(ctx) {
-              const idx = ctx[0] ? ctx[0].dataIndex : 0;
-              const tid = teamIds[idx];
-              const agg = teamAgg[tid]||{};
-              return t('dash_team_title') + ' ' + tid + ': ' + fmtNum(agg.total||0) + ' (NH ' + fmtNum(agg.nh||0) + ' NL ' + fmtNum(agg.nl||0) + ' MW ' + fmtNum(agg.mw||0) + ')';
-            }
-          }
         },
       },
       scales: {
-        x: { stacked: ore==='total', grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
-        y: { stacked: ore==='total', grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+        x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+        y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
       },
     });
     return;

@@ -2498,6 +2498,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .kpi-ratio .value { color: var(--secondary); }
 .kpi-unit { font-size: 10px; font-weight: 400; opacity: 0.7; }
 
+/* ── P31 B3/决策 8: KPI 班组占比卡（第 6 卡，新格式月） ── */
+.dash-kpi-grid .stat-glass.kpi-team { display: flex; align-items: center; justify-content: center; }
+.dash-kpi-grid .stat-glass.kpi-team .value {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 /* ── 图表卡片 ── */
 .dash-chart-card {
   margin-bottom: 16px;
