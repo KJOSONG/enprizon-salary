@@ -5098,12 +5098,7 @@ async function renderSalaryTable(result) {
   const salaryDa = (result.employees || []).reduce((s, e) => s + (e.driver_allowance || 0), 0);
   document.getElementById('salaryStats').innerHTML = `
     <div class="stat-glass"><div class="value">${result.employees.length}</div><div class="label">${t('salary_stats_emp')}</div></div>
-    <div class="stat-glass"><div class="value">${fmtNum(result.total_gross)}</div><div class="label">${t('salary_stats_gross')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--success)">${fmtNum(result.total_bonus||0)}</div><div class="label">${t('salary_stats_bonus')}</div></div>
-    <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_penalty||0)}</div><div class="label">${t('salary_stats_penalty')}</div></div>
-    <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div><div class="label">${t('salary_stats_advance')}</div></div>
-    <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div><div class="label">${t('salary_stats_nssf')}</div></div>
-    <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_paye||0)}</div><div class="label">${t('salary_stats_paye')}</div></div>
     <div class="stat-glass driver-allowance-card">
       <div class="value" style="color:var(--success)">${fmtNum(salaryDa)}</div>
       <div class="label">${t('salary_stats_driver')}</div>
@@ -5112,6 +5107,11 @@ async function renderSalaryTable(result) {
       <div class="value" style="color:var(--success)">${fmtNum(result.total_overtime||0)}</div>
       <div class="label">${t('salary_stats_overtime')}</div>
     </div>
+    <div class="stat-glass"><div class="value">${fmtNum(result.total_gross)}</div><div class="label">${t('salary_stats_gross')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div><div class="label">${t('salary_stats_nssf')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_paye||0)}</div><div class="label">${t('salary_stats_paye')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_penalty||0)}</div><div class="label">${t('salary_stats_penalty')}</div></div>
+    <div class="stat-glass"><div class="value" style="color:var(--danger)">${fmtNum(result.total_advance)}</div><div class="label">${t('salary_stats_advance')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--success)">${fmtNum(result.total_net)}</div><div class="label">${t('salary_stats_net')}</div></div>
   `;
   document.getElementById('salaryStats').style.display = 'grid';
