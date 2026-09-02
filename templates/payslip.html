@@ -34,28 +34,28 @@ body {
 
 .slip {
   border: 1px solid #000;
-  padding: 1.31em; /* 3mm */
-  font-size: {{ '%.3f' % (6.5 * s) }}pt;
-  overflow: hidden; /* 探针已保证放得下；仅作极端兜底防止格间重叠 */
+  padding: 0.25em 0.5em; /* 上下更紧，左右保持 */
+  font-size: {{ '%.3f' % (10.5 * s) }}pt;
+  overflow: hidden;
 }
 
 .header {
   text-align: center;
   border-bottom: 1px solid #000;
-  padding-bottom: 0.87em;
-  margin-bottom: 1.09em;
+  padding-bottom: 0.3em;
+  margin-bottom: 0.3em;
 }
 .company { font-size: 1.15em; font-weight: bold; }
-.month-label { font-size: 0.85em; margin-top: 0.44em; }
+.month-label { font-size: 0.85em; margin-top: 0.25em; }
 
 .emp-info {
-  margin-bottom: 1.09em;
+  margin-bottom: 0.3em;
   font-size: 0.85em;
 }
 .emp-info .field {
   display: flex;
   gap: 0.44em;
-  margin-bottom: 0.35em;
+  margin-bottom: 0.2em;
 }
 .emp-info .label { min-width: 6.11em; color: #333; }
 .emp-info .value { font-weight: bold; }
@@ -63,8 +63,8 @@ body {
 .attendance {
   border-top: 1px solid #000;
   border-bottom: 1px solid #000;
-  padding: 0.52em 0;
-  margin-bottom: 1.09em;
+  padding: 0.2em 0;
+  margin-bottom: 0.3em;
   font-size: 0.77em;
   display: flex;
   gap: 1.74em;
@@ -74,8 +74,8 @@ body {
 .section-title {
   font-weight: bold;
   border-bottom: 1px solid #000;
-  padding-bottom: 0.22em;
-  margin-bottom: 0.52em;
+  padding-bottom: 0.15em;
+  margin-bottom: 0.3em;
   font-size: 0.92em;
 }
 
@@ -84,48 +84,49 @@ table {
   border-collapse: collapse;
   font-size: 0.85em;
 }
-table td { padding: 0.21em 0; } /* 替代原固定行高 3.5mm，随字号缩放 */
+table td { padding: 0.1em 0; } /* 更紧凑的行距 */
 table .item { text-align: left; }
 table .amount { text-align: right; font-family: "Courier New", monospace; }
 table .subtotal {
   font-weight: bold;
   border-top: 1px solid #000;
-  padding-top: 0.44em;
-  margin-top: 0.44em;
+  padding-top: 0.25em;
+  margin-top: 0.25em;
 }
 
-.deductions { margin-top: 1.09em; }
+.deductions { margin-top: 0.3em; }
 
 .summary {
-  margin-top: 1.09em;
+  margin-top: 0.3em;
   border-top: 1px solid #000;
-  padding-top: 0.52em;
+  padding-top: 0.2em;
 }
 .summary-row {
   display: flex;
   justify-content: space-between;
   font-size: 0.85em;
-  padding: 0.22em 0;
+  padding: 0.15em 0;
 }
 .summary-row.total {
   font-weight: bold;
   font-size: 1.08em;
   border-top: 1px solid #000;
-  padding-top: 0.44em;
-  margin-top: 0.44em;
+  padding-top: 0.3em;
+  margin-top: 0.3em;
 }
 
-/* 签名区：固定间距，随 scale 收缩 */
+/* 签名区：最小化，紧贴内容 */
 .signature {
-  padding-top: 6.11em; /* 14mm 签名空间 */
+  margin-top: auto; /* 推到底部 */
+  padding-top: 0.5em;
   display: flex;
   justify-content: space-between;
-  font-size: 1.08em;
+  font-size: 0.9em;
 }
 .sig-line {
   width: 45%;
   border-top: 1px solid #000;
-  padding-top: 3.49em; /* 8mm */
+  padding-top: 0.3em;
   text-align: center;
   font-weight: bold;
 }
