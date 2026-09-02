@@ -981,9 +981,11 @@ def _build_attendance_grid_for_month(requested_month):
         return _build_attendance_grid(md_wrap.get('main_data'), md_wrap.get('employees'))
     return _build_attendance_grid()
 
-def _audit(action, employee_id='', detail='{}', operator=''):
+def _audit(action, employee_id='', detail='{}', operator=None):
     """写审计日志（快捷包装）"""
     from core.database import log_audit
+    if operator is None:
+        operator = session.get('username', '')
     log_audit(app.config['DATA_FOLDER'], action, employee_id, detail, operator=operator)
 
 # ═══════════════════════════════════════════════════════════
