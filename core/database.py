@@ -2282,12 +2282,22 @@ def revoke_event(data_folder, event_id, revoked_by):
     finally:
         conn.close()
 
-def edit_approved_leave_event(data_folder, event_id, new_date, new_days, operator):
-    """P21 M4: 已批年假/调休同月修改——单事务内「撤销旧单 → 扣新余额 → 写新出勤 → 批准新单」
+def edit_approved_event(data_folder, event_id, new_date, new_days, operator):
+    """R1: 已批准事件修改（年假/调休/病假/普通请假/加班），支持跨月跨年。
 
-    仅限同月（new_date[:7] == 原 effective_date[:7]），跨月返回错误。
-    approver 保留原事件设定。任一步失败整体回滚。
-    返回 (ok, msg)：成功 msg=新事件 id；失败 msg=错误描述。
+    分两支处理：
+    a) 请假族（annual_leave/comp_leave/sick/casual）：
+       单事务内「撤销旧单 → 回滚旧余额 → 删旧出勤 → 建新 pending 单 → 扣新余额 → 写新出勤 → 自动批准」。
+       旧/新年份可能不同，余额扣减前会懒初始化新年 leave_balances 行（与 apply_approved_event 同机制）。
+    b) 加班（overtime）：
+       原地修改：仅更新 overtime_records.date + employee_events.effective_date/payload/updated_at，
+       不创建新事件，不改变状态，不回滚任何余额。
+
+    返回 (ok, msg)：
+      成功 → (True, new_event_id)  请假族返回新建事件 id
+             (True, event_id)       加班返回原事件 id（不变）
+      失败 → (False, 中文错误描述)
+    调用方只需判断 ok 布尔值，不应依赖 msg 内容做分支。
     """
     from datetime import datetime as _dt, timedelta as _td
     conn = get_conn(data_folder)
@@ -2295,10 +2305,40 @@ def edit_approved_leave_event(data_folder, event_id, new_date, new_days, operato
         ev = conn.execute("SELECT * FROM employee_events WHERE id=?", (event_id,)).fetchone()
         if not ev or ev['status'] != 'approved':
             return False, '事件不存在或未批准'
-        if ev['event_type'] not in ('annual_leave', 'comp_leave'):
-            return False, '仅请假事件可修改'
-        if ev['effective_date'][:7] != (new_date or '')[:7]:
-            return False, '跨月修改需先撤销后重新申请'
+        if ev['event_type'] not in ('annual_leave', 'comp_leave', 'sick', 'casual', 'overtime'):
+            return False, '该类型事件不支持修改'
+        # 参数校验
+        try:
+            _dt.strptime(new_date, '%Y-%m-%d')
+        except (TypeError, ValueError):
+            return False, '生效日期格式无效'
+        if not isinstance(new_days, int) or new_days < 1:
+            return False, '天数至少为 1'
+
+        eid = ev['employee_id']
+        etype = ev['event_type']
+        approver = ev['approver'] or ''
+
+        # ── b) 加班：原地修改，不建新事件 ──────────────────────────
+        if etype == 'overtime':
+            try:
+                old_payload = json.loads(ev['payload'] or '{}')
+            except Exception:
+                old_payload = {}
+            new_payload = dict(old_payload)
+            new_payload['date'] = new_date
+            payload_json = json.dumps(new_payload, ensure_ascii=False)
+            conn.execute(
+                "UPDATE overtime_records SET date=? WHERE event_id=?",
+                (new_date, event_id))
+            conn.execute(
+                "UPDATE employee_events SET effective_date=?, payload=?,"
+                " updated_at=datetime('now','+3 hours') WHERE id=?",
+                (new_date, payload_json, event_id))
+            conn.commit()
+            return True, event_id
+
+        # ── a) 请假族：撤销旧单 → 建新单 → 扣新余额 → 写新出勤 → 批准 ──
         try:
             payload = json.loads(ev['payload'] or '{}')
         except Exception:
@@ -2309,20 +2349,25 @@ def edit_approved_leave_event(data_folder, event_id, new_date, new_days, operato
             old_days = 1
         if old_days < 1:
             old_days = 1
-        year = ev['effective_date'][:4]
-        eid = ev['employee_id']
-        etype = ev['event_type']
-        approver = ev['approver'] or ''
-        # 1) 撤销旧单（置 revoked + 回滚余额 + 删旧 NU/T）
+
+        old_year = ev['effective_date'][:4]
+        new_year = new_date[:4]
+
+        # 1) 撤销旧单（置 revoked + 回滚余额 + 删旧出勤覆盖）
         conn.execute(
             "UPDATE employee_events SET status='revoked', revoked_by=?,"
             " revoked_at=datetime('now','+3 hours'),"
             " updated_at=datetime('now','+3 hours') WHERE id=?",
             (operator, event_id))
+
         if etype == 'annual_leave':
-            restore_annual_leave(data_folder, eid, year, old_days, conn=conn)
-        else:
-            restore_comp_leave(data_folder, eid, year, old_days, conn=conn)
+            restore_annual_leave(data_folder, eid, old_year, old_days, conn=conn)
+        elif etype == 'comp_leave':
+            restore_comp_leave(data_folder, eid, old_year, old_days, conn=conn)
+        elif etype == 'sick':
+            restore_sick_leave(data_folder, eid, old_year, old_days, conn=conn)
+        # casual：无余额，无需回滚
+
         try:
             d0 = _dt.strptime(ev['effective_date'], '%Y-%m-%d')
         except (TypeError, ValueError):
@@ -2333,7 +2378,8 @@ def edit_approved_leave_event(data_folder, event_id, new_date, new_days, operato
                 conn.execute(
                     "DELETE FROM attendance_overrides WHERE employee_id=? AND date=?",
                     (eid, _ds))
-        # 2) 创建新单（pending，approver 保留）
+
+        # 2) 创建新 pending 单（approver/operator/snapshot 保留原值）
         new_payload = json.dumps({
             'days': new_days,
             'note': payload.get('note', ''),
@@ -2346,25 +2392,64 @@ def edit_approved_leave_event(data_folder, event_id, new_date, new_days, operato
             (eid, etype, new_date, ev['snapshot'] or '{}', new_payload,
              ev['operator_id'], approver))
         new_id = cur.lastrowid
-        # 3) 扣新余额 + 写新出勤
+
+        # 3) 扣新余额（新年份懒初始化：与 apply_approved_event 同机制）
         if etype == 'annual_leave':
-            ok = deduct_annual_leave(data_folder, eid, year, new_days, conn=conn)
+            # 懒初始化：新年 leave_balances 行不存在时先建行（与 deduct_sick_leave 同模式）
+            if new_year and new_year != old_year:
+                _row = conn.execute(
+                    "SELECT 1 FROM leave_balances WHERE employee_id=? AND year=?",
+                    (eid, new_year)).fetchone()
+                if not _row:
+                    # 新年额度按系统常量 28 建行（与 leave_balances 列默认/GET 回退一致）
+                    _al = 28
+                    conn.execute(
+                        "INSERT INTO leave_balances (employee_id, year, annual_entitled, annual_used)"
+                        " VALUES (?,?,?,0)",
+                        (eid, new_year, _al))
+            ok = deduct_annual_leave(data_folder, eid, new_year, new_days, conn=conn)
             if not ok:
                 raise RuntimeError('年假余额不足，无法修改')
             st = 'NU'
-        else:
-            ok = deduct_comp_leave(data_folder, eid, year, new_days, conn=conn)
+        elif etype == 'comp_leave':
+            if new_year and new_year != old_year:
+                _row = conn.execute(
+                    "SELECT 1 FROM leave_balances WHERE employee_id=? AND year=?",
+                    (eid, new_year)).fetchone()
+                if not _row:
+                    conn.execute(
+                        "INSERT INTO leave_balances (employee_id, year, comp_entitled, comp_used)"
+                        " VALUES (?,?,0,0)",
+                        (eid, new_year))
+            ok = deduct_comp_leave(data_folder, eid, new_year, new_days, conn=conn)
             if not ok:
                 raise RuntimeError('调休余额不足，无法修改')
             st = 'T'
-        d1 = _dt.strptime(new_date, '%Y-%m-%d')
+        elif etype == 'sick':
+            # deduct_sick_leave 内部已懒初始化，无需额外处理
+            _cfg = load_config(data_folder)
+            ok = deduct_sick_leave(data_folder, eid, new_year, new_days,
+                                   default_entitled=int(_cfg.get('sick_leave_days', 14) or 14),
+                                   conn=conn)
+            if not ok:
+                raise RuntimeError('病假余额不足，无法修改')
+            st = 'SK'
+        else:  # casual：无余额扣减
+            st = 'L'
+
+        # 4) 写新出勤覆盖
+        try:
+            d1 = _dt.strptime(new_date, '%Y-%m-%d')
+        except (TypeError, ValueError):
+            raise RuntimeError(f'生效日期格式无效: {new_date}')
         for _i in range(new_days):
             _ds = (d1 + _td(days=_i)).strftime('%Y-%m-%d')
             conn.execute(
                 "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,0) "
                 "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=0",
                 (eid, _ds, st, st))
-        # 4) 批准新单
+
+        # 5) 自动批准新单
         conn.execute(
             "UPDATE employee_events SET status='approved', approved_by=?,"
             " updated_at=datetime('now','+3 hours') WHERE id=? AND status='pending'",

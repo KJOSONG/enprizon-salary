@@ -2229,6 +2229,16 @@ def oa_create_event():
         # 以后端计算为准（防前端伪造），同时保证 hours>0
         _pl['hours'] = _h
         data['payload'] = _pl
+        # R2: 非 super_admin 提交加班时，日期须在提交日前后 2 天内（含）
+        if session.get('role') != 'super_admin':
+            try:
+                ot_date = datetime.strptime(str(_pl.get('date', '')), '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                return jsonify({'ok': False, 'error': '加班日期无效'}), 400
+            today = datetime.now(EAT).date()
+            if abs((ot_date - today).days) > 2:
+                _lang = (data.get('lang') or 'zh')
+                return jsonify({'ok': False, 'error': _ot_window_err_msg(_lang)}), 400
     # P13: 按事件类型取指定审批人写入（未设定为 ''）
     from core.database import get_approver_for_event
     data['approver'] = get_approver_for_event(app.config['DATA_FOLDER'], data.get('event_type', ''))
@@ -2418,19 +2428,19 @@ def oa_revoke_event(event_id):
 @editor_required
 @require_permission('oa', 'approve')  # P29 T4 A5（内联本人待审自改规则原样保留于 handler 内）
 def oa_edit_event(event_id):
-    """P21 M4: 修改请假事件
-    - 待审: update_pending_event（payload.days + effective_date）
-    - 已批: 仅限同月修改（edit_approved_leave_event 事务内撤销重建），跨月 400
+    """R1: 修改 OA 事件（年假/调休/病假/普通请假/加班）
+    - 待审: update_pending_event（payload.days + effective_date；加班同步改 payload.date）
+    - 已批: 支持跨月跨年修改（edit_approved_event 事务内撤销重建或原地修改）
     """
     from core.database import (get_event, update_pending_event, log_audit, check_permission,
-                               edit_approved_leave_event)
+                               edit_approved_event)
     data = request.get_json() or {}
     username = session.get('username', '')
     event = get_event(app.config['DATA_FOLDER'], event_id)
     if not event:
         return jsonify({'ok': False, 'error': '事件不存在'}), 404
-    if event['event_type'] not in ('annual_leave', 'comp_leave'):
-        return jsonify({'ok': False, 'error': '仅请假事件可修改'}), 400
+    if event['event_type'] not in ('annual_leave', 'comp_leave', 'sick', 'casual', 'overtime'):
+        return jsonify({'ok': False, 'error': '该类型事件不支持修改'}), 400
     # 权限（同 revoke）
     if event['status'] == 'approved':
         if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
@@ -2455,7 +2465,20 @@ def oa_edit_event(event_id):
             payload = json.loads(event['payload'] or '{}')
         except Exception:
             payload = {}
-        if new_days is not None:
+        if event['event_type'] == 'overtime':
+            # 待审加班：同步更新 payload.date
+            payload['date'] = new_date
+            # R2 防绕过：非 super_admin 编辑待审加班也受 ±2 天窗口约束
+            if session.get('role') != 'super_admin':
+                try:
+                    ot_date = datetime.strptime(new_date, '%Y-%m-%d').date()
+                except (TypeError, ValueError):
+                    return jsonify({'ok': False, 'error': '加班日期无效'}), 400
+                today = datetime.now(EAT).date()
+                if abs((ot_date - today).days) > 2:
+                    _lang = (data.get('lang') or 'zh')
+                    return jsonify({'ok': False, 'error': _ot_window_err_msg(_lang)}), 400
+        elif new_days is not None:
             payload['days'] = new_days
         fields = {'effective_date': new_date, 'payload': json.dumps(payload, ensure_ascii=False)}
         ok = update_pending_event(app.config['DATA_FOLDER'], event_id, fields)
@@ -2474,24 +2497,43 @@ def oa_edit_event(event_id):
             _invalidate_month_cache(new_month)
         return jsonify({'ok': True})
 
-    # 已批：同月修改（事务内撤销重建）
+    # 已批：支持跨月跨年修改
     if new_days is None:
         try:
             new_days = int(json.loads(event['payload'] or '{}').get('days', 1) or 1)
         except (TypeError, ValueError):
             new_days = 1
-    ok, msg = edit_approved_leave_event(app.config['DATA_FOLDER'], event_id, new_date, new_days, username)
+    ok, msg = edit_approved_event(app.config['DATA_FOLDER'], event_id, new_date, new_days, username)
     if not ok:
         return jsonify({'ok': False, 'error': str(msg)}), 400
-    log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
-              json.dumps({'event_id': event_id, 'status': 'approved', 'new_date': new_date,
-                          'days': new_days, 'new_event_id': msg}))
-    # P27 按月隔离：已批修改按生效月份精准刷新（同月约束下仍按月重建）
-    eff_month = (new_date or event.get('effective_date') or '')[:7]
-    if eff_month and MONTH_RE.match(eff_month):
-        _refresh_employees_cache(eff_month)
+    # R1: 审计动作用 'oa_edit_date'（区分普通 oa_edit）
+    _old_date = event.get('effective_date') or ''
+    log_audit(app.config['DATA_FOLDER'], 'oa_edit_date', event['employee_id'],
+              json.dumps({'event_id': event_id, 'employee_id': event['employee_id'],
+                          'old_date': _old_date, 'new_date': new_date, 'operator': username}))
+    # R1: 跨月跨年缓存刷新——收集旧/新日期范围覆盖的所有月份，逐月刷新
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        _eff_range = int(json.loads(event.get('payload') or '{}').get('days', 1) or 1)
+    except (TypeError, ValueError):
+        _eff_range = 1
+    if event['event_type'] == 'overtime':
+        _eff_range = 1  # 加班仅单日
+    _months_to_refresh = set()
+    for _eff, _days in [(_old_date, _eff_range), (new_date, new_days)]:
+        try:
+            _d0 = _dt.strptime(_eff, '%Y-%m-%d')
+        except (TypeError, ValueError):
+            continue
+        for _i in range(_days):
+            _ds = (_d0 + _td(days=_i)).strftime('%Y-%m')
+            if MONTH_RE.match(_ds):
+                _months_to_refresh.add(_ds)
+    if _months_to_refresh:
+        for _m in sorted(_months_to_refresh):
+            _refresh_employees_cache(_m)
     else:
-        _refresh_employees_cache()
+        _refresh_employees_cache()  # 回退：无有效月份时全局刷新
     return jsonify({'ok': True, 'event_id': event_id, 'new_event_id': msg})
 
 
@@ -2540,6 +2582,17 @@ def _leave_err_msg(codes, reasons, lang):
         else:
             parts.append(d.get(code, code))
     return d['prefix'] + ', '.join(parts)
+
+# ── R2: 加班日期窗口错误双语 ───────────────────────────────
+_OT_WINDOW_ERR_MSG = {
+    'zh': '加班日期须在提交日期前后2天内（含），请及时提交加班申请',
+    'en': 'Overtime date must be within 2 calendar days of the submission date (inclusive). Please submit your overtime request promptly.',
+}
+
+def _ot_window_err_msg(lang):
+    """返回加班日期窗口超限的双语错误串"""
+    return _OT_WINDOW_ERR_MSG.get('en' if (lang or '') == 'en' else 'zh',
+                                   _OT_WINDOW_ERR_MSG['zh'])
 
 def _require_super_admin():
     """内部校验 super_admin，返回错误响应或 None"""
