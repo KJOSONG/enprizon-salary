@@ -2959,13 +2959,15 @@ function renderProductionTrend() {
 
   const dates = rows.map(d => d.date.slice(5));
   const datasets = [];
+  // P32: selTids 需在函数作用域可见（tooltip label 回调在函数级别引用，不能是 if 块内 const）
+  let selTids = [];
   // P31 B2/决策 3: 新格式 = 每班组一条线（班组筛选联动，矿石筛选取 tm[ore]/否则 tm.total）
   if (isNewDashFormat()) {
     const teamInfo = {};
     rows.forEach(d => (d.teams || []).forEach(tm => {
       teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
     }));
-    const selTids = (f.shift === 'all')
+    selTids = (f.shift === 'all')
       ? Object.keys(teamInfo).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
       : [f.shift];
     selTids.forEach((tid, i) => {
