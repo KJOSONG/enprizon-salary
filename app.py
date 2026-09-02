@@ -5283,33 +5283,32 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
     if result:
         ws2 = wb.create_sheet('Salary Summary')
         headers2 = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
-                    'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
-                    'Bonus(TZS)', 'Driver Allowance(TZS)', 'Overtime(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)',
-                    'PAYE(TZS)', 'Company PAYE (50%)(TZS)', 'Net Salary(TZS)']
+                    'Day Rate(TZS)', 'Monthly(TZS)', 'Overtime(TZS)', 'Bonus(TZS)', 'Driver Allowance(TZS)',
+                    'Gross Total(TZS)', 'NSSF(TZS)', 'PAYE(TZS)', 'Company PAYE (50%)(TZS)',
+                    'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)']
         for ci, h in enumerate(headers2, 1):
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
 
         _type_map2 = {'piece_crush':'Crush Piece','piece_underground':'Underground Piece Rate','piece_driller':'Driller Piece',
                       'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
         for i, emp in enumerate(result['employees'], 2):
-            gross = (emp.get('piece_underground',0) or 0) + (emp.get('piece_driller',0) or 0) + \
-                    (emp.get('piece_crush',0) or 0) + \
-                    (emp.get('day_rate',0) or 0) + (emp.get('monthly',0) or 0) + \
-                    (emp.get('overtime',0) or 0)
+            gross = emp.get('gross', 0) or 0
             bonus = int(emp.get('bonus', 0) or 0)
             penalty = int(emp.get('penalty', 0) or 0)
-            nssf = emp.get('nssf',0) or 0
+            nssf = emp.get('nssf', 0) or 0
             driver = int(emp.get('driver_allowance', 0) or 0)
             overtime = int(emp.get('overtime', 0) or 0)
             paye = int(emp.get('paye', 0) or 0)
-            paye_half = paye // 2  # 公司代付一半
+            paye_half = int(emp.get('paye_half', 0) or 0)
             vals = [
                 emp.get('name','') or '', _type_map2.get(emp.get('salary_type',''), emp.get('salary_type','')),
                 int(emp.get('piece_underground',0) or 0), int(emp.get('piece_driller',0) or 0),
                 int(emp.get('piece_crush',0) or 0),
                 int(emp.get('day_rate',0) or 0), int(emp.get('monthly',0) or 0),
-                int(gross), bonus, driver, overtime, penalty, int(emp.get('advance',0) or 0), int(nssf),
-                paye, paye_half, int(emp.get('net', 0) or 0),
+                overtime, bonus, driver,
+                int(gross), int(nssf),
+                paye, paye_half, penalty, int(emp.get('advance',0) or 0),
+                int(emp.get('net', 0) or 0),
             ]
             for ci, v in enumerate(vals, 1):
                 c = ws2.cell(i, ci, v); c.border = tb
@@ -5319,13 +5318,11 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
-        # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 加班(K), 罚款(L), 预支(M), NSSF(N), PAYE(O), 公司代付(P) → SUM
         for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
             c.number_format = '#,##0'
-        # 实发(17=Q) = Σ逐行后端 net（行值直接取 emp.net，含 PAYE 半额代付与加班费口径）
         ws2.cell(tr, 17, f'=SUM(Q2:Q{tr-1})')
         ws2.cell(tr, 17).font = Font(bold=True)
         ws2.cell(tr, 17).fill = total_fill; ws2.cell(tr, 17).border = tb
