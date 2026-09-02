@@ -3161,8 +3161,8 @@ def collection_submit():
                 return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除：设备豁免请在井下出渣产量中勾选，出勤豁免请走 OA 或由管理员在出勤网格标记'}), 400
             if st == 'NU':
                 return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止采集提交（员工 {eid} · {date}）'}), 403
-        # 采集分流：P/A 直写，L/SK/T 转 OA pending（定向 maua，KEJU 超管兜底可见）
-        _OA_MAP = {'L': 'casual', 'SK': 'sick', 'T': 'comp_leave'}
+        # 采集分流：P/A/T 直写，L/SK 转 OA pending
+        _OA_MAP = {'L': 'casual', 'SK': 'sick'}
         _oa_created = []
         _oa_skipped = []
         _direct_marks = []
@@ -3232,10 +3232,16 @@ def collection_submit():
             status = m.get('status', '')
             if not eid or not status:
                 continue
-            if status not in ('P', 'A'):
-                return jsonify({'ok': False, 'error': f'采集仅支持 P/A 直写，{status} 已转OA或不支持'}), 400
+            if status not in ('P', 'A', 'T'):
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=0)
+                if status == 'T':
+                    from core.database import deduct_comp_leave
+                    _year = int(date[:4])
+                    if not deduct_comp_leave(app.config['DATA_FOLDER'], eid, _year, 1):
+                        delete_attendance_override(app.config['DATA_FOLDER'], eid, date)
+                        return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T'}), 400
             except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # 标记 driver flag（通过 helper 重设，保证与旧地下 drivers 合并一致）
@@ -3506,6 +3512,9 @@ def collection_edit(submission_id):
             old_payload = json.loads(sub['payload'] or '{}')
             for m in (old_payload.get('marks') or []):
                 if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], old_date) != 'NU':
+                    if m.get('status') == 'T':
+                        from core.database import restore_comp_leave
+                        restore_comp_leave(app.config['DATA_FOLDER'], m['employee_id'], int(old_date[:4]), 1)
                     delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], old_date)
         except Exception:
             pass
@@ -3515,10 +3524,13 @@ def collection_edit(submission_id):
                 target_payload = json.loads(merged_target['payload'] or '{}')
                 for m in (target_payload.get('marks') or []):
                     if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], new_date) != 'NU':
+                        if m.get('status') == 'T':
+                            from core.database import restore_comp_leave
+                            restore_comp_leave(app.config['DATA_FOLDER'], m['employee_id'], int(new_date[:4]), 1)
                         delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
             except Exception:
                 pass
-        _OA_MAP_EDIT = {'L': 'casual', 'SK': 'sick', 'T': 'comp_leave'}
+        _OA_MAP_EDIT = {'L': 'casual', 'SK': 'sick'}
         _oa_created_edit = []
         _oa_skipped_edit = []
         for m in (payload.get('marks') or []):
@@ -3564,10 +3576,16 @@ def collection_edit(submission_id):
                 except Exception as e:
                     return jsonify({'ok': False, 'error': f'创建OA事件失败({eid}/{status}): {e}'}), 500
                 continue
-            if status not in ('P', 'A'):
-                return jsonify({'ok': False, 'error': f'采集仅支持 P/A 直写，{status} 已转OA或不支持'}), 400
+            if status not in ('P', 'A', 'T'):
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status, source=0)
+                if status == 'T':
+                    from core.database import deduct_comp_leave
+                    _year = int(new_date[:4])
+                    if not deduct_comp_leave(app.config['DATA_FOLDER'], eid, _year, 1):
+                        delete_attendance_override(app.config['DATA_FOLDER'], eid, new_date)
+                        return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T'}), 400
             except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # C4: 重设 driver flags（编辑后 attendance drivers 可能变）
