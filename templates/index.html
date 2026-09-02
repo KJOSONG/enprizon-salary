@@ -1330,7 +1330,7 @@
     </div>
     <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
       <table class="data-table" style="font-size:11px;">
-        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
+        <thead><tr><th data-i18n="audit_th_time">时间</th><th data-i18n="audit_th_action">操作</th><th data-i18n="audit_th_operator">操作人</th><th data-i18n="audit_th_employee">员工</th><th data-i18n="audit_th_detail">详情</th></tr></thead>
         <tbody id="auditLogBody"></tbody>
       </table>
     </div>
@@ -6402,7 +6402,8 @@ async function loadAuditLog() {
       return `<tr>
         <td style="white-space:nowrap;font-size:10px;color:var(--text-muted)">${l.timestamp}</td>
         <td style="white-space:nowrap;">${actionLabels[l.action]||l.action}</td>
-        <td style="white-space:nowrap;">${l.employee_id||''}</td>
+        <td style="white-space:nowrap;">${l.operator||''}</td>
+        <td style="white-space:nowrap;">${l.employee_name||l.employee_id||''}</td>
         <td style="font-size:10px;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;">${escHtml(detail)}</td>
       </tr>`;
     }).join('');

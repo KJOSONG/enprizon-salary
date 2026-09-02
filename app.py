@@ -981,10 +981,10 @@ def _build_attendance_grid_for_month(requested_month):
         return _build_attendance_grid(md_wrap.get('main_data'), md_wrap.get('employees'))
     return _build_attendance_grid()
 
-def _audit(action, employee_id='', detail='{}'):
+def _audit(action, employee_id='', detail='{}', operator=''):
     """写审计日志（快捷包装）"""
     from core.database import log_audit
-    log_audit(app.config['DATA_FOLDER'], action, employee_id, detail)
+    log_audit(app.config['DATA_FOLDER'], action, employee_id, detail, operator=operator)
 
 # ═══════════════════════════════════════════════════════════
 #  P9: Web 采集数据回填（纯采集模式唯一数据源，见 collection_submit）
@@ -1882,7 +1882,8 @@ def seed_employees():
     conn.commit()
     conn.close()
     log_audit(app.config['DATA_FOLDER'], 'seed_employees', 'system',
-              _json.dumps({'total': len(APP_STATE.get('employees', [])), 'imported': count}))
+              _json.dumps({'total': len(APP_STATE.get('employees', [])), 'imported': count}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'imported': count,
                     'total': len(APP_STATE.get('employees', [])),
                     'message': f'已导入 {count} 名员工的入职事件'})
@@ -1988,7 +1989,8 @@ def api_create_employee_event(employee_id):
         (employee_id, event_type, effective_date, '{}', json.dumps(payload), operator_id, 'approved')
     )
     conn.commit()
-    log_audit(app.config['DATA_FOLDER'], 'create_event', employee_id, json.dumps({'type': event_type, 'date': effective_date}))
+    log_audit(app.config['DATA_FOLDER'], 'create_event', employee_id, json.dumps({'type': event_type, 'date': effective_date}),
+              operator=session.get('username',''))
     conn.close()
     return jsonify({'ok': True})
 
@@ -2019,7 +2021,8 @@ def api_employee_annual_leave_override(employee_id):
     _sync_employee_cache(employee_id, {'annual_leave_override': new_val})  # P23 R4 轻量同步
     log_audit(app.config['DATA_FOLDER'], 'annual_leave_override_toggle',
               employee_id, json.dumps({'override': new_val,
-                  'operator': session.get('username', '')}))
+                  'operator': session.get('username', '')}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'override': new_val})
 
 @app.route('/api/employees/<employee_id>', methods=['POST'])
@@ -2057,7 +2060,8 @@ def api_employee_update(employee_id):
         if renamed or 'alias' in data:
             _build_db_ab_index(app.config['DATA_FOLDER'])  # 改名/别名即时生效（采集/出勤反查）
         log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,
-                  json.dumps(data))
+                  json.dumps(data),
+                  operator=session.get('username',''))
     _refresh_employees_cache()  # P23 R4: 基本字段/月薪基数变更后全量重建
     return jsonify({'ok': ok})
 
@@ -2117,7 +2121,8 @@ def api_employee_salary_type(employee_id):
     })
     log_audit(app.config['DATA_FOLDER'], 'employee_salary_type', employee_id,
               json.dumps({'salary_type': st, 'day_rate': day_rate,
-                          'monthly_salary': monthly_salary}))
+                          'monthly_salary': monthly_salary}),
+              operator=session.get('username',''))
     _refresh_employees_cache()  # P23 R4: 核心修复点——薪资类型/基数变更后立即重算
     return jsonify({'ok': True})
 
@@ -2166,7 +2171,8 @@ def api_employee_avatar_upload():
     update_employee_fields(app.config['DATA_FOLDER'], eid, {'avatar_path': avatar_path})
     _sync_employee_cache(eid, {'avatar_path': avatar_path})  # P23 R4 纯展示字段轻量同步
     log_audit(app.config['DATA_FOLDER'], 'employee_avatar', eid,
-              json.dumps({'avatar_path': avatar_path}))
+              json.dumps({'avatar_path': avatar_path}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'avatar_path': avatar_path})
 
 @app.route('/api/employees/avatar/delete', methods=['POST'])
@@ -2190,7 +2196,8 @@ def api_employee_avatar_delete():
     update_employee_fields(app.config['DATA_FOLDER'], eid, {'avatar_path': ''})
     _sync_employee_cache(eid, {'avatar_path': ''})  # P23 R4 纯展示字段轻量同步
     log_audit(app.config['DATA_FOLDER'], 'employee_avatar_delete', eid,
-              json.dumps({'avatar_path': ''}))
+              json.dumps({'avatar_path': ''}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 
@@ -2247,7 +2254,8 @@ def oa_create_event():
     data['snapshot'] = json.dumps(data.get('snapshot', {}), ensure_ascii=False)
     event_id = create_event(app.config['DATA_FOLDER'], data)
     log_audit(app.config['DATA_FOLDER'], 'oa_create_event',
-              data['employee_id'], json.dumps(data))
+              data['employee_id'], json.dumps(data),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'event_id': event_id})
 
 def _oa_read_gate():
@@ -2343,10 +2351,12 @@ def oa_approve_event(event_id):
         unapprove_event(app.config['DATA_FOLDER'], event_id)
         log_audit(app.config['DATA_FOLDER'], 'oa_apply_failed', event['employee_id'],
                   json.dumps({'event_id': event_id, 'event_type': event['event_type'],
-                              'error': str(e)}))
+                              'error': str(e)}),
+                  operator=session.get('username',''))
         return jsonify({'ok': False, 'error': f'批准失败: {str(e)}'}), 400
     log_audit(app.config['DATA_FOLDER'], 'oa_approve',
-              event['employee_id'], json.dumps({'event_id': event_id}))
+              event['employee_id'], json.dumps({'event_id': event_id}),
+              operator=session.get('username',''))
     # P27 按月隔离修复：按事件生效月份精准刷新，避免全局 APP_STATE.month 错月污染
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
@@ -2371,7 +2381,8 @@ def oa_reject_event(event_id):
         event = get_event(app.config['DATA_FOLDER'], event_id)
         if event:
             log_audit(app.config['DATA_FOLDER'], 'oa_reject',
-                      event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}))
+                      event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}),
+                      operator=session.get('username',''))
     return jsonify({'ok': ok})
 
 @app.route('/api/oa/events/<int:event_id>', methods=['GET'])
@@ -2415,7 +2426,8 @@ def oa_revoke_event(event_id):
     if not ok:
         return jsonify({'ok': False, 'error': '撤销失败（事件可能已处理）'}), 400
     log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
-              json.dumps({'event_id': event_id, 'event_type': event['event_type']}))
+              json.dumps({'event_id': event_id, 'event_type': event['event_type']}),
+              operator=session.get('username',''))
     # P27 按月隔离修复：按事件生效月份精准回退，避免全局错月
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
@@ -2485,7 +2497,8 @@ def oa_edit_event(event_id):
         if not ok:
             return jsonify({'ok': False, 'error': '修改失败（事件可能已处理）'}), 400
         log_audit(app.config['DATA_FOLDER'], 'oa_edit', event['employee_id'],
-                  json.dumps({'event_id': event_id, 'status': 'pending', 'new_date': new_date, 'days': new_days}))
+                  json.dumps({'event_id': event_id, 'status': 'pending', 'new_date': new_date, 'days': new_days}),
+                  operator=session.get('username',''))
         # P27 按月隔离：待审修改按新旧生效月份失效缓存
         old_month = (event.get('effective_date') or '')[:7]
         new_month = (new_date or '')[:7]
@@ -2510,7 +2523,8 @@ def oa_edit_event(event_id):
     _old_date = event.get('effective_date') or ''
     log_audit(app.config['DATA_FOLDER'], 'oa_edit_date', event['employee_id'],
               json.dumps({'event_id': event_id, 'employee_id': event['employee_id'],
-                          'old_date': _old_date, 'new_date': new_date, 'operator': username}))
+                          'old_date': _old_date, 'new_date': new_date, 'operator': username}),
+              operator=session.get('username',''))
     # R1: 跨月跨年缓存刷新——收集旧/新日期范围覆盖的所有月份，逐月刷新
     from datetime import datetime as _dt, timedelta as _td
     try:
@@ -2625,7 +2639,8 @@ def api_approval_routes_set():
         return jsonify({'ok': False, 'error': '审批人不存在'}), 400
     set_approval_route(app.config['DATA_FOLDER'], event_type, approver)
     log_audit(app.config['DATA_FOLDER'], 'approval_route_set', '',
-              json.dumps({'event_type': event_type, 'approver': approver}))
+              json.dumps({'event_type': event_type, 'approver': approver}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 @app.route('/api/approval-routes/<int:route_id>', methods=['DELETE'])
@@ -2639,7 +2654,8 @@ def api_approval_routes_delete(route_id):
     ok = delete_approval_route(app.config['DATA_FOLDER'], route_id)
     if ok:
         log_audit(app.config['DATA_FOLDER'], 'approval_route_delete', '',
-                  json.dumps({'route_id': route_id}))
+                  json.dumps({'route_id': route_id}),
+                  operator=session.get('username',''))
     return jsonify({'ok': ok})
 
 
@@ -2676,7 +2692,8 @@ def attendance_batch_submit():
             add_driver(app.config['DATA_FOLDER'], eid)
     _invalidate_month_cache((date or '')[:7])
     log_audit(app.config['DATA_FOLDER'], 'attendance_batch', session.get('username',''),
-              json.dumps({'date': date, 'count': count}))
+              json.dumps({'date': date, 'count': count}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'count': count})
 
 @app.route('/api/attendance/roster', methods=['GET'])
@@ -2721,7 +2738,8 @@ def oa_submit_leave():
         'operator_id': data['operator_id'],
     })
     log_audit(app.config['DATA_FOLDER'], 'oa_create_event', eid,
-              json.dumps({'event_type': event_type, 'event_id': event_id}))
+              json.dumps({'event_type': event_type, 'event_id': event_id}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'event_id': event_id})
 
 @app.route('/api/leave/balance/<employee_id>', methods=['GET'])
@@ -2734,7 +2752,8 @@ def leave_balance(employee_id):
         accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
     except Exception as e:
         log_audit(app.config['DATA_FOLDER'], 'comp_accrual_lazy_failed', employee_id,
-                  json.dumps({'error': str(e)}))
+                  json.dumps({'error': str(e)}),
+                  operator=session.get('username',''))
     balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year)
     return jsonify({'balance': balance})
 
@@ -2774,7 +2793,8 @@ def leave_sick():
         'approver': get_approver_for_event(app.config['DATA_FOLDER'], 'sick'),
     })
     log_audit(app.config['DATA_FOLDER'], 'oa_create_event', eid,
-              json.dumps({'event_type': 'sick', 'event_id': event_id, 'date': date, 'days': days}))
+              json.dumps({'event_type': 'sick', 'event_id': event_id, 'date': date, 'days': days}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'message': '已提交审批，待OA审核', 'event_id': event_id})
 
 @app.route('/api/leave/balance/adjust', methods=['POST'])
@@ -2803,7 +2823,8 @@ def leave_balance_adjust():
                           'annual_entitled': data.get('annual_entitled'),
                           'annual_used': data.get('annual_used'),
                           'comp_entitled': data.get('comp_entitled'),
-                          'comp_used': data.get('comp_used')}))
+                          'comp_used': data.get('comp_used')}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 # ═══════════════════════════════════════════════════════════
@@ -3275,7 +3296,8 @@ def collection_submit():
     log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
               json.dumps({'form_type': form_type, 'date': date, 'sid': sid, 'department': dept, 'month': date[:7],
                           'oa_created': _collection_oa_created if form_type=='attendance' and '_collection_oa_created' in locals() else [],
-                          'oa_skipped': _collection_oa_skipped if form_type=='attendance' and '_collection_oa_skipped' in locals() else []}, ensure_ascii=False))
+                          'oa_skipped': _collection_oa_skipped if form_type=='attendance' and '_collection_oa_skipped' in locals() else []}, ensure_ascii=False),
+              operator=session.get('username',''))
     result = {'ok': True, 'submission_id': sid}
     if form_type == 'attendance' and '_collection_oa_created' in locals():
         if _collection_oa_created:
@@ -3565,7 +3587,8 @@ def collection_edit(submission_id):
               json.dumps({'submission_id': submission_id, 'form_type': form_type,
                           'date': new_date, 'old_date': old_date, 'month': new_date[:7],
                           'oa_created': _oa_created_edit if form_type=='attendance' and '_oa_created_edit' in locals() else [],
-                          'oa_skipped': _oa_skipped_edit if form_type=='attendance' and '_oa_skipped_edit' in locals() else []}, ensure_ascii=False))
+                          'oa_skipped': _oa_skipped_edit if form_type=='attendance' and '_oa_skipped_edit' in locals() else []}, ensure_ascii=False),
+              operator=session.get('username',''))
     _res = {'ok': True, 'submission_id': submission_id}
     if form_type == 'attendance' and '_oa_created_edit' in locals():
         if _oa_created_edit:
@@ -3668,7 +3691,8 @@ def api_collection_exempt(submission_id):
             audit_detail['team_id'] = tid
         else:
             audit_detail['shift'] = shift
-        log_audit(app.config['DATA_FOLDER'], 'collection_exempt_edit', '', json.dumps(audit_detail, ensure_ascii=False))
+        log_audit(app.config['DATA_FOLDER'], 'collection_exempt_edit', '', json.dumps(audit_detail, ensure_ascii=False),
+                  operator=session.get('username',''))
     except Exception:
         pass
     return jsonify({'ok': True, 'version': new_ver})
@@ -3685,7 +3709,8 @@ def production_shift_entry():
     conn.commit()
     conn.close()
     log_audit(app.config['DATA_FOLDER'], 'production_shift', data['employee_id'],
-              json.dumps(data))
+              json.dumps(data),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 
@@ -3714,7 +3739,8 @@ def api_employee_groups_create():
     if not gid:
         return jsonify({'ok': False, 'error': '班组名已存在'}), 400
     log_audit(app.config['DATA_FOLDER'], 'employee_group_create', '',
-              json.dumps({'name': name}))
+              json.dumps({'name': name}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'group_id': gid})
 
 @app.route('/api/employee_groups/<int:group_id>', methods=['PUT'])
@@ -3731,7 +3757,8 @@ def api_employee_groups_update(group_id):
     if not ok:
         return jsonify({'ok': False, 'error': '班组不存在或名称冲突'}), 400
     log_audit(app.config['DATA_FOLDER'], 'employee_group_update', '',
-              json.dumps({'group_id': group_id, 'name': name}))
+              json.dumps({'group_id': group_id, 'name': name}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 @app.route('/api/employee_groups/<int:group_id>', methods=['DELETE'])
@@ -3741,7 +3768,8 @@ def api_employee_groups_delete(group_id):
     from core.database import delete_employee_group, log_audit
     delete_employee_group(app.config['DATA_FOLDER'], group_id)
     log_audit(app.config['DATA_FOLDER'], 'employee_group_delete', '',
-              json.dumps({'group_id': group_id}))
+              json.dumps({'group_id': group_id}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 
@@ -3784,7 +3812,8 @@ def api_driller_captains_create():
     if not cid:
         return jsonify({'ok': False, 'error': '该员工已在钻工队长名单'}), 400
     log_audit(app.config['DATA_FOLDER'], 'driller_captain_create', eid,
-              json.dumps({'name': name}))
+              json.dumps({'name': name}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'captain': {'id': cid, 'employee_id': eid, 'name': name}})
 
 @app.route('/api/driller-captains/<int:captain_id>', methods=['PUT'])
@@ -3798,7 +3827,8 @@ def api_driller_captains_update(captain_id):
     if not ok:
         return jsonify({'ok': False, 'error': '队长不存在或无有效字段'}), 400
     log_audit(app.config['DATA_FOLDER'], 'driller_captain_update', '',
-              json.dumps({'id': captain_id, **data}))
+              json.dumps({'id': captain_id, **data}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 @app.route('/api/driller-captains/<int:captain_id>', methods=['DELETE'])
@@ -3808,7 +3838,8 @@ def api_driller_captains_delete(captain_id):
     from core.database import delete_driller_captain, log_audit
     delete_driller_captain(app.config['DATA_FOLDER'], captain_id)
     log_audit(app.config['DATA_FOLDER'], 'driller_captain_delete', '',
-              json.dumps({'id': captain_id}))
+              json.dumps({'id': captain_id}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 @app.route('/api/driver-roster', methods=['GET'])
@@ -3852,7 +3883,8 @@ def scoring_submit_card():
         save_scoring_card_entries(app.config['DATA_FOLDER'], week, team_id, card_no, source, rows, month)
         log_audit(app.config['DATA_FOLDER'], 'scoring_card_entries', session.get('username',''),
                   json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no,
-                              'source': source, 'month': month, 'count': len(rows)}))
+                              'source': source, 'month': month, 'count': len(rows)}),
+                  operator=session.get('username',''))
         return jsonify({'ok': True, 'count': len(rows)})
     # 旧格式 entries（P3 逐行）兼容保留
     if 'entries' not in data:
@@ -3864,7 +3896,8 @@ def scoring_submit_card():
     entries = data['entries']
     card_id = submit_scoring_card(app.config['DATA_FOLDER'], week, team, card_no, source, entries)
     log_audit(app.config['DATA_FOLDER'], 'scoring_card', session.get('username',''),
-              json.dumps({'card_id': card_id, 'week': week, 'team': team, 'source': source}))
+              json.dumps({'card_id': card_id, 'week': week, 'team': team, 'source': source}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'card_id': card_id})
 
 # ── P14.8: 评分原始记录查询/删除（周次/班组/卡号/被评人） ──
@@ -3915,7 +3948,8 @@ def scoring_card_delete():
                                 month=data.get('month') or request.args.get('month', ''))
     log_audit(app.config['DATA_FOLDER'], 'scoring_card_delete', '',
               json.dumps({'week': week, 'team_id': team_id, 'card_no': card_no,
-                          'source': source, 'month': data.get('month') or request.args.get('month', '')}))
+                          'source': source, 'month': data.get('month') or request.args.get('month', '')}),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 # ── P10: 评分录入（班组+月份，一张卡一人） ──
@@ -4005,7 +4039,8 @@ def scoring_card_batch():
         conn.close()
     log_audit(app.config['DATA_FOLDER'], 'scoring_card_batch', '',
               json.dumps({'team': team, 'month': month, 'source': source,
-                          'count': len(cards), 'operator': username}))
+                          'count': len(cards), 'operator': username}),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'count': len(cards)})
 
 @app.route('/api/scoring/week/<int:team>/<int:week>', methods=['GET'])
@@ -4105,7 +4140,8 @@ def objective_entry():
         data['team'], data['planned_output'], data['actual_output'],
         data['total_hours'], data['effective_hours'], data['week'])
     log_audit(app.config['DATA_FOLDER'], 'objective_entry', session.get('username',''),
-              json.dumps(data))
+              json.dumps(data),
+              operator=session.get('username',''))
     return jsonify({'ok': True, 'daily_s': daily_s})
 
 @app.route('/api/objective/daily/<int:team>', methods=['GET'])
@@ -4142,7 +4178,8 @@ def scoring_config_save():
     from core.database import save_scoring_config, log_audit
     data = request.get_json()
     save_scoring_config(app.config['DATA_FOLDER'], data)
-    log_audit(app.config['DATA_FOLDER'], 'scoring_config', session.get('username',''), json.dumps(data))
+    log_audit(app.config['DATA_FOLDER'], 'scoring_config', session.get('username',''), json.dumps(data),
+              operator=session.get('username',''))
     return jsonify({'ok': True})
 
 # ═══════════════════════════════════════════════════════════

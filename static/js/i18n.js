@@ -313,6 +313,7 @@ const I18N_DICT = {
     audit_refresh: '↻ 刷新',
     audit_th_time: '时间',
     audit_th_action: '操作',
+    audit_th_operator: '操作人',
     audit_th_employee: '员工',
     audit_th_detail: '详情',
 
@@ -1514,6 +1515,7 @@ const I18N_DICT = {
     audit_refresh: '↻ Refresh',
     audit_th_time: 'Time',
     audit_th_action: 'Action',
+    audit_th_operator: 'Operator',
     audit_th_employee: 'Employee',
     audit_th_detail: 'Details',
 

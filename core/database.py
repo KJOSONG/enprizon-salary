@@ -99,6 +99,10 @@ def init_db(data_folder):
     try:
         conn.execute("ALTER TABLE monthly_data ADD COLUMN ug_coefficient REAL DEFAULT 1.0")
     except: pass
+    # P34: audit_log 新增 operator 列
+    try:
+        conn.execute("ALTER TABLE audit_log ADD COLUMN operator TEXT DEFAULT ''")
+    except: pass
     # P1: employees 扩展列
     _emp_new_cols = [
         ('position', 'TEXT DEFAULT \'\''),
@@ -1108,15 +1112,15 @@ def clear_driver_flags_for_date(data_folder, date):
 
 # ── 审计日志 ──────────────────────────────────
 
-def log_audit(data_folder, action, employee_id='', detail='{}'):
+def log_audit(data_folder, action, employee_id='', detail='{}', operator=''):
     """写入一条审计日志（UTC+3 坦桑尼亚时间）"""
     from datetime import datetime, timezone, timedelta
     tz_tz = timezone(timedelta(hours=3))
     now = datetime.now(tz_tz).strftime('%Y-%m-%d %H:%M:%S')
     conn = get_conn(data_folder)
     conn.execute(
-        "INSERT INTO audit_log (timestamp, action, employee_id, detail) VALUES (?,?,?,?)",
-        (now, action, employee_id, detail)
+        "INSERT INTO audit_log (timestamp, action, employee_id, detail, operator) VALUES (?,?,?,?,?)",
+        (now, action, employee_id, detail, operator)
     )
     conn.commit()
     conn.close()
@@ -1208,8 +1212,20 @@ def get_audit_logs(data_folder, limit=200):
     rows = conn.execute(
         "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
+    # Build employee name lookup
+    emp_names = {}
+    try:
+        for r in conn.execute("SELECT id, name FROM employees").fetchall():
+            emp_names[str(r['id'])] = r['name']
+    except Exception:
+        pass
     conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    for row in rows:
+        d = dict(row)
+        d['employee_name'] = emp_names.get(str(d.get('employee_id', '')), d.get('employee_id', ''))
+        result.append(d)
+    return result
 
 # ── 每月工资结果 ──────────────────────────────
 
