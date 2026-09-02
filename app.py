@@ -2873,18 +2873,6 @@ def _ensure_collection_team_id_column(data_folder):
     except Exception:
         pass
 
-def _driver_roster_active(data_folder):
-    """driver_roster 非空 = 白名单已启用；为空 = 未启用（不校验，兼容生产现状）"""
-    try:
-        from core.database import get_conn
-        conn = get_conn(data_folder)
-        try:
-            n = conn.execute('SELECT COUNT(*) FROM driver_roster').fetchone()[0]
-        finally:
-            conn.close()
-        return n > 0
-    except Exception:
-        return False
 
 def _build_ug_team_members(data_folder):
     """C5: 构建 ug_team_members: {team_id: [employee_id,...]} 仅 UG 部门按 team_id 分组"""
@@ -3214,19 +3202,13 @@ def collection_submit():
                 _direct_marks.append(m)
         # 重置 marks 为仅 P/A 直写集合（payload 留痕仍保留原始 marks 供审计，但直写仅 P/A）
         marks = _direct_marks
-        # drivers 校验：subset of marks + driver_roster（仅 P/A 集合内）
+        # drivers 校验：subset of marks（仅 P/A 集合内）
         drivers = payload.get('drivers') or []
         if drivers:
             marks_ids = {str(m.get('employee_id') or '') for m in marks}
             for d in drivers:
                 if str(d) not in marks_ids:
                     return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中（仅 P/A 人员可标记驾驶，L/SK/T 已转审批）'}), 400
-            from core.database import is_driver
-            # 白名单语义：driver_roster 非空才强制校验（生产名单为空=未启用白名单，与历史行为一致）
-            if _driver_roster_active(app.config['DATA_FOLDER']):
-                for d in drivers:
-                    if not is_driver(app.config['DATA_FOLDER'], str(d)):
-                        return jsonify({'ok': False, 'error': f'员工 {d} 非司机名单，无法标记驾驶'}), 400
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -3441,11 +3423,6 @@ def collection_edit(submission_id):
             for d in drivers_edit:
                 if str(d) not in marks_ids_edit:
                     return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中'}), 400
-            from core.database import is_driver as _is_drv
-            if _driver_roster_active(app.config['DATA_FOLDER']):
-                for d in drivers_edit:
-                    if not _is_drv(app.config['DATA_FOLDER'], str(d)):
-                        return jsonify({'ok': False, 'error': f'员工 {d} 非司机名单，无法标记驾驶'}), 400
         from core.database import get_attendance_status
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')

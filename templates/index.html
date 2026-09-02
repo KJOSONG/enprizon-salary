@@ -8128,16 +8128,6 @@ const COL_ATT_STATUS = [
   ['P', 'att_status_p'], ['A', 'att_status_a'], ['L', 'att_status_l_pending'],
   ['SK', 'att_status_sk_pending'], ['T', 'att_status_t_pending'],
 ];
-let _driverRosterCache = null;
-async function ensureDriverRoster() {
-  if (_driverRosterCache) return _driverRosterCache;
-  try {
-    const res = await fetch(api('/api/driver-roster'));
-    const data = await res.json();
-    _driverRosterCache = (data.drivers || []).map(String);
-  } catch(e) { _driverRosterCache = []; }
-  return _driverRosterCache;
-}
 
 async function renderAttCollectionForm(payload) {
   payload = payload || {};
@@ -8155,7 +8145,6 @@ async function renderAttCollectionForm(payload) {
   const selTeamId = payload.team_id != null ? String(payload.team_id) : '';
   const marksMap = {};
   (payload.marks || []).forEach(m => { marksMap[String(m.employee_id)] = m; });
-  const driverRoster = await ensureDriverRoster();
   const attStatusOpts = (selSt) => COL_ATT_STATUS.map(([v, key]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${t(key)}</option>`).join('');
   const otherHtml = rosterOther.map(e => {
     const m = marksMap[String(e.id)] || {};
@@ -8169,12 +8158,10 @@ async function renderAttCollectionForm(payload) {
     const m = marksMap[String(e.id)] || {};
     const st = m.status || 'P';
     const isDrv = (payload.drivers || []).map(String).includes(String(e.id));
-    const inRoster = driverRoster.includes(String(e.id));
-    const rosterLocked = driverRoster.length > 0 && !inRoster;
     return `<div class="picker-row att-row" data-dept="${escHtml(ugDeptExact)}" data-team-id="${escHtml(String(e.team_id||''))}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
         <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${isDrv ? 'checked' : ''} ${rosterLocked ? 'disabled title="' + t('col_att_driver_not_roster') + '"' : ''}> ${t('col_att_driver')}</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${isDrv ? 'checked' : ''}> ${t('col_att_driver')}</label>
       </div>`;
   }).join('');
   const rosterHtml = (otherHtml + ugHtml) || '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
@@ -8283,7 +8270,6 @@ async function submitAttCollection() {
     for (const e of roster) {
       const chk = document.getElementById('attDrv' + e.id);
       if (chk && chk.checked) {
-        if (chk.disabled) { showToast(t('col_att_driver_not_roster'), 'error'); return; }
         drivers.push(e.id);
       }
     }

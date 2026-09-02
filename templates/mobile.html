@@ -1780,10 +1780,6 @@
     }
     STATE._attPool = pool;
     STATE._attUgPool = ugPool;
-    // 驾驶员白名单
-    let driverSet=new Set();
-    try{ const r=await api('/api/driver-roster'); (r.drivers||[]).forEach(id=>driverSet.add(String(id))); }catch(e){}
-    STATE._attDriverRoster=driverSet;
     // 班组下拉
     let ugGroups=[];
     try{ const g=await api('/api/employee_groups'); ugGroups=g.groups||[]; }catch(e){}
@@ -1799,7 +1795,7 @@
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="onAttDeptChange()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+deptOpts+'</select></div>'
       + '<div class="field" id="attTeamRow" style="display:'+(isUgInit?'block':'none')+';"><label class="field__label">'+t('col_att_ug_team')+'</label><select id="attTeamSel" onchange="renderAttRoster()"><option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></div>'
-      + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button><button class="btn" onclick="attBatchAll(\'E\')">'+t('shift_E_label')+'</button></div>'
+      + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
@@ -1848,16 +1844,12 @@
     if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
     const drivers = STATE._attEditDrivers || new Set();
-    const roster = STATE._attDriverRoster || new Set();
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
       const isDriverOn = drivers.has(String(e.id));
-      const inRoster = roster.has(String(e.id));
-      const rosterLocked = roster.size > 0 && !inRoster;
-      const dis = isUg && rosterLocked ? ' disabled title="'+t('col_att_driver_not_roster')+'"' : '';
       const chk = isDriverOn ? ' checked' : '';
       return '<div class="worker-item" style="gap:6px;"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span>'
         + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','SK','T'].map(s=>{const lab=s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_pending'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>'
-        + (isUg ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+dis+'> '+t('col_att_driver')+'</label>' : '')
+        + (isUg ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '')
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
@@ -1893,10 +1885,6 @@
     if(isUg){
       const team_id=parseInt(document.getElementById('attTeamSel').value,10)||0;
       const drivers=list.filter(e=>{ const cb=document.getElementById('attDrv'+e.id); return cb && cb.checked; }).map(e=>String(e.id));
-      // 校 drivers 子集 + roster 已在前端禁用，仍做兜底校验
-      const marksIds=new Set(marks.map(m=>String(m.employee_id)));
-      for(const d of drivers){ if(!marksIds.has(String(d))){ showFormMsg('attendance', t('col_att_driver_not_roster'), false); return; } }
-      // disabled 复选框的 drivers 不会入 drivers，故 roster 校验在服务端再兜底
       colSubmit('attendance', { submission_date:date, department:deptEl.value, team_id, marks, drivers }, null);
     } else {
       colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null);
