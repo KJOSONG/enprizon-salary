@@ -1,6 +1,6 @@
 # AGENTS.md — ENPRIZON LINDI (enprizon-salary)
 
-> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=be3efce，服务 active（P29 权限体系 V2.1 已部署 2026-08-23）**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
+> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=2d8228e，服务 active（P30/P31/P32 已部署 2026-09-02；P29 权限 V2.1 于 2026-08-23 部署）**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
 
 ## 相关文档
 
@@ -153,7 +153,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
 ```
 月份范围由采集数据中的日期生成（不再扫描 `data/source/`，该目录已清空）。`scan_source_files()` 与 `parser.parse_all()`（Excel 解析）已在纯采集改造中移除；Excel 仅保留于历史归档（`data/archived_*`）。
 
-> **P30 井下采集班组化（feature/ug-attendance-collection，待部署）**：井下出渣采集改为**班组产量制**——payload 新格式 `{"teams":[{team_id,nh,nl,mw,exempt,remark}]}`（无 day/night/emps/drivers），一日一条提交；井下工人出勤并入**出勤收集**（部门选 `Production TEAM （underground）` → 选班组 → 人员逐人标 P/A/L/SK/T/E + 驾驶勾选），payload `{department,team_id,marks,drivers}`，upsert 键扩为 (form,date,department,team_id)（`collection_submissions` 懒迁移 `team_id` 列）。**格式分支原则**：消费端一律按"rec 含 `teams` 键=新格式 / 含 `day_prod`=旧格式"分流，旧 payload 逐字保留 → 8 月及更早零改动（验收=改动前后 2026-08 全员薪资逐分 0 差异）。计算链 `ug_team_members` kwarg（app 构建花名册 → calculator/verification），池分母=班组当日 P 人数，零出勤班组跳过+警告。驾驶白名单语义：`driver_roster` **非空才校验**（空=未启用，兼容生产现状）。新增豁免二次编辑端点 `POST /api/collection/exempt/<id>`（仅 super_admin，版本归档+审计 `collection_exempt_edit`）。数据台按数据格式分支：新格式月渲染班组对比图+班组 KPI，旧月白夜班原样。
+> **P30 井下采集班组化（✅ 已部署 2026-09-01，main=9abd4cc + UX修正 adbf787）**：井下出渣采集改为**班组产量制**——payload 新格式 `{"teams":[{team_id,nh,nl,mw,exempt,remark}]}`（无 day/night/emps/drivers），一日一条提交；井下工人出勤并入**出勤收集**（部门选 `Production TEAM （underground）` → 选班组 → 人员逐人标 P/A/L/SK/T/E + 驾驶勾选），payload `{department,team_id,marks,drivers}`，upsert 键扩为 (form,date,department,team_id)（`collection_submissions` 懒迁移 `team_id` 列）。**格式分支原则**：消费端一律按"rec 含 `teams` 键=新格式 / 含 `day_prod`=旧格式"分流，旧 payload 逐字保留 → 8 月及更早零改动（验收=改动前后 2026-08 全员薪资逐分 0 差异）。计算链 `ug_team_members` kwarg（app 构建花名册 → calculator/verification），池分母=班组当日 P 人数，零出勤班组跳过+警告。驾驶白名单语义：`driver_roster` **非空才校验**（空=未启用，兼容生产现状）。新增豁免二次编辑端点 `POST /api/collection/exempt/<id>`（仅 super_admin，版本归档+审计 `collection_exempt_edit`）。数据台按数据格式分支：新格式月渲染班组对比图+班组 KPI，旧月白夜班原样。
 
 > `employee_id` 生成链路（`namematch.py`）在纯采集模式下从 **DB `employees` 表**构建 `_AB_INDEX`（不再依赖通讯录 Excel），其余三级匹配逻辑不变（见下）。
 
@@ -480,12 +480,12 @@ app.py (Flask 路由 / 认证 / 数据管线)
 - 复杂任务（≥3 需求）用 KEJU 团队并行（designer/dev/qa），简单任务直接做
 - 判断薪资类型用 `override_type or default_type`
 
-## 重构状态（2026-08-23 更新，main=be3efce；P29 已部署）
+## 重构状态（2026-09-02 更新，main=2d8228e；P29/P30/P31/P32 已部署）
 
-**分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）；`feature/p29-permission-v2` 已完成 P29 权限 V2.1 全部实施（41 测试通过），待用户批准 push + 服务器部署
-**阶段**: **P0-P25 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速 / P26-P28 / **P29 权限体系 V2.1（已部署 2026-08-23，迁移幂等完成）**
+**分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）
+**阶段**: **P0-P29 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速 / P26-P28 / **P29 权限体系 V2.1（已部署 2026-08-23，迁移幂等完成）** / **P30 井下班组化（已部署 2026-09-01）** / **P31 数据台班组化（已部署 2026-09-02）** / **P32 出勤采集排除已批假期 + 数据台趋势tooltip班组物料（已部署 2026-09-02）**）
 **纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
-**部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），服务 active
+**部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），当前 main=2d8228e，服务 active
 **团队**: KEJU 团队（designer/dev/qa）并行工作流，复杂任务必用；agentmemory 已整合（开始 recall / 完成 remember）
 
 ### 最近阶段新增功能（P18-P29 摘要）
@@ -533,7 +533,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 0. **P29 权限体系 V2.1 ✅ 已部署（2026-08-23）**：main=be3efce 上线，服务器首启迁移日志确认「P29 权限目录 V2.1 迁移完成」，perm_v2_migrated=1、五内置角色行数精确、存量 editor 平移保留；回滚预案=data/backups/kilwa_before_p29_20260823_194713.db。后续观察项：各角色登录走查 + 权限编辑器分组显示
 1. **P30 井下班组化 ✅ 已部署（2026-09-01，main=9abd4cc + UX修正 adbf787）**：班组产量制 + 出勤收集并入 UG 班组 + 数据台班组图 + 豁免超管二次编辑（详见上方 §数据流水线 P30 注）；同日 UX 修正（adbf787）：用户角色下拉弃用 editor 补 collector/applicant（后端两端点拒 editor）、豁免操作明朗化（琥珀高亮+徽章+confirm）、出勤 UG 班组过滤严格化（无班组井下员工不出现）；验收证据：pytest 25 绿（19 新 + 6 旧）、同库新旧代码（3c9484c vs 9abd4cc）2026-08 逐人逐字段 0 差异、沙箱 piecework+v2 双模式端到端走查全过、浏览器三表面实测（UX 修正截图 _work/ux-fixes/）；回滚预案=data/backups/kilwa_before_uxfix_20260901_210000.db；⚠️ 部署当晚生产 8 月总额较 17:02 基线 −133,846 TZS 系用户业务操作（员工30罚款100000→0、43 转月薪、94/LARISAIDLARI 日薪清零，audit_log 可查），非代码回归
-1b. **P31 数据台班组化 ✅ 完成（2026-09-02，feature/p31-dashboard-team 待批准合并部署）**：数据台消费端全面适配 P30 `teams` 新格式——趋势图每班组一条线（`TEAM_COLORS` #B05A3C/#7A8B5C/#E8923E 循环，桌面/移动共享）、「班次」筛选新格式月动态替换为班组筛选（`_dashFilters.shift` 语义扩 `all|team_id`，作用面=趋势+KPI+对比卡）、白夜班对比卡新格式月改班组总产量单指标分组柱（隐藏矿石 tab 强制 total，移动端同步重置 `dnTab='all'`）、KPI 第 6 卡新格式月改班组占比卡（上下堆叠各班组线色实时 pct）、KPI 数值全站统一 `fmtK`（1 位小数+千分位）+ body `font-variant-numeric: lining-nums tabular-nums` + `--font-main` 去 Georgia、桌面图表布局自适应（`.chart-fixed-h` 固定高 300/260 + `.data-dashboard>.card{min-width:0}` + x 轴 autoSkip/maxTicksLimit 8|15 + datalabels >16 天抽样 + resizeDelay:120）、移动端 `loadDashboard` 显式 `?month=`（修切月时序错月）+ `drawTrend` 单一数据源 + labels 首末日期月份断言（console.warn）、新增 `/production-verify` teams 分支（`shift_daily[dt]=Σteams`，旧格式逐字保留；权限放宽 `salary:view OR dashboard:view`；新格式月顶层下发 `verify_days/match_days/mismatch_days`）+ 数据台底部产量核验卡（仅 `salary:view` 且新格式月渲染，chips/sticky 表格/仅看差异筛选/行点击 toast）。**红线遵守**：不改 `/api/production/dashboard`/采集 payload/`core/calculator.py`/`core/verification.py`；8 月及更早旧格式月界面与数据零改动（旧格式响应与改造前逐字段一致有 pytest 断言）。验证：pytest 9/9 绿（新格式 4+旧格式回归 2+边界 1+权限 2；P30 既有 25 例已被 TTL 清理不可执行，其保护面=计算链红线未触碰）、浏览器实测 8 月桌面+移动零改动回归、9 月合成数据全功能走查（班组筛选联动/占比 53%÷47% 复核/核验卡筛选 26→3 行/toast 明细）、1920/1440/1366 三档 31 天无横向滚动、880/560 断点高度正确、375px 无横滚。规格=docs/P31_DASHBOARD_TEAM_SPEC.md（定稿 10 决策），视觉=docs/P31_DASHBOARD_TEAM_PREVIEW.html；测试 _work/p31-dashboard-team/。**回滚：整分支不合并即可，无数据迁移无计算链触碰**
+1b. **P31 数据台班组化 ✅ 已部署（2026-09-02，已合入 main=2d8228e）**：数据台消费端全面适配 P30 `teams` 新格式——趋势图每班组一条线（`TEAM_COLORS` #B05A3C/#7A8B5C/#E8923E 循环，桌面/移动共享）、「班次」筛选新格式月动态替换为班组筛选（`_dashFilters.shift` 语义扩 `all|team_id`，作用面=趋势+KPI+对比卡）、白夜班对比卡新格式月改班组总产量单指标分组柱（隐藏矿石 tab 强制 total，移动端同步重置 `dnTab='all'`）、KPI 第 6 卡新格式月改班组占比卡（上下堆叠各班组线色实时 pct）、KPI 数值全站统一 `fmtK`（1 位小数+千分位）+ body `font-variant-numeric: lining-nums tabular-nums` + `--font-main` 去 Georgia、桌面图表布局自适应（`.chart-fixed-h` 固定高 300/260 + `.data-dashboard>.card{min-width:0}` + x 轴 autoSkip/maxTicksLimit 8|15 + datalabels >16 天抽样 + resizeDelay:120）、移动端 `loadDashboard` 显式 `?month=`（修切月时序错月）+ `drawTrend` 单一数据源 + labels 首末日期月份断言（console.warn）、新增 `/production-verify` teams 分支（`shift_daily[dt]=Σteams`，旧格式逐字保留；权限放宽 `salary:view OR dashboard:view`；新格式月顶层下发 `verify_days/match_days/mismatch_days`）+ 数据台底部产量核验卡（仅 `salary:view` 且新格式月渲染，chips/sticky 表格/仅看差异筛选/行点击 toast）。**红线遵守**：不改 `/api/production/dashboard`/采集 payload/`core/calculator.py`/`core/verification.py`；8 月及更早旧格式月界面与数据零改动（旧格式响应与改造前逐字段一致有 pytest 断言）。验证：pytest 9/9 绿（新格式 4+旧格式回归 2+边界 1+权限 2；P30 既有 25 例已被 TTL 清理不可执行，其保护面=计算链红线未触碰）、浏览器实测 8 月桌面+移动零改动回归、9 月合成数据全功能走查（班组筛选联动/占比 53%÷47% 复核/核验卡筛选 26→3 行/toast 明细）、1920/1440/1366 三档 31 天无横向滚动、880/560 断点高度正确、375px 无横滚。规格=docs/P31_DASHBOARD_TEAM_SPEC.md（定稿 10 决策），视觉=docs/P31_DASHBOARD_TEAM_PREVIEW.html；测试 _work/p31-dashboard-team/。**回滚：无数据迁移、无计算链触碰，回退到 P30 提交即可**
+1c. **P32 出勤采集排除已批假期 + 数据台趋势tooltip班组物料 ✅ 已部署（2026-09-02，main=2d8228e）**：①出勤收集隐藏当日已有已批假期（NU/T/SK/L）的员工——花名册 `/api/collection/roster?date=` 返回布尔 `approved_leave`（不泄薪酬），桌面+移动出勤收集表单实时守卫隐藏+不提交+编辑合并跳过+日期切换即时生效，提示条「本日已有审批通过假期 N 人，已自动隐藏」；新增超管端点 `POST /api/collection/cleanup-routed-leave`（dry_run 默认），清理采集自动路由、与被批假期冲突的 pending 请假OA（仅 `source=collection_routing`，不误删正常申请）；生产已清理 2026-09-01/02 为 ADAM #53 自动生成的 2 条冲突 casual（audit=`oa_purge_dup_collection`）。②数据台产量趋势 tooltip：新格式按班组拆分 NH/NL/MW，仅显示有产量的物料（0 不显示；单物料筛选仍显单值）；生产实测发现并修复 `selTids` 块级作用域致新格式悬停崩溃（提升为函数级 `let`）。验证：pytest 3/3 绿、桌面/移动浏览器走查无回归、生产 9 月终验 `LAMBA LAMBA: NH 15 NL 4 MW 15`/`SAKA SAKA: MW 28`/`MIZOZO: MW 22`。关联规则：出勤采集移除 E 状态（P31 后仅井下 teams[].exempt 表达豁免）
 2. **V2 上线验收**：服务器切 `underground_mode='v2'` 前需确认班组采集数据完整（当前历史采集无 team_id，v2 下计 0——需先按班组补录或从下月起启用）；**注意生产 settings.config 当前 `underground_mode='scoring'`**（2026-09-01 快照确认），切 V2 前新格式班组产量在 scoring 下不计件
 3. **服务器备份清理**：`data/backups/` 只留最新 1 个手动备份（部署前备份 `kilwa_before_v2_20260821_012438.db` 为当前最新）
 4. **P18 遗留**（可选 backlog）：/export/employees、/export/attendance 未挂细粒度权限；PERMISSION_CATALOG 中文硬编码待 i18n
