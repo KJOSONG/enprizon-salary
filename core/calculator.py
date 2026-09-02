@@ -1138,22 +1138,18 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             ug_base_raw[eid] = pu
 
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
-        ot = round(ot_total.get(eid, 0))  # P23 R2: 加班费并入税前（可独立展示）
-        gross = pu + pd_val + dr_total + ms_total + cr_total + ot
+        ot = round(ot_total.get(eid, 0))
+
         bp = bonus_penalties.get(eid, {})
-        # P29-c: 预支改由月度手动录入(bonus_penalties.advance);旧 advance_total 纯采集时代恒 0,仅兜底
         advance = int(bp.get('advance', 0) or 0) or int(emp.get('advance_total', 0) or 0)
         bonus = int(bp.get('bonus', 0) or 0)
         penalty = int(bp.get('penalty', 0) or 0)
-
-        # P15: 评分奖金并入（scoring 模式门 + 仅井下生产工人；piecework 模式绝不发奖金）
         scoring_bonus = 0
         if underground_mode == 'scoring' and eff_type == 'piece_underground':
             scoring_bonus = _get_scoring_bonus(data_folder, eid, month_prefix, pool_info, emp.get('team_id'))
         if scoring_bonus > 0:
             bonus += scoring_bonus
 
-        # P15: 司机津贴（5,000/天 × 该月出勤勾选"驾驶"天数；任何人勾选即计，不要求司机名单）
         driver_days = 0
         if data_folder:
             try:
@@ -1170,12 +1166,13 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 driver_days = 0
         driver_allowance = driver_days * 5000
 
-        nssf = round((gross + driver_allowance) * nssf_rate) if emp.get('nssf_enrolled', False) else 0
-        taxable_income = gross + driver_allowance - nssf
+        gross = pu + pd_val + dr_total + ms_total + cr_total + ot + bonus + driver_allowance
+        nssf = round(gross * nssf_rate) if emp.get('nssf_enrolled', False) else 0
+        taxable_income = gross - nssf
         tin_number = (emp.get('tin_number') or '').strip()
         paye = round(compute_paye(taxable_income)) if tin_number else 0
-        paye_half = int(paye * PAYE_COMPANY_RATIO)  # 公司代付部分（floor，公司不多付）
-        net = gross + bonus + driver_allowance - nssf - paye - advance - penalty + paye_half
+        paye_half = int(paye * PAYE_COMPANY_RATIO)
+        net = gross - nssf - paye - advance - penalty + paye_half
 
         temp_exception = ''
         temp_overrides = []
@@ -1203,10 +1200,10 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'employee_id': eid, 'name': emp['name'], 'salary_type': eff_type,
             'piece_underground': pu, 'piece_driller': pd_val,
             'piece_crush': cr_total, 'day_rate': dr_total, 'monthly': ms_total,
-            'overtime': ot,  # P23 R2: 加班费（已含于 gross）
-            'gross': gross, 'bonus': bonus, 'penalty': penalty,
-            'driver_allowance': driver_allowance,
-            'advance': round(advance), 'nssf': nssf, 'paye': paye, 'paye_half': paye_half, 'net': net,
+            'overtime': ot, 'bonus': bonus, 'driver_allowance': driver_allowance,
+            'gross': gross,
+            'advance': round(advance), 'penalty': penalty,
+            'nssf': nssf, 'paye': paye, 'paye_half': paye_half, 'net': net,
             'temp_exception': temp_exception, 'temp_overrides': temp_overrides,
         })
 
@@ -1222,14 +1219,14 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 pu_final = round(base_val * v2_f_w[eid])
                 _emp = emp_lookup.get(eid, {})
                 e['piece_underground'] = pu_final
-                ot = e['overtime']
-                gross = pu_final + e['piece_driller'] + e['piece_crush'] + e['day_rate'] + e['monthly'] + ot
-                nssf = round((gross + e['driver_allowance']) * nssf_rate) if _emp.get('nssf_enrolled', False) else 0
-                taxable = gross + e['driver_allowance'] - nssf
+                # Gross = 全部加项（V2 重新计算井下计件部分）
+                gross = pu_final + e['piece_driller'] + e['piece_crush'] + e['day_rate'] + e['monthly'] + e['overtime'] + e['bonus'] + e['driver_allowance']
+                nssf = round(gross * nssf_rate) if _emp.get('nssf_enrolled', False) else 0
+                taxable = gross - nssf
                 tin = (_emp.get('tin_number') or '').strip()
                 paye = round(compute_paye(taxable)) if tin else 0
                 paye_half = int(paye * PAYE_COMPANY_RATIO)
-                net = gross + e['bonus'] + e['driver_allowance'] - nssf - paye - e['advance'] - e['penalty'] + paye_half
+                net = gross - nssf - paye - e['advance'] - e['penalty'] + paye_half
                 e['gross'] = gross
                 e['nssf'] = nssf
                 e['paye'] = paye

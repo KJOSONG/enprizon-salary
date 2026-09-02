@@ -820,18 +820,18 @@
             <th data-i18n="th_crush_piece">破碎计件</th>
             <th data-i18n="th_dayrate">日薪</th>
             <th data-i18n="th_monthly">月薪</th>
-            <th style="display:none;" data-i18n="th_ug_base">井下基础</th>
-            <th style="display:none;" data-i18n="th_ug_coeff">系数(f)</th>
-            <th data-i18n="th_gross">应发</th>
+            <th data-i18n="th_overtime">加班费</th>
             <th data-i18n="th_bonus">奖金</th>
             <th data-i18n="th_driver">司机津贴</th>
-            <th data-i18n="th_overtime">加班费</th>
+            <th style="display:none;" data-i18n="th_ug_base">井下基础</th>
+            <th style="display:none;" data-i18n="th_ug_coeff">系数(f)</th>
+            <th data-i18n="th_gross">应发合计</th>
             <th data-i18n="th_nssf">NSSF</th>
             <th data-i18n="th_paye">PAYE</th>
             <th data-i18n="th_company_paye">公司代付PAYE</th>
             <th data-i18n="th_penalty">罚款</th>
             <th data-i18n="th_advance">预支</th>
-            <th style="min-width:70px;" data-i18n="th_net">实发</th>
+            <th style="min-width:70px;" data-i18n="th_net">实发合计</th>
             <th style="min-width:100px;color:var(--warning);font-size:10px;" data-i18n="th_temp_exception">临时例外</th>
           </tr>
         </thead>
@@ -5192,10 +5192,10 @@ function filterSalaryTable() {
     : `<td class="num" style="color:${colorVar}">${disp}</td>`;
   tbody.innerHTML = filtered.map(emp => {
     const ot = emp.overtime || 0;
-    const g = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0)+ot;
     const bonus = emp.bonus || 0;
     const penalty = emp.penalty || 0;
-    const n = g + bonus + (emp.driver_allowance||0) - (emp.nssf||0) - (emp.paye||0) + (emp.paye_half||0) - (emp.advance||0) - penalty;
+    const g = emp.gross || 0;
+    const n = g - (emp.nssf||0) - (emp.paye||0) + (emp.paye_half||0) - (emp.advance||0) - penalty;
     const eid = emp.employee_id || emp.id;
     const ugBase = hasV2 && result.ug_base ? (result.ug_base[eid] || 0) : 0;
     const ugCoeff = hasV2 && result.ug_coefficient ? (result.ug_coefficient[eid] || 1) : 1;
@@ -5209,12 +5209,12 @@ function filterSalaryTable() {
       <td class="num">${fmtNum(emp.piece_crush||0)}</td>
       <td class="num">${fmtNum(emp.day_rate||0)}</td>
       <td class="num">${fmtNum(emp.monthly||0)}</td>
+      <td class="num" style="color:var(--success)">${ot ? fmtNum(ot) : '—'}</td>
+      ${inlineTd(eid, 'bonus', bonus, bonus ? '+' + fmtNum(bonus) : '—', 'var(--success)')}
+      <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
       ${ugBaseTd}
       ${ugCoeffTd}
       <td class="num bold">${fmtNum(g)}</td>
-      ${inlineTd(eid, 'bonus', bonus, bonus ? '+' + fmtNum(bonus) : '—', 'var(--success)')}
-      <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
-      <td class="num" style="color:var(--success)">${ot ? fmtNum(ot) : '—'}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.nssf||0)}</td>
       <td class="num" style="color:var(--warning)">${fmtNum(emp.paye||0)}</td>
       <td class="num" style="color:var(--success)">${fmtNum(emp.paye_half||0)}</td>

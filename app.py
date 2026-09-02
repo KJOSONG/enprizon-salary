@@ -4875,9 +4875,9 @@ def export_salary():
                           top=Side(style='thin'), bottom=Side(style='thin'))
 
     headers = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
-               'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
-               'Bonus(TZS)', 'Driver Allowance(TZS)', 'Overtime(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)',
-               'PAYE(TZS)', 'Company PAYE (50%)(TZS)', 'Net Salary(TZS)']
+               'Day Rate(TZS)', 'Monthly(TZS)', 'Overtime(TZS)', 'Bonus(TZS)', 'Driver Allowance(TZS)',
+               'Gross Total(TZS)', 'NSSF(TZS)', 'PAYE(TZS)', 'Company PAYE (50%)(TZS)',
+               'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(1, col, h)
         cell.font = header_font; cell.fill = header_fill
@@ -4888,25 +4888,23 @@ def export_salary():
     total_fill = PatternFill('solid', fgColor='FFF3CD')
 
     for i, emp in enumerate(result['employees'], 2):
-        gross = (emp.get('piece_underground', 0) or 0) + \
-                (emp.get('piece_driller', 0) or 0) + \
-                (emp.get('piece_crush', 0) or 0) + \
-                (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0) + \
-                (emp.get('overtime', 0) or 0)
+        gross = emp.get('gross', 0) or 0
         bonus = int(emp.get('bonus', 0) or 0)
         penalty = int(emp.get('penalty', 0) or 0)
         nssf = emp.get('nssf', 0) or 0
         driver = int(emp.get('driver_allowance', 0) or 0)
         overtime = int(emp.get('overtime', 0) or 0)
         paye = int(emp.get('paye', 0) or 0)
-        paye_half = paye // 2  # 公司代付一半
+        paye_half = int(emp.get('paye_half', 0) or 0)
         vals = [
             emp['name'] or '', type_map.get(emp.get('salary_type', ''), emp.get('salary_type', '')),
             int(emp.get('piece_underground', 0) or 0), int(emp.get('piece_driller', 0) or 0),
             int(emp.get('piece_crush', 0) or 0),
             int(emp.get('day_rate', 0) or 0), int(emp.get('monthly', 0) or 0),
-            int(gross), bonus, driver, overtime, penalty, int(emp.get('advance', 0) or 0), int(nssf),
-            paye, paye_half, int(emp.get('net', 0) or 0),
+            overtime, bonus, driver,
+            int(gross), int(nssf),
+            paye, paye_half, penalty, int(emp.get('advance', 0) or 0),
+            int(emp.get('net', 0) or 0),
         ]
         for col, v in enumerate(vals, 1):
             cell = ws.cell(i, col, v); cell.border = thin_border
@@ -4917,14 +4915,14 @@ def export_salary():
     ws.cell(total_row, 1, 'Total').font = Font(bold=True, size=11)
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
-    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 加班(K), 罚款(L), 预支(M), NSSF(N), PAYE(O), 公司代付(P) → SUM公式
+    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 加班(H), 奖金(I), 司机(J), 应发(K), NSSF(L), PAYE(M), 公司代付(N), 罚款(O), 预支(P) → SUM公式
     for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
         letter = chr(64 + ci)
         cell = ws.cell(total_row, ci, f'=SUM({letter}2:{letter}{total_row-1})')
         cell.font = Font(bold=True); cell.fill = total_fill; cell.border = thin_border
         cell.number_format = '#,##0'
 
-    # 实发(17=Q) = Σ逐行后端 net（行值直接取 emp.net，含 PAYE 半额代付与加班费口径）
+    # 实发(17=Q) = Σ逐行后端 net
     ws.cell(total_row, 17, f'=SUM(Q2:Q{total_row-1})')
     ws.cell(total_row, 17).font = Font(bold=True)
     ws.cell(total_row, 17).fill = total_fill; ws.cell(total_row, 17).border = thin_border
