@@ -7234,25 +7234,52 @@ async function loadColHistory(formType, containerId) {
   if (!container) return;
   try {
     const month = STATE.currentMonth || '';
-    if (!_colHisFilter[containerId]) _colHisFilter[containerId] = { date: '' };
+    if (!_colHisFilter[containerId]) _colHisFilter[containerId] = { date: '', dept: '', team: '' };
     const date = _colHisFilter[containerId].date || '';
     let qs = '/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month);
     if (date) qs += '&date=' + encodeURIComponent(date);
     const res = await authFetch(api(qs));
     const data = await res.json();
     const subs = data.submissions || [];
+    await _ensureUgGroups();
+    const f = _colHisFilter[containerId];
+    const depts = [...new Set(subs.map(colSubDept).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const isUgSel = !!f.dept && normDept(f.dept) === 'PRODUCTIONTEAM(UNDERGROUND)';
+    // 应用部门 / （井下）班组 前端筛选（日期已在服务端过滤）
+    let filtered = subs;
+    if (f.dept) filtered = filtered.filter(s => colSubDept(s) === f.dept);
+    if (isUgSel && f.team) filtered = filtered.filter(s => String(colSubTeam(s)) === String(f.team));
+    // 井下部门 → 该部门下的不同班组下拉（用「仅按部门过滤」子集重建，避免选定后被收敛到单项）
+    let teamFilterHtml = '';
+    if (isUgSel) {
+      const deptSubs = subs.filter(s => colSubDept(s) === f.dept);
+      const tids = [...new Set(deptSubs.map(s => String(colSubTeam(s)).trim()).filter(v => v && v !== '0'))]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      teamFilterHtml = '<label style="font-size:12px;color:var(--text-muted);">' + t('col_ug_team') + '</label>'
+        + '<select value="" onchange="var f=_colHisFilter[\'' + containerId + '\'];f.team=this.value;loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="' + colInStyle() + '">'
+        + '<option value="">' + t('col_ug_team_placeholder') + '</option>'
+        + tids.map(tid => '<option value="' + escHtml(tid) + '"' + (String(f.team) === tid ? ' selected' : '') + '>' + escHtml(_ugTeamName(tid) || (t('col_ug_team') + ' ' + tid)) + '</option>').join('')
+        + '</select>';
+    }
+    const hasFilter = !!(date || f.dept || f.team);
     const filterBar = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
       + '<label style="font-size:12px;color:var(--text-muted);">' + t('col_filter_date') + '</label>'
       + '<input type="date" value="' + date + '" onchange="_colHisFilter[\'' + containerId + '\'].date=this.value;loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="' + colInStyle() + '">'
-      + (date ? '<button class="nav-btn" onclick="_colHisFilter[\'' + containerId + '\'].date=\'\';loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="font-size:11px;padding:3px 8px;">' + t('col_filter_clear') + '</button>' : '')
+      + '<label style="font-size:12px;color:var(--text-muted);">' + t('col_department') + '</label>'
+      + '<select onchange="var f=_colHisFilter[\'' + containerId + '\'];f.dept=this.value;f.team=\'\';loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="' + colInStyle() + '">'
+      + '<option value="">' + t('col_select_dept_placeholder') + '</option>'
+      + depts.map(dpt => '<option value="' + escHtml(dpt) + '"' + (f.dept === dpt ? ' selected' : '') + '>' + escHtml(dpt) + '</option>').join('')
+      + '</select>'
+      + teamFilterHtml
+      + (hasFilter ? '<button class="nav-btn" onclick="var f=_colHisFilter[\'' + containerId + '\'];f.date=\'\';f.dept=\'\';f.team=\'\';loadColHistory(\'' + formType + '\',\'' + containerId + '\')" style="font-size:11px;padding:3px 8px;">' + t('col_filter_clear') + '</button>' : '')
       + '</div>';
-    if (subs.length === 0) {
+    if (filtered.length === 0) {
       container.innerHTML = filterBar + '<div style="text-align:center;color:var(--text-muted);padding:24px;">' + t('no_submissions') + '</div>';
       return;
     }
     container.innerHTML = filterBar + `<div class="table-wrap"><table class="data-table">
       <thead><tr><th>${t('col_th_date')}</th><th>${t('col_department')}</th><th>${t('col_th_version')}</th><th>${t('col_th_submitter')}</th><th>${t('col_th_actions')}</th></tr></thead>
-      <tbody>` + subs.map(s => {
+      <tbody>` + filtered.map(s => {
         const d = colSubDept(s);
         const editable = formType !== 'attendance' || !!d;
         let exemptBadges = '';
@@ -7286,7 +7313,7 @@ async function loadColHistory(formType, containerId) {
         return `
         <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}${exemptBadges}</td>
-          <td>${d ? escHtml(d) : '—'}</td>
+          <td>${d ? escHtml(d) : '—'}${colRowTeam(d, s)}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
           <td>${editable ? `<span style="color:var(--accent);font-size:11px;">${t('btn_edit_col')}</span>` : `<span style="color:var(--text-muted);font-size:11px;">${t('col_readonly')}</span>`}</td>
@@ -7300,6 +7327,32 @@ async function loadColHistory(formType, containerId) {
 function colSubDept(s) {
   if (s && s.department) return s.department;
   try { return (JSON.parse((s && s.payload) || '{}').department) || ''; } catch(e) { return ''; }
+}
+
+/* 取采集提交的井下班组 team_id：优先行 team_id 列，回退 payload.team_id */
+function colSubTeam(s) {
+  if (s && s.team_id != null && String(s.team_id).trim() && String(s.team_id).trim() !== '0') return s.team_id;
+  try {
+    const t = JSON.parse((s && s.payload) || '{}').team_id;
+    if (t != null && String(t).trim() && String(t).trim() !== '0') return t;
+  } catch(e) {}
+  return '';
+}
+
+/* 班组 id → 班组名（P30 班组=employee_groups 子部门） */
+function _ugTeamName(id) {
+  if (id == null || id === '' || id === '0') return '';
+  const g = (_ugGroupsCache || []).find(x => String(x.id) === String(id));
+  return g ? g.name : '';
+}
+
+/* 概览行：井下部门后追加「· 班组名」，非井下返回空串 */
+function colRowTeam(dpt, s) {
+  if (!dpt || normDept(dpt) !== 'PRODUCTIONTEAM(UNDERGROUND)') return '';
+  const tid = String(colSubTeam(s)).trim();
+  if (!tid || tid === '0') return '';
+  const nm = _ugTeamName(tid) || tid;
+  return ' <span style="color:var(--text-muted);font-size:11px;">· ' + escHtml(nm) + '</span>';
 }
 
 /* R6: 历史行 → 只读预览弹窗（完整字段 + 提交人/日期/版本/更新时间），弹窗内"编辑"进编辑态 */
