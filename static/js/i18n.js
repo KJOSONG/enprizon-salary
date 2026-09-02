@@ -207,6 +207,7 @@ const I18N_DICT = {
     th_gross: '应发',
     th_net: '实发',
     th_driver: '司机津贴',
+    th_overtime: '加班费',
     th_temp_exception: '临时例外',
     salary_stats_emp: '员工',
     salary_stats_gross: '应发合计',
@@ -216,6 +217,7 @@ const I18N_DICT = {
     salary_stats_nssf: 'NSSF扣除',
     salary_stats_paye: 'PAYE扣除',
     salary_stats_driver: '司机津贴',
+    salary_stats_overtime: '加班费合计',
     salary_stats_net: '实发合计',
 
     /* ── 薪资核对 ── */
@@ -1402,6 +1404,7 @@ const I18N_DICT = {
     th_gross: 'Gross',
     th_net: 'Net',
     th_driver: 'Driver Allowance',
+    th_overtime: 'Overtime',
     th_temp_exception: 'Temp Exception',
     salary_stats_emp: 'Employees',
     salary_stats_gross: 'Gross Total',
@@ -1411,6 +1414,7 @@ const I18N_DICT = {
     salary_stats_nssf: 'NSSF Deduction',
     salary_stats_paye: 'PAYE Deduction',
     salary_stats_driver: 'Driver Allow.',
+    salary_stats_overtime: 'Overtime Total',
     salary_stats_net: 'Net Total',
 
     /* ── Salary Verification ── */

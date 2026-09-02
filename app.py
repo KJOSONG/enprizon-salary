@@ -4786,7 +4786,7 @@ def export_salary():
 
     headers = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
-               'Bonus(TZS)', 'Driver Allowance(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)',
+               'Bonus(TZS)', 'Driver Allowance(TZS)', 'Overtime(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)',
                'PAYE(TZS)', 'Company PAYE (50%)(TZS)', 'Net Salary(TZS)']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(1, col, h)
@@ -4801,11 +4801,13 @@ def export_salary():
         gross = (emp.get('piece_underground', 0) or 0) + \
                 (emp.get('piece_driller', 0) or 0) + \
                 (emp.get('piece_crush', 0) or 0) + \
-                (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0)
+                (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0) + \
+                (emp.get('overtime', 0) or 0)
         bonus = int(emp.get('bonus', 0) or 0)
         penalty = int(emp.get('penalty', 0) or 0)
         nssf = emp.get('nssf', 0) or 0
         driver = int(emp.get('driver_allowance', 0) or 0)
+        overtime = int(emp.get('overtime', 0) or 0)
         paye = int(emp.get('paye', 0) or 0)
         paye_half = paye // 2  # 公司代付一半
         vals = [
@@ -4813,7 +4815,7 @@ def export_salary():
             int(emp.get('piece_underground', 0) or 0), int(emp.get('piece_driller', 0) or 0),
             int(emp.get('piece_crush', 0) or 0),
             int(emp.get('day_rate', 0) or 0), int(emp.get('monthly', 0) or 0),
-            int(gross), bonus, driver, penalty, int(emp.get('advance', 0) or 0), int(nssf),
+            int(gross), bonus, driver, overtime, penalty, int(emp.get('advance', 0) or 0), int(nssf),
             paye, paye_half, int(emp.get('net', 0) or 0),
         ]
         for col, v in enumerate(vals, 1):
@@ -4825,20 +4827,20 @@ def export_salary():
     ws.cell(total_row, 1, 'Total').font = Font(bold=True, size=11)
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
-    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 罚款(K), 预支(L), NSSF(M), PAYE(N), 公司代付(O) → SUM公式
-    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]:
+    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 加班(K), 罚款(L), 预支(M), NSSF(N), PAYE(O), 公司代付(P) → SUM公式
+    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
         letter = chr(64 + ci)
         cell = ws.cell(total_row, ci, f'=SUM({letter}2:{letter}{total_row-1})')
         cell.font = Font(bold=True); cell.fill = total_fill; cell.border = thin_border
         cell.number_format = '#,##0'
 
-    # 实发(16=P) = Σ逐行后端 net（行值直接取 emp.net，含 PAYE 半额代付与加班费口径）
-    ws.cell(total_row, 16, f'=SUM(P2:P{total_row-1})')
-    ws.cell(total_row, 16).font = Font(bold=True)
-    ws.cell(total_row, 16).fill = total_fill; ws.cell(total_row, 16).border = thin_border
-    ws.cell(total_row, 16).number_format = '#,##0'
+    # 实发(17=Q) = Σ逐行后端 net（行值直接取 emp.net，含 PAYE 半额代付与加班费口径）
+    ws.cell(total_row, 17, f'=SUM(Q2:Q{total_row-1})')
+    ws.cell(total_row, 17).font = Font(bold=True)
+    ws.cell(total_row, 17).fill = total_fill; ws.cell(total_row, 17).border = thin_border
+    ws.cell(total_row, 17).number_format = '#,##0'
 
-    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 14, 16, 16, 16, 16, 16], 1):
+    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     # Sheet 2: 产量
@@ -5194,7 +5196,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         ws2 = wb.create_sheet('Salary Summary')
         headers2 = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                     'Day Rate(TZS)', 'Monthly(TZS)', 'Gross Total(TZS)',
-                    'Bonus(TZS)', 'Driver Allowance(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)',
+                    'Bonus(TZS)', 'Driver Allowance(TZS)', 'Overtime(TZS)', 'Penalty(TZS)', 'Advance Deduction(TZS)', 'NSSF(TZS)',
                     'PAYE(TZS)', 'Company PAYE (50%)(TZS)', 'Net Salary(TZS)']
         for ci, h in enumerate(headers2, 1):
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
@@ -5204,11 +5206,13 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         for i, emp in enumerate(result['employees'], 2):
             gross = (emp.get('piece_underground',0) or 0) + (emp.get('piece_driller',0) or 0) + \
                     (emp.get('piece_crush',0) or 0) + \
-                    (emp.get('day_rate',0) or 0) + (emp.get('monthly',0) or 0)
+                    (emp.get('day_rate',0) or 0) + (emp.get('monthly',0) or 0) + \
+                    (emp.get('overtime',0) or 0)
             bonus = int(emp.get('bonus', 0) or 0)
             penalty = int(emp.get('penalty', 0) or 0)
             nssf = emp.get('nssf',0) or 0
             driver = int(emp.get('driver_allowance', 0) or 0)
+            overtime = int(emp.get('overtime', 0) or 0)
             paye = int(emp.get('paye', 0) or 0)
             paye_half = paye // 2  # 公司代付一半
             vals = [
@@ -5216,7 +5220,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                 int(emp.get('piece_underground',0) or 0), int(emp.get('piece_driller',0) or 0),
                 int(emp.get('piece_crush',0) or 0),
                 int(emp.get('day_rate',0) or 0), int(emp.get('monthly',0) or 0),
-                int(gross), bonus, driver, penalty, int(emp.get('advance',0) or 0), int(nssf),
+                int(gross), bonus, driver, overtime, penalty, int(emp.get('advance',0) or 0), int(nssf),
                 paye, paye_half, int(emp.get('net', 0) or 0),
             ]
             for ci, v in enumerate(vals, 1):
@@ -5227,18 +5231,18 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
-        # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 罚款(K), 预支(L), NSSF(M), PAYE(N), 公司代付(O) → SUM
-        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]:
+        # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 应发(H), 奖金(I), 司机(J), 加班(K), 罚款(L), 预支(M), NSSF(N), PAYE(O), 公司代付(P) → SUM
+        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
             c.number_format = '#,##0'
-        # 实发(16=P) = Σ逐行后端 net（行值直接取 emp.net，含 PAYE 半额代付与加班费口径）
-        ws2.cell(tr, 16, f'=SUM(P2:P{tr-1})')
-        ws2.cell(tr, 16).font = Font(bold=True)
-        ws2.cell(tr, 16).fill = total_fill; ws2.cell(tr, 16).border = tb
-        ws2.cell(tr, 16).number_format = '#,##0'
-        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 14, 16, 16, 16, 16, 16], 1):
+        # 实发(17=Q) = Σ逐行后端 net（行值直接取 emp.net，含 PAYE 半额代付与加班费口径）
+        ws2.cell(tr, 17, f'=SUM(Q2:Q{tr-1})')
+        ws2.cell(tr, 17).font = Font(bold=True)
+        ws2.cell(tr, 17).fill = total_fill; ws2.cell(tr, 17).border = tb
+        ws2.cell(tr, 17).number_format = '#,##0'
+        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16], 1):
             ws2.column_dimensions[chr(64+i)].width = w
         ws2.freeze_panes = 'A2'
 
@@ -5638,7 +5642,8 @@ def _build_slip_data(emp, salary_result, employees_db, month):
     profile = get_employee_profile(app.config['DATA_FOLDER'], emp.get('employee_id', ''))
     
     gross = (emp.get('piece_underground', 0) or 0) + (emp.get('piece_driller', 0) or 0) + \
-            (emp.get('piece_crush', 0) or 0) + (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0)
+            (emp.get('piece_crush', 0) or 0) + (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0) + \
+            (emp.get('overtime', 0) or 0)
     
     type_labels = {
         'piece_underground': 'Underground', 'piece_driller': 'Driller',
