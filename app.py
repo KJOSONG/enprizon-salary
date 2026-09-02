@@ -2666,7 +2666,7 @@ def api_approval_routes_delete(route_id):
 # ═══════════════════════════════════════════════════════════
 
 @app.route('/api/attendance/batch', methods=['POST'])
-@editor_required
+@super_admin_required
 @require_permission('attendance', 'edit')
 def attendance_batch_submit():
     from core.database import save_attendance_override, log_audit, is_driver, add_driver, get_attendance_status
@@ -2680,13 +2680,12 @@ def attendance_batch_submit():
         status = m.get('status', '')
         if not eid or not status:
             continue
-        # P21 R2: NU 只读——禁止手动设置或覆盖审批写入的年假状态
         if status == 'NU':
             return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
         if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
             return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止手动修改（{eid}）'}), 403
         try:
-            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
+            save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=1)
         except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
             return jsonify({'ok': False, 'error': str(e)}), 400
         count += 1
@@ -3236,8 +3235,8 @@ def collection_submit():
             if status not in ('P', 'A'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A 直写，{status} 已转OA或不支持'}), 400
             try:
-                save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
-            except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+                save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=0)
+            except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # 标记 driver flag（通过 helper 重设，保证与旧地下 drivers 合并一致）
         if drivers:
@@ -3568,8 +3567,8 @@ def collection_edit(submission_id):
             if status not in ('P', 'A'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A 直写，{status} 已转OA或不支持'}), 400
             try:
-                save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status)
-            except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+                save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status, source=0)
+            except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # C4: 重设 driver flags（编辑后 attendance drivers 可能变）
         try:
@@ -4756,8 +4755,8 @@ def _build_attendance_grid(md=None, employees=None):
             # 手动覆盖优先
             mkey = f'{eid}|{dt}'
             if mkey in manual:
-                status_row[dt] = manual[mkey]  # 'P','A','L'
-                origin_row[dt] = 'manual'
+                status_row[dt] = manual[mkey]['status']
+                origin_row[dt] = 'manual' if manual[mkey].get('source', 0) == 1 else 'collection'
             else:
                 auto_val = day_status.get(eid, {}).get(dt, '')
                 # 顶层部门月薪人员：数据为空时默认全勤
@@ -4773,6 +4772,7 @@ def _build_attendance_grid(md=None, employees=None):
 
             auto_row[dt] = raw_auto
 
+        is_super_admin = session.get('role') == 'super_admin'
         rows.append({
             'id': eid,
             'name': emp.get('name', ''),
@@ -4782,7 +4782,7 @@ def _build_attendance_grid(md=None, employees=None):
             'days': status_row,
             'origin': origin_row,
             'auto': auto_row,
-            'editable': True,  # 所有人都可手动标记 A/L
+            'editable': is_super_admin,
         })
 
     return {'dates': all_dates, 'rows': rows}
@@ -4803,7 +4803,7 @@ def get_attendance():
 
 
 @app.route('/attendance/toggle', methods=['POST'])
-@editor_required
+@super_admin_required
 @require_permission('attendance', 'edit')
 def toggle_attendance():
     """手动标某人某天的状态：P出勤 A旷工 L请假"""
@@ -4813,19 +4813,17 @@ def toggle_attendance():
     data = request.get_json()
     eid = data.get('employee_id')
     date = data.get('date')
-    status = data.get('status', 'P')  # 'P', 'A', 'L'
+    status = data.get('status', 'P')
 
-    # P21 R2: NU（年假）状态由审批自动写入，禁止手动设置或修改（只读）
     from core.database import save_attendance_override, get_attendance_status
     if status == 'NU':
         return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
     if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
         return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
     try:
-        save_attendance_override(app.config['DATA_FOLDER'], eid, date, status)
-    except ValueError as e:  # P28 R3: Y 已取消/非法状态 → 明确报错
+        save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=1)
+    except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
-    # map: POST /attendance/toggle -> MONTH_CACHE[date[:7] or g.view_month] per-month evict + __all__ base evict
     _invalidate_month_cache((date or '')[:7] or month)
     _invalidate_all_cache_base()
     _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status, 'month': month, 'invalidated': (date or '')[:7] or month}))
@@ -5421,7 +5419,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             for dt in all_dates:
                 kid = f"{eid}|{dt}"
                 if kid in manual:
-                    row_days[dt] = manual[kid]
+                    row_days[dt] = manual[kid]['status']
                 elif eid in day_status and dt in day_status[eid]:
                     row_days[dt] = day_status[eid][dt]
                 elif is_top_dept_monthly:

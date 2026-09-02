@@ -1973,7 +1973,7 @@
     grid.innerHTML=slice.map(r=>{
       const sel = STATE.attBatch ? '<input type="checkbox" class="att-sel" data-eid="'+esc(r.id)+'" '+(STATE.attBatchSel.has(r.id)?'checked':'')+' onchange="onAttSel(\''+esc(r.id)+'\',this.checked)">' : '';
       const dateCells=d.dates.map(dt=>'<div class="date-cell'+(isWeekend(dt)?' weekend':'')+(dt===today?' att-today':'')+'">'+dt.slice(5).replace('-','/')+'</div>').join('');
-      const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'"'+(canEditAtt?' onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')"':'')+'>'+(st||'·')+'</div>'; }).join('');
+      const statusCells=d.dates.map(dt=>{ const st=r.days[dt]||''; const origin=r.origin?r.origin[dt]:''; const isManual=origin==='manual'; const canClick=r.editable&&canEditAtt&&st!=='NU'; return '<div class="status-cell st-'+st+'" data-eid="'+esc(r.id)+'" data-d="'+dt+'"'+(canClick?' onclick="openAttEdit(\''+esc(r.id)+'\',\''+dt+'\')"':'')+' style="'+(isManual?'border-left:2px solid #F59E0B;':'')+'" title="'+(isManual?'手动修改':'采集数据')+'">'+(st||'·')+'</div>'; }).join('');
       return '<div class="att-card"><div class="att-card__row">'
         + '<div class="card-left">'+sel+'<div class="card-name">'+esc(r.name||'')+'</div><div class="card-id">#'+esc(r.custom_number||r.id)+'</div></div>'
         + '<div class="card-right"><div class="date-strip-scroll"><div class="date-strip"><div class="date-row">'+dateCells+'</div><div class="status-row">'+statusCells+'</div></div></div></div>'

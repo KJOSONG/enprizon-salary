@@ -47,6 +47,7 @@ def init_db(data_folder):
             date TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'A',
             is_driver INTEGER DEFAULT 0,
+            source INTEGER DEFAULT 0,
             PRIMARY KEY (employee_id, date)
         );
         CREATE TABLE IF NOT EXISTS settings (
@@ -378,6 +379,10 @@ def init_db(data_folder):
     # P11: 旧库 attendance_overrides 补 is_driver 列
     try:
         conn.execute("ALTER TABLE attendance_overrides ADD COLUMN is_driver INTEGER DEFAULT 0")
+    except: pass
+    # P33: 旧库 attendance_overrides 补 source 列（0=采集 1=手动）
+    try:
+        conn.execute("ALTER TABLE attendance_overrides ADD COLUMN source INTEGER DEFAULT 0")
     except: pass
     # P10: 旧库 scoring_cards 补 month 列
     try:
@@ -1044,17 +1049,14 @@ def load_attendance_overrides(data_folder):
     result = {}
     for r in rows:
         key = f"{r['employee_id']}|{r['date']}"
-        result[key] = r['status']
+        result[key] = {'status': r['status'], 'source': r['source'] if 'source' in r.keys() else 0}
     return result
 
 # P28 R3: 手动出勤允许状态 = 原有码 − Y + SK（Y 年假手动标记已取消，NU 为唯一年假码且只读）
 _ATT_VALID_STATUSES = ('P', 'A', 'L', 'D', 'N', 'B', 'R', 'C', 'S', 'T', 'NU', 'E', 'SK')
 
-def save_attendance_override(data_folder, employee_id, date, status, is_driver=0):
-    """保存手动出勤标记：P出勤 A旷工 L请假 T调休 SK病假；P28 R3: 拒绝 Y（年假改 OA 审批落 NU，
-    历史 Y 行保留不动）；P11 增 is_driver（0/1，出勤勾选驾驶，旧调用不受影响）"""
+def save_attendance_override(data_folder, employee_id, date, status, is_driver=0, source=1):
     if status == '' or status == 'R':
-        # 空值 = 复位：删除手动覆盖，恢复自动
         return delete_attendance_override(data_folder, employee_id, date)
     if status == 'Y':
         raise ValueError("Y（年假手动标记）已取消：请走 OA 年假审批（批准后自动落 NU）")
@@ -1062,9 +1064,9 @@ def save_attendance_override(data_folder, employee_id, date, status, is_driver=0
         raise ValueError(f"无效的出勤状态: {status!r}")
     conn = get_conn(data_folder)
     conn.execute(
-        "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,?) "
-        "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=?",
-        (employee_id, date, status, 1 if is_driver else 0, status, 1 if is_driver else 0)
+        "INSERT INTO attendance_overrides (employee_id, date, status, is_driver, source) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=?, source=?",
+        (employee_id, date, status, 1 if is_driver else 0, source, status, 1 if is_driver else 0, source)
     )
     conn.commit()
     conn.close()

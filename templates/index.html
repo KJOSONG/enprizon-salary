@@ -5734,12 +5734,12 @@ function renderAttendance() {
       data.dates.map(d => {
         const st = r.days[d] || '';
         const autoVal = r.auto ? r.auto[d] : '';
+        const origin = r.origin ? r.origin[d] : '';
         const style = statusStyle[st] || statusStyle[''];
-        const isEditable = r.editable && hasPermission('attendance','edit') && st !== 'NU';  // P21 R2: NU 只读
-        // 与原始数据不同才显示下划线（包含从空值手动改为P/A/L）
+        const isEditable = r.editable && hasPermission('attendance','edit') && st !== 'NU';
         const isChanged = st !== autoVal && !(autoVal === '' && st === '');
-        // 月薪默认 (P) 改为手动时用不同的下划线
         const isMonthlyDefault = autoVal === '(P)';
+        const isManual = origin === 'manual';
         const onClick = isEditable ? ` onclick="toggleAttDay('${r.id}','${d}','${st}','${autoVal}','${r.type}')"` : '';
         const cursor = isEditable ? 'cursor:pointer;' : '';
         let decor = '';
@@ -5752,7 +5752,8 @@ function renderAttendance() {
         if (STATE._attendanceDirty && isChanged && isEditable) {
           dirtyCell = 'box-shadow:inset 0 0 0 2px rgba(245,158,11,0.5);background:rgba(245,158,11,0.06);';
         }
-        return `<td style="color:${style.color};font-size:11px;font-weight:500;${cursor}${decor}${dirtyCell}"${onClick}>${style.label}</td>`;
+        const manualIndicator = isManual ? 'border-left:2px solid #F59E0B;' : '';
+        return `<td style="color:${style.color};font-size:11px;font-weight:500;${cursor}${decor}${dirtyCell}${manualIndicator}"${onClick} title="${isManual ? '手动修改' : '采集数据'}">${style.label}</td>`;
       }).join('') + '</tr>';
   }).join('');
   // 脏状态时高亮并展示保存按钮（修复：原只加 class 未切 display，按钮始终 hidden 无法点击保存）
