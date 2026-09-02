@@ -3611,7 +3611,50 @@ def api_collection_roster():
     emps = list_employees_extended(app.config['DATA_FOLDER'], status_filter='active') or []
     keep = ('id', 'name', 'department', 'default_type', 'team_id', 'custom_number', 'alias')
     slim = [{k: e.get(k) for k in keep} for e in emps]
+    # 出勤采集「已批假期」排除：可选 ?date=YYYY-MM-DD，命中者 approved_leave=true
+    # （仅布尔标记，不回传具体 status / 薪酬字段；不传 date 行为完全不变）
+    date = (request.args.get('date') or '').strip()
+    if date:
+        from core.database import get_approved_leave_statuses
+        approved = set(str(eid) for eid in get_approved_leave_statuses(app.config['DATA_FOLDER'], date).keys())
+        for e in slim:
+            e['approved_leave'] = str(e.get('id')) in approved
     return jsonify({'ok': True, 'employees': slim})
+
+@app.route('/api/collection/cleanup-routed-leave', methods=['POST'])
+def api_collection_cleanup_routed_leave():
+    """清理「出勤采集自动路由产生、但与被批假期冲突」的 pending 请假 OA。
+
+    出勤采集提交时把 L/SK 自动转为 casual/sick 的 pending 事件（payload 标记
+    source='collection_routing'）。若该员工生效日其实已有审批通过假期
+    （attendance_overrides ∈ NU/T/SK/L），则该事件为重复应清除。
+    仅清理 collection_routing 来源的 pending，绝不触碰用户正常提交的请假。
+
+    body: {dry_run: true|false}（默认 true 只预览不写库）
+    """
+    _block = _require_super_admin()
+    if _block:
+        _audit('perm_denied', '', json.dumps({'user': session.get('username', ''), 'module': 'collection', 'action': 'cleanup'}))
+        return _block
+    data = request.get_json() or {}
+    dry_run = bool(data.get('dry_run', True))
+    from core.database import get_conn, find_conflicting_routed_leave_events, log_audit as _log_audit
+    username = session.get('username', '')
+    folder = app.config['DATA_FOLDER']
+    conflicts = find_conflicting_routed_leave_events(folder)
+    if not dry_run and conflicts:
+        conn = get_conn(folder)
+        for c in conflicts:
+            conn.execute("DELETE FROM employee_events WHERE id=?", (c['event_id'],))
+        conn.commit()
+        for c in conflicts:
+            _log_audit(folder, 'oa_purge_dup_collection', c['employee_id'],
+                       json.dumps({'event_id': c['event_id'], 'event_type': c['event_type'],
+                                   'date': c['date'], 'operator': username}, ensure_ascii=False))
+        conn.close()
+    return jsonify({'ok': True, 'dry_run': dry_run, 'checked': len(conflicts),
+                    'conflicts': len(conflicts), 'purged': 0 if dry_run else len(conflicts),
+                    'items': conflicts})
 
 @app.route('/api/collection/exempt/<int:submission_id>', methods=['POST'])
 def api_collection_exempt(submission_id):

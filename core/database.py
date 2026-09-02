@@ -1080,6 +1080,54 @@ def get_attendance_status(data_folder, employee_id, date):
     conn.close()
     return row['status'] if row else ''
 
+def get_approved_leave_statuses(data_folder, date):
+    """返回某日所有「已审批通过假期」覆盖的员工 → 状态映射。
+
+    已批假期经 apply_approved_event 逐日落 attendance_overrides：
+    年假→NU / 调休→T / 病假→SK / 普通假→L。凡此集合内即表示该日已有审批通过假期，
+    出勤采集应将其从当日名单剔除，避免重复自动生成请假 OA 或阻断整批提交。
+    仅返回已确认的假期状态，不含 P/A 等非假期标记。
+    """
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT employee_id, status FROM attendance_overrides "
+        "WHERE date=? AND status IN ('NU','T','SK','L')",
+        (date,)).fetchall()
+    conn.close()
+    return {r['employee_id']: r['status'] for r in rows}
+
+def find_conflicting_routed_leave_events(data_folder):
+    """检测「出勤采集自动路由产生、但与被批假期冲突」的 pending 请假事件。
+
+    出勤采集提交时把 L/SK 自动转为 casual/sick 的 pending 事件（payload 标记
+    source='collection_routing'）。若该员工生效日其实已有审批通过假期
+    （get_approved_leave_statuses ∈ NU/T/SK/L），则该事件为重复应清除。
+    仅识别 collection_routing 来源的 pending，绝不触碰用户正常提交的请假。
+    返回冲突事件列表：[{event_id, employee_id, event_type, date, payload}]
+    """
+    out = []
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT id, employee_id, event_type, effective_date, status, payload FROM employee_events "
+        "WHERE status='pending' AND event_type IN ('casual','sick')").fetchall()
+    for r in rows:
+        try:
+            payload = json.loads(r['payload'] or '{}')
+        except Exception:
+            continue
+        if payload.get('source') != 'collection_routing':
+            continue  # 只处理采集路由产物
+        eff = r['effective_date'] or ''
+        if not eff:
+            continue
+        approved = get_approved_leave_statuses(data_folder, eff)
+        if str(r['employee_id']) not in approved:
+            continue
+        out.append({'event_id': r['id'], 'employee_id': r['employee_id'],
+                    'event_type': r['event_type'], 'date': eff, 'payload': r['payload']})
+    conn.close()
+    return out
+
 def delete_attendance_override(data_folder, employee_id, date):
     """删除某人的某天手动覆盖记录"""
     conn = get_conn(data_folder)

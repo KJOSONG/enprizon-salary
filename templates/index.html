@@ -3031,7 +3031,21 @@ function renderProductionTrend() {
           label: function(ctx) {
             const d = rows[ctx.dataIndex];
             if (!d) return '';
-            if (isNewDashFormat()) return `${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
+            if (isNewDashFormat()) {
+              // P32: 每个班组按物料拆分 NH/NL/MW，仅显示有产量的物料（0 不显示）
+              if (f.ore === 'all') {
+                const tid = selTids[ctx.datasetIndex];
+                const tm = (d.teams || []).find(t => String(t.team_id) === String(tid));
+                if (tm) {
+                  const parts = [];
+                  if ((tm.nh || 0) > 0) parts.push('NH ' + fmtNum(tm.nh));
+                  if ((tm.nl || 0) > 0) parts.push('NL ' + fmtNum(tm.nl));
+                  if ((tm.mw || 0) > 0) parts.push('MW ' + fmtNum(tm.mw));
+                  return parts.length ? `${ctx.dataset.label}: ${parts.join('   ')}` : `${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
+                }
+              }
+              return `${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
+            }
             const key = ctx.dataset.label.toLowerCase();
             const day = d['day_' + key] || 0;
             const night = d['night_' + key] || 0;
@@ -8129,9 +8143,31 @@ const COL_ATT_STATUS = [
   ['SK', 'att_status_sk_pending'], ['T', 'att_status_t_pending'],
 ];
 
+// P32: 出勤采集「当日已批假期」排除（NU/T/SK/L 已审批通过）——员工不显示、不提交
+let _attLeaveByDate = {}; // {date: Set<employee_id string>}
+async function refreshAttLeaveGuard(dateStr) {
+  if (!dateStr) return;
+  try {
+    const res = await fetch(api('/api/collection/roster?date=' + encodeURIComponent(dateStr)));
+    if (!res.ok) return;
+    const d = await res.json();
+    _attLeaveByDate[dateStr] = new Set((d.employees || []).filter(e => e.approved_leave).map(e => String(e.id)));
+  } catch (e) {}
+}
+function attLeaveHas(dateStr, eid) {
+  const s = _attLeaveByDate[dateStr];
+  return !!s && s.has(String(eid));
+}
+async function onAttDateChange() {
+  const dt = ((document.getElementById('attDate') || {}).value || '').trim();
+  if (dt) await refreshAttLeaveGuard(dt);
+  filterAttRoster();
+}
+
 async function renderAttCollectionForm(payload) {
   payload = payload || {};
   const date = payload.submission_date || '';
+  if (date) await refreshAttLeaveGuard(date);
   const pool = await getEmpPool();
   await _ensureUgGroups();
   const rosterOther = filterEmpByDept(pool, 'other');
@@ -8149,7 +8185,7 @@ async function renderAttCollectionForm(payload) {
   const otherHtml = rosterOther.map(e => {
     const m = marksMap[String(e.id)] || {};
     const st = m.status || 'P';
-    return `<div class="picker-row att-row" data-dept="${escHtml(e.department || '')}">
+    return `<div class="picker-row att-row" data-dept="${escHtml(e.department || '')}" data-emp-id="${escHtml(e.id)}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
         <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
       </div>`;
@@ -8158,7 +8194,7 @@ async function renderAttCollectionForm(payload) {
     const m = marksMap[String(e.id)] || {};
     const st = m.status || 'P';
     const isDrv = (payload.drivers || []).map(String).includes(String(e.id));
-    return `<div class="picker-row att-row" data-dept="${escHtml(ugDeptExact)}" data-team-id="${escHtml(String(e.team_id||''))}">
+    return `<div class="picker-row att-row" data-dept="${escHtml(ugDeptExact)}" data-team-id="${escHtml(String(e.team_id||''))}" data-emp-id="${escHtml(e.id)}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
         <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${isDrv ? 'checked' : ''}> ${t('col_att_driver')}</label>
@@ -8167,7 +8203,7 @@ async function renderAttCollectionForm(payload) {
   const rosterHtml = (otherHtml + ugHtml) || '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
   const teamOpts = (_ugGroupsCache||[]).map(g=>`<option value="${g.id}" ${selTeamId===String(g.id)?'selected':''}>${escHtml(g.name)}</option>`).join('');
   document.getElementById('colAttForm').innerHTML = `
-    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
+    <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="attDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" onchange="onAttDateChange()" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
       <select id="attDeptSel" onchange="filterAttRoster()" style="${colInStyle(true)}">
         <option value="">${t('col_select_dept_placeholder')}</option>
@@ -8179,6 +8215,7 @@ async function renderAttCollectionForm(payload) {
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
     <div id="attUgPickHint" style="display:none;padding:16px;text-align:center;color:var(--text-muted);font-size:12px;margin-top:8px;border:1px dashed var(--border);border-radius:var(--radius);">${t('col_att_ug_pick_team')}</div>
+    <div id="attLeaveNote" style="display:none;padding:8px 12px;color:#B05A3C;font-size:12px;margin-top:8px;background:rgba(176,90,60,0.08);border:1px solid rgba(176,90,60,0.3);border-radius:var(--radius);"></div>
     <div style="max-height:50vh;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);" id="attRoster">
       ${rosterHtml}
     </div>
@@ -8210,18 +8247,32 @@ function filterAttRoster() {
     return;
   }
   if (hint) hint.style.display = 'none';
+  const curDate = ((document.getElementById('attDate') || {}).value || '').trim();
+  let leaveHidden = 0;
   document.querySelectorAll('#attRoster .att-row').forEach(row => {
+    row.style.display = 'none';
     const dept = row.getAttribute('data-dept') || '';
-    if (dept !== d) { row.style.display = 'none'; return; }
+    if (dept !== d) return;
     if (isUg) {
       const tid = row.getAttribute('data-team-id') || '';
       // Belt-and-braces: team-less (''/0/null) never matches any team
-      if (!tid) { row.style.display = 'none'; return; }
-      row.style.display = (String(tid) === String(teamVal)) ? '' : 'none';
-    } else {
-      row.style.display = '';
+      if (!tid) return;
+      if (String(tid) !== String(teamVal)) return;
     }
+    // 当日已批假期：实时按职工 id 判定（随日期切换即时更新），命中即隐藏（也不会被提交）
+    if (attLeaveHas(curDate, row.getAttribute('data-emp-id'))) { leaveHidden++; return; }
+    row.style.display = '';
   });
+  // 提示「本日已有审批假期 N 人，已自动隐藏」
+  const note = document.getElementById('attLeaveNote');
+  if (note) {
+    if (leaveHidden > 0) {
+      note.style.display = '';
+      note.textContent = t('col_att_leave_hidden_n').replace('{n}', leaveHidden);
+    } else {
+      note.style.display = 'none';
+    }
+  }
 }
 
 function resetAttStatus() {
@@ -8259,6 +8310,8 @@ async function submitAttCollection() {
   }
   const marks = [];
   for (const e of roster) {
+    // 当日已有审批通过假期：跳过，不参与提交（与显示隐藏一致）
+    if (attLeaveHas(date, e.id)) continue;
     const sel = document.getElementById('attSt' + e.id);
     if (!sel) continue;
     let status = sel.value;
@@ -8268,6 +8321,7 @@ async function submitAttCollection() {
   let drivers = [];
   if (isUg) {
     for (const e of roster) {
+      if (attLeaveHas(date, e.id)) continue;
       const chk = document.getElementById('attDrv' + e.id);
       if (chk && chk.checked) {
         drivers.push(e.id);
@@ -8285,6 +8339,8 @@ async function submitAttCollection() {
       if (isUg) {
         if (String(oldTeam) !== String(teamId)) return;
       }
+      // 当日已批假期：编辑合并同样跳过，避免重新引入冲突
+      if (attLeaveHas(date, m.employee_id)) return;
       if (!submitted.has(String(m.employee_id))) {
         submitted.add(String(m.employee_id));
         marks.push({ employee_id: m.employee_id, status: m.status === 'B' ? 'P' : m.status });
