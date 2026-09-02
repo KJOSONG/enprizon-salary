@@ -2076,9 +2076,20 @@
     openSheet(t('overtime_apply'), body);
   }
   function openQuickOvertime(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
+  // R2: 加班日期须在今日±2天内（本地时区格式化，非超管受限）
+  function _mobOtWindow(){
+    const t0=new Date(); t0.setHours(0,0,0,0);
+    const lo=new Date(t0); lo.setDate(lo.getDate()-2);
+    const hi=new Date(t0); hi.setDate(hi.getDate()+2);
+    const f=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    return {min:f(lo), max:f(hi)};
+  }
   function openOvertime(empId){
     const body=document.getElementById('sheet-body');
-    body.innerHTML='<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"></div>'
+    const _sa=isSuperAdmin();
+    const _w=_mobOtWindow();
+    body.innerHTML='<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"'+( _sa?'':' min="'+_w.min+'" max="'+_w.max+'"')+'></div>'
+      + (_sa?'':'<div style="font-size:11px;color:var(--muted-foreground);margin:-6px 0 8px;">'+t('ot_window_hint')+'</div>')
       + '<div class="field"><label class="field__label">'+t('overtime_start')+'</label><input type="time" id="ot-start" onchange="calcMobOtHours()"></div>'
       + '<div class="field"><label class="field__label">'+t('overtime_end')+'</label><input type="time" id="ot-end" onchange="calcMobOtHours()"></div>'
       + '<div class="field"><label class="field__label">'+t('overtime_hours')+'</label><input type="text" id="ot-hours" readonly placeholder="'+t('overtime_calc_hint')+'" style="color:var(--muted-foreground);"></div>'
@@ -2101,6 +2112,12 @@
     const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
     const note=(document.getElementById('ot-note').value||'').trim();
     if(!empId||!date){ toast(t('fill_date'),'warning'); return; }
+    // R2: 非超管软校验（后端仍为权威）
+    if(!isSuperAdmin()){
+      const _t0=new Date(); _t0.setHours(0,0,0,0);
+      const _sel=new Date(date+'T00:00:00');
+      if(Math.abs((_sel-_t0)/86400000)>2){ toast(t('err_ot_window'),'warning'); return; }
+    }
     calcMobOtHours();
     const hours=parseFloat(document.getElementById('ot-hours').value||'0');
     if(!st||!et||!hours){ toast(t('err_overtime_time'),'warning'); return; }

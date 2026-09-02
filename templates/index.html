@@ -758,6 +758,29 @@
   </div>
 </div>
 
+<!-- ─── OA 编辑生效日期模态框 ─── -->
+<div class="modal-overlay" id="oaEditModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:400px;width:90vw;">
+    <div class="modal-header">
+      <h3 style="margin:0;" id="oaEditModalTitle"></h3>
+      <button onclick="document.getElementById('oaEditModal').style.display='none'" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div style="margin-top:12px;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;" id="oaEditDateLabel"></label>
+      <input type="date" id="oaEditDate" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+    </div>
+    <div id="oaEditDaysRow" style="margin-top:12px;display:none;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;" id="oaEditDaysLabel"></label>
+      <input type="number" id="oaEditDays" min="1" value="1" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+    </div>
+    <div id="oaEditHint" style="margin-top:8px;font-size:11px;color:var(--text-muted);"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn-primary" onclick="saveOaEdit()" style="flex:1;padding:8px;font-size:12px;" data-i18n="btn_confirm">保存</button>
+      <button class="btn-cancel" onclick="document.getElementById('oaEditModal').style.display='none'" style="flex:1;padding:8px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── 页面: 薪资 ─── -->
 <div class="page" id="page-salary">
   <div class="card">
@@ -2291,8 +2314,11 @@ function showTargetPage(module, subPage) {
   if (targetId === 'employees-transfer') fillApplyDepts();
   // P13: 请假子页进入时确保 typeahead 已绑定
   if (targetId === 'employees-leave') initEmpTypeahead('leaveEmpId', 'leaveEmpEid', 'leavePick');
-  // P23: 加班申请子页进入时确保 typeahead 已绑定
-  if (targetId === 'employees-overtime') initEmpTypeahead('otEmpId', 'otEmpEid', 'otPick');
+  // P23: 加班申请子页进入时确保 typeahead 已绑定 + 日期范围限制
+  if (targetId === 'employees-overtime') {
+    initEmpTypeahead('otEmpId', 'otEmpEid', 'otPick');
+    _applyOtDateWindow();
+  }
 
   // P4: 权限管理页面加载
   if (module === 'system' && subPage === 'users') { loadPermissionsPage(); loadApprovalRoutes(); loadAuditLog(); }  // P23 R3: 审计日志随权限页加载
@@ -6482,7 +6508,7 @@ async function loadOAPending() {
           <button class="oa-btn" onclick="toggleOaDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
           <button class="oa-btn oa-btn-approve" onclick="oaApprove(${ev.id})"${isSelfSubmit(ev) ? ' disabled title="' + t('oa_cannot_self') + '"' : ''}>${t('oa_approve')}</button>
           <button class="oa-btn oa-btn-reject" onclick="oaShowReject(${ev.id})">${t('oa_reject')}</button>
-          ${(ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') && _authState.logged_in && (ev.operator_id === _authState.username || _authState.role === 'super_admin') ? `
+          ${['annual_leave','comp_leave','sick','casual','overtime'].includes(ev.event_type) && _authState.logged_in && (ev.operator_id === _authState.username || _authState.role === 'super_admin') ? `
           <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
           <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
         </div>
@@ -6545,6 +6571,76 @@ async function oaReject(eventId) {
   }
 }
 
+/* ── OA 编辑生效日期（统一模态框，支持请假+加班） ── */
+let _currentEditEventId = null;
+let _currentEditEventType = null;
+const LEAVE_TYPES = ['annual_leave', 'comp_leave', 'sick', 'casual'];
+
+async function editOaEvent(eventId) {
+  let ev = null;
+  try {
+    const res = await fetch(api('/api/oa/events/' + eventId));
+    const data = await res.json();
+    ev = data.event || data;
+  } catch (e) { ev = null; }
+  if (!ev || ev.id === undefined) { showToast(t('op_fail'), 'error'); return; }
+  _currentEditEventId = eventId;
+  _currentEditEventType = ev.event_type;
+  const isLeave = LEAVE_TYPES.includes(ev.event_type);
+  const isOvertime = ev.event_type === 'overtime';
+  // 填充模态框
+  document.getElementById('oaEditModalTitle').textContent = t('oa_edit_title');
+  document.getElementById('oaEditDateLabel').textContent = t('leave_edit_date');
+  document.getElementById('oaEditDate').value = ev.effective_date || '';
+  const daysRow = document.getElementById('oaEditDaysRow');
+  const hint = document.getElementById('oaEditHint');
+  if (isLeave) {
+    daysRow.style.display = '';
+    document.getElementById('oaEditDaysLabel').textContent = t('leave_edit_days');
+    let days = 1;
+    try { days = JSON.parse(ev.payload || '{}').days || 1; } catch (e) {}
+    document.getElementById('oaEditDays').value = days;
+    hint.textContent = '';
+  } else if (isOvertime) {
+    daysRow.style.display = 'none';
+    hint.textContent = t('oa_edit_ot_hint');
+  } else {
+    daysRow.style.display = 'none';
+    hint.textContent = '';
+  }
+  document.getElementById('oaEditModal').style.display = 'flex';
+}
+
+async function saveOaEdit() {
+  if (!_currentEditEventId) return;
+  const date = document.getElementById('oaEditDate').value.trim();
+  if (!date) { showToast(t('leave_edit_date'), 'error'); return; }
+  const isLeave = LEAVE_TYPES.includes(_currentEditEventType || '');
+  const body = { effective_date: date };
+  if (isLeave) {
+    const days = parseInt(document.getElementById('oaEditDays').value) || 1;
+    if (days < 1) { showToast(t('leave_edit_days'), 'error'); return; }
+    body.days = days;
+  }
+  try {
+    const res = await authFetch(api('/api/oa/events/' + _currentEditEventId + '/edit'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(t('leave_edit_ok'));
+      document.getElementById('oaEditModal').style.display = 'none';
+      await recalculate();
+      loadOAPending();
+      loadOAHistory();
+      loadNotifCount();
+    } else {
+      showToast(data.error || t('op_fail'), 'error');
+    }
+  } catch (e) { showToast(t('op_fail') + e.message, 'error'); }
+}
+
 /* ── P21 M4: 请假撤销/修改（成功后 recalculate + 刷新 OA/档案/出勤） ── */
 async function revokeLeaveEvent(eventId) {
   if (!confirm(t('oa_revoke_confirm'))) return;
@@ -6562,35 +6658,7 @@ async function revokeLeaveEvent(eventId) {
 }
 
 async function editLeaveEvent(eventId) {
-  // 取原事件数据预填
-  let ev = null;
-  try {
-    const res = await fetch(api('/api/oa/events/' + eventId));
-    const data = await res.json();
-    ev = data.event || data;
-  } catch (e) { ev = null; }
-  if (!ev || ev.id === undefined) { showToast(t('op_fail'), 'error'); return; }
-  let days = 1, date = ev.effective_date || '';
-  try { days = JSON.parse(ev.payload || '{}').days || 1; } catch (e) {}
-  const newDays = prompt(t('leave_edit_days'), String(days));
-  if (newDays === null) return;
-  const newDate = prompt(t('leave_edit_date'), date);
-  if (newDate === null) return;
-  const res = await authFetch(api(`/api/oa/events/${eventId}/edit`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ effective_date: newDate.trim(), days: parseInt(newDays) || 1 }),
-  });
-  const data = await res.json();
-  if (data.ok) {
-    showToast(t('leave_edit_ok'));
-    await recalculate();
-    loadOAPending();
-    loadOAHistory();
-    loadNotifCount();
-  } else {
-    showToast(data.error || t('op_fail'), 'error');
-  }
+  editOaEvent(eventId);
 }
 
 async function loadOAHistory() {
@@ -6631,7 +6699,7 @@ async function loadOAHistory() {
         </div>
         <div class="oa-event-actions">
           <button class="oa-btn" onclick="toggleOaHistDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
-          ${ev.status === 'approved' && (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') && hasPermission('oa', 'approve') ? `
+          ${ev.status === 'approved' && ['annual_leave','comp_leave','sick','casual','overtime'].includes(ev.event_type) && hasPermission('oa', 'approve') ? `
           <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
           <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
         </div>
@@ -6810,6 +6878,19 @@ function calcOtHours() {
   out.value = (Math.floor(h * 2) / 2).toFixed(1);
 }
 
+/* R2: 加班日期picker范围限制（非超管±2天，本地时区格式化） */
+function _applyOtDateWindow() {
+  if (isSuperAdmin()) return;
+  const inp = document.getElementById('otDate');
+  if (!inp) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const min = new Date(today); min.setDate(min.getDate() - 2);
+  const max = new Date(today); max.setDate(max.getDate() + 2);
+  const fmt = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  inp.min = fmt(min);
+  inp.max = fmt(max);
+}
+
 async function submitOvertime() {
   const eid = document.getElementById('otEmpEid').value || document.getElementById('otEmpId').value.trim();
   const date = document.getElementById('otDate').value;
@@ -6818,6 +6899,13 @@ async function submitOvertime() {
   const note = document.getElementById('otNote').value.trim();
   const msg = document.getElementById('otMsg');
   if (!eid || !date) { msg.textContent = t('leave_pick_emp_date'); msg.style.color = 'var(--danger)'; return; }
+  // R2: 非超管用户加班日期须在今日前后2天内
+  if (!isSuperAdmin()) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const sel = new Date(date + 'T00:00:00');
+    const diff = Math.abs((sel - today) / 86400000);
+    if (diff > 2) { msg.textContent = t('err_ot_window'); msg.style.color = 'var(--danger)'; return; }
+  }
   calcOtHours();
   const hours = parseFloat(document.getElementById('otHours').value || '0');
   if (!st || !et || !hours || hours <= 0) { msg.textContent = t('err_overtime_time'); msg.style.color = 'var(--danger)'; return; }
