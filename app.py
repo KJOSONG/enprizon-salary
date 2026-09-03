@@ -4560,15 +4560,31 @@ def get_production_dashboard():
                 'total_mw': (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0),
             })
 
-    # ── 钻工产量: 逐日明细（非队长汇总） ──
+    # ── 钻工产量: 逐日明细（非队长汇总）──
+    # 薪资 = 当日产量 × 系统配置的计件单价（driller_prices），仅依赖产量，与出勤无关
+    from core.pricing import load_config as _load_cfg
+    _dp_price = _load_cfg(app.config['DATA_FOLDER']).get('driller_prices', {}) or {}
+    _ph_p = _dp_price.get('NICKEL（H）', 5000) or 5000
+    _pl_p = _dp_price.get('NICKEL（L）', 4000) or 4000
+    _pm_p = _dp_price.get('MAWE', 3000) or 3000
     driller_daily = []
     for d in driller_prod:
+        _nh = d.get('nh', 0) or 0
+        _nl = d.get('nl', 0) or 0
+        _mw = d.get('mw', 0) or 0
+        _nh_amt = round(_nh * _ph_p)
+        _nl_amt = round(_nl * _pl_p)
+        _mw_amt = round(_mw * _pm_p)
         driller_daily.append({
             'date': d['date'],
             'captain': d['captain'],
-            'nh': d['nh'],
-            'nl': d['nl'],
-            'mw': d['mw'],
+            'nh': _nh,
+            'nl': _nl,
+            'mw': _mw,
+            'nh_amt': _nh_amt,
+            'nl_amt': _nl_amt,
+            'mw_amt': _mw_amt,
+            'salary': _nh_amt + _nl_amt + _mw_amt,
             'members': d.get('members', []),
         })
 

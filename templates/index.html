@@ -250,6 +250,14 @@
       </div>
     </div>
 
+    <!-- ═══ 班组薪资对比（堆叠柱，按计件单价从产量派生） ═══ -->
+    <div class="card dash-chart-card">
+      <h2 class="dash-chart-title" data-i18n="dash_driller_salary">班组薪资对比</h2>
+      <div class="chart-fixed-h h260">
+        <canvas id="chartDrillerSalary"></canvas>
+      </div>
+    </div>
+
     <!-- ═══ 破碎产量（横向表格） ═══ -->
     <div class="card dash-chart-card">
       <h2 class="dash-chart-title" data-i18n="dash_crush_prod">破碎产量</h2>
@@ -2850,6 +2858,7 @@ function renderDashboard() {
   renderProductionTrend();
   renderDayNightCompare();
   renderDrillerGroupChart();
+  renderDrillerSalaryChart();
   renderCategoryPie();
   renderCrushTable();
   ensureDashVerify();
@@ -3278,6 +3287,99 @@ function renderDrillerGroupChart() {
         padding: 12,
         titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
         bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
+      },
+    },
+    scales: {
+      x: { stacked: true, grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      y: { stacked: true, grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+    },
+    onClick: function(e, elements) {
+      if (elements.length > 0) {
+        const capName = capNames[elements[0].index];
+        if (captains[capName]) {
+          showDrillerDetail(capName, captains[capName].daily);
+        }
+      }
+    }
+  });
+}
+
+// ── 班组薪资对比（堆叠柱，逐日产量 × 计件单价 派生，与出勤无关） ──
+function renderDrillerSalaryChart() {
+  const data = STATE._dashData;
+  const f = STATE._dashFilters;
+  destroyChart('chartDrillerSalary');
+
+  if (!data || !data.driller_production || !data.driller_production.length) return;
+
+  let rows = data.driller_production;
+  if (f.dateFrom) rows = rows.filter(d => d.date >= f.dateFrom);
+  if (f.dateTo) rows = rows.filter(d => d.date <= f.dateTo);
+
+  const captains = {};
+  rows.forEach(d => {
+    const cap = d.captain;
+    if (!captains[cap]) captains[cap] = { nh_amt: 0, nl_amt: 0, mw_amt: 0, salary: 0, daily: [] };
+    captains[cap].nh_amt += d.nh_amt || 0;
+    captains[cap].nl_amt += d.nl_amt || 0;
+    captains[cap].mw_amt += d.mw_amt || 0;
+    captains[cap].salary += d.salary || 0;
+    captains[cap].daily.push(d);
+  });
+
+  const capNames = Object.keys(captains);
+  if (!capNames.length) return;
+
+  const segments = [
+    { key: 'nh', label: 'NH', color: ORE_COLORS.nh },
+    { key: 'nl', label: 'NL', color: ORE_COLORS.nl },
+    { key: 'mw', label: 'MW', color: ORE_COLORS.mw },
+  ];
+  const datasets = segments.map(seg => ({
+    label: seg.label,
+    data: capNames.map(c => captains[c][seg.key + '_amt'] || 0),
+    backgroundColor: seg.color.line + 'CC',
+    borderColor: seg.color.solid,
+    borderWidth: 1, borderRadius: 4,
+  }));
+
+  renderChart('chartDrillerSalary', 'bar', {
+    labels: capNames,
+    datasets: datasets,
+  }, {
+    responsive: true, maintainAspectRatio: false,
+    resizeDelay: 120,
+    plugins: {
+      datalabels: {
+        display: function(ctx) {
+          const total = ctx.chart.data.datasets.reduce((s, ds) => s + (ds.data[ctx.dataIndex] || 0), 0);
+          return ctx.datasetIndex === ctx.chart.data.datasets.length - 1 && total > 0;
+        },
+        color: '#574d42',
+        font: { size: 10, weight: '700', family: "'Fraunces', ui-serif, serif" },
+        anchor: 'end', align: 'top',
+        offset: 2,
+        formatter: function(v, ctx) {
+          const total = ctx.chart.data.datasets.reduce((s, ds) => s + (ds.data[ctx.dataIndex] || 0), 0);
+          return fmtNum(Math.round(total));
+        },
+      },
+      legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true } },
+      tooltip: {
+        backgroundColor: 'rgba(59,53,43,0.95)',
+        titleColor: '#cbc0aa',
+        bodyColor: '#fbfaf9',
+        borderColor: 'rgba(203,192,170,0.4)',
+        borderWidth: 1,
+        padding: 12,
+        titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
+        bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
+        callbacks: {
+          label: function(ctx) {
+            // 逐物料金额
+            return `${ctx.dataset.label}: ${fmtNum(Math.round(ctx.raw))}`;
+          }
+        },
       },
     },
     scales: {
