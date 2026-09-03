@@ -176,7 +176,6 @@ const I18N_DICT = {
     dash_crush_bags: '袋数',
     dash_crush_people: '人数',
     dash_no_data: '暂无数据',
-    dash_trend_insufficient: '本月数据不足（仅 {n} 天），暂不显示趋势',
     /* ── P33 版本心跳 ── */
     ver_update_tip: '系统已更新，建议刷新以加载最新数据',
     ver_refresh: '刷新',
@@ -1392,7 +1391,6 @@ const I18N_DICT = {
     dash_crush_bags: 'Bags',
     dash_crush_people: 'People',
     dash_no_data: 'No Data',
-    dash_trend_insufficient: 'Insufficient data this month ({n} days); trend not shown yet',
     /* ── P33 version heartbeat ── */
     ver_update_tip: 'System updated — refresh to load latest data',
     ver_refresh: 'Refresh',

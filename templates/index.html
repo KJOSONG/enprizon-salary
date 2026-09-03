@@ -214,10 +214,7 @@
     <div class="card dash-chart-card">
       <h2 class="dash-chart-title" data-i18n="dash_prod_trend_new">产量趋势</h2>
       <div class="chart-fixed-h">
-        <div class="chart-hscroll" id="chartProdTrendScroll">
-          <div class="chart-inner" id="chartProdTrendInner"><canvas id="chartProdTrend"></canvas></div>
-          <div id="chartProdTrendEmpty" class="chart-empty" style="display:none;"></div>
-        </div>
+        <canvas id="chartProdTrend"></canvas>
       </div>
     </div>
 
@@ -3027,21 +3024,8 @@ function renderProductionTrend() {
   const rows = getFilteredShiftData();
   const f = STATE._dashFilters;
   destroyChart('chartProdTrend');
-  const emptyEl = document.getElementById('chartProdTrendEmpty');
-  const canvasEl = document.getElementById('chartProdTrend');
-  if (rows.length < 3) {
-    // 数据不足（<3 天）：不画误导性折线，显示占位提示；KPI 卡照常
-    if (canvasEl) canvasEl.style.display = 'none';
-    if (emptyEl) {
-      emptyEl.style.display = 'flex';
-      emptyEl.textContent = rows.length > 0
-        ? t('dash_trend_insufficient').replace('{n}', String(rows.length))
-        : t('dash_no_data');
-    }
-    return;
-  }
-  if (canvasEl) canvasEl.style.display = 'block';
-  if (emptyEl) emptyEl.style.display = 'none';
+
+  if (!rows.length) return;
 
   const dates = rows.map(d => d.date.slice(5));
   const datasets = [];
@@ -3151,18 +3135,6 @@ function renderProductionTrend() {
         showDayDetailPopup(rows[elements[0].index]);
       }
     }
-  });
-}
-
-// ── 产量趋势图：窗口缩放防抖重算内层宽度（全局只绑定一次） ──
-if (!window.__prodTrendResizeBound) {
-  window.__prodTrendResizeBound = true;
-  let __prodTrendRt;
-  window.addEventListener('resize', () => {
-    clearTimeout(__prodTrendRt);
-    __prodTrendRt = setTimeout(() => {
-      if (document.getElementById('chartProdTrend')) renderProductionTrend();
-    }, 150);
   });
 }
 
