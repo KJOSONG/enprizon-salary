@@ -3137,7 +3137,7 @@ def collection_submit():
             if m.get('status') == 'B':
                 m['status'] = 'P'
         # P21: NU（年假）由审批管理，采集提交不得覆盖——命中即拒绝整批（防部分写入）
-        # P31: E 已从采集摘除（产量豁免仅在井下出渣采集 teams[].exempt），L/SK/T 转 OA pending
+        # P31: E 已从采集摘除（产量豁免仅在井下出渣采集 teams[].exempt），L/SK 转 OA pending（T 直写不转OA）
         from core.database import get_attendance_status
         for m in marks:
             eid = m.get('employee_id', '')
