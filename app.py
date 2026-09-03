@@ -4527,12 +4527,24 @@ def get_production_dashboard():
             group_names[int(g['id'])] = g['name']
     except Exception:
         pass
-    # 井下计件单价（underground_prices）：班组薪资 = 产量 × 该单价，仅依赖产量
+    # 井下计件单价：V2 凸性加速（v2 生效月起）用 accel_prices+加速系数；否则用 underground_prices 线性兜底
+    # 班组薪资 = 产量 × 单价 × 加速系数（系数=当日总车次/accel_target，豁免日系数=1.0），与出勤无关
     from core.pricing import load_config as _load_cfg
-    _up_price = _load_cfg(app.config['DATA_FOLDER']).get('underground_prices', {}) or {}
-    _up_ph = _up_price.get('NICKEL（H）', 6000) or 6000
-    _up_pl = _up_price.get('NICKEL（L）', 5000) or 5000
-    _up_pm = _up_price.get('MAWE', 4000) or 4000
+    _cfg = _load_cfg(app.config['DATA_FOLDER']) or {}
+    _mode = _cfg.get('underground_mode', 'piecework')
+    _v2_from = _cfg.get('v2_effective_from', '') or ''
+    _v2_active = (_mode == 'v2' and (not _v2_from or month >= _v2_from))
+    _target = int(_cfg.get('accel_target', 40) or 40) if _v2_active else 40
+    _accel_price = (_cfg.get('accel_prices') or {}) or {}
+    _up_price = (_cfg.get('underground_prices') or {}) or {}
+    if _v2_active:
+        _ph_p = _accel_price.get('NICKEL（H）', 8000) or 8000
+        _pl_p = _accel_price.get('NICKEL（L）', 5000) or 5000
+        _pm_p = _accel_price.get('MAWE', 3000) or 3000
+    else:
+        _ph_p = _up_price.get('NICKEL（H）', 6000) or 6000
+        _pl_p = _up_price.get('NICKEL（L）', 5000) or 5000
+        _pm_p = _up_price.get('MAWE', 4000) or 4000
     shift_daily = []
     for d in shift_prod:
         if 'teams' in d:
@@ -4543,15 +4555,18 @@ def get_production_dashboard():
                 nl = prod.get('NICKEL（L）', 0) or 0
                 mw = prod.get('MAWE', 0) or 0
                 tid = int(t.get('team_id', 0) or 0)
-                # 班组薪资 = 当日产量 × 井下计件单价（underground_prices），仅依赖产量、与出勤无关
-                nh_amt = round(nh * _up_ph)
-                nl_amt = round(nl * _up_pl)
-                mw_amt = round(mw * _up_pm)
+                # V2 班组薪资池：Σ(产量×单价)×加速系数（系数=当日总车次/accel_target；豁免日=1.0）
+                _cars = nh + nl + mw
+                _mult = 1.0 if t.get('exempt', False) else ((_cars / _target) if _target else 1.0)
+                nh_amt = round(nh * _ph_p * _mult)
+                nl_amt = round(nl * _pl_p * _mult)
+                mw_amt = round(mw * _pm_p * _mult)
                 teams_out.append({
                     'team_id': tid,
                     'team_name': group_names.get(tid, ''),
                     'nh': nh, 'nl': nl, 'mw': mw,
-                    'total': nh + nl + mw,
+                    'total': _cars,
+                    'coef': round(_mult, 4),
                     'nh_amt': nh_amt, 'nl_amt': nl_amt, 'mw_amt': mw_amt,
                     'salary': nh_amt + nl_amt + mw_amt,
                 })
