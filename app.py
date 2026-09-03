@@ -76,7 +76,20 @@ def inject_static_url():
         return f'{prefix}/static/{filename}'
     return dict(static_url=_static)
 
-APP_VERSION = str(int(time.time()))
+def _current_version():
+    """P33: 版本号 = git 短哈希（跨 gunicorn worker 稳定）；无 git 时回退启动时间戳"""
+    try:
+        import subprocess
+        _base = os.path.dirname(os.path.abspath(__file__))
+        _h = subprocess.check_output(['git', '-C', _base, 'rev-parse', '--short', 'HEAD'],
+                                     stderr=subprocess.DEVNULL, timeout=3).decode().strip()
+        if _h:
+            return _h
+    except Exception:
+        pass
+    return str(int(time.time()))
+
+APP_VERSION = _current_version()
 
 # 禁用浏览器缓存，确保每次加载最新数据
 @app.after_request
@@ -207,6 +220,11 @@ def auth_status():
         'permissions': get_user_permissions(app.config['DATA_FOLDER'], session.get('username', ''))
             if session.get('logged_in') else [],
     })
+
+@app.route('/api/version', methods=['GET'])
+def api_version():
+    """轻量版本心跳 — 前端轮询/回前台检测部署更新（无载荷、免登录，仅返回进程版本号）"""
+    return jsonify({'ok': True, 'version': APP_VERSION})
 
 @app.route('/api/admin/setup', methods=['POST'])
 def admin_setup():

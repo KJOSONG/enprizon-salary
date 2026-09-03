@@ -1584,6 +1584,37 @@
 Chart.register(ChartDataLabels);
 
 // ════════════════════════════════════════════════
+//  版本心跳（部署更新检测）— 提示条 + 一键刷新，不打断操作
+// ════════════════════════════════════════════════
+window.__APP_VERSION = '{{ version }}';
+let _verTimer = null;
+function _verBanner() {
+  let el = document.getElementById('ver-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ver-banner';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;display:none;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:600;border-bottom:1px solid #f59e0b;box-sizing:border-box;';
+    el.innerHTML = '<span>' + t('ver_update_tip') + '</span>'
+      + '<button onclick="location.reload()" style="border:none;background:#92400e;color:#fff;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">' + t('ver_refresh') + '</button>';
+    document.body.appendChild(el);
+  }
+  el.style.display = 'flex';
+}
+function _checkAppVersion() {
+  if (!window.__APP_VERSION) return;
+  fetch(api('/api/version')).then(r => r.json()).then(d => {
+    if (d && d.version && String(d.version) !== String(window.__APP_VERSION)) _verBanner();
+  }).catch(() => {});
+}
+function _startVersionWatch() {
+  if (_verTimer) return;
+  _verTimer = setInterval(_checkAppVersion, 60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _checkAppVersion(); });
+  window.addEventListener('pageshow', () => _checkAppVersion());
+  _checkAppVersion();
+}
+
+// ════════════════════════════════════════════════
 //  全局状态
 // ════════════════════════════════════════════════
 const STATE = {
@@ -2624,6 +2655,8 @@ async function loadDashboard() {
     }
   });
   await checkAuth();
+  // P33: 启动版本心跳（轮询+回前台检测部署更新）
+  _startVersionWatch();
   // P27 预取可用月份边界（周期栏钳制用）
   refreshAvailableMonthsCache();
   // P14.1: 未登录直接弹出登录框，不再空白加载

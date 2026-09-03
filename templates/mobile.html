@@ -285,6 +285,8 @@
   };
 
   const I18N = null; // 已废弃：统一使用 static/js/i18n.js 的 I18N_DICT
+  // P33: 渲染时注入的进程版本号（部署重启后变化，供版本心跳比对）
+  window.__APP_VERSION = '{{ version }}';
   function t(key, vars){
     let s;
     if (window.I18N_DICT) {
@@ -312,6 +314,34 @@
   function apiStatus(path, opts){ return fetch(API_BASE + path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts)).then(r=>r.json().then(j=>({status:r.status, json:j}))); }
   function fmt(n){ n = Number(n)||0; return n.toLocaleString('en-US'); }
   function toast(msg, type){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(type?(' '+type):''); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2500); }
+
+  // ── P33: 版本心跳 — 检测到部署更新弹提示条+一键刷新（不打断正在填写的表单） ──
+  let _verTimer = null;
+  function _verBanner(){
+    let el = document.getElementById('ver-banner');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'ver-banner';
+      el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;display:none;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:600;border-bottom:1px solid #f59e0b;box-sizing:border-box;';
+      el.innerHTML = '<span>'+t('ver_update_tip')+'</span>'
+        + '<button onclick="location.reload()" style="border:none;background:#92400e;color:#fff;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">'+t('ver_refresh')+'</button>';
+      document.body.appendChild(el);
+    }
+    el.style.display='flex';
+  }
+  function _checkAppVersion(){
+    if(!window.__APP_VERSION) return;
+    api('/api/version').then(r=>{
+      if(r && r.version && String(r.version) !== String(window.__APP_VERSION)) _verBanner();
+    }).catch(()=>{});
+  }
+  function _startVersionWatch(){
+    if(_verTimer) return;
+    _verTimer = setInterval(_checkAppVersion, 60000);
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') _checkAppVersion(); });
+    window.addEventListener('pageshow', ()=>_checkAppVersion());
+    _checkAppVersion();
+  }
 
   // ── 主题/语言 ──
   function applyTheme(){
@@ -364,11 +394,12 @@
     const tb=document.getElementById('topback');
     if(tb) tb.classList.toggle('visible', hasSub);
     document.getElementById('top-title').textContent = hasSub ? _subPageTitle(name) : t(TAB_TITLES[name]);
-    if(name==='dashboard' && !STATE.dashboard) loadDashboard();
-    if(name==='employees'){ if(!STATE.employees.length) loadEmployees(); loadOAPendingCount(); }
+    if(name==='dashboard') loadDashboard();
+    if(name==='employees'){ loadEmployees(); loadOAPendingCount(); }
     // 竞态修复: 采集页依赖员工池(deptPool), 等待员工加载完成再渲染采集首页, 避免部门/花名册为空
-    if(name==='collection'){ if(!STATE.employees.length) await loadEmployees(); loadCollectionHome(); }
-    if(name==='attendance') loadAttendance();
+    // P33: 进页强制重拉员工/班组 — 桌面端调岗/班组变更在移动端及时生效，无需手动刷新
+    if(name==='collection'){ await loadEmployees(); STATE._ugGroups=null; await _mobUgGroups(); loadCollectionHome(); }
+    if(name==='attendance'){ await loadEmployees(); loadAttendance(); }
   }
   function loadOAPendingCount(){
     api('/api/oa/pending/count').then(d=>{
@@ -447,6 +478,8 @@
     // 需求5: 登录后设置菜单用户名 + 显示 ☰ 按钮
     const un=document.getElementById('menu-user-name'); if(un) un.textContent = (STATE.auth && STATE.auth.username) || '—';
     applyTheme(); applyLang();
+    // P33: 登录后启动版本心跳（轮询+回前台检测部署更新）
+    _startVersionWatch();
     // P18F: 登录后重置到默认数据台 tab(内部会设 activeTab/清 _pageStack/切高亮/懒加载 dashboard)
     switchTab('dashboard');
     loadOAPendingCount();

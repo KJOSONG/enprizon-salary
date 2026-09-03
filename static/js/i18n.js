@@ -175,6 +175,9 @@ const I18N_DICT = {
     dash_crush_bags: '袋数',
     dash_crush_people: '人数',
     dash_no_data: '暂无数据',
+    /* ── P33 版本心跳 ── */
+    ver_update_tip: '系统已更新，建议刷新以加载最新数据',
+    ver_refresh: '刷新',
 
     /* ── 员工管理 ── */
     emp_title: '员工管理',
@@ -1385,6 +1388,9 @@ const I18N_DICT = {
     dash_crush_bags: 'Bags',
     dash_crush_people: 'People',
     dash_no_data: 'No Data',
+    /* ── P33 version heartbeat ── */
+    ver_update_tip: 'System updated — refresh to load latest data',
+    ver_refresh: 'Refresh',
 
     /* ── Employees ── */
     emp_title: 'Employee Management',
