@@ -3024,14 +3024,14 @@ function renderDashboardKPI() {
 // ── 产量趋势图（主图）Golden Time 暖色 + 标签 + 悬停 ──
 function renderProductionTrend() {
   const rows = getFilteredShiftData();
-  // P33: 内层宽度随日期数逐步向右铺开（31 天正好铺满，少日期靠左约 6 成）
+  // P33: 内层宽度随日期数逐日向右铺开（每日期固定格宽；满月铺满不滚动）
   const trendInner = document.getElementById('chartProdTrendInner');
   const trendScroll = document.getElementById('chartProdTrendScroll');
   if (rows.length && trendInner && trendScroll) {
     const clientW = trendScroll.clientWidth || 600;
     const n = rows.length;
-    const slot = Math.max(36, Math.floor(clientW / 31));   // 31 天正好铺满
-    const innerW = Math.max(clientW * 0.6, n * slot);      // 少日期靠左约 6 成
+    const slot = Math.max(20, Math.floor(clientW / 31));   // 每日期固定格宽（满月铺满，窄屏不溢出）
+    const innerW = n * slot;                                // 少日期紧凑靠左，逐日向右铺开
     trendInner.style.width = Math.round(innerW) + 'px';
   }
   const f = STATE._dashFilters;
