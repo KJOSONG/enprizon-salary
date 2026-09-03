@@ -842,7 +842,34 @@
         });
         return { label:teamNames[tid]||('T'+tid), data, backgroundColor:c.line+'CC', borderColor:c.line, borderWidth:1, borderRadius:3 };
       });
-      newChart('chart-daynight', { type:'bar', data:{ labels, datasets }, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
+      newChart('chart-daynight', { type:'bar', data:{ labels, datasets }, options: Object.assign(baseOpts(), {
+        plugins:{
+          legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
+          // 柱顶显示班组重量（合计），悬停显示 NH/NL/MW 明细（零值不显示）
+          datalabels:{
+            display:function(ctx){ return ctx.dataset.data[ctx.dataIndex]>0; },
+            color:'#7a6f5c', font:{ size:8, weight:'600' }, anchor:'end', align:'top', offset:1,
+            formatter:function(v){ return v?Math.round(v):''; }
+          },
+          tooltip:{ callbacks:{
+            title:function(items){
+              const it=items&&items[0]; if(!it) return '';
+              const tid=teamIds[it.datasetIndex]; const s=sp[it.dataIndex];
+              return (teamNames[tid]||('T'+tid))+(s?'  '+s.date.slice(5):'');
+            },
+            label:function(it){
+              const tid=teamIds[it.datasetIndex]; const s=sp[it.dataIndex];
+              const tm=s&&(s.teams||[]).find(x=>String(x.team_id)===String(tid)); if(!tm) return '';
+              const nh=tm.nh||0,nl=tm.nl||0,mw=tm.mw||0; const out=[];
+              if(nh) out.push('NH  '+Math.round(nh));
+              if(nl) out.push('NL  '+Math.round(nl));
+              if(mw) out.push('MW  '+Math.round(mw));
+              out.push('= '+Math.round(nh+nl+mw));
+              return out;
+            }
+          } }
+        }
+      }) });
       return;
     }
     const ore = STATE.dnTab;

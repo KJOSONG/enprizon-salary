@@ -3207,6 +3207,28 @@ function renderDayNightCompare() {
           padding: 12,
           titleFont: { size: 12, weight: '600', family: "'Fraunces', ui-serif, serif" },
           bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
+          callbacks: {
+            // 悬停班组柱 → 标题=班组名+日期，正文=NH/NL/MW 明细（零值不显示）
+            title: function(items) {
+              const it = items && items[0]; if (!it) return '';
+              const tid = teamIds[it.datasetIndex];
+              const day = rows[it.dataIndex];
+              return (teamInfo[tid] || (t('dash_team_title') + ' ' + tid)) + (day ? '  ' + day.date.slice(5) : '');
+            },
+            label: function(it) {
+              const tid = teamIds[it.datasetIndex];
+              const day = rows[it.dataIndex];
+              const tm = day && day.teams ? day.teams.find(x => String(x.team_id) === String(tid)) : null;
+              if (!tm) return '';
+              const nh = tm.nh || 0, nl = tm.nl || 0, mw = tm.mw || 0;
+              const out = [];
+              if (nh) out.push('NH  ' + Math.round(nh));
+              if (nl) out.push('NL  ' + Math.round(nl));
+              if (mw) out.push('MW  ' + Math.round(mw));
+              out.push('= ' + Math.round(nh + nl + mw));
+              return out;
+            },
+          },
         },
       },
       scales: {
@@ -4483,14 +4505,14 @@ async function editEmployeeProfile() {
   // 出生日期
   form += `<div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="pfEdit_date_of_birth" value="${dateVal(emp.date_of_birth)}" style="${inStyle}"></div>`;
   // 部门（仅超管可改）
-  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" ${isSA ? '' : 'disabled'} onchange="onPfStructChange()" style="${inStyle}">` +
+  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" ${isSA ? '' : 'disabled'} onchange="onPfDeptChange()" style="${inStyle}">` +
     deptOpts.map(d => `<option value="${g(d)}" ${emp.department === d ? 'selected' : ''}>${g(d)}</option>`).join('') +
     `</select></div>`;
   if (!isSA) {
     form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('dept_superadmin_only')}</div>`;
   }
-  // 班组（展示页顺序：部门→班组→工号→岗位；按部门仅井下出渣/钻工显示）
-  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" onchange="onPfStructChange()" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${teamOpts}</select></div>`;
+  // 班组（展示页顺序：部门→班组→工号→岗位；随部门联动：仅井下出渣/钻工显示，其余隐藏并退出原班组）
+  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" onchange="onPfTeamChange()" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${teamOpts}</select></div>`;
   // 生效月份（月度隔离）：仅在真的改了部门/班组时才显示并选择，避免改其他信息时产生歧义
   if (isSA) {
     const _defMonth = (typeof STATE.currentMonth === 'string' && /^\d{4}-\d{2}$/.test(STATE.currentMonth))
@@ -4538,15 +4560,52 @@ async function editEmployeeProfile() {
 
 /* P7: 按薪资类别显隐基数输入（班组显隐由部门控制，见 editEmployeeProfile） */
 /* 生效月份按需显示：仅当部门/班组相对原值真的变更时才显示，避免预填歧义 */
-function onPfStructChange() {
+function onPfEffToggle(emp, deptEl, teamEl) {
+  const rowEff = document.getElementById('pfEdit_eff_row');
+  if (!rowEff || !emp || !deptEl) return;
+  const deptChanged = deptEl.value !== (emp.department || '');
+  const teamChanged = !!teamEl && teamEl.value !== String(emp.team_id || 0);
+  rowEff.style.display = (deptChanged || teamChanged) ? '' : 'none';
+}
+/* 部门联动：选钻工→队长班组、井下→井下班组；其他部门→隐藏班组并清空（自动退出原班组） */
+async function onPfDeptChange() {
   const emp = (STATE._empAll || []).find(e => String(e.id) === String(_profileEid));
   const deptEl = document.getElementById('pfEdit_department');
   const teamEl = document.getElementById('pfEdit_team_id');
-  const row = document.getElementById('pfEdit_eff_row');
-  if (!emp || !deptEl || !row) return;
-  const deptChanged = deptEl.value !== (emp.department || '');
-  const teamChanged = !!teamEl && teamEl.value !== String(emp.team_id || 0);
-  row.style.display = (deptChanged || teamChanged) ? '' : 'none';
+  const rowTeam = document.getElementById('pfEdit_row_team');
+  if (!emp || !deptEl || !teamEl) return;
+  const nd = normDept(deptEl.value || '');
+  const sameDept = deptEl.value === (emp.department || '');
+  const ph = '<option value="0" data-i18n="emp_no_team">未分班</option>';
+  if (nd === 'DRILLERTEAM') {
+    if (rowTeam) rowTeam.style.display = '';
+    teamEl.innerHTML = ph;
+    try {
+      const caps = await ensureDrCaptains();
+      if (normDept((document.getElementById('pfEdit_department') || {}).value || '') === 'DRILLERTEAM') {
+        teamEl.innerHTML = ph + caps.map(c =>
+          `<option value="${escHtml(c.employee_id)}" ${sameDept && String(emp.team_id) === String(c.employee_id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+      }
+    } catch(e) {}
+  } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
+    if (rowTeam) rowTeam.style.display = '';
+    teamEl.innerHTML = ph;
+    try {
+      const gRes = await fetch(api('/api/employee_groups'));
+      const groups = (await gRes.json()).groups || [];
+      teamEl.innerHTML = ph + groups.map(gr =>
+        `<option value="${escHtml(gr.id)}" ${sameDept && String(emp.team_id) === String(gr.id) ? 'selected' : ''}>${escHtml(gr.name)}</option>`).join('');
+    } catch(e) {}
+  } else {
+    // 非钻工/井下：隐藏班组行并清空，自动退出原部门班组
+    if (rowTeam) rowTeam.style.display = 'none';
+    teamEl.value = '0';
+  }
+  onPfEffToggle(emp, deptEl, teamEl);
+}
+function onPfTeamChange() {
+  const emp = (STATE._empAll || []).find(e => String(e.id) === String(_profileEid));
+  onPfEffToggle(emp, document.getElementById('pfEdit_department'), document.getElementById('pfEdit_team_id'));
 }
 function toggleSalaryBaseFields() {
   const sel = document.getElementById('pfEdit_salary_type');
