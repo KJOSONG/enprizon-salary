@@ -234,6 +234,14 @@
       </div>
     </div>
 
+    <!-- ═══ 班组薪资对比（班组产量对比下方、钻工组产量/矿石占比上方） ═══ -->
+    <div class="card dash-chart-card">
+      <h2 class="dash-chart-title" data-i18n="dash_driller_salary">班组薪资对比</h2>
+      <div class="chart-fixed-h h260">
+        <canvas id="chartDrillerSalary"></canvas>
+      </div>
+    </div>
+
     <!-- ═══ 双栏: 钻工组产量 + 矿石占比 ═══ -->
     <div class="dash-two-col">
       <div class="card dash-chart-card">
@@ -247,14 +255,6 @@
         <div class="chart-fixed-h h260">
           <canvas id="chartOrePie"></canvas>
         </div>
-      </div>
-    </div>
-
-    <!-- ═══ 班组薪资对比（堆叠柱，按计件单价从产量派生） ═══ -->
-    <div class="card dash-chart-card">
-      <h2 class="dash-chart-title" data-i18n="dash_driller_salary">班组薪资对比</h2>
-      <div class="chart-fixed-h h260">
-        <canvas id="chartDrillerSalary"></canvas>
       </div>
     </div>
 
@@ -3304,65 +3304,60 @@ function renderDrillerGroupChart() {
   });
 }
 
-// ── 班组薪资对比（堆叠柱，逐日产量 × 计件单价 派生，与出勤无关） ──
+// ── 班组薪资对比（每日各班组的薪资总额，产量×井下单价派生，与出勤无关）─
 function renderDrillerSalaryChart() {
   const data = STATE._dashData;
   const f = STATE._dashFilters;
   destroyChart('chartDrillerSalary');
 
-  if (!data || !data.driller_production || !data.driller_production.length) return;
+  if (!data || !data.shift_production || !data.shift_production.length) return;
 
-  let rows = data.driller_production;
+  let rows = data.shift_production;
   if (f.dateFrom) rows = rows.filter(d => d.date >= f.dateFrom);
   if (f.dateTo) rows = rows.filter(d => d.date <= f.dateTo);
 
-  const captains = {};
-  rows.forEach(d => {
-    const cap = d.captain;
-    if (!captains[cap]) captains[cap] = { nh_amt: 0, nl_amt: 0, mw_amt: 0, salary: 0, daily: [] };
-    captains[cap].nh_amt += d.nh_amt || 0;
-    captains[cap].nl_amt += d.nl_amt || 0;
-    captains[cap].mw_amt += d.mw_amt || 0;
-    captains[cap].salary += d.salary || 0;
-    captains[cap].daily.push(d);
+  // 班组信息（新格式 teams 渲染；无 teams 记录则不显示）
+  const teamInfo = {};
+  rows.forEach(d => (d.teams || []).forEach(tm => {
+    if (tm.team_id != null && tm.team_id !== 0) teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
+  }));
+  const teamIds = Object.keys(teamInfo).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  if (!teamIds.length) return;
+
+  // 与「班组产量对比」相同的显示形式：x=日期，每个班组一组柱，值为该日班组薪资总额
+  const datasets = teamIds.map((tid, i) => {
+    const c = TEAM_COLORS[i % TEAM_COLORS.length];
+    return {
+      label: teamInfo[tid],
+      data: rows.map(d => (d.teams || []).reduce((s, tm) => {
+        return String(tm.team_id) === String(tid) ? s + (tm.salary || 0) : s;
+      }, 0)),
+      backgroundColor: c.line + 'CC',
+      borderColor: c.line,
+      borderWidth: 1, borderRadius: 4,
+      datalabels: { color: c.line },
+    };
   });
 
-  const capNames = Object.keys(captains);
-  if (!capNames.length) return;
-
-  const segments = [
-    { key: 'nh', label: 'NH', color: ORE_COLORS.nh },
-    { key: 'nl', label: 'NL', color: ORE_COLORS.nl },
-    { key: 'mw', label: 'MW', color: ORE_COLORS.mw },
-  ];
-  const datasets = segments.map(seg => ({
-    label: seg.label,
-    data: capNames.map(c => captains[c][seg.key + '_amt'] || 0),
-    backgroundColor: seg.color.line + 'CC',
-    borderColor: seg.color.solid,
-    borderWidth: 1, borderRadius: 4,
-  }));
-
   renderChart('chartDrillerSalary', 'bar', {
-    labels: capNames,
+    labels: rows.map(d => d.date.slice(5)),
     datasets: datasets,
   }, {
     responsive: true, maintainAspectRatio: false,
     resizeDelay: 120,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
       datalabels: {
         display: function(ctx) {
-          const total = ctx.chart.data.datasets.reduce((s, ds) => s + (ds.data[ctx.dataIndex] || 0), 0);
-          return ctx.datasetIndex === ctx.chart.data.datasets.length - 1 && total > 0;
+          const n = ctx.chart.data.labels.length;
+          if (n > 16 && ctx.dataIndex % Math.ceil(n / 16) !== 0) return false;
+          return ctx.dataset.data[ctx.dataIndex] > 0;
         },
         color: '#574d42',
-        font: { size: 10, weight: '700', family: "'Fraunces', ui-serif, serif" },
+        font: { size: 9, weight: '600', family: "'Fraunces', ui-serif, serif" },
         anchor: 'end', align: 'top',
-        offset: 2,
-        formatter: function(v, ctx) {
-          const total = ctx.chart.data.datasets.reduce((s, ds) => s + (ds.data[ctx.dataIndex] || 0), 0);
-          return fmtNum(Math.round(total));
-        },
+        offset: 1,
+        formatter: v => v ? fmtNum(Math.round(v)) : '',
       },
       legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12, family: "'Fraunces', ui-serif, serif" }, color: '#978365', usePointStyle: true } },
       tooltip: {
@@ -3376,24 +3371,25 @@ function renderDrillerSalaryChart() {
         bodyFont: { size: 12, family: "'Fraunces', ui-serif, serif" },
         callbacks: {
           label: function(ctx) {
-            // 逐物料金额
+            const d = rows[ctx.dataIndex];
+            const tid = teamIds[ctx.datasetIndex];
+            const tm = (d.teams || []).find(t => String(t.team_id) === String(tid));
+            const byMat = [];
+            if (tm) {
+              if ((tm.nh_amt || 0) > 0) byMat.push('NH ' + fmtNum(tm.nh_amt));
+              if ((tm.nl_amt || 0) > 0) byMat.push('NL ' + fmtNum(tm.nl_amt));
+              if ((tm.mw_amt || 0) > 0) byMat.push('MW ' + fmtNum(tm.mw_amt));
+              if (byMat.length) return `${ctx.dataset.label}: ${fmtNum(Math.round(ctx.raw))}  (${byMat.join(' / ')})`;
+            }
             return `${ctx.dataset.label}: ${fmtNum(Math.round(ctx.raw))}`;
           }
         },
       },
     },
     scales: {
-      x: { stacked: true, grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
-      y: { stacked: true, grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
+      x: { grid: { display: false }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" }, autoSkip: true, maxRotation: 0, maxTicksLimit: isSmallScreen() ? 8 : 15 } },
+      y: { grid: { color: 'rgba(203,192,170,0.1)' }, ticks: { color: '#978365', font: { size: 10, family: "'Fraunces', ui-serif, serif" } } },
     },
-    onClick: function(e, elements) {
-      if (elements.length > 0) {
-        const capName = capNames[elements[0].index];
-        if (captains[capName]) {
-          showDrillerDetail(capName, captains[capName].daily);
-        }
-      }
-    }
   });
 }
 
