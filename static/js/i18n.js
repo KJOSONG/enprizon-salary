@@ -178,6 +178,7 @@ const I18N_DICT = {
     /* ── P33 版本心跳 ── */
     ver_update_tip: '系统已更新，建议刷新以加载最新数据',
     ver_refresh: '刷新',
+    coef_label: '系数',
 
     /* ── 员工管理 ── */
     emp_title: '员工管理',
@@ -1391,6 +1392,7 @@ const I18N_DICT = {
     /* ── P33 version heartbeat ── */
     ver_update_tip: 'System updated — refresh to load latest data',
     ver_refresh: 'Refresh',
+    coef_label: 'Coef',
 
     /* ── Employees ── */
     emp_title: 'Employee Management',

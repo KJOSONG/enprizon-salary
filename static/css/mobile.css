@@ -232,7 +232,7 @@ a { color: inherit; text-decoration: none; }
 /* 语言胶囊（设计稿 period-bar 中/EN） */
 .lang-pill { min-width: 44px; padding: 0 10px; font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.05em; }
 
-.main-content { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--tab-bar-height) + var(--safe-bottom)); }
+.main-content { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--tab-bar-height) + var(--safe-bottom)); }
 .tab-page { display: none; padding: var(--space-lg); }
 .tab-page.active { display: block; }
 
@@ -686,11 +686,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ── 提交历史列表 ── */
 .history-list { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-xs) var(--space-md); }
-.history-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-sm); row-gap: 4px; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.history-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-sm) var(--space-md); row-gap: 4px; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
 .history-row:last-child { border-bottom: none; }
-.history-row__date { color: var(--foreground); font-weight: 600; flex-shrink: 0; min-width: 84px; white-space: nowrap; }
-.history-row__type { flex: 1 1 auto; min-width: 4em; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.history-row__sub { color: var(--muted-foreground); font-size: var(--text-xs); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.history-row__date { color: var(--foreground); font-weight: 600; flex: 1 1 auto; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.history-row__type { flex: 0 1 auto; min-width: 0; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-row__sub { color: var(--muted-foreground); font-size: var(--text-xs); text-align: right; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .shift-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; margin-right: 4px; vertical-align: 1px; }
 .shift-chip.day { background: hsl(200 60% 45% / 0.15); color: var(--st-d); }
 .shift-chip.night { background: hsl(180 50% 40% / 0.15); color: var(--st-n); }

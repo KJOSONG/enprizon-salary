@@ -138,7 +138,7 @@
           </div>
           <div class="chart-box">
             <div class="chart-header">
-              <div class="chart-box__title" data-i18n="day_night">白班 vs 夜班</div>
+              <div class="chart-box__title" id="chart-daynight-title" data-i18n="day_night">白班 vs 夜班</div>
               <div class="cmp-tab" id="dn-cmp-tab">
                 <button class="cmp-tab__item active" data-v="all" onclick="setDnTab('all')" data-i18n="total">合计</button>
                 <button class="cmp-tab__item" data-v="nh" onclick="setDnTab('nh')" data-i18n="nh">NICKEL(H)</button>
@@ -626,12 +626,15 @@
     let kpis;
     if(isNew){
       // C8: 新格式按班组 totals 替代白夜班比
+      // 班组占比与 web 端一致：每个班组的总产量 ÷ 本月总产量（各班组合计）的百分比
       const teamTotals={};
       (STATE.dashboard.shift_production||[]).forEach(s=>{(s.teams||[]).forEach(tm=>{
         const nm=tm.team_name||('T'+tm.team_id);
         teamTotals[nm]=(teamTotals[nm]||0)+(tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0)));
       });});
-      const teamStr = Object.keys(teamTotals).length? Object.entries(teamTotals).map(([k,v])=>k+':'+fmt(v)).join('  ') : '—';
+      const _tv=Object.values(teamTotals);
+      const _grand=_tv.reduce((a,b)=>a+b,0)||1;
+      const teamStr = _tv.length? Object.entries(teamTotals).map(([k,v])=>k+' '+Math.round(v/_grand*100)+'%').join('  ') : '—';
       kpis = [
         { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
         { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
@@ -788,9 +791,10 @@
     const sp = STATE.dashboard.shift_production || [];
     const labels = sp.map(s=>s.date.slice(5));
     const isNew = sp.some(s=>Array.isArray(s.teams));
-    // 标题切换
-    const titleEl = document.querySelector('#tab-dashboard .chart-box:nth-of-type(2) .chart-box__title');
-    if(titleEl) titleEl.textContent = isNew ? t('dash_team_compare') : t('day_night');
+    // 标题切换：新格式=班组对比（无 Day vs Night），并同步 data-i18n 以便语言切换
+    const titleEl = document.getElementById('chart-daynight-title');
+    const titleKey = isNew ? 'dash_team_compare' : 'day_night';
+    if(titleEl){ titleEl.textContent = t(titleKey); titleEl.setAttribute('data-i18n', titleKey); }
     const tabEl = document.getElementById('dn-cmp-tab');
     if(tabEl) tabEl.style.display = isNew ? 'none' : '';
     if(isNew){
@@ -872,17 +876,9 @@
           },
         },
         tooltip:{ mode:'index', intersect:false, callbacks:{ label:function(ctx){
+          // 移动端窄屏：tooltip 保持精简（金额+系数），避免超长截断；系数随语言切换
           const s=rows[ctx.dataIndex], tid=teamIds[ctx.datasetIndex];
-          const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
-          let lbl=' '+(ctx.dataset.label||'')+': '+fmt(Math.round(ctx.raw||0))+'  系数×'+coefOf(s,tid);
-          if(tm){
-            const parts=[];
-            if((tm.nh_amt||0)>0) parts.push('NH '+fmt(tm.nh_amt));
-            if((tm.nl_amt||0)>0) parts.push('NL '+fmt(tm.nl_amt));
-            if((tm.mw_amt||0)>0) parts.push('MW '+fmt(tm.mw_amt));
-            if(parts.length) lbl+=' ('+parts.join(' / ')+')';
-          }
-          return lbl;
+          return ' '+(ctx.dataset.label||'')+': '+fmt(Math.round(ctx.raw||0))+'  '+t('coef_label')+'×'+coefOf(s,tid);
         } } },
       },
       hover:{ mode:'index', intersect:false },

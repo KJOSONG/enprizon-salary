@@ -3425,7 +3425,7 @@ function renderDrillerSalaryChart() {
             const coef = coefOf(d, tid);
             let label = `${ctx.dataset.label}: ${fmtNum(Math.round(ctx.raw))}`;
             if (byMat.length) label += `  (${byMat.join(' / ')})`;
-            label += `  系数×${coef}`;
+            label += `  ${t('coef_label')}×${coef}`;
             return label;
           }
         },
