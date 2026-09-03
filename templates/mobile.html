@@ -1884,7 +1884,7 @@
       const isDriverOn = drivers.has(String(e.id));
       const chk = isDriverOn ? ' checked' : '';
       return '<div class="worker-item" style="gap:6px;"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span>'
-        + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','L','SK','T'].map(s=>{const lab=s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>'
+        + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','T','L','SK'].map(s=>{const lab=s==='A'?t('att_status_a_direct'):s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_direct'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>'
         + (isUg ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '')
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
