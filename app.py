@@ -4666,9 +4666,10 @@ def get_production_verify():
             if dt not in shift_daily:
                 shift_daily[dt] = {'nh': 0, 'nl': 0, 'mw': 0}
             for _t in (d.get('teams') or []):
-                shift_daily[dt]['nh'] += _t.get('nh', 0) or 0
-                shift_daily[dt]['nl'] += _t.get('nl', 0) or 0
-                shift_daily[dt]['mw'] += _t.get('mw', 0) or 0
+                _prod = _t.get('prod') or {}
+                shift_daily[dt]['nh'] += _prod.get('NICKEL（H）', 0) or 0
+                shift_daily[dt]['nl'] += _prod.get('NICKEL（L）', 0) or 0
+                shift_daily[dt]['mw'] += _prod.get('MAWE', 0) or 0
         else:
             dp = d.get('day_prod') or {}
             np = d.get('night_prod') or {}

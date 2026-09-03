@@ -214,7 +214,9 @@
     <div class="card dash-chart-card">
       <h2 class="dash-chart-title" data-i18n="dash_prod_trend_new">产量趋势</h2>
       <div class="chart-fixed-h">
-        <canvas id="chartProdTrend"></canvas>
+        <div class="chart-hscroll" id="chartProdTrendScroll">
+          <div class="chart-inner" id="chartProdTrendInner"><canvas id="chartProdTrend"></canvas></div>
+        </div>
       </div>
     </div>
 
@@ -3022,6 +3024,16 @@ function renderDashboardKPI() {
 // ── 产量趋势图（主图）Golden Time 暖色 + 标签 + 悬停 ──
 function renderProductionTrend() {
   const rows = getFilteredShiftData();
+  // P33: 内层宽度随日期数逐步向右铺开（31 天正好铺满，少日期靠左约 6 成）
+  const trendInner = document.getElementById('chartProdTrendInner');
+  const trendScroll = document.getElementById('chartProdTrendScroll');
+  if (rows.length && trendInner && trendScroll) {
+    const clientW = trendScroll.clientWidth || 600;
+    const n = rows.length;
+    const slot = Math.max(36, Math.floor(clientW / 31));   // 31 天正好铺满
+    const innerW = Math.max(clientW * 0.6, n * slot);      // 少日期靠左约 6 成
+    trendInner.style.width = Math.round(innerW) + 'px';
+  }
   const f = STATE._dashFilters;
   destroyChart('chartProdTrend');
 
@@ -3135,6 +3147,18 @@ function renderProductionTrend() {
         showDayDetailPopup(rows[elements[0].index]);
       }
     }
+  });
+}
+
+// ── 产量趋势图：窗口缩放防抖重算内层宽度（全局只绑定一次） ──
+if (!window.__prodTrendResizeBound) {
+  window.__prodTrendResizeBound = true;
+  let __prodTrendRt;
+  window.addEventListener('resize', () => {
+    clearTimeout(__prodTrendRt);
+    __prodTrendRt = setTimeout(() => {
+      if (document.getElementById('chartProdTrend')) renderProductionTrend();
+    }, 150);
   });
 }
 
@@ -3670,7 +3694,8 @@ function renderVerifyCard() {
   const card = document.getElementById('dashVerifyCard');
   const j = _dashVerify.data;
   if (!j || !hasPermission('salary', 'view')) { card.style.display = 'none'; return; }
-  const dates = Object.keys(j).filter(k => k !== 'month').sort();
+  const dates = Object.keys(j).filter(k => k !== 'month'
+    && k !== 'verify_days' && k !== 'match_days' && k !== 'mismatch_days').sort();
   if (!dates.length) { card.style.display = 'none'; return; }
   card.style.display = '';
   const rows = dates.map(dt => Object.assign({ date: dt }, j[dt]));

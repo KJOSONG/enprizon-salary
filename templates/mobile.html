@@ -276,6 +276,7 @@
     theme: localStorage.getItem('m_theme') || 'light',
     lang: localStorage.getItem('m_lang') || 'zh',
     shiftFilter: 'all',
+    teamFilter: 'all',
     charts: {},
     attendance: null,
     attBatch: false,
@@ -598,6 +599,7 @@
       const hasData = (d.shift_production||[]).length || (d.driller_production||[]).length || (d.crush_production||[]).length;
       if(!hasData){ empty.style.display='block'; return; }
       content.style.display='block';
+      initDashFilter(d);
       renderDashboard();
     }).catch(()=>{
       sk.style.display='none'; err.style.display='block';
@@ -608,6 +610,33 @@
   function toggleDashFilter(){ document.getElementById('dash-control').classList.toggle('open'); }
 
   function setShiftFilter(v){ STATE.shiftFilter=v; document.querySelectorAll('#dash-shift-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
+  // P31 B1: 新格式月把班次筛选重建为动态班组筛选（全部+当月班组）；旧格式月还原为全部/白班/夜班
+  function initDashFilter(d){
+    const seg = document.getElementById('dash-shift-seg');
+    if(!seg) return;
+    const group = seg.closest('.filter-group');
+    const label = group ? group.querySelector('.filter-group__label') : null;
+    const isNew = (d.shift_production||[]).some(s=>Array.isArray(s.teams));
+    if(isNew){
+      const teamInfo = {};
+      (d.shift_production||[]).forEach(dd=>(dd.teams||[]).forEach(tm=>{
+        if(tm.team_id==null) return;
+        teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title')+' '+tm.team_id);
+      }));
+      const teamIds = Object.keys(teamInfo).sort((a,b)=>Number(a)-Number(b));
+      seg.innerHTML = '<div class="segmented__option active" data-v="all" onclick="setTeamFilter(\'all\')" data-i18n="all">'+t('all')+'</div>'
+        + teamIds.map(id=>'<div class="segmented__option" data-v="'+id+'" onclick="setTeamFilter(\''+id+'\')">'+esc(teamInfo[id])+'</div>').join('');
+      if(label){ label.setAttribute('data-i18n','dash_team_filter'); label.textContent = t('dash_team_filter'); }
+      STATE.teamFilter = 'all';
+    } else {
+      seg.innerHTML = '<div class="segmented__option active" data-v="all" onclick="setShiftFilter(\'all\')" data-i18n="all">'+t('all')+'</div>'
+        + '<div class="segmented__option" data-v="day" onclick="setShiftFilter(\'day\')" data-i18n="day_shift">'+t('day_shift')+'</div>'
+        + '<div class="segmented__option" data-v="night" onclick="setShiftFilter(\'night\')" data-i18n="night_shift">'+t('night_shift')+'</div>';
+      if(label){ label.setAttribute('data-i18n','shift'); label.textContent = t('dash_shift'); }
+      STATE.teamFilter = 'all';
+    }
+  }
+  function setTeamFilter(v){ STATE.teamFilter=v; document.querySelectorAll('#dash-shift-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
   function setOreFilter(v){ STATE.dashOreFilter=v; document.querySelectorAll('#dash-ore-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
   function setDnTab(v){ STATE.dnTab=v; document.querySelectorAll('#dn-cmp-tab .cmp-tab__item').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); drawDayNight(); }
 
@@ -618,9 +647,14 @@
     const ore = STATE.dashOreFilter;
     const isNew = (d.shift_production||[]).some(s=>Array.isArray(s.teams));
     if(isNew){
+      const tf = STATE.teamFilter;
       return (d.shift_production||[]).map(s=>{
         let nh=0,nl=0,mw=0;
-        (s.teams||[]).forEach(tm=>{ nh+=(tm.nh||0); nl+=(tm.nl||0); mw+=(tm.mw||0); });
+        (s.teams||[]).forEach(tm=>{
+          // P31 B1: 班组筛选时只累加该班组产量，其余班组置 0（对齐 Web getProdValue）
+          if(tf!=='all' && String(tm.team_id)!==String(tf)) return;
+          nh+=(tm.nh||0); nl+=(tm.nl||0); mw+=(tm.mw||0);
+        });
         if(ore==='nh'){ nl=0; mw=0; }
         else if(ore==='nl'){ nh=0; mw=0; }
         else if(ore==='mw'){ nh=0; nl=0; }
@@ -740,7 +774,9 @@
       // P31 D2: 新格式 = 每班组一条线，labels 与 datasets 同源于 sp（决策 3：矿石筛选取 tm[ore]/否则 tm.total）
       const teamInfo = {};
       sp.forEach(s=>{(s.teams||[]).forEach(tm=>{ teamInfo[tm.team_id]=tm.team_name||('T'+tm.team_id); });});
-      const teamIds = Object.keys(teamInfo).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+      let teamIds = Object.keys(teamInfo).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+      // P31 B1: 班组筛选时只渲染该班组一条线（对齐 Web）
+      if(STATE.teamFilter!=='all') teamIds = teamIds.filter(tid=>String(tid)===String(STATE.teamFilter));
       const ore = STATE.dashOreFilter;
       tooltipCb = (ctx)=>{ 
         // P32: 每个班组按物料拆分 NH/NL/MW，仅显示有产量的物料（0 不显示）
@@ -938,17 +974,72 @@
     });
     newChart('chart-salary', { type:'bar', data:{ labels, datasets }, options: opts });
   }
-  // 钻工组产量：堆叠柱按 NH/NL/MW（支持点击下钻占位）
+  // 钻工组产量：按队长分组对比（对齐 Web renderDrillerGroupChart），点击柱子查看逐日明细
   function drawDriller(){
     const dp = STATE.dashboard.driller_production || [];
-    if(!dp.length){ document.getElementById('chart-driller').style.display='none'; return; }
-    document.getElementById('chart-driller').style.display='block';
-    const labels = dp.map(s=>s.date.slice(5));
-    newChart('chart-driller', { type:'bar', data:{ labels, datasets:[
-      { label:t('nh'), data:dp.map(s=>s.nh||0), backgroundColor:'hsl(55 24% 49%)', borderRadius:2 },
-      { label:t('nl'), data:dp.map(s=>s.nl||0), backgroundColor:'hsl(0 15% 32%)', borderRadius:2 },
-      { label:t('mw'), data:dp.map(s=>s.mw||0), backgroundColor:'hsl(70 10% 50%)', borderRadius:2 },
-    ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } }, scales:{ x:{ stacked:true, ticks:{font:{size:9}, maxRotation:0} }, y:{ stacked:true, ticks:{font:{size:9}} } } }) });
+    const el = document.getElementById('chart-driller');
+    if(!el) return;
+    if(!dp.length){ el.style.display='none'; return; }
+    // 按队长分组，累加整月 NH/NL/MW，同时保留逐日明细用于点击弹窗
+    const captains = {};
+    dp.forEach(d=>{
+      const cap = d.captain;
+      if(!captains[cap]) captains[cap]={ nh:0, nl:0, mw:0, daily:[] };
+      captains[cap].nh += d.nh||0;
+      captains[cap].nl += d.nl||0;
+      captains[cap].mw += d.mw||0;
+      captains[cap].daily.push(d);
+    });
+    const capNames = Object.keys(captains);
+    if(!capNames.length){ el.style.display='none'; return; }
+    el.style.display='block';
+    const colors = ['hsl(55 24% 49%)','hsl(0 15% 32%)','hsl(70 10% 50%)']; // NH/NL/MW
+    const datasets = ['nh','nl','mw'].map((key,i)=>({
+      label:t(key), data:capNames.map(c=>captains[c][key]||0),
+      backgroundColor:colors[i], borderRadius:2,
+    }));
+    newChart('chart-driller', { type:'bar', data:{ labels:capNames, datasets }, options: Object.assign(baseOpts(), {
+      plugins:{
+        legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
+        datalabels:{
+          // 只在堆叠段顶部显示该队长整月总车次（仅 >0）
+          display:function(ctx){ return ctx.datasetIndex===datasets.length-1 && ctx.dataset.data[ctx.dataIndex]>0; },
+          color:'#574d42', font:{ size:8, weight:'700' }, anchor:'end', align:'top', offset:1,
+          formatter:function(v,ctx){
+            const total = ctx.chart.data.datasets.reduce((s,ds)=>s+(ds.data[ctx.dataIndex]||0),0);
+            return total>0 ? Math.round(total) : '';
+          },
+        },
+      },
+      scales:{
+        x:{ stacked:true, grid:{ display:false }, ticks:{ font:{size:9}, maxRotation:0, callback:function(val){ const l=this.getLabelForValue(val); return l.length>12 ? l.slice(0,12)+'…' : l; } } },
+        y:{ stacked:true, ticks:{font:{size:9}} },
+      },
+      onClick:function(e, elements){
+        if(elements.length>0){
+          const capName = capNames[elements[0].index];
+          const cap = captains[capName];
+          if(!cap) return;
+          const rows = cap.daily.slice().sort((a,b)=> a.date<b.date ? -1 : a.date>b.date ? 1 : 0);
+          let totalNH=0, totalNL=0, totalMW=0;
+          const thL='text-align:left;padding:6px 8px;border-bottom:2px solid rgba(0,0,0,0.12);white-space:nowrap;';
+          const thR='text-align:right;padding:6px 8px;border-bottom:2px solid rgba(0,0,0,0.12);white-space:nowrap;';
+          const tdL='text-align:left;padding:6px 8px;border-bottom:1px solid rgba(0,0,0,0.06);white-space:nowrap;';
+          const tdR='text-align:right;padding:6px 8px;border-bottom:1px solid rgba(0,0,0,0.06);white-space:nowrap;';
+          let html='<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>'
+            +'<th style="'+thL+'">'+t('date')+'</th><th style="'+thR+'">'+t('nh')+'</th><th style="'+thR+'">'+t('nl')+'</th><th style="'+thR+'">'+t('mw')+'</th><th style="'+thR+'">'+t('total')+'</th>'
+            +'</tr></thead><tbody>';
+          rows.forEach(d=>{
+            const nh=d.nh||0, nl=d.nl||0, mw=d.mw||0;
+            totalNH+=nh; totalNL+=nl; totalMW+=mw;
+            html+='<tr><td style="'+tdL+'">'+d.date+'</td><td style="'+tdR+'">'+fmt(nh)+'</td><td style="'+tdR+'">'+fmt(nl)+'</td><td style="'+tdR+'">'+fmt(mw)+'</td><td style="'+tdR+';font-weight:700;">'+fmt(nh+nl+mw)+'</td></tr>';
+          });
+          html+='<tr style="font-weight:700;border-top:2px solid rgba(0,0,0,0.15);"><td style="'+tdL+'">'+t('total')+'</td><td style="'+tdR+'">'+fmt(totalNH)+'</td><td style="'+tdR+'">'+fmt(totalNL)+'</td><td style="'+tdR+'">'+fmt(totalMW)+'</td><td style="'+tdR+'">'+fmt(totalNH+totalNL+totalMW)+'</td></tr>';
+          html+='</tbody></table>';
+          showModal(capName+' — '+t('dash_driller_daily'), html);
+        }
+      }
+    }) });
   }
   // 矿石类型占比：环形图 + 中心总车次 + 右侧百分比 legend
   function drawOre(totals){
