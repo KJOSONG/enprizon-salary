@@ -4483,19 +4483,19 @@ async function editEmployeeProfile() {
   // 出生日期
   form += `<div class="form-row"><label data-i18n="emp_dob">出生日期</label><input type="date" id="pfEdit_date_of_birth" value="${dateVal(emp.date_of_birth)}" style="${inStyle}"></div>`;
   // 部门（仅超管可改）
-  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" ${isSA ? '' : 'disabled'} style="${inStyle}">` +
+  form += `<div class="form-row"><label data-i18n="th_dept">部门</label><select id="pfEdit_department" ${isSA ? '' : 'disabled'} onchange="onPfStructChange()" style="${inStyle}">` +
     deptOpts.map(d => `<option value="${g(d)}" ${emp.department === d ? 'selected' : ''}>${g(d)}</option>`).join('') +
     `</select></div>`;
   if (!isSA) {
     form += `<div style="font-size:11px;color:var(--text-muted);margin-top:-4px;margin-bottom:8px;">${t('dept_superadmin_only')}</div>`;
   }
   // 班组（展示页顺序：部门→班组→工号→岗位；按部门仅井下出渣/钻工显示）
-  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${teamOpts}</select></div>`;
-  // 生效月份（月度隔离：超管直改部门/班组时指定，默认当月；非超管不可改部门故隐藏）
+  form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" onchange="onPfStructChange()" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${teamOpts}</select></div>`;
+  // 生效月份（月度隔离）：仅在真的改了部门/班组时才显示并选择，避免改其他信息时产生歧义
   if (isSA) {
     const _defMonth = (typeof STATE.currentMonth === 'string' && /^\d{4}-\d{2}$/.test(STATE.currentMonth))
       ? STATE.currentMonth : new Date().toISOString().slice(0, 7);
-    form += `<div class="form-row"><label data-i18n="emp_effective_month">生效月份</label><input type="month" id="pfEdit_effective_month" value="${g(_defMonth)}" style="${inStyle}"></div>`;
+    form += `<div class="form-row" id="pfEdit_eff_row" style="display:none;"><label data-i18n="emp_effective_month">生效月份</label><input type="month" id="pfEdit_effective_month" value="${g(_defMonth)}" style="${inStyle}"><div style="grid-column:1/-1;font-size:11px;color:var(--text-muted);" data-i18n="emp_effective_month_hint">部门/班组已变更，从该月起按新信息计算；仅改其他内容无需选择</div></div>`;
   }
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
@@ -4537,6 +4537,17 @@ async function editEmployeeProfile() {
 }
 
 /* P7: 按薪资类别显隐基数输入（班组显隐由部门控制，见 editEmployeeProfile） */
+/* 生效月份按需显示：仅当部门/班组相对原值真的变更时才显示，避免预填歧义 */
+function onPfStructChange() {
+  const emp = (STATE._empAll || []).find(e => String(e.id) === String(_profileEid));
+  const deptEl = document.getElementById('pfEdit_department');
+  const teamEl = document.getElementById('pfEdit_team_id');
+  const row = document.getElementById('pfEdit_eff_row');
+  if (!emp || !deptEl || !row) return;
+  const deptChanged = deptEl.value !== (emp.department || '');
+  const teamChanged = !!teamEl && teamEl.value !== String(emp.team_id || 0);
+  row.style.display = (deptChanged || teamChanged) ? '' : 'none';
+}
 function toggleSalaryBaseFields() {
   const sel = document.getElementById('pfEdit_salary_type');
   if (!sel) return;
@@ -4707,9 +4718,14 @@ async function saveEmployeeProfile(eid) {
   data.team_id = (deptSave === 'PRODUCTIONTEAM(UNDERGROUND)' || deptSave === 'DRILLERTEAM')
     ? (parseInt(document.getElementById('pfEdit_team_id').value) || 0) : 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
-  // 月度隔离：超管直改部门/班组时携带生效月份（后端默认当月）
+  // 月度隔离：仅当部门/班组确实变更时才携带生效月份（避免改其他信息产生歧义）
+  const _empNow = (STATE._empAll || []).find(e => String(e.id) === String(eid));
+  const _structChanged = !!_empNow && (
+    (data.department || '') !== (_empNow.department || '') ||
+    (data.team_id || 0) !== (parseInt(_empNow.team_id || 0, 10) || 0)
+  );
   const _effEl = document.getElementById('pfEdit_effective_month');
-  if (_effEl && _effEl.value) data.effective_month = _effEl.value;
+  if (_structChanged && _effEl && _effEl.value) data.effective_month = _effEl.value;
 
   const res = await authFetch(api('/api/employees/' + eid), {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data),
