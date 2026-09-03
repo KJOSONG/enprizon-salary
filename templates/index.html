@@ -7461,7 +7461,8 @@ async function loadColHistory(formType, containerId) {
                 const _on = !!tm.exempt;
                 const _lbl = _on ? t('col_ug_exempt_badge_on') : t('col_ug_exempt_badge_off');
                 const _style = _on ? 'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;' : 'background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);';
-                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px;' + _style + '">' + _lbl + ' T' + escHtml(String(tm.team_id)) + '</span>';
+                // P33: 徽标用班组名（_ugTeamName），无名称时回退「班组 N」
+                exemptBadges += ' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px;' + _style + '">' + _lbl + ' ' + escHtml(_ugTeamName(tm.team_id) || (t('col_ug_team') + ' ' + tm.team_id)) + '</span>';
               });
             } else {
               if (_pl.day) {
@@ -7550,7 +7551,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
       if (!payload.teams.length) return '<div style="font-size:12px;color:var(--text-muted);">' + t('no_submissions') + '</div>';
       return '<div style="font-size:12px;line-height:1.9;">' + payload.teams.map(tm =>
         '<div style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
-        + '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + t('col_ug_team_row') + ' ' + escHtml(String(tm.team_id)) + _badgeFor(!!tm.exempt) + (sid ? _toggleBtn(sid, tm.team_id, false, !!tm.exempt, cid) : '') + '</div>'
+        + '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' + t('col_ug_team_row') + ' ' + escHtml(_ugTeamName(tm.team_id) || String(tm.team_id)) + _badgeFor(!!tm.exempt) + (sid ? _toggleBtn(sid, tm.team_id, false, !!tm.exempt, cid) : '') + '</div>'
         + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
         + (tm.remark ? '<div>' + escHtml(tm.remark) + '</div>' : '')
         + '</div>'

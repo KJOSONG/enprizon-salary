@@ -149,6 +149,10 @@
             <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-daynight"></canvas></div>
           </div>
           <div class="chart-box">
+            <div class="chart-box__title" data-i18n="dash_driller_salary">班组薪资对比</div>
+            <div class="chart-canvas-wrap" style="height:170px;"><canvas id="chart-salary"></canvas></div>
+          </div>
+          <div class="chart-box">
             <div class="chart-box__title" data-i18n="driller_output">钻工组产量</div>
             <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-driller"></canvas></div>
             <div class="chart-note" data-i18n="chart_drill_note">点击柱子查看逐日明细</div>
@@ -620,6 +624,7 @@
 
     drawTrend();
     drawDayNight();
+    drawDrillerSalary();
     drawDriller();
     drawOre(totals);
     renderCrush();
@@ -785,6 +790,71 @@
       { label:t('day_shift'), data:dayData, backgroundColor:'hsl(200 60% 45%)', borderRadius:3 },
       { label:t('night_shift'), data:nightData, backgroundColor:'hsl(180 50% 40%)', borderRadius:3 },
     ]}, options: Object.assign(baseOpts(), { plugins:{ legend:{ display:true, position:'bottom', labels:{ font:{size:9} } } } }) });
+  }
+  // 班组薪资对比：每日各班薪资总额（V2 凸性计薪：Σ(产量×单价)×加速系数），与出勤无关
+  function drawDrillerSalary(){
+    const sp = STATE.dashboard.shift_production || [];
+    const el = document.getElementById('chart-salary');
+    if(!el) return;
+    if(!sp.length || !sp.some(s=>Array.isArray(s.teams))){ el.style.display='none'; return; }
+    el.style.display='block';
+    // 日期 1号→月末 升序（与产量趋势/班组对比一致）
+    const rows = sp.slice().sort((a,b)=> a.date<b.date?-1 : a.date>b.date?1 : 0);
+    const labels = rows.map(s=>s.date.slice(5));
+    const teamInfo = {};
+    rows.forEach(s=>(s.teams||[]).forEach(tm=>{ if(tm.team_id!=null && Number(tm.team_id)!==0) teamInfo[tm.team_id]=tm.team_name||('T'+tm.team_id); }));
+    const teamIds = Object.keys(teamInfo).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
+    if(!teamIds.length){ el.style.display='none'; return; }
+    const coefOf = (s,tid)=>{
+      const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
+      return tm && tm.coef!=null ? Number(tm.coef).toFixed(2) : '1.00';
+    };
+    const datasets = teamIds.map((tid,i)=>{
+      const c = TEAM_COLORS[i % TEAM_COLORS.length];
+      return {
+        label: teamInfo[tid],
+        data: rows.map(s=>{
+          const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
+          return tm ? (tm.salary||0) : 0;
+        }),
+        backgroundColor: c.line+'CC', borderColor: c.line, borderWidth:1, borderRadius:3,
+      };
+    });
+    const opts = Object.assign(baseOpts(), {
+      plugins:{
+        legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
+        datalabels:{
+          display:function(ctx){
+            const n=ctx.chart.data.labels.length;
+            if(n>14 && ctx.dataIndex % Math.ceil(n/14)!==0) return false;
+            return (ctx.dataset.data[ctx.dataIndex]||0) > 0;
+          },
+          color:'#574d42',
+          font:{ size:8, weight:'600' },
+          anchor:'end', align:'top', offset:0,
+          formatter:function(v,ctx){
+            if(!v) return '';
+            // 顶部金额，其下显示加速系数
+            return fmt(Math.round(v))+'\n×'+coefOf(rows[ctx.dataIndex], teamIds[ctx.datasetIndex]);
+          },
+        },
+        tooltip:{ mode:'index', intersect:false, callbacks:{ label:function(ctx){
+          const s=rows[ctx.dataIndex], tid=teamIds[ctx.datasetIndex];
+          const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
+          let lbl=' '+(ctx.dataset.label||'')+': '+fmt(Math.round(ctx.raw||0))+'  系数×'+coefOf(s,tid);
+          if(tm){
+            const parts=[];
+            if((tm.nh_amt||0)>0) parts.push('NH '+fmt(tm.nh_amt));
+            if((tm.nl_amt||0)>0) parts.push('NL '+fmt(tm.nl_amt));
+            if((tm.mw_amt||0)>0) parts.push('MW '+fmt(tm.mw_amt));
+            if(parts.length) lbl+=' ('+parts.join(' / ')+')';
+          }
+          return lbl;
+        } } },
+      },
+      hover:{ mode:'index', intersect:false },
+    });
+    newChart('chart-salary', { type:'bar', data:{ labels, datasets }, options: opts });
   }
   // 钻工组产量：堆叠柱按 NH/NL/MW（支持点击下钻占位）
   function drawDriller(){
@@ -1275,7 +1345,8 @@
                 const isEx=!!tm.exempt;
                 const badgeText=isEx?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
                 const badgeStyle=isEx?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
-                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyle+'">'+esc(badgeText)+' T'+esc(tm.team_id)+'</span>';
+                // P33: 徽标用班组名，无名称时回退「T+id」
+                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyle+'">'+esc(badgeText)+' '+esc(_mobUgTeamName(tm.team_id)||('T'+tm.team_id))+'</span>';
                 if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(isEx?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isEx?'':'opacity:0.6;')+'">⇄</button>';
               });
             } else {
@@ -1332,7 +1403,7 @@
         return p.teams.map(tm=>{
           const isEx=!!tm.exempt;
           return '<div class="detail-line" style="padding:6px 0;border-bottom:1px solid var(--border-dim);">'
-          + '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">'+t('col_ug_team_row')+' '+esc(String(tm.team_id))+(isEx?_badgeOn:_badgeOff)+_btn(tm.team_id,false,isEx)+'</div>'
+          + '<div style="font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:4px;">'+t('col_ug_team_row')+' '+esc(_mobUgTeamName(tm.team_id)||String(tm.team_id))+(isEx?_badgeOn:_badgeOff)+_btn(tm.team_id,false,isEx)+'</div>'
           + '<div>NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
           + (tm.remark?'<div>'+esc(tm.remark)+'</div>':'')
           + '</div>';
