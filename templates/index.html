@@ -512,13 +512,14 @@
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="leaveEmpId" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="leaveEmpEid"></div>
       <div id="leavePick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
       <div class="form-row"><label data-i18n="leave_type">类型</label><select id="leaveType" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+        <option value="" data-i18n="sel_placeholder">请选择</option>
         <option value="casual" data-i18n="leave_casual">事假</option>
         <option value="sick" data-i18n="leave_sick">病假</option>
         <option value="annual_leave" data-i18n="leave_annual">年假</option>
         <option value="comp_leave" data-i18n="leave_comp">调休</option>
       </select></div>
       <div class="form-row"><label data-i18n="leave_date">日期</label><input type="date" id="leaveDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
-      <div class="form-row"><label data-i18n="leave_days">天数</label><input type="number" id="leaveDays" value="1" min="1" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      <div class="form-row"><label data-i18n="leave_days">天数</label><input type="number" id="leaveDays" min="1" placeholder="" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="leave_note">备注</label><input type="text" id="leaveNote" data-i18n-placeholder="leave_reason_ph" placeholder="请假原因" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;">
@@ -564,7 +565,9 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="transferSearch" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="transferEid"></div>
       <div id="transferPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
-      <div class="form-row"><label data-i18n="emp_new_dept">新部门</label><select id="transferDept" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row"><label data-i18n="emp_new_dept">新部门</label><select id="transferDept" onchange="onTransferDeptChange()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row" id="transferTeamRow" style="display:none;"><label data-i18n="emp_team">班组</label><select id="transferTeam" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
+      <div class="form-row" style="grid-column:1 / -1;"><div style="font-size:11px;color:var(--text-muted);" data-i18n="transfer_piece_hint">调入钻工/井下部门后，将按生效日期自动转为对应计件薪资</div></div>
       <div class="form-row"><label data-i18n="emp_new_position">新岗位</label><input type="text" id="transferPosition" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_effective_date">生效日期</label><input type="date" id="transferDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
     </div>
@@ -6960,10 +6963,13 @@ async function submitLeave() {
   const eid = document.getElementById('leaveEmpEid').value || document.getElementById('leaveEmpId').value.trim();
   const type = document.getElementById('leaveType').value;
   const date = document.getElementById('leaveDate').value;
-  const days = parseInt(document.getElementById('leaveDays').value) || 1;
+  const daysRaw = document.getElementById('leaveDays').value;
+  const days = parseInt(daysRaw) || 0;
   const note = document.getElementById('leaveNote').value;
   const msg = document.getElementById('leaveMsg');
   if (!eid || !date) { msg.textContent = t('leave_pick_emp_date'); msg.style.color = 'var(--danger)'; return; }
+  if (!type) { msg.textContent = t('sel_type_required'); msg.style.color = 'var(--danger)'; return; }
+  if (days < 1) { msg.textContent = t('leave_pick_emp_date'); msg.style.color = 'var(--danger)'; return; }
   try {
     // P8: 病假免审，走独立端点（写 leave_requests + 扣余额 + 落出勤 P）
     let res, data;
@@ -6990,7 +6996,7 @@ async function submitLeave() {
       document.getElementById('leavePick').innerHTML = '';
       document.getElementById('leavePick').style.display = 'none';
       document.getElementById('leaveDate').value = '';
-      document.getElementById('leaveDays').value = '1';
+      document.getElementById('leaveDays').value = '';
       document.getElementById('leaveNote').value = '';
     } else {
       msg.textContent = data.error || t('leave_submit_fail');
@@ -7190,15 +7196,29 @@ async function submitApply(type) {
     msgId = 'transferMsg';
     const eid = document.getElementById('transferEid').value;
     const date = document.getElementById('transferDate').value;
+    const newDept = document.getElementById('transferDept').value;
     if (!eid || !date) { setApplyMsg(msgId, t('pick_emp_date'), false); return; }
+    if (!newDept) { setApplyMsg(msgId, t('sel_type_required'), false); return; }
+    const nd = normDept(newDept);
+    const payload = {
+      new_department: newDept,
+      new_position: document.getElementById('transferPosition').value.trim(),
+    };
+    const teamSel = document.getElementById('transferTeam');
+    if (nd === 'DRILLERTEAM') {
+      const capVal = teamSel ? teamSel.value : '';
+      if (!capVal) { setApplyMsg(msgId, t('col_ug_team_required'), false); return; }
+      payload.captain = capVal;
+    } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
+      const tidVal = teamSel ? teamSel.value : '';
+      if (!tidVal) { setApplyMsg(msgId, t('col_att_ug_pick_team'), false); return; }
+      payload.team_id = tidVal;
+    }
     body = {
       event_type: 'transfer',
       employee_id: eid,
       effective_date: date,
-      payload: {
-        new_department: document.getElementById('transferDept').value,
-        new_position: document.getElementById('transferPosition').value.trim(),
-      },
+      payload,
     };
   } else {
     msgId = 'dismissMsg';
@@ -7237,6 +7257,8 @@ async function submitApply(type) {
         document.getElementById('transferEid').value = '';
         document.getElementById('transferPosition').value = '';
         document.getElementById('transferDate').value = '';
+        document.getElementById('transferDept').value = '';
+        onTransferDeptChange(); // 重置并隐藏班组行
       } else {
         document.getElementById('dismissSearch').value = '';
         document.getElementById('dismissEid').value = '';
@@ -7268,11 +7290,39 @@ function fillApplyDepts() {
     if (depts.length === 0) {
       [...new Set((STATE._empAll || []).map(e => e.department).filter(Boolean))].sort().forEach(d => depts.push(d));
     }
-    sel.innerHTML = (selId === 'hireDept' ? '<option value="" data-i18n="hire_sel_dept">请选择</option>' : '')
+    sel.innerHTML = (selId === 'hireDept' || selId === 'transferDept' ? '<option value="" data-i18n="sel_placeholder">请选择</option>' : '')
       + depts.map(d => `<option value="${escHtml(d)}" ${cur===d?'selected':''}>${escHtml(d)}</option>`).join('');
   };
   fill('hireDept');
   fill('transferDept');
+}
+
+/* 调岗班组联动：新部门选钻工/井下时加载并显示班组选择，其余隐藏清空 */
+async function onTransferDeptChange() {
+  const row = document.getElementById('transferTeamRow');
+  const sel = document.getElementById('transferTeam');
+  if (!row || !sel) return;
+  const d = document.getElementById('transferDept') ? document.getElementById('transferDept').value : '';
+  const nd = normDept(d);
+  const ph = '<option value="" data-i18n="sel_placeholder">请选择</option>';
+  sel.innerHTML = ph;
+  if (nd === 'DRILLERTEAM') {
+    try {
+      const caps = await ensureDrCaptains();
+      sel.innerHTML = ph + caps.map(c => `<option value="${escHtml(c.employee_id)}">${escHtml(c.name || c.employee_id)}</option>`).join('');
+    } catch(e) {}
+    row.style.display = '';
+  } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
+    try {
+      const res = await fetch(api('/api/employee_groups'));
+      const data = await res.json();
+      const groups = data.groups || [];
+      sel.innerHTML = ph + groups.map(g => `<option value="${escHtml(g.id)}">${escHtml(g.name)}</option>`).join('');
+    } catch(e) {}
+    row.style.display = '';
+  } else {
+    row.style.display = 'none';
+  }
 }
 (function initEmpApply() {
   fillApplyDepts();
@@ -7284,7 +7334,7 @@ function fillApplyDepts() {
       const res = await fetch(api('/api/employee_groups'));
       const data = await res.json();
       const groups = data.groups || [];
-      sel.innerHTML = '<option value="0" data-i18n="emp_no_team">未分班</option>' +
+      sel.innerHTML = '<option value="" data-i18n="sel_placeholder">请选择</option>' +
         groups.map(g => `<option value="${escHtml(g.id)}">${escHtml(g.name)}</option>`).join('');
     } catch(e) {}
   })();
@@ -8355,10 +8405,10 @@ async function renderAttCollectionForm(payload) {
   const selTeamId = payload.team_id != null ? String(payload.team_id) : '';
   const marksMap = {};
   (payload.marks || []).forEach(m => { marksMap[String(m.employee_id)] = m; });
-  const attStatusOpts = (selSt) => COL_ATT_STATUS.map(([v, key]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${t(key)}</option>`).join('');
+  const attStatusOpts = (selSt) => `<option value="">${t('att_status_placeholder')}</option>` + COL_ATT_STATUS.map(([v, key]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${t(key)}</option>`).join('');
   const otherHtml = rosterOther.map(e => {
     const m = marksMap[String(e.id)] || {};
-    const st = m.status || 'P';
+    const st = m.status || '';
     return `<div class="picker-row att-row" data-dept="${escHtml(e.department || '')}" data-emp-id="${escHtml(e.id)}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
         <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
@@ -8366,7 +8416,7 @@ async function renderAttCollectionForm(payload) {
   }).join('');
   const ugHtml = ugPool.map(e => {
     const m = marksMap[String(e.id)] || {};
-    const st = m.status || 'P';
+    const st = m.status || '';
     const isDrv = (payload.drivers || []).map(String).includes(String(e.id));
     return `<div class="picker-row att-row" data-dept="${escHtml(ugDeptExact)}" data-team-id="${escHtml(String(e.team_id||''))}" data-emp-id="${escHtml(e.id)}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
@@ -8387,7 +8437,7 @@ async function renderAttCollectionForm(payload) {
     <div id="attUgTeamWrap" style="margin-top:8px;${normDept(selDept) === 'PRODUCTIONTEAM(UNDERGROUND)' ? '' : 'display:none;'}">
       <div class="form-row"><label style="min-width:70px;">${t('col_att_ug_team')}</label><select id="attUgTeamSel" onchange="filterAttRoster()" style="${colInStyle(true)}"><option value="">${t('col_ug_team_placeholder')}</option>${teamOpts}</select></div>
     </div>
-    <div style="margin-top:10px;font-size:12px;color:var(--text-muted);" data-i18n="col_att_hint">默认全部为出勤(P)，点击行修改</div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text-muted);">请为每位员工手动选择出勤状态（可用「全部P / 全部A」批量设置）</div>
     <div id="attUgPickHint" style="display:none;padding:16px;text-align:center;color:var(--text-muted);font-size:12px;margin-top:8px;border:1px dashed var(--border);border-radius:var(--radius);">${t('col_att_ug_pick_team')}</div>
     <div id="attLeaveNote" style="display:none;padding:8px 12px;color:#B05A3C;font-size:12px;margin-top:8px;background:rgba(176,90,60,0.08);border:1px solid rgba(176,90,60,0.3);border-radius:var(--radius);"></div>
     <div style="max-height:50vh;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);" id="attRoster">
@@ -8489,6 +8539,7 @@ async function submitAttCollection() {
     const sel = document.getElementById('attSt' + e.id);
     if (!sel) continue;
     let status = sel.value;
+    if (!status) { showToast(t('att_need_status'), 'error'); return; }
     if (status === 'B') status = 'P';
     marks.push({ employee_id: e.id, status });
   }

@@ -1583,12 +1583,102 @@ def apply_approved_event(data_folder, event):
                             "UPDATE employees SET avatar_path=? WHERE id=?",
                             (f'static/avatars/{_fname}', eid))
         elif etype == 'transfer':
-            new_dept = payload.get('new_department', '')
-            new_pos = payload.get('new_position', '')
-            if new_dept:
-                conn.execute("UPDATE employees SET department=? WHERE id=?", (new_dept, eid))
-            if new_pos:
-                conn.execute("UPDATE employees SET position=? WHERE id=?", (new_pos, eid))
+            new_dept = (payload.get('new_department') or '').strip()
+            new_pos = (payload.get('new_position') or '').strip()
+            if not new_dept:
+                raise RuntimeError('调岗申请缺少新部门')
+            if not eff:
+                raise RuntimeError('调岗申请缺少生效日期')
+            # 读取旧基线（必须在更新主档之前，供台账/追溯）
+            _row = conn.execute(
+                "SELECT department, default_type, day_rate, monthly_salary, team_id FROM employees WHERE id=?",
+                (eid,)).fetchone()
+            old = dict(_row) if _row else {}
+            old_dept = old.get('department') or ''
+            old_type = old.get('default_type') or ''
+            old_day = old.get('day_rate') or 0
+            old_month = old.get('monthly_salary') or 0
+            old_team = int(old.get('team_id') or 0)
+
+            def _norm(s):
+                return (s or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
+            _nd = _norm(new_dept)
+            is_driller = _nd == 'DRILLERTEAM'
+            is_ug = _nd == 'PRODUCTIONTEAM(UNDERGROUND)'
+            # 自动目标薪资类型：仅调入钻工/井下自动切计件，其余部门保持原薪资
+            new_type = 'piece_driller' if is_driller else ('piece_underground' if is_ug else '')
+            # 班组校验：钻工/井下必须选择班组，否则拒绝审批
+            team_id_val = 0
+            captain_val = ''
+            if is_driller:
+                captain_val = str((payload.get('captain') or '').strip())
+                if not captain_val:
+                    raise RuntimeError('调入钻工部门必须选择班组（队长）')
+                team_id_val = captain_val  # 钻工 team_id 存队长 employee_id
+            elif is_ug:
+                try:
+                    team_id_val = int(payload.get('team_id') or 0)
+                except (TypeError, ValueError):
+                    team_id_val = 0
+                if team_id_val <= 0:
+                    raise RuntimeError('调入井下部门必须选择班组')
+
+            # 月度台账（生效日期隔离）：首次补旧基线 + 生效月条目（default_type 保留旧轨，
+            # 使生效日之前仍按旧薪资计，生效日起由下方物理 override 切计件轨）
+            _hist_c = conn.execute(
+                "SELECT COUNT(*) AS c FROM employee_base_history WHERE employee_id=?", (eid,)).fetchone()['c']
+            if int(_hist_c) == 0:
+                _hire = conn.execute(
+                    "SELECT effective_date FROM employee_events WHERE employee_id=? AND event_type='hire' AND status='approved' LIMIT 1",
+                    (eid,)).fetchone()
+                _base_from = (_hire['effective_date'] or '')[:7] if _hire else ''
+                if not _base_from:
+                    _min_m = conn.execute("SELECT MIN(month) AS m FROM monthly_data").fetchone()['m']
+                    _base_from = str(_min_m)[:7] if _min_m else '0000-00'
+                conn.execute(
+                    "INSERT INTO employee_base_history (employee_id,from_month,department,default_type,day_rate,monthly_salary,team_id,note,operator_id)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (eid, _base_from, old_dept, old_type, old_day, old_month, old_team, '基线', 'system'))
+            _eff_month = eff[:7]
+            conn.execute(
+                "INSERT INTO employee_base_history (employee_id,from_month,department,default_type,day_rate,monthly_salary,team_id,note,operator_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (eid, _eff_month, new_dept, old_type, old_day, old_month, team_id_val,
+                 f'OA调岗 #{event.get("id")}', 'system'))
+
+            # 更新主档（部门/岗位；钻工/井下同步切薪资类型与班组）
+            conn.execute("UPDATE employees SET department=?, position=COALESCE(NULLIF(?,''),position) WHERE id=?",
+                         (new_dept, new_pos, eid))
+            if is_driller or is_ug:
+                conn.execute(
+                    "UPDATE employees SET default_type=?, day_rate=0, monthly_salary=0, team_id=? WHERE id=?",
+                    (new_type, team_id_val, eid))
+            else:
+                conn.execute("UPDATE employees SET team_id=0 WHERE id=?", (eid,))
+            # 物理带日期 override（生效日→远期）：驱动 per_date_type 及钻工 driller_adds 成员名单
+            if is_driller:
+                conn.execute(
+                    "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (eid, 'piece_driller', 0, 0, eff, '9999-12-31',
+                     f'OA调岗转钻工 #{event.get("id")}', '', '', captain_val, ''))
+            elif is_ug:
+                conn.execute(
+                    "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (eid, 'piece_underground', 0, 0, eff, '9999-12-31',
+                     f'OA调岗转井下 #{event.get("id")}', '', '', '', ''))
+            # 事件 payload 补充追溯信息
+            _p2 = dict(payload)
+            _p2.update({'new_type': new_type, 'old_type': old_type,
+                        'old_day_rate': old_day, 'old_monthly_salary': old_month,
+                        'old_department': old_dept})
+            if is_driller:
+                _p2['captain'] = captain_val
+            if is_ug:
+                _p2['team_id'] = team_id_val
+            conn.execute("UPDATE employee_events SET payload=? WHERE id=?",
+                         (json.dumps(_p2, ensure_ascii=False), event['id']))
         elif etype in ('dismiss', 'resign'):
             note = payload.get('reason', '')
             if eff:

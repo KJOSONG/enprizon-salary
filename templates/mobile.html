@@ -1100,7 +1100,8 @@
   }
   function openLeave(empId){
     const body = document.getElementById('sheet-body');
-    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="casual" selected>'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick">'+t('sick_leave')+'</option></select></div>'
+    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="">'+t('sel_placeholder')+'</option><option value="casual">'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick">'+t('sick_leave')+'</option></select></div>'
+      + '<div class="field"><label class="field__label">'+t('leave_days')+'</label><input type="number" id="lv-days" min="1"></div>'
       + '<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
       + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitLeave(\''+esc(empId)+'\')">'+t('submit')+'</button>';
@@ -1109,9 +1110,12 @@
   function submitLeave(empId){
     const type = document.getElementById('lv-type').value;
     const date = document.getElementById('lv-date').value;
+    const days = parseInt(document.getElementById('lv-days')?.value || '0') || 0;
     const note = document.getElementById('lv-note').value.trim();
+    if(!type){ toast(t('sel_type_required'),'warning'); return; }
     if(!date){ toast(t('fill_date'),'warning'); return; }
-    const payload = { employee_id: empId, event_type: type, effective_date: date, note, days: 1 };
+    if(days < 1){ toast(t('fill_date'),'warning'); return; }
+    const payload = { employee_id: empId, event_type: type, effective_date: date, note, days };
     api('/api/oa/leave', { method:'POST', body: JSON.stringify(payload) }).then(r=>{
       if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error');
     }).catch(()=>toast(t('fail'),'error'));
@@ -1904,11 +1908,11 @@
     if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
     const drivers = STATE._attEditDrivers || new Set();
-    box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || 'P';
+    box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || '';
       const isDriverOn = drivers.has(String(e.id));
       const chk = isDriverOn ? ' checked' : '';
       return '<div class="worker-item" style="gap:6px;"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span>'
-        + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+['P','A','T','L','SK'].map(s=>{const lab=s==='A'?t('att_status_a_direct'):s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_direct'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>'
+        + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="">'+t('att_status_placeholder')+'</option>'+['P','A','T','L','SK'].map(s=>{const lab=s==='A'?t('att_status_a_direct'):s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_direct'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>'
         + (isUg ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '')
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
@@ -1928,6 +1932,8 @@
     const list=attRosterEmpIds();
     // B→P 兜底: 若状态为 B 则转 P
     const marks=list.map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
+    // 出勤状态不允许留空：每位员工必须手动选择（可先用全P/全A批量）
+    for(const m of marks){ if(!m.status){ showFormMsg('attendance', t('att_need_status'), false); return; } }
     // 编辑保数据: 同 team 的原 marks 保底（UG 仅同 team）
     const submitted=new Set(marks.map(m=>String(m.employee_id)));
     Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
@@ -2112,8 +2118,8 @@
   function doAttJump(){ const dt=document.getElementById('attJumpDate').value; closeSheet(); if(!dt) return; STATE.attJump=dt; renderAttGrid(); const cell=document.querySelector('.status-cell[data-d="'+dt+'"]'); if(cell) cell.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'}); }
 
   // 请假快捷入口
-  function quickLeave(){ const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openLeave(document.getElementById(\'ql-emp\').value)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
-  function quickSick(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } const body=document.getElementById('sheet-body'); const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date" value="'+new Date().toISOString().slice(0,10)+'"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
+  function quickLeave(){ const body=document.getElementById('sheet-body'); const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="const v=document.getElementById(\'ql-emp\').value; if(!v){toast(t(\'need_editor\'),\'warning\');return;} openLeave(v)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
+  function quickSick(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } const body=document.getElementById('sheet-body'); const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(r.message || t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
   // P29 V2.1: OA 申请入口按 oa:apply 权限守卫
@@ -2121,8 +2127,8 @@
   // ── P23 R2: 加班申请（移动端） ──
   function quickOvertime(){
     const body=document.getElementById('sheet-body');
-    const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
-    body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qot-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="openOvertime(document.getElementById(\'qot-emp\').value)">'+t('next')+'</button>';
+    const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
+    body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qot-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="const v=document.getElementById(\'qot-emp\').value; if(!v){toast(t(\'need_editor\'),\'warning\');return;} openOvertime(v)">'+t('next')+'</button>';
     openSheet(t('overtime_apply'), body);
   }
   function openQuickOvertime(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
@@ -2187,11 +2193,11 @@
   }
   function renderHireForm(depts){
     const g=STATE._groups||[];
-    const gOpts='<option value="0">—</option>'+g.map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('');
-    const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+    const gOpts='<option value="">'+t('sel_placeholder')+'</option>'+g.map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('');
+    const deptOpts='<option value="">'+t('sel_placeholder')+'</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
     oaFormHTML(
       '<div class="field"><label class="field__label">'+t('emp_name')+'</label><input id="oaHireName" placeholder="FULL NAME"></div>'
-      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaHireDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaHireDate"></div>'
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="oaHireDept">'+deptOpts+'</select></div>'
       + '<div class="field"><label class="field__label">'+t('position')+'</label><input id="oaHirePosition"></div>'
       + '<div class="field"><label class="field__label">'+t('gender')+'</label><select id="oaHireGender"><option value="">—</option><option>M</option><option>F</option></select></div>'
@@ -2203,9 +2209,9 @@
       + '<div class="field"><label class="field__label">'+t('bank')+'</label><input id="oaHireBank"></div>'
       + '<div class="field"><label class="field__label">'+t('emp_bank_account')+'</label><input id="oaHireAccount"></div>'
       + '<div class="field"><label class="field__label">'+t('emp_bank_owner')+'</label><input id="oaHireOwner"></div>'
-      + '<div class="field"><label class="field__label">'+t('salary_type')+'</label><select id="oaHireSalaryType"><option value="">—</option><option value="piece_underground">'+t('type_ug_piece')+'</option><option value="piece_driller">'+t('type_dr_piece')+'</option><option value="day_rate">'+t('type_dayrate')+'</option><option value="monthly">'+t('type_monthly')+'</option></select></div>'
-      + '<div class="field"><label class="field__label">'+t('emp_day_rate')+'</label><input type="number" id="oaHireDayRate" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
-      + '<div class="field"><label class="field__label">'+t('emp_monthly_salary')+'</label><input type="number" id="oaHireMonthly" value="0" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field"><label class="field__label">'+t('salary_type')+'</label><select id="oaHireSalaryType"><option value="">'+t('sel_placeholder')+'</option><option value="piece_underground">'+t('type_ug_piece')+'</option><option value="piece_driller">'+t('type_dr_piece')+'</option><option value="day_rate">'+t('type_dayrate')+'</option><option value="monthly">'+t('type_monthly')+'</option></select></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_day_rate')+'</label><input type="number" id="oaHireDayRate" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_monthly_salary')+'</label><input type="number" id="oaHireMonthly" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('team')+'</label><select id="oaHireTeamId">'+gOpts+'</select></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitHireApply()">'+t('submit')+'</button>');
     openSheet(t('emp_apply_hire'), document.getElementById('sheet-body'));
@@ -2240,31 +2246,65 @@
   // 调岗申请
   function openTransferApply(){
     if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
-    const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
+    const opts='<option value="">—</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
     const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
     const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
     oaFormHTML(
       '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaTrEid">'+opts+'</select></div>'
-      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaTrDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
-      + '<div class="field"><label class="field__label">'+t('emp_new_dept')+'</label><select id="oaTrDept">'+deptOpts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaTrDate"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_new_dept')+'</label><select id="oaTrDept" onchange="onMobTrDept()">'+deptOpts+'</select></div>'
+      + '<div class="field" id="oaTrTeamRow" style="display:none;"><label class="field__label">'+t('emp_team')+'</label><select id="oaTrTeam"></select></div>'
       + '<div class="field"><label class="field__label">'+t('emp_new_position')+'</label><input id="oaTrPosition"></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitTransferApply()">'+t('submit')+'</button>');
     openSheet(t('emp_apply_transfer'), document.getElementById('sheet-body'));
   }
+  function onMobTrDept(){
+    const sel=document.getElementById('oaTrDept'); const row=document.getElementById('oaTrTeamRow');
+    const team=document.getElementById('oaTrTeam'); if(!sel||!row||!team) return;
+    const d=(sel.value||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase();
+    const ph='<option value="">—</option>';
+    if(d==='DRILLERTEAM'||d==='PRODUCTIONTEAM(UNDERGROUND)'){
+      row.style.display=''; team.innerHTML=ph;
+      if(d==='PRODUCTIONTEAM(UNDERGROUND)'){
+        api('/api/employee_groups').then(g=>{ team.innerHTML=ph+((g.groups||[]).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')); }).catch(()=>{});
+      } else {
+        // 钻工队长列表走 ensureDrCaptains 不可用时的服务端备用：这里复用移动端已有队长池拉取失败则提示
+        api('/api/collection/driller-teams').then(json=>{
+          const caps=(json.teams||{}); const ids=Object.keys(caps);
+          const names=(STATE.employees||[]).filter(e=>ids.includes(String(e.id))).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+'</option>').join('');
+          team.innerHTML=ph+names;
+        }).catch(()=>{});
+      }
+    } else { row.style.display='none'; team.innerHTML=''; }
+  }
   function submitTransferApply(){
     const eid=document.getElementById('oaTrEid').value, date=document.getElementById('oaTrDate').value;
     if(!eid||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
-    api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'transfer', employee_id:eid, effective_date:date, payload:{ new_department:document.getElementById('oaTrDept').value, new_position:document.getElementById('oaTrPosition').value.trim() } }) }).then(r=>{
+    const newDept=document.getElementById('oaTrDept').value;
+    if(!newDept){ oaFormMsg(false, t('sel_type_required')); return; }
+    const payload={ new_department:newDept, new_position:document.getElementById('oaTrPosition').value.trim() };
+    const d=newDept.replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase();
+    const team=document.getElementById('oaTrTeam');
+    if(d==='DRILLERTEAM'){
+      const cap=team?team.value:'';
+      if(!cap){ oaFormMsg(false, t('col_ug_team_required')); return; }
+      payload.captain=cap;
+    } else if(d==='PRODUCTIONTEAM(UNDERGROUND)'){
+      const tid=team?team.value:'';
+      if(!tid){ oaFormMsg(false, t('col_att_ug_pick_team')); return; }
+      payload.team_id=tid;
+    }
+    api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'transfer', employee_id:eid, effective_date:date, payload }) }).then(r=>{
       if(r.ok){ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, r.error||t('fail'));
     }).catch(()=>oaFormMsg(false, t('fail')));
   }
   // 离职申请
   function openDismissApply(){
     if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
-    const opts=(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
+    const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
     oaFormHTML(
       '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaDmEid">'+opts+'</select></div>'
-      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaDmDate" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+      + '<div class="field"><label class="field__label">'+t('emp_effective_date')+'</label><input type="date" id="oaDmDate"></div>'
       + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="oaDmReason" rows="3"></textarea></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitDismissApply()">'+t('submit')+'</button>');
     openSheet(t('emp_apply_dismiss'), document.getElementById('sheet-body'));
