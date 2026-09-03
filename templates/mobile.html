@@ -315,8 +315,10 @@
   function fmt(n){ n = Number(n)||0; return n.toLocaleString('en-US'); }
   function toast(msg, type){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(type?(' '+type):''); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2500); }
 
-  // ── P33: 版本心跳 — 检测到部署更新弹提示条+一键刷新（不打断正在填写的表单） ──
+  // ── P33: 版本心跳 — 检测到部署更新自动刷新（表单输入聚焦时改提示条），覆盖 bfcache/冻结恢复 ──
   let _verTimer = null;
+  let _verSeen = false;         // 本会话已检测到版本变化（避免重复弹条）
+  let _hiddenAt = 0;            // 页面进入后台的时间戳（长时隐藏恢复时强制刷新）
   function _verBanner(){
     let el = document.getElementById('ver-banner');
     if(!el){
@@ -329,18 +331,42 @@
     }
     el.style.display='flex';
   }
-  function _checkAppVersion(){
+  // 是否正在填写表单/输入框聚焦：若是则用提示条而非强制刷新，避免丢失已录入内容
+  function _isInFormInput(){
+    const ae = document.activeElement;
+    if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
+    // 采集/出勤表单（col-form 内含井下出渣、出勤收集、钻工/破碎采集）可见即视为编辑中
+    const formEl = document.getElementById('col-form');
+    return !!formEl && formEl.style.display === 'block';
+  }
+  function _onVersionChanged(longHidden){
+    if(_verSeen) return;
+    _verSeen = true;
+    // 长时隐藏后恢复（隔天再开）或未在填表 → 自动刷新拿最新版
+    if(longHidden || !_isInFormInput()){ location.reload(); return; }
+    // 正在填表 → 不打断，顶部提示条供稍后手动刷新
+    _verBanner();
+  }
+  function _checkAppVersion(longHidden){
     if(!window.__APP_VERSION) return;
     api('/api/version').then(r=>{
-      if(r && r.version && String(r.version) !== String(window.__APP_VERSION)) _verBanner();
+      if(r && r.version && String(r.version) !== String(window.__APP_VERSION)) _onVersionChanged(!!longHidden);
     }).catch(()=>{});
   }
   function _startVersionWatch(){
     if(_verTimer) return;
-    _verTimer = setInterval(_checkAppVersion, 60000);
-    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') _checkAppVersion(); });
-    window.addEventListener('pageshow', ()=>_checkAppVersion());
-    _checkAppVersion();
+    // 后台标签页 setInterval 会被浏览器节流/冻结，故以「可见/恢复」事件驱动为主，轮询仅兜底
+    _verTimer = setInterval(()=>_checkAppVersion(false), 60000);
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState==='hidden'){ _hiddenAt = Date.now(); return; }
+      // 恢复可见：长时隐藏(>60s)视为「隔天再开」，命中版本变化即强制刷新
+      _checkAppVersion(Date.now() - _hiddenAt > 60000);
+    });
+    // bfcache / 页面从浏览器恢复会话：persisted 事件恢复的是旧 JS 状态，务必立即校验
+    window.addEventListener('pageshow', (e)=>_checkAppVersion(e && e.persisted));
+    // Page Lifecycle API：后台标签页被冻结后解冻（freeze/resume），比 visibilitychange 覆盖更全
+    document.addEventListener('resume', ()=>_checkAppVersion(Date.now() - _hiddenAt > 60000));
+    _checkAppVersion(false);
   }
 
   // ── 主题/语言 ──

@@ -1588,6 +1588,8 @@ Chart.register(ChartDataLabels);
 // ════════════════════════════════════════════════
 window.__APP_VERSION = '{{ version }}';
 let _verTimer = null;
+let _verSeen = false;   // 本会话已检测到版本变化
+let _hiddenAt = 0;      // 页面进入后台时间戳
 function _verBanner() {
   let el = document.getElementById('ver-banner');
   if (!el) {
@@ -1600,18 +1602,41 @@ function _verBanner() {
   }
   el.style.display = 'flex';
 }
-function _checkAppVersion() {
+// 正在填写表单/输入框聚焦 → 用提示条而非强制刷新，避免丢失已录入内容
+function _isInFormInput() {
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
+  const overlay = document.querySelector('.modal-overlay[style*="flex"], .modal-overlay[style*="block"]');
+  return !!overlay;
+}
+function _onVersionChanged(longHidden) {
+  if (_verSeen) return;
+  _verSeen = true;
+  // 长时隐藏后恢复（隔天再开）或未在填表 → 自动刷新拿最新版
+  if (longHidden || !_isInFormInput()) { location.reload(); return; }
+  // 正在填表/弹窗 → 不打断，顶部提示条供稍后手动刷新
+  _verBanner();
+}
+function _checkAppVersion(longHidden) {
   if (!window.__APP_VERSION) return;
   fetch(api('/api/version')).then(r => r.json()).then(d => {
-    if (d && d.version && String(d.version) !== String(window.__APP_VERSION)) _verBanner();
+    if (d && d.version && String(d.version) !== String(window.__APP_VERSION)) _onVersionChanged(!!longHidden);
   }).catch(() => {});
 }
 function _startVersionWatch() {
   if (_verTimer) return;
-  _verTimer = setInterval(_checkAppVersion, 60000);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _checkAppVersion(); });
-  window.addEventListener('pageshow', () => _checkAppVersion());
-  _checkAppVersion();
+  // 后台标签页 setInterval 会被浏览器节流/冻结，以「可见/恢复」事件驱动为主，轮询兜底
+  _verTimer = setInterval(() => _checkAppVersion(false), 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { _hiddenAt = Date.now(); return; }
+    // 恢复可见：长时隐藏(>60s)视为「隔天再开」，命中版本变化即强制刷新
+    _checkAppVersion(Date.now() - _hiddenAt > 60000);
+  });
+  // bfcache / 浏览器恢复会话：persisted 恢复的是旧 JS 状态，务必立即校验
+  window.addEventListener('pageshow', (e) => _checkAppVersion(e && e.persisted));
+  // Page Lifecycle API：后台标签页冻结后解冻（freeze/resume）
+  document.addEventListener('resume', () => _checkAppVersion(Date.now() - _hiddenAt > 60000));
+  _checkAppVersion(false);
 }
 
 // ════════════════════════════════════════════════
