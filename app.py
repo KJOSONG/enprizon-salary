@@ -5969,7 +5969,11 @@ def export_payslips_all():
         pays_dir = os.path.join(app.config['DATA_FOLDER'], 'payslips')
         os.makedirs(pays_dir, exist_ok=True)
         dept_suffix = f'_{department}' if department else ''
-        filename = f'payslips{dept_suffix}_{month}_{datetime.now().strftime("%Y%m%d%H%M%S")}.pdf'
+        # 部门名含 "/"（如 Logistics/Ground production、Sort Crush/Crush Piece Rate）
+        # 会被 os.path.join 当作路径分隔符，导致写入不存在的子目录而 FileNotFoundError，
+        # 故输出文件名/下载名中一律用 "_" 替换非法路径字符。
+        safe_dept_suffix = dept_suffix.replace('/', '_').replace('\\', '_')
+        filename = f'payslips{safe_dept_suffix}_{month}_{datetime.now().strftime("%Y%m%d%H%M%S")}.pdf'
         filepath = os.path.join(pays_dir, filename)
         with open(filepath, 'wb') as f:
             f.write(pdf_bytes)
@@ -5980,7 +5984,7 @@ def export_payslips_all():
         return send_file(buf,
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=f'payslips{dept_suffix}_{month}.pdf')
+            download_name=f'payslips{safe_dept_suffix}_{month}.pdf')
             
     except Exception as e:
         import traceback, sys
