@@ -3030,8 +3030,8 @@ function renderProductionTrend() {
   if (rows.length && trendInner && trendScroll) {
     const clientW = trendScroll.clientWidth || 600;
     const n = rows.length;
-    const slot = Math.max(20, Math.floor(clientW / 31));   // 每日期固定格宽（满月铺满，窄屏不溢出）
-    const innerW = n * slot;                                // 少日期紧凑靠左，逐日向右铺开
+    const slot = Math.max(40, Math.floor(clientW / 31));   // 每日期格宽（≥40px 保证两点水平可分）
+    const innerW = Math.min(n * slot, clientW);             // 少日期紧凑靠左；多日期铺满不滚动
     trendInner.style.width = Math.round(innerW) + 'px';
   }
   const f = STATE._dashFilters;
