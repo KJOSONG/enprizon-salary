@@ -1119,6 +1119,39 @@ def load_employees_from_db(data_folder):
     return employees
 
 
+def _resolve_base_from_history(employees, month):
+    """月度隔离：按基线台账解析员工当月部门/薪资基线。
+    命中台账则覆盖 department/default_type/day_rate/monthly_salary/team_id，
+    未命中保持当前 employees 主档（回退基线）。
+    必须在 _build_db_ab_index / overrides 叠加之前调用。"""
+    if not month or not employees:
+        return employees
+    from core.database import resolve_base_for_month, ensure_base_history_table
+    try:
+        ensure_base_history_table(app.config['DATA_FOLDER'])
+    except Exception:
+        return employees
+    for emp in employees:
+        eid = emp.get('id')
+        try:
+            base = resolve_base_for_month(app.config['DATA_FOLDER'], eid, month)
+        except Exception:
+            base = None
+        if not base:
+            continue
+        if base.get('department') is not None:
+            emp['department'] = base['department'] or ''
+        if base.get('default_type'):
+            emp['default_type'] = base['default_type']
+        if base.get('day_rate') is not None:
+            emp['day_rate'] = base['day_rate'] or 0
+        if base.get('monthly_salary') is not None:
+            emp['monthly_salary'] = base['monthly_salary'] or 0
+        if base.get('team_id') is not None:
+            emp['team_id'] = int(base['team_id'] or 0)
+    return employees
+
+
 def _build_db_ab_index(data_folder):
     """纯采集模式：从 employees 表构建 namematch 索引（_AB_INDEX），替代通讯录 Excel
     使 make_employee_id('EMA BUKWIMBA') 反查到新ID（如 '34'）。
@@ -1202,6 +1235,10 @@ def _run_pipeline(month_filter=None):
     if not employees:
         return None
 
+    # 月度隔离：按基线台账解析当月部门/薪资基线（须早于 _build_db_ab_index / overrides 叠加）
+    if month_filter:
+        _resolve_base_from_history(employees, month_filter)
+
     _build_db_ab_index(app.config.get('DATA_FOLDER'))
 
     for emp in employees:
@@ -1261,7 +1298,7 @@ def _run_pipeline(month_filter=None):
     overrides = _load_override_ov(app.config.get('DATA_FOLDER'), month=month_filter)
     exclusions = _load_excl(app.config.get('DATA_FOLDER'))
     bonus_penalties = _load_bp(app.config.get('DATA_FOLDER'), month_filter) if month_filter else {}
-    ug_team_members = _build_ug_team_members(app.config.get('DATA_FOLDER'))
+    ug_team_members = _build_ug_team_members(app.config.get('DATA_FOLDER'), month=month_filter)
     try:
         result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
                                pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
@@ -2057,6 +2094,15 @@ def api_employee_update(employee_id):
                     alias_set.append(old_name)
                 data['alias'] = ', '.join(alias_set)
                 renamed = True
+    # 月度隔离：直改部门/班组 → 按生效月份记录基线（须在写主档前，取其旧值作基线）
+    if 'department' in data or 'team_id' in data:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        _old_row = conn.execute(
+            "SELECT department, team_id, default_type, day_rate, monthly_salary FROM employees WHERE id=?",
+            (employee_id,)).fetchone()
+        conn.close()
+        if _old_row:
+            _record_direct_base_change(data, employee_id, dict(_old_row), '直改部门/班组')
     ok = update_employee_fields(app.config['DATA_FOLDER'], employee_id, data)
     if ok:
         if renamed or 'alias' in data:
@@ -2067,11 +2113,27 @@ def api_employee_update(employee_id):
     _refresh_employees_cache()  # P23 R4: 基本字段/月薪基数变更后全量重建
     return jsonify({'ok': ok})
 
+def _record_direct_base_change(data, employee_id, old_row, note):
+    """台账：当直改部门/班组时，按生效月份记录基线（供月度隔离，须在写主档前调用）。"""
+    from core.database import record_base_change
+    has_structural = ('department' in data and (data.get('department') or '') != (old_row['department'] or '')) \
+        or ('team_id' in data and int(data.get('team_id') or 0) != int(old_row['team_id'] or 0))
+    if not has_structural:
+        return
+    from_month = (data.get('effective_month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m')
+    new = {}
+    if 'department' in data:
+        new['department'] = data.get('department') or ''
+    if 'team_id' in data:
+        new['team_id'] = int(data.get('team_id') or 0)
+    record_base_change(app.config['DATA_FOLDER'], employee_id, from_month,
+                       new=new, operator_id=session.get('username', 'unknown'), note=note)
+
 @app.route('/api/employees/<employee_id>/salary-type', methods=['POST'])
 @editor_required
 def api_employee_salary_type(employee_id):
     """P7: 修改员工薪资类别+基数 — 同步 employees 主档 + 写 salary_change 事件"""
-    from core.database import update_employee_salary_type, create_event, log_audit
+    from core.database import update_employee_salary_type, create_event, log_audit, record_base_change
     from datetime import datetime
     data = request.get_json() or {}
     st = data.get('salary_type', '')
@@ -2099,6 +2161,11 @@ def api_employee_salary_type(employee_id):
         old_salary = int((_pre_emp or {}).get('monthly_salary', 0) or 0)
     else:
         old_salary = 0
+    # 月度隔离：直改薪资 → 按生效月份记录基线（须在写主档前，旧值作基线）
+    record_base_change(app.config['DATA_FOLDER'], employee_id,
+                       (data.get('effective_month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m'),
+                       new={'default_type': st, 'day_rate': day_rate, 'monthly_salary': monthly_salary},
+                       operator_id=session.get('username', 'unknown'), note='直改薪资')
     ok = update_employee_salary_type(app.config['DATA_FOLDER'], employee_id,
                                      st, day_rate, monthly_salary)
     if not ok:
@@ -2874,15 +2941,19 @@ def _ensure_collection_team_id_column(data_folder):
         pass
 
 
-def _build_ug_team_members(data_folder):
-    """C5: 构建 ug_team_members: {team_id: [employee_id,...]} 仅 UG 部门按 team_id 分组"""
+def _build_ug_team_members(data_folder, month=None):
+    """C5: 构建 ug_team_members: {team_id: [employee_id,...]} 仅 UG 部门按 team_id 分组。
+    month 可选：按月台账解析该月部门/班组归属，避免直接改部门/班组回溯污染历史月份。"""
     team_map = {}
     try:
-        from core.database import get_conn
+        from core.database import get_conn, resolve_base_for_month
         conn = get_conn(data_folder)
         for r in conn.execute("SELECT id, department, team_id FROM employees").fetchall():
-            if _norm_ug_dept(r['department']) == _UG_NORM_TARGET:
-                tid = int(r['team_id'] or 0)
+            base = resolve_base_for_month(data_folder, str(r['id']), month) if month else None
+            dept = (base['department'] if base and base.get('department') is not None else r['department'])
+            tid = (int(base['team_id'] or 0) if base and base.get('team_id') is not None
+                   else int(r['team_id'] or 0))
+            if _norm_ug_dept(dept) == _UG_NORM_TARGET:
                 if tid:
                     team_map.setdefault(tid, []).append(str(r['id']))
         conn.close()

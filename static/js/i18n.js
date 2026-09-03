@@ -74,6 +74,7 @@ const I18N_DICT = {
     /* P10 评分班组 */
     emp_team: '班组',
     emp_no_team: '未分班',
+    emp_effective_month: '生效月份',
     all_teams: '全部班组',
     emp_custom_number: '工号',
     emp_alias: '别名',
@@ -1278,6 +1279,7 @@ const I18N_DICT = {
     /* P10 Scoring teams */
     emp_team: 'Team',
     emp_no_team: 'Unassigned',
+    emp_effective_month: 'Effective Month',
     all_teams: 'All teams',
     emp_custom_number: 'Employee No.',
     emp_alias: 'Alias',

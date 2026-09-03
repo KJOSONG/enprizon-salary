@@ -4323,6 +4323,12 @@ async function editEmployeeProfile() {
   }
   // 班组（展示页顺序：部门→班组→工号→岗位；按部门仅井下出渣/钻工显示）
   form += `<div class="form-row" id="pfEdit_row_team"><label data-i18n="emp_team">班组</label><select id="pfEdit_team_id" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option>${teamOpts}</select></div>`;
+  // 生效月份（月度隔离：超管直改部门/班组时指定，默认当月；非超管不可改部门故隐藏）
+  if (isSA) {
+    const _defMonth = (typeof STATE.currentMonth === 'string' && /^\d{4}-\d{2}$/.test(STATE.currentMonth))
+      ? STATE.currentMonth : new Date().toISOString().slice(0, 7);
+    form += `<div class="form-row"><label data-i18n="emp_effective_month">生效月份</label><input type="month" id="pfEdit_effective_month" value="${g(_defMonth)}" style="${inStyle}"></div>`;
+  }
   // 岗位
   form += `<div class="form-row"><label data-i18n="emp_position">岗位</label><input id="pfEdit_position" value="${g(emp.position)}" style="${inStyle}"></div>`;
   // 薪资类型不在此处修改（档案页面有独立修改入口）
@@ -4533,6 +4539,9 @@ async function saveEmployeeProfile(eid) {
   data.team_id = (deptSave === 'PRODUCTIONTEAM(UNDERGROUND)' || deptSave === 'DRILLERTEAM')
     ? (parseInt(document.getElementById('pfEdit_team_id').value) || 0) : 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
+  // 月度隔离：超管直改部门/班组时携带生效月份（后端默认当月）
+  const _effEl = document.getElementById('pfEdit_effective_month');
+  if (_effEl && _effEl.value) data.effective_month = _effEl.value;
 
   const res = await authFetch(api('/api/employees/' + eid), {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data),
@@ -4616,6 +4625,7 @@ function editProfileSalaryType() {
         <select id="pfSalTypeSel" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">${options}</select></div>
       <div class="form-row" id="pfSalTypeRowDay" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfSalTypeDay" value="${emp&&emp.day_rate||0}" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
       <div class="form-row" id="pfSalTypeRowMon" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfSalTypeMon" value="${emp&&emp.monthly_salary||0}" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
+      <div class="form-row"><label data-i18n="emp_effective_month">生效月份</label><input type="month" id="pfSalTypeEff" value="${(typeof STATE.currentMonth==='string'&&/^\d{4}-\d{2}$/.test(STATE.currentMonth))?STATE.currentMonth:new Date().toISOString().slice(0,7)}" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button class="btn-primary" onclick="saveProfileSalaryType()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
         <button class="btn-cancel" onclick="document.getElementById('pfSalTypeModal').remove()" style="padding:6px 16px;" data-i18n="btn_cancel">取消</button>
@@ -4640,9 +4650,11 @@ async function saveProfileSalaryType() {
   const st = document.getElementById('pfSalTypeSel').value;
   const day = parseInt(document.getElementById('pfSalTypeDay').value) || 0;
   const mon = parseInt(document.getElementById('pfSalTypeMon').value) || 0;
+  const effEl = document.getElementById('pfSalTypeEff');
+  const eff = (effEl && effEl.value) ? effEl.value : '';
   const res = await authFetch(api('/api/employees/' + eid + '/salary-type'), {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({salary_type: st, day_rate: day, monthly_salary: mon}),
+    body: JSON.stringify({salary_type: st, day_rate: day, monthly_salary: mon, effective_month: eff}),
   });
   const r = await res.json();
   if (!r.ok) { msg.textContent = t('salary_type_save_failed'); msg.style.color = 'var(--danger)'; return; }

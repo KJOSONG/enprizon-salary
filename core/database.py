@@ -79,6 +79,21 @@ def init_db(data_folder):
             detail TEXT DEFAULT '{}'
         );
         CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+        -- 员工部门/薪资基线台账（月度隔离，SCD Type-2）：每次结构性直改按生效月份追加，永不改写旧条目
+        CREATE TABLE IF NOT EXISTS employee_base_history (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id  TEXT NOT NULL,
+            from_month   TEXT NOT NULL,          -- 生效起始月（含），如 '2026-09'
+            department   TEXT DEFAULT '',
+            default_type TEXT DEFAULT 'day_rate',
+            day_rate     REAL DEFAULT 0,
+            monthly_salary REAL DEFAULT 0,
+            team_id      INTEGER DEFAULT 0,
+            note         TEXT DEFAULT '',
+            operator_id  TEXT DEFAULT '',
+            created_at   TEXT DEFAULT (datetime('now','+3 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ebh_emp_month ON employee_base_history(employee_id, from_month);
     """)
     # 兼容旧表，新增 shift/captain 列
     for col in ['shift', 'captain']:
@@ -867,6 +882,118 @@ def clear_permanent_overrides(data_folder, employee_id):
     """, (employee_id,))
     conn.commit()
     conn.close()
+
+# ── 员工部门/薪资基线台账（月度隔离）──
+def ensure_base_history_table(data_folder):
+    """幂等建表（供启动及端点直接调用）"""
+    conn = get_conn(data_folder)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS employee_base_history (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id  TEXT NOT NULL,
+            from_month   TEXT NOT NULL,
+            department   TEXT DEFAULT '',
+            default_type TEXT DEFAULT 'day_rate',
+            day_rate     REAL DEFAULT 0,
+            monthly_salary REAL DEFAULT 0,
+            team_id      INTEGER DEFAULT 0,
+            note         TEXT DEFAULT '',
+            operator_id  TEXT DEFAULT '',
+            created_at   TEXT DEFAULT (datetime('now','+3 hours'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ebh_emp_month ON employee_base_history(employee_id, from_month)")
+    conn.commit()
+    conn.close()
+
+def _earliest_data_month(data_folder):
+    """系统内最早出现员工的月份（用于首条旧基线的 from_month）；无则返回 '0000-00'"""
+    conn = get_conn(data_folder)
+    m = conn.execute("SELECT MIN(month) AS m FROM monthly_data").fetchone()['m']
+    conn.close()
+    if m:
+        return str(m)[:7]
+    return '0000-00'
+
+def load_base_history(data_folder, employee_id):
+    """返回该员工全部台账条目，按 from_month 升序"""
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT * FROM employee_base_history WHERE employee_id=? ORDER BY from_month ASC, id ASC
+    """, (employee_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def resolve_base_for_month(data_folder, employee_id, month):
+    """解析员工在某月的基线：取 from_month <= month 的最大条目；无则 None。
+    调用方命中时以该条目覆盖 department/default_type/day_rate/monthly_salary/team_id。"""
+    if not month:
+        return None
+    conn = get_conn(data_folder)
+    row = conn.execute("""
+        SELECT * FROM employee_base_history
+        WHERE employee_id=? AND from_month <= ?
+        ORDER BY from_month DESC, id DESC LIMIT 1
+    """, (employee_id, month)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def record_base_change(data_folder, employee_id, from_month, new=None, operator_id='', note=''):
+    """按生效月份追加员工基线台账，永不改写旧条目。
+
+    - new: 新基线（department/default_type/day_rate/monthly_salary/team_id），缺省取当前 employees 主档。
+    - 若该员工尚无任何台账条目，先插入一条旧基线（from_month = hire 生效月或系统最早月份，兜底 '0000-00'），
+      从而生效月之前的月份能解析到旧基线（而非被新值污染）。
+    """
+    ensure_base_history_table(data_folder)
+    from_month = (from_month or '')[:7]
+    conn = get_conn(data_folder)
+    old = conn.execute(
+        "SELECT department, default_type, day_rate, monthly_salary, team_id FROM employees WHERE id=?",
+        (employee_id,)
+    ).fetchone()
+    if not old:
+        conn.close()
+        return False
+    old = dict(old)
+    if new is None:
+        new = {'department': old['department'], 'default_type': old['default_type'],
+               'day_rate': old['day_rate'], 'monthly_salary': old['monthly_salary'], 'team_id': old['team_id']}
+    else:
+        # 新基线未提供的字段沿用当前主档
+        merged = dict(old)
+        merged.update({k: new[k] for k in ('department', 'default_type', 'day_rate', 'monthly_salary', 'team_id') if k in new})
+        new = merged
+
+    has_any = conn.execute("SELECT COUNT(*) AS c FROM employee_base_history WHERE employee_id=?", (employee_id,)).fetchone()['c']
+    if int(has_any) == 0:
+        # 首条：补固定旧基线，保证生效月之前解析到旧值; from_month 取 hire 事件或系统最早月份
+        hire_month = conn.execute(
+            "SELECT effective_date FROM employee_events WHERE employee_id=? AND event_type='hire' AND status='approved' LIMIT 1",
+            (employee_id,)
+        ).fetchone()
+        base_from = (hire_month['effective_date'] or '')[:7] if hire_month else ''
+        if not base_from:
+            try:
+                base_from = _earliest_data_month(data_folder)
+            except Exception:
+                base_from = '0000-00'
+        conn.execute("""
+            INSERT INTO employee_base_history
+                (employee_id, from_month, department, default_type, day_rate, monthly_salary, team_id, note, operator_id)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (employee_id, base_from, old['department'], old['default_type'], old['day_rate'],
+              old['monthly_salary'], int(old['team_id'] or 0), '基线', operator_id))
+
+    conn.execute("""
+        INSERT INTO employee_base_history
+            (employee_id, from_month, department, default_type, day_rate, monthly_salary, team_id, note, operator_id)
+        VALUES (?,?,?,?,?,?,?,?,?)
+    """, (employee_id, from_month, new['department'], new['default_type'], new['day_rate'],
+          new['monthly_salary'], int(new['team_id'] or 0), note or '直接变更', operator_id))
+    conn.commit()
+    conn.close()
+    return True
 
 def save_override(data_folder, data):
     conn = get_conn(data_folder)
