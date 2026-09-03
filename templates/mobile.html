@@ -1220,6 +1220,29 @@
     html += '</div>';
     el.innerHTML = html;
   }
+  // 班组名注入（对齐 web 端 colRowTeam）：井下部门历史行后追加「· 班组名」
+  function _mobNormDept(s){ return (s||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase(); }
+  function _mobSubTeam(s){
+    if(s && s.team_id!=null && String(s.team_id).trim() && String(s.team_id).trim()!=='0') return String(s.team_id);
+    try{ const tv=JSON.parse((s&&s.payload)||'{}').team_id; if(tv!=null && String(tv).trim() && String(tv).trim()!=='0') return String(tv); }catch(e){}
+    return '';
+  }
+  async function _mobUgGroups(){
+    if(!STATE._ugGroups){ try{ const g=await api('/api/employee_groups'); STATE._ugGroups=(g.groups||[]); }catch(e){ STATE._ugGroups=[]; } }
+    return STATE._ugGroups||[];
+  }
+  function _mobUgTeamName(id){
+    if(id==null||id===''||id==='0') return '';
+    const g=(STATE._ugGroups||[]).find(x=>String(x.id)===String(id));
+    return g?g.name:'';
+  }
+  function _mobDeptChip(dept, s){
+    const base = dept ? ' · '+esc(dept) : '';
+    if(!dept || _mobNormDept(dept)!=='PRODUCTIONTEAM(UNDERGROUND)') return base;
+    const tid=_mobSubTeam(s); if(!tid) return base;
+    const nm=_mobUgTeamName(tid)||tid;
+    return ' · '+esc(dept)+' <span style="color:var(--text-muted);font-size:12px;">· '+esc(nm)+'</span>';
+  }
   function renderColHistoryList(){
     const el=document.getElementById('col-recent'); if(!el) return;
     const f=STATE._colHisFilter;
@@ -1228,11 +1251,12 @@
     if(f.date) params.push('date='+encodeURIComponent(f.date));
     if(f.mine) params.push('operator='+encodeURIComponent((STATE.auth||{}).username||''));
     if(params.length) qs += '?'+params.join('&');
-    apiStatus(qs).then(({status,json})=>{
+    apiStatus(qs).then(async ({status,json})=>{
       const subs=(json.submissions||[]).slice(0,8);
       STATE._colSubs = json.submissions || [];
       if(status===403){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('need_editor')+'</span></div>'; return; }
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
+      await _mobUgGroups();
       const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
       el.innerHTML = subs.length? subs.map(s=>{
         let shiftChip='', sub='', dept='', exemptBadges='';
@@ -1275,7 +1299,7 @@
           else if(s.form_type==='crush'){ sub = (p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
           else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
         }catch(e){}
-        const deptChip = dept ? ' · '+esc(dept) : '';
+        const deptChip = _mobDeptChip(dept, s);
         return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+exemptBadges+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
