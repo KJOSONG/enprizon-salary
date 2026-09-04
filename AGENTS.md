@@ -325,6 +325,8 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 - **落库字段必须存"消费方期望的形态"**：如 `overrides.captain` 存**队长名字**（与产量数据 `driller_data['captain']` 同源、能过 `make_employee_id` 解析），不能存下拉框 id（曾发生 captain='9' 导致员工进不了队长池分钱）。表单 value 绑定与落库形态要前后端对齐，新增下拉字段时先查消费方的匹配逻辑。
 
+- **模板改动必须做 DOM 结构校验（2026-09-04 移动端白屏事故）**：`templates/*.html` 手改标签极易丢闭合（浏览器容错静默吞掉后续兄弟节点，如 `#app` 被吞进 `#login-screen` → 登录后整页白屏且零 console 报错）。改模板后必须验证：① 标签平衡（`python3 -c` 脚本或浏览器 `document.body.children` 检查顶层结构）；② Playwright 真机登录走一遍主流程截图确认。上线前跑 `node --check` 验证内联 script 语法。
+
 ### 前端技术栈
 
 - **单文件 SPA**：`templates/index.html`（\~4000 lines），所有 JS 内联在 `<script>` 标签中，无独立 JS 模块或构建系统
