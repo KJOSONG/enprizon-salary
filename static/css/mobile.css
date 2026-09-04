@@ -684,13 +684,26 @@ a { color: inherit; text-decoration: none; }
 .entry-card__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); padding-top: var(--space-sm); border-top: 1px solid var(--border); font-size: var(--text-xs); color: var(--muted-foreground); }
 .entry-card__chevron { font-size: 12px; color: var(--muted-foreground); }
 
-/* ── 提交历史列表 ── */
+/* ── 提交历史列表（两行卡片：主行=日期+类型+班组/部门+人数，副行=提交人/修改留痕+豁免徽标） ── */
 .history-list { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card); padding: var(--space-xs) var(--space-md); }
-.history-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--space-sm) var(--space-md); row-gap: 4px; padding: var(--space-sm) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.history-row { display: block; padding: 9px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
 .history-row:last-child { border-bottom: none; }
-.history-row__date { color: var(--foreground); font-weight: 600; flex: 1 1 auto; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-.history-row__type { flex: 0 1 auto; min-width: 0; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.history-row__sub { color: var(--muted-foreground); font-size: var(--text-xs); text-align: right; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.history-row__main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.history-row__date { color: var(--foreground); font-weight: 600; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.hist-type { flex: 0 0 auto; font-size: 11px; line-height: 1; padding: 3px 8px; border-radius: 999px; color: #fff; font-weight: 500; }
+.hist-type.t-att { background: #3B82F6; }
+.hist-type.t-ug  { background: #EA8A2A; }
+.hist-type.t-dr  { background: #8B5CF6; }
+.hist-type.t-cr  { background: #10B981; }
+.history-row__main .shift-chip { margin-right: 0; }
+.history-row__place { flex: 1 1 auto; min-width: 0; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-row__count { flex: 0 0 auto; color: var(--muted-foreground); font-size: var(--text-xs); white-space: nowrap; }
+.history-row__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; font-size: 11px; color: var(--text-muted); padding-left: 2px; }
+.history-row__op { min-width: 0; overflow-wrap: anywhere; }
+.hist-exempt { display: inline-flex; align-items: center; background: var(--warning); color: #fff; font-size: 10px; padding: 1px 7px; border-radius: 999px; }
+.hist-swap { font-size: 10px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--muted); color: var(--muted-foreground); cursor: pointer; }
+.hist-swap.on { background: var(--warning); border-color: var(--warning); color: #fff; }
+.hist-more { text-align: center; color: var(--primary); font-weight: 500; padding: 10px 0; }
 .shift-chip { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; margin-right: 4px; vertical-align: 1px; }
 .shift-chip.day { background: hsl(200 60% 45% / 0.15); color: var(--st-d); }
 .shift-chip.night { background: hsl(180 50% 40% / 0.15); color: var(--st-n); }

@@ -3356,6 +3356,13 @@ def collection_submit():
     else:
         ex = next((e for e in existing if e['submission_date'] == date), None)
     if ex:
+        # 归属保护：非管理员不得覆盖他人提交（同键 upsert 会改写 operator_id，等价于编辑他人数据）
+        if ex['operator_id'] != username and session.get('role') not in ('admin', 'super_admin'):
+            _audit('perm_denied', '', json.dumps({'user': username, 'module': 'collection',
+                                                  'action': 'submit_override', 'sid': ex['id'],
+                                                  'owner': ex['operator_id'], 'date': date, 'dept': dept}))
+            return jsonify({'ok': False,
+                            'error': '该日期/部门的采集数据已由 %s 提交，如需修改请联系管理员' % ex['operator_id']}), 403
         update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username)
         sid = ex['id']
     else:

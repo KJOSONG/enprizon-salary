@@ -582,7 +582,7 @@
     api('/api/login', { method:'POST', body: JSON.stringify({ username:u, password:p }) }).then(r=>{
       // P17 修复: /api/login 只返回 {ok:true},先 checkAuth 刷新 STATE.auth(username/role)
       // 否则三道杠菜单用户名显示 '—'(checkAuth 内部会调 showApp)
-      if(r.ok){ checkAuth(); } else {
+      if(r.ok){ STATE._colHisFilter=null; STATE._ugGroups=null; checkAuth(); } else {
         let msg = '登录失败';
         if(r.error==='invalid_credentials') msg='用户名或密码错误';
         else if(r.error==='no_admin') msg='系统未初始化，请联系管理员';
@@ -1514,12 +1514,11 @@
     renderColHistoryList();
   }
   // R5: 采集历史筛选状态（日期 + 只看我的；P29 V2.1: 有 collection:view 可看全部历史,仅表单键者强制只看自己,后端亦强制）
-  if(!STATE._colHisFilter){
-    STATE._colHisFilter = { date:'', mine: !(hasPermission('collection','view') || isAdminLevel()) };
-  }
+  // 初始化延迟到 renderColHisFilter 首次调用（登录后 auth 就绪），避免页面加载时未登录导致 mine 被固化
   function renderColHisFilter(){
     const el=document.getElementById('col-his-filter'); if(!el) return;
-    const f=STATE._colHisFilter;
+    let f=STATE._colHisFilter;
+    if(!f){ f = STATE._colHisFilter = { date:'', dept:'', page:1, mine: !(hasPermission('collection','view') || isAdminLevel()) }; }
     if(f.page==null) f.page=1;
     const canViewAll = hasPermission('collection','view') || isAdminLevel();
     const inStyle='flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);font-size:14px;';
@@ -1553,13 +1552,6 @@
     const g=(STATE._ugGroups||[]).find(x=>String(x.id)===String(id));
     return g?g.name:'';
   }
-  function _mobDeptChip(dept, s){
-    const base = dept ? ' · '+esc(dept) : '';
-    if(!dept || _mobNormDept(dept)!=='PRODUCTIONTEAM(UNDERGROUND)') return base;
-    const tid=_mobSubTeam(s); if(!tid) return base;
-    const nm=_mobUgTeamName(tid)||tid;
-    return ' · '+esc(dept)+' <span style="color:var(--text-muted);font-size:12px;">· '+esc(nm)+'</span>';
-  }
   // 提交人留痕：mine 模式显示"已被 X 修改"；all 模式显示最初提交人（+最后修改者）
   function _colOpNote(s, mineMode, me){
     const first=s.created_by||s.operator_id||'';
@@ -1572,6 +1564,7 @@
   }
   function renderColHistoryList(){
     const el=document.getElementById('col-recent'); if(!el) return;
+    if(!STATE._colHisFilter) renderColHisFilter();
     const f=STATE._colHisFilter;
     let qs='/api/collection/history';
     const params=[];
@@ -1591,52 +1584,52 @@
       await _mobUgGroups();
       const deptSig=[...new Set((json.submissions||[]).map(s=>s.department||'').filter(Boolean))].sort().join('|');
       if(f._deptSig!==deptSig){ f._deptSig=deptSig; renderColHisFilter(); }
-      const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
+      const typeShort = { underground:['t-ug',t('col_t_ug')], driller:['t-dr',t('col_t_dr')], crush:['t-cr',t('col_t_cr')], attendance:['t-att',t('col_t_att')] };
       el.innerHTML = subs.length? subs.map(s=>{
-        let shiftChip='', sub='', dept='', exemptBadges='';
+        let p={}; try{ p=JSON.parse(s.payload||'{}'); }catch(e){}
+        const dept = s.department || (p.department||'');
+        const isUG = _mobNormDept(dept)==='PRODUCTIONTEAM(UNDERGROUND)';
+        const ts = typeShort[s.form_type]||['t-att',s.form_type];
+        const dShort = esc((s.submission_date||'').slice(5));
+        let shiftChip='', count='', place='', exemptTags='', exemptBtns='';
         try{
-          const p = JSON.parse(s.payload||'{}');
-          dept = s.department || (p.department||'');
           if(s.form_type==='underground'){
             if(Array.isArray(p.teams)){
-              sub = p.teams.length+' '+t('col_ug_team_row');
-              p.teams.forEach(tm=>{
+              count = (p.teams||[]).length+' '+t('col_ug_team_row');
+              (p.teams||[]).forEach(tm=>{
                 if(!tm) return;
-                const isEx=!!tm.exempt;
-                const badgeText=isEx?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
-                const badgeStyle=isEx?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
-                // P33: 徽标用班组名，无名称时回退「T+id」
-                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyle+'">'+esc(badgeText)+' '+esc(_mobUgTeamName(tm.team_id)||('T'+tm.team_id))+'</span>';
-                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(isEx?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isEx?'':'opacity:0.6;')+'">⇄</button>';
+                const nm=_mobUgTeamName(tm.team_id)||('T'+tm.team_id);
+                if(tm.exempt) exemptTags+='<span class="hist-exempt">⚠'+esc(nm)+'</span>';
+                if(isSuperAdmin()) exemptBtns+='<button class="hist-swap'+(tm.exempt?' on':'')+'" onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(tm.exempt?'true':'false')+')">'+esc(nm)+'⇄</button>';
               });
             } else {
               const dayEmps=(p.day&&p.day.emps)||[], nightEmps=(p.night&&p.night.emps)||[];
               if(dayEmps.length && nightEmps.length){ shiftChip='<span class="shift-chip day">D</span><span class="shift-chip night">N</span>'; }
               else if(dayEmps.length) shiftChip='<span class="shift-chip day">D</span>';
               else if(nightEmps.length) shiftChip='<span class="shift-chip night">N</span>';
-              sub = (dayEmps.length+nightEmps.length)+' '+t('emp');
-              if(p.day){
-                const isExD=!!p.day.exempt;
-                const badgeTextD=isExD?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
-                const badgeStyleD=isExD?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
-                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyleD+'">'+esc(badgeTextD)+' D</span>';
-                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,'+(isExD?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isExD?'':'opacity:0.6;')+'">⇄</button>';
-              }
-              if(p.night){
-                const isExN=!!p.night.exempt;
-                const badgeTextN=isExN?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off');
-                const badgeStyleN=isExN?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);';
-                exemptBadges+=' <span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:999px;margin-left:4px;'+badgeStyleN+'">'+esc(badgeTextN)+' N</span>';
-                if(isSuperAdmin()) exemptBadges+='<button onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,'+(isExN?'true':'false')+')" style="font-size:10px;padding:1px 4px;margin-left:2px;border:1px solid var(--border);border-radius:3px;background:var(--card);cursor:pointer;'+(isExN?'':'opacity:0.6;')+'">⇄</button>';
-              }
+              count=(dayEmps.length+nightEmps.length)+' '+t('emp');
+              if(p.day&&p.day.exempt){ exemptTags+='<span class="hist-exempt">⚠D</span>'; if(isSuperAdmin()) exemptBtns+='<button class="hist-swap on" onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'day\',true,true)">D⇄</button>'; }
+              if(p.night&&p.night.exempt){ exemptTags+='<span class="hist-exempt">⚠N</span>'; if(isSuperAdmin()) exemptBtns+='<button class="hist-swap on" onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\',\'night\',true,true)">N⇄</button>'; }
             }
-          } else if(s.form_type==='driller'){ const teams=p.teams||[]; sub = teams.length+' '+t('add_team'); }
-          else if(s.form_type==='crush'){ sub = (p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
-          else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
+          } else if(s.form_type==='driller'){ count=(p.teams||[]).length+' '+t('add_team'); }
+          else if(s.form_type==='crush'){ count=(p.bags||0)+' '+t('bags')+' · '+((p.emps||[]).length)+' '+t('emp'); }
+          else if(s.form_type==='attendance'){ count=(p.marks||[]).length+' '+t('emp'); }
         }catch(e){}
-        const deptChip = _mobDeptChip(dept, s);
+        // UG 行主位显示班组名（班组即定位），出渣多班组行显示班组名串联，其余部门显示原名
+        if(isUG){
+          const tid=_mobSubTeam(s);
+          if(tid){ place = _mobUgTeamName(tid)||('T'+tid); }
+          else if(s.form_type==='underground' && Array.isArray(p.teams) && p.teams.length){
+            const nms=p.teams.slice(0,3).map(tm=>_mobUgTeamName(tm&&tm.team_id)||('T'+(tm&&tm.team_id)));
+            place = nms.join(' · ') + (p.teams.length>3?' …':'');
+          } else place = dept||'';
+        } else { place = dept||''; }
         const opNote=_colOpNote(s, f.mine, (STATE.auth||{}).username||'');
-        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+exemptBadges+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+(opNote?'<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">'+opNote+'</div>':'')+'</span></div>';
+        const meta=(opNote?'<span class="history-row__op">'+opNote+'</span>':'')+exemptTags+exemptBtns;
+        return '<div class="history-row" onclick="openColDetail('+s.id+')">'
+          + '<div class="history-row__main"><span class="history-row__date">'+dShort+'</span><span class="hist-type '+ts[0]+'">'+esc(ts[1])+'</span>'+shiftChip+'<span class="history-row__place">'+esc(place)+'</span><span class="history-row__count">'+esc(count)+'</span></div>'
+          + (meta? '<div class="history-row__meta">'+meta+'</div>' : '')
+          + '</div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
       if(list.length>shown.length) el.innerHTML += '<div class="history-row" onclick="STATE._colHisFilter.page=(STATE._colHisFilter.page||1)+1;renderColHistoryList();" style="cursor:pointer;justify-content:center;color:var(--primary);font-weight:500;"><span>'+t('col_load_more')+' ('+(list.length-shown.length)+')</span></div>';
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
