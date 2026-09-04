@@ -668,9 +668,9 @@
   function setOreFilter(v){ STATE.dashOreFilter=v; document.querySelectorAll('#dash-ore-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
   function setDnTab(v){ STATE.dnTab=v; document.querySelectorAll('#dn-cmp-tab .cmp-tab__item').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); drawDayNight(); }
 
-   // S1: 日期输入变更 → 写 STATE + 重绘
-   function setDashDateFrom(v){ STATE.dashDateFrom=v; renderDashboard(); }
-   function setDashDateTo(v){ STATE.dashDateTo=v; renderDashboard(); }
+   // S1: 日期输入变更 → 写 STATE + 重绘（起止钳制：from<=to，防手动键入倒挂致过滤空集）
+   function setDashDateFrom(v){ STATE.dashDateFrom=v; if(STATE.dashDateTo && STATE.dashDateTo < v) STATE.dashDateTo = v; const _t=document.getElementById('dashDateTo'); if(_t && _t.value !== STATE.dashDateTo) _t.value = STATE.dashDateTo; renderDashboard(); }
+   function setDashDateTo(v){ STATE.dashDateTo=v; if(STATE.dashDateFrom && v < STATE.dashDateFrom) STATE.dashDateFrom = v; const _f=document.getElementById('dashDateFrom'); if(_f && _f.value !== STATE.dashDateFrom) _f.value = STATE.dashDateFrom; renderDashboard(); }
 
    // 按班次 + 矿石类型双重过滤，返回逐日 {date, nh, nl, mw, total}
   // C8: 新格式(teams)存在时按 teams 聚合(不受 shiftFilter)，旧格式保持原逻辑
@@ -2471,7 +2471,7 @@
           pk.style.display='block'; return;
         }
         pk.innerHTML=hits.map(function(e){
-          return '<div onclick="'+onSelect+'(\''+esc(String(e.id))+'\',\''+esc(e.name||'')+'\')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">'+esc(e.name||'')+' <span style="color:var(--text-muted);font-size:11px;">#'+esc(String(e.custom_number||e.id))+'</span></div>';
+          return '<div onclick="'+onSelect+'(\''+esc(String(e.id))+'\')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">'+esc(e.name||'')+' <span style="color:var(--text-muted);font-size:11px;">#'+esc(String(e.custom_number||e.id))+'</span></div>';
         }).join('');
         pk.style.display='block';
       },300);
@@ -2490,11 +2490,15 @@
     if(!dept){ toast(t('sel_placeholder'),'warning'); return; }
     showEmpSearch(dept, 'pickLeaveEmp', 'ql-emp-search', 'ql-emp-pick');
   }
-  function pickLeaveEmp(eid, ename){
-    openLeave(eid, ename);
+  function _mobEmpNameById(eid){
+    const e=(STATE.employees||[]).find(function(x){ return String(x.id)===String(eid); });
+    return e ? (e.name||'') : '';
+  }
+  function pickLeaveEmp(eid){
+    openLeave(eid, _mobEmpNameById(eid));
   }
   function quickSick(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } const body=document.getElementById('sheet-body'); const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
-  function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(r.message || t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
+  function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,effective_date:date,days:1})}).then(r=>{ if(r.ok){ toast(r.message || t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
   // P29 V2.1: OA 申请入口按 oa:apply 权限守卫
   function openQuickLeave(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }
@@ -2510,8 +2514,8 @@
     if(!dept){ toast(t('sel_placeholder'),'warning'); return; }
     showEmpSearch(dept, 'pickOtEmp', 'qot-emp-search', 'qot-emp-pick');
   }
-  function pickOtEmp(eid, ename){
-    openOvertime(eid, ename);
+  function pickOtEmp(eid){
+    openOvertime(eid, _mobEmpNameById(eid));
   }
   function openQuickOvertime(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
   // R2: 加班日期须在今日±2天内（本地时区格式化，非超管受限）

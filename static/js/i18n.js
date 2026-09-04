@@ -153,6 +153,7 @@ const I18N_DICT = {
 
     /* ── P15 数据台重构 ── */
     dash_month: '月份',
+    dash_date_range: '日期范围',
     dash_date_from: '日期起',
     dash_date_to: '日期止',
     dash_shift: '班次',
@@ -744,6 +745,7 @@ const I18N_DICT = {
     col_team: '队伍',
     col_close: '关闭',
     col_preview_title: '提交详情',
+    col_dismissed_hidden: '已隐藏 {n} 名离职人员',
     emp_edit_title: '编辑档案',
     avatar_upload: '📷 上传头像',
     avatar_delete: '🗑 删除头像',
@@ -877,6 +879,7 @@ const I18N_DICT = {
     unit_person: '人',
     unit_day: '天',
     no_match_emp: '无匹配员工',
+    emp_filter_active: '当前有部门/班组筛选：',
     load_fail: '加载失败',
     load_fail_prefix: '加载失败: ',
     emp_not_found: '员工不存在',
@@ -1368,6 +1371,7 @@ const I18N_DICT = {
 
     /* ── P15 Dashboard Refactor ── */
     dash_month: 'Month',
+    dash_date_range: 'Date Range',
     dash_date_from: 'From',
     dash_date_to: 'To',
     dash_shift: 'Shift',
@@ -1959,6 +1963,7 @@ const I18N_DICT = {
     col_team: 'Team',
     col_close: 'Close',
     col_preview_title: 'Submission Details',
+    col_dismissed_hidden: 'Hidden {n} dismissed employee(s)',
     emp_edit_title: 'Edit Profile',
     avatar_upload: '📷 Upload Avatar',
     avatar_delete: '🗑 Delete Avatar',
@@ -2092,6 +2097,7 @@ const I18N_DICT = {
     unit_person: 'people',
     unit_day: 'days',
     no_match_emp: 'No matching employees',
+    emp_filter_active: 'Department/team filter is active: ',
     sel_dept: 'Select Department',
     load_fail: 'Failed to load',
     load_fail_prefix: 'Failed to load: ',
