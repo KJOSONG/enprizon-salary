@@ -668,7 +668,9 @@ def global_search():
     if len(q) < 2:
         return jsonify({'ok': False, 'error': 'query_too_short', 'results': []})
     from core.database import search_all
-    results = search_all(app.config['DATA_FOLDER'], q, scope)
+    # super_admin 可搜到离职员工（档案/历史核查）；其他角色维持排除
+    include_dismissed = session.get('role', '') == 'super_admin'
+    results = search_all(app.config['DATA_FOLDER'], q, scope, include_dismissed=include_dismissed)
     return jsonify({'ok': True, 'results': results, 'q': q, 'scope': scope})
 
 # ═══════════════════════════════════════════════════════════

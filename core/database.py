@@ -3459,17 +3459,21 @@ def save_scoring_config(data_folder, data):
 
 # ── P4: 全局搜索 ──────────────────
 
-def search_all(data_folder, query, scope='all'):
-    """跨表模糊搜索，返回 [{type, id, title, subtitle, url}]，最多30条"""
+def search_all(data_folder, query, scope='all', include_dismissed=False):
+    """跨表模糊搜索，返回 [{type, id, title, subtitle, url}]，最多30条
+
+    include_dismissed=False 时员工结果排除离职（super_admin 全局搜索需查离职档案，传 True 放行）
+    """
     conn = get_conn(data_folder)
     results = []
     q = f'%{query}%'
 
     if scope in ('all', 'employees'):
+        _dis_filter = '' if include_dismissed else 'AND id NOT IN (SELECT employee_id FROM dismissed_employees)'
         rows = conn.execute(
-            "SELECT id, name, department, default_type FROM employees "
-            "WHERE (name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ?) "
-            "AND id NOT IN (SELECT employee_id FROM dismissed_employees) LIMIT 20",
+            f"SELECT id, name, department, default_type FROM employees "
+            f"WHERE (name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ?) "
+            f"{_dis_filter} LIMIT 20",
             (q, q, q, q, q)).fetchall()
         for r in rows:
             results.append({
