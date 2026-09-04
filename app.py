@@ -2964,6 +2964,17 @@ def _ensure_collection_team_id_column(data_folder):
         pass
 
 
+_COL_CREATED_BY_READY = False
+def _ensure_collection_created_by_column(data_folder):
+    """懒迁移（进程内一次）：collection_submissions 补 created_by 列 + 旧行从 audit_log 回填首次提交人"""
+    global _COL_CREATED_BY_READY
+    if _COL_CREATED_BY_READY:
+        return
+    from core.database import ensure_collection_created_by_column as _ensure
+    _ensure(data_folder)
+    _COL_CREATED_BY_READY = True
+
+
 def _build_ug_team_members(data_folder, month=None):
     """C5: 构建 ug_team_members: {team_id: [employee_id,...]} 仅 UG 部门按 team_id 分组。
     month 可选：按月台账解析该月部门/班组归属，避免直接改部门/班组回溯污染历史月份。"""
@@ -3333,6 +3344,7 @@ def collection_submit():
 
     # upsert collection_submissions by (form_type, date) [attendance 另加 department+team_id 维度]
     _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
+    _ensure_collection_created_by_column(app.config['DATA_FOLDER'])
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
     if form_type == 'attendance' and dept:
         if _is_ug_dept(dept) and att_team_id is not None:
@@ -3353,8 +3365,8 @@ def collection_submit():
             conn = get_conn(app.config['DATA_FOLDER'])
             try:
                 cur = conn.execute(
-                    "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, month, department, team_id, version) VALUES (?,?,?,?,?,?,?,1)",
-                    (form_type, date, json.dumps(payload, ensure_ascii=False), username, date[:7], dept, int(att_team_id)))
+                    "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, created_by, month, department, team_id, version) VALUES (?,?,?,?,?,?,?,?,1)",
+                    (form_type, date, json.dumps(payload, ensure_ascii=False), username, username, date[:7], dept, int(att_team_id)))
                 conn.commit()
                 sid = cur.lastrowid
             except Exception:
@@ -3399,6 +3411,7 @@ def collection_history():
     P29 T4 A7: 门控改 (collection:view || 任一表单键)；仅表单键者强制 operator=本人
     （原 role==='admin' 硬编码收敛为权限判定，view 持有者保留看全部语义）"""
     from core.database import get_collection_submissions, check_permission
+    _ensure_collection_created_by_column(app.config['DATA_FOLDER'])
     form_type = request.args.get('form_type')
     month = resolve_month(request)
     date = request.args.get('date')

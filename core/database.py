@@ -495,6 +495,7 @@ def init_db(data_folder):
             submission_date TEXT NOT NULL,
             payload TEXT NOT NULL DEFAULT '{}',
             operator_id TEXT NOT NULL,
+            created_by TEXT DEFAULT '',
             month TEXT NOT NULL,
             department TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours')),
@@ -3849,16 +3850,49 @@ def insert_collection_submission(data_folder, form_type, submission_date, payloa
     month = (submission_date or '')[:7]
     conn = get_conn(data_folder)
     cur = conn.execute("""
-        INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, month, department, version)
-        VALUES (?,?,?,?,?,?,1)
-    """, (form_type, submission_date, json.dumps(payload, ensure_ascii=False), operator_id, month, department))
+        INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, created_by, month, department, version)
+        VALUES (?,?,?,?,?,?,?,1)
+    """, (form_type, submission_date, json.dumps(payload, ensure_ascii=False), operator_id, operator_id, month, department))
     conn.commit()
     sid = cur.lastrowid
     conn.close()
     return sid
 
+def ensure_collection_created_by_column(data_folder):
+    """懒迁移：collection_submissions 补 created_by 列（最初提交人，再编辑不改写）。
+    旧行从 audit_log 的 collection_submit 事件回填（id ASC 首见 sid 的 operator 即首次提交人），
+    audit_log 缺失时回退 operator_id。幂等：仅处理 created_by 为空的行。"""
+    conn = get_conn(data_folder)
+    try:
+        cols = {r['name'] for r in conn.execute("PRAGMA table_info(collection_submissions)").fetchall()}
+        if 'created_by' not in cols:
+            conn.execute("ALTER TABLE collection_submissions ADD COLUMN created_by TEXT DEFAULT ''")
+            conn.commit()
+        rows = conn.execute(
+            "SELECT id, operator_id FROM collection_submissions WHERE created_by IS NULL OR created_by=''").fetchall()
+        if rows:
+            first_op = {}
+            try:
+                for a in conn.execute(
+                        "SELECT detail, operator FROM audit_log WHERE action='collection_submit' ORDER BY id ASC").fetchall():
+                    try:
+                        sid = (json.loads(a['detail'] or '{}') or {}).get('sid')
+                    except (TypeError, ValueError):
+                        continue
+                    if sid is not None and sid not in first_op and a['operator']:
+                        first_op[sid] = a['operator']
+            except Exception:
+                pass
+            for r in rows:
+                conn.execute("UPDATE collection_submissions SET created_by=? WHERE id=?",
+                             (first_op.get(r['id'], r['operator_id']), r['id']))
+            conn.commit()
+    finally:
+        conn.close()
+
 def get_collection_submissions(data_folder, form_type=None, month=None, date=None, operator=None):
-    """查询采集提交列表（最新版本），按日期倒序。form_type/month/date/operator 可过滤"""
+    """查询采集提交列表（最新版本），按日期倒序。form_type/month/date/operator 可过滤。
+    operator 匹配 operator_id 或 created_by（最后操作者或最初提交人，二者其一即命中）"""
     conn = get_conn(data_folder)
     sql = "SELECT * FROM collection_submissions WHERE 1=1"
     params = []
@@ -3872,8 +3906,8 @@ def get_collection_submissions(data_folder, form_type=None, month=None, date=Non
         sql += " AND submission_date=?"
         params.append(date)
     if operator:
-        sql += " AND operator_id=?"
-        params.append(operator)
+        sql += " AND (operator_id=? OR created_by=?)"
+        params.extend([operator, operator])
     sql += " ORDER BY submission_date DESC, updated_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()

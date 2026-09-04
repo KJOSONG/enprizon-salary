@@ -1520,13 +1520,19 @@
   function renderColHisFilter(){
     const el=document.getElementById('col-his-filter'); if(!el) return;
     const f=STATE._colHisFilter;
+    if(f.page==null) f.page=1;
     const canViewAll = hasPermission('collection','view') || isAdminLevel();
     const inStyle='flex:1;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text);font-size:14px;';
-    let html='<div style="display:flex;gap:6px;align-items:center;padding:0 var(--space-md) 8px;">'
-      + '<input type="date" value="'+esc(f.date||'')+'" onchange="STATE._colHisFilter.date=this.value;renderColHisFilter();renderColHistoryList();" style="'+inStyle+'">';
+    let html='<div style="display:flex;gap:6px;align-items:center;padding:0 var(--space-md) 8px;flex-wrap:wrap;">'
+      + '<input type="date" value="'+esc(f.date||'')+'" onchange="STATE._colHisFilter.date=this.value;STATE._colHisFilter.page=1;renderColHisFilter();renderColHistoryList();" style="'+inStyle+'">';
+    const depts=[...new Set((STATE._colSubs||[]).map(s=>s.department||'').filter(Boolean))].sort();
+    html += '<select onchange="STATE._colHisFilter.dept=this.value;STATE._colHisFilter.page=1;renderColHisFilter();renderColHistoryList();" style="'+inStyle+'flex:0 0 38%;">'
+      + '<option value="">'+t('col_filter_dept')+'</option>'
+      + depts.map(d=>'<option value="'+esc(d)+'"'+(f.dept===d?' selected':'')+'>'+esc(d)+'</option>').join('')
+      + '</select>';
     if(canViewAll){
-      html += '<button class="btn btn-sm '+(f.mine?'':'btn-primary')+'" onclick="STATE._colHisFilter.mine=false;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_all')+'</button>'
-        + '<button class="btn btn-sm '+(f.mine?'btn-primary':'')+'" onclick="STATE._colHisFilter.mine=true;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_mine')+'</button>';
+      html += '<button class="btn btn-sm '+(f.mine?'':'btn-primary')+'" onclick="STATE._colHisFilter.mine=false;STATE._colHisFilter.page=1;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_all')+'</button>'
+        + '<button class="btn btn-sm '+(f.mine?'btn-primary':'')+'" onclick="STATE._colHisFilter.mine=true;STATE._colHisFilter.page=1;renderColHisFilter();renderColHistoryList();" style="white-space:nowrap;">'+t('col_filter_mine')+'</button>';
     }
     html += '</div>';
     el.innerHTML = html;
@@ -1554,6 +1560,16 @@
     const nm=_mobUgTeamName(tid)||tid;
     return ' · '+esc(dept)+' <span style="color:var(--text-muted);font-size:12px;">· '+esc(nm)+'</span>';
   }
+  // 提交人留痕：mine 模式显示"已被 X 修改"；all 模式显示最初提交人（+最后修改者）
+  function _colOpNote(s, mineMode, me){
+    const first=s.created_by||s.operator_id||'';
+    const last=s.operator_id||'';
+    if(mineMode){ return (last&&me&&last!==me)? esc(t('col_edited_by',{n:last})) : ''; }
+    if(!first) return '';
+    let note=esc(t('col_first_op',{n:first}));
+    if(last&&last!==first) note+=' · ✎'+esc(last);
+    return note;
+  }
   function renderColHistoryList(){
     const el=document.getElementById('col-recent'); if(!el) return;
     const f=STATE._colHisFilter;
@@ -1563,12 +1579,18 @@
     if(f.mine) params.push('operator='+encodeURIComponent((STATE.auth||{}).username||''));
     if(params.length) qs += '?'+params.join('&');
     apiStatus(qs).then(async ({status,json})=>{
-      const subs=(json.submissions||[]).slice(0,8);
       STATE._colSubs = json.submissions || [];
+      let list = STATE._colSubs;
+      if(f.dept) list = list.filter(s=>(s.department||'')===f.dept);
+      const PAGE=10;
+      const shown=list.slice(0,(f.page||1)*PAGE);
+      const subs=shown;
       try{ STATE._dismissedIds = new Set((json.dismissed_ids||[]).map(String)); }catch(e){ STATE._dismissedIds = new Set(); }
       if(status===403){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('need_editor')+'</span></div>'; return; }
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
       await _mobUgGroups();
+      const deptSig=[...new Set((json.submissions||[]).map(s=>s.department||'').filter(Boolean))].sort().join('|');
+      if(f._deptSig!==deptSig){ f._deptSig=deptSig; renderColHisFilter(); }
       const typeLabel = { underground:t('col_ug'), driller:t('col_dr'), crush:t('col_cr'), attendance:t('col_att') };
       el.innerHTML = subs.length? subs.map(s=>{
         let shiftChip='', sub='', dept='', exemptBadges='';
@@ -1613,8 +1635,10 @@
           else if(s.form_type==='attendance'){ sub = (p.marks||[]).length+' '+t('emp'); }
         }catch(e){}
         const deptChip = _mobDeptChip(dept, s);
-        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+exemptBadges+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+'</span></div>';
+        const opNote=_colOpNote(s, f.mine, (STATE.auth||{}).username||'');
+        return '<div class="history-row" onclick="openColDetail('+s.id+')" style="cursor:pointer;"><span class="history-row__date">'+esc(s.submission_date||'')+shiftChip+exemptBadges+'</span><span class="history-row__type">'+esc(typeLabel[s.form_type]||s.form_type)+'</span><span class="history-row__sub">'+sub+deptChip+(opNote?'<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">'+opNote+'</div>':'')+'</span></div>';
       }).join('') : '<div class="history-row"><span class="history-row__date">'+t('no_history')+'</span></div>';
+      if(list.length>shown.length) el.innerHTML += '<div class="history-row" onclick="STATE._colHisFilter.page=(STATE._colHisFilter.page||1)+1;renderColHistoryList();" style="cursor:pointer;justify-content:center;color:var(--primary);font-weight:500;"><span>'+t('col_load_more')+' ('+(list.length-shown.length)+')</span></div>';
     }).catch(()=>{ const el2=document.getElementById('col-recent'); if(el2) el2.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; });
   }
   function openColForm(ty, initPayload){
