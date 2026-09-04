@@ -22,6 +22,11 @@ PRODUCTION_UG_DEPT = 'Production TEAM （underground）'
 # PAYE 公司代付比例（2026-09 用户决定：公司帮工人承担一半 PAYE，实发少扣 paye//2）
 PAYE_COMPANY_RATIO = 0.5
 
+# overrides 日期区间展开硬上限（天）。'9999-12-31' 永久哨兵会让逐日循环跑到百万天级
+# （2026-09-04 OOM 事故：单条例外 ~900MB / 10s CPU，服务器 894MB 直接 OOM）。
+# 实际业务例外区间为天~周级，800 天（>2 年）远超合理范围。
+_OVERRIDE_EXPAND_MAX_DAYS = 800
+
 def compute_paye(taxable_income):
     """
     坦桑尼亚个人所得税（PAYE）累进税率计算
@@ -113,6 +118,9 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     from datetime import datetime as _dt, timedelta as _td
                     d = _dt.strptime(s, '%Y-%m-%d')
                     d_end = _dt.strptime(end, '%Y-%m-%d')
+                    # 展开硬上限：'9999-12-31' 等永久哨兵会把循环撑到百万天级
+                    # （2026-09-04 OOM 事故根因，单条例外吃掉 ~900MB），必须截断
+                    d_end = min(d_end, d + _td(days=_OVERRIDE_EXPAND_MAX_DAYS))
                     while d <= d_end:
                         _ds = d.strftime('%Y-%m-%d')
                         if sh:
@@ -528,6 +536,8 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
                     from datetime import datetime as _dt, timedelta as _td
                     d = _dt.strptime(s, '%Y-%m-%d')
                     d_end = _dt.strptime(end, '%Y-%m-%d')
+                    # 展开硬上限：同 calc_underground_piece，防永久哨兵值撑爆内存
+                    d_end = min(d_end, d + _td(days=_OVERRIDE_EXPAND_MAX_DAYS))
                     while d <= d_end:
                         driller_adds[(eid, d.strftime('%Y-%m-%d'))] = cap
                         d += _td(days=1)
