@@ -4966,6 +4966,8 @@ function openTempOverrideModal() {
       <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label><select id="pfTempType" onchange="toggleTempBase()" style="${inStyle}">${options}</select></div>
       <div class="form-row" id="pfTempRowDay" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfTempDay" value="0" min="0" style="${inStyle}"></div>
       <div class="form-row" id="pfTempRowMon" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfTempMon" value="0" min="0" style="${inStyle}"></div>
+      <div class="form-row" id="pfTempRowTeam" style="display:none;"><label data-i18n="emp_team">班组</label><select id="pfTempTeam" style="${inStyle}"><option value="0" data-i18n="emp_no_team">未分班</option></select></div>
+      <div class="form-row" id="pfTempRowCaptain" style="display:none;"><label data-i18n="modal_temp_captain">所属队长</label><select id="pfTempCaptain" style="${inStyle}"><option value="" data-i18n="modal_select_captain">选择队长</option></select></div>
       <div class="form-row"><label data-i18n="temp_override_start">开始日期</label><input type="date" id="pfTempStart" style="${inStyle}"></div>
       <div class="form-row"><label data-i18n="temp_override_end">结束日期</label><input type="date" id="pfTempEnd" style="${inStyle}"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
@@ -4976,14 +4978,39 @@ function openTempOverrideModal() {
     </div>`;
   document.body.appendChild(modal);
   applyI18n();
+  // 加载井下班组列表（与编辑员工档案同源：/api/employee_groups 返回 {id, name}）
+  fetch(api('/api/employee_groups')).then(r=>r.json()).then(data=>{
+    const groups = (data && data.groups) || [];
+    const sel = document.getElementById('pfTempTeam');
+    if (sel) sel.innerHTML = '<option value="0">' + t('emp_no_team') + '</option>' +
+      groups.map(gr => '<option value="' + escHtml(gr.id) + '">' + escHtml(gr.name) + '</option>').join('');
+  }).catch(()=>{});
+  // 加载钻工队长列表（与编辑员工档案钻工时同源：/driller-captains 返回队长姓名字符串）
+  fetch(api('/driller-captains')).then(r=>r.json()).then(caps=>{
+    const sel = document.getElementById('pfTempCaptain');
+    if (sel) {
+      sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
+      caps.forEach(c => { sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; });
+    }
+  }).catch(()=>{});
   toggleTempBase();
 }
 function toggleTempBase() {
   const v = document.getElementById('pfTempType').value;
-  const r1 = document.getElementById('pfTempRowDay');
-  const r2 = document.getElementById('pfTempRowMon');
-  if (r1) r1.style.display = v === 'day_rate' ? '' : 'none';
-  if (r2) r2.style.display = v === 'monthly' ? '' : 'none';
+  const rDay = document.getElementById('pfTempRowDay');
+  const rMon = document.getElementById('pfTempRowMon');
+  const rTeam = document.getElementById('pfTempRowTeam');
+  const rCap = document.getElementById('pfTempRowCaptain');
+  const show = (el, on) => { if (!el) return; el.style.display = on ? '' : 'none'; };
+  show(rDay, v === 'day_rate');
+  show(rMon, v === 'monthly');
+  show(rTeam, v === 'piece_underground');
+  show(rCap, v === 'piece_driller');
+  // 切换隐藏时清空对应下拉/输入值
+  if (rDay && rDay.style.display === 'none') { const el = document.getElementById('pfTempDay'); if (el) el.value = '0'; }
+  if (rMon && rMon.style.display === 'none') { const el = document.getElementById('pfTempMon'); if (el) el.value = '0'; }
+  if (rTeam && rTeam.style.display === 'none') { const el = document.getElementById('pfTempTeam'); if (el) el.value = '0'; }
+  if (rCap && rCap.style.display === 'none') { const el = document.getElementById('pfTempCaptain'); if (el) el.value = ''; }
 }
 async function saveProfileTempOverride() {
   const eid = _profileEid;
@@ -4996,6 +5023,8 @@ async function saveProfileTempOverride() {
     salary_type: document.getElementById('pfTempType').value,
     day_rate: parseInt(document.getElementById('pfTempDay').value) || 0,
     monthly_salary: parseInt(document.getElementById('pfTempMon').value) || 0,
+    team_id: (document.getElementById('pfTempRowTeam') && document.getElementById('pfTempRowTeam').style.display !== 'none') ? (parseInt(document.getElementById('pfTempTeam').value) || 0) : 0,
+    captain: (document.getElementById('pfTempRowCaptain') && document.getElementById('pfTempRowCaptain').style.display !== 'none') ? (document.getElementById('pfTempCaptain').value || '') : '',
     start_date: start,
     end_date: end || start,
   };
