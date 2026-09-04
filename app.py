@@ -3696,7 +3696,8 @@ def collection_edit(submission_id):
 @login_required
 def api_collection_roster():
     """P29-b: 采集/评分表单专用轻量花名册——collector 等 0 级角色无 employees:view,
-    但提交表单需要员工选择器数据;按持有任一采集键或 scoring:edit 放行。
+    但提交表单需要员工选择器数据;按持有任一采集键、scoring:edit 或 oa:apply 放行
+    (P29 T4 A3: applicant/collector 凭 oa:apply 提交 OA 申请,调岗/入职表单需员工下拉)。
     仅返回 id/name/department 等必要字段,不暴露 overrides/bonus 等薪酬敏感数据。"""
     from core.database import check_permission, list_employees_extended
     u = session.get('username', '')
@@ -3704,6 +3705,8 @@ def api_collection_roster():
              for a in ('view', 'underground', 'driller', 'crush', 'attendance'))
     if not ok:
         ok = check_permission(app.config['DATA_FOLDER'], u, 'scoring', 'edit')
+    if not ok:
+        ok = check_permission(app.config['DATA_FOLDER'], u, 'oa', 'apply')
     if not ok:
         _audit('perm_denied', '', json.dumps({'user': u, 'module': 'collection', 'action': 'roster'}))
         return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
