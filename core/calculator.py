@@ -88,7 +88,10 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
         v2_prices = _v2_default_prices
 
     # 加载手动加入计件分配（从 overrides 表读取，展开日期区间）
+    # shift_adds: 旧格式白班/夜班路径用 (eid,date)->'D'/'N'
+    # ug_team_adds: V2 路径用 (eid,date)->team_id，把临时例外员工注入对应班组计件池
     shift_adds = {}
+    ug_team_adds = {}
     import os
     if data_folder:
         dbp = os.path.join(data_folder, 'kilwa.db')
@@ -96,14 +99,27 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
             import sqlite3
             conn = sqlite3.connect(dbp)
             try:
-                for r in conn.execute("SELECT employee_id, start_date, end_date, shift FROM overrides WHERE salary_type='piece_underground' AND shift!='' AND start_date!=''").fetchall():
+                # 兼容旧库：无 team_id 列时退化为 0（不注入班组池）
+                _ov_cols = {r[1] for r in conn.execute("PRAGMA table_info(overrides)").fetchall()}
+                _has_tid = 'team_id' in _ov_cols
+                _tid_expr = 'team_id' if _has_tid else '0'
+                for r in conn.execute(
+                    f"SELECT employee_id, start_date, end_date, shift, {_tid_expr}"
+                    " FROM overrides WHERE salary_type='piece_underground' AND start_date!=''"
+                ).fetchall():
                     eid, s, e, sh = r[0], r[1], r[2], r[3]
+                    tid = int(r[4] or 0) if _has_tid else 0
                     end = e or s
                     from datetime import datetime as _dt, timedelta as _td
                     d = _dt.strptime(s, '%Y-%m-%d')
                     d_end = _dt.strptime(end, '%Y-%m-%d')
                     while d <= d_end:
-                        shift_adds[(eid, d.strftime('%Y-%m-%d'))] = sh
+                        _ds = d.strftime('%Y-%m-%d')
+                        if sh:
+                            shift_adds[(eid, _ds)] = sh
+                        # team_id>0 的例外按班组注入 V2 计件池（team_id=0 无法定位班组，跳过）
+                        if tid and tid > 0:
+                            ug_team_adds[(eid, _ds)] = tid
                         d += _td(days=1)
             except: pass
             conn.close()
@@ -133,6 +149,11 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                 _cp.close()
             except Exception:
                 _p_pairs = set()
+    # piece_underground 临时例外视同 P 出勤：把 (eid, date) 注入 _p_pairs，
+    # 使例外员工即使无 attendance_overrides P 记录也能通过 V2 P 筛选。
+    # 仅当 P 过滤已激活（_p_pairs is not None）时才扩展，避免把 None 变空集造成全员过滤。
+    if ug_team_adds and _p_pairs is not None:
+        _p_pairs = _p_pairs | set(ug_team_adds.keys())
 
     for day in shift_data:
         date_str = day['date']
@@ -150,7 +171,17 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     v2_warnings.append(f"no team roster / zero attendance, pool skipped team {_tid} {date_str}")
                     continue
                 _roster = ug_team_members.get(_tid) or []
-                # P 筛选 + 防御性排除
+                # V2: piece_underground 临时例外 (team_id>0) 注入计件池有效名单。
+                # 绕过 _roster 检查——临时例外本身代表"这天他属于该班组"。
+                # 例: LOWASA SOINGE MOLLEL 已调入 Sort Crush(team_id=0)，但当日
+                # 在 MIZOZO 出勤，靠 piece_underground + team_id=3 例外覆盖进入 MIZOZO 池。
+                if ug_team_adds:
+                    _roster_ids = set(_roster)
+                    for (_ex_eid, _ex_dt), _ex_tid in ug_team_adds.items():
+                        if _ex_dt == date_str and _ex_tid == _tid and _ex_eid not in _roster_ids:
+                            _roster = list(_roster) + [_ex_eid]
+                            _roster_ids.add(_ex_eid)
+                # P 筛选 + 防御性排除（例外对已在 _p_pairs 中视同 P，见上方注入）
                 if _p_pairs is not None:
                     _candidates = [eid for eid in _roster if (eid, date_str) in _p_pairs]
                 else:
@@ -517,6 +548,10 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
                 mid = make_employee_id(m)
                 if mid:
                     driller_attendance.add((mid, dt))
+    # piece_driller 临时例外视同出勤：把 (eid, date) 注入 driller_attendance，
+    # 使例外员工即使无全局出勤记录也能被钻工队长池接收（与井下 piece_underground 视同 P 对齐）。
+    if driller_adds:
+        driller_attendance = driller_attendance | set(driller_adds.keys())
 
     for (date_str, captain), g in groups.items():
         total_salary = g['nh'] * PRICES_DRILLER['NICKEL（H）'] + \

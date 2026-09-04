@@ -1646,6 +1646,9 @@ def save_override():
     # map: POST /employees/override -> MONTH_CACHE[effective_from or start_date[:7] or g.view_month] per-month recompute
     data = request.get_json()
     eid = data.get('employee_id', '')
+    # team_id: 班组绑定（1=LAMBA LAMBA, 2=SAKA SAKA, 3=MIZOZO），与 captain 同为 data 透传字段
+    # 钻工用 captain 不加 team_id；井下例外绑定班组。显式取 int 默认 0 以防前端缺省
+    data['team_id'] = int(data.get('team_id', 0) or 0)
     try:
         vm = g.view_month
     except Exception:
@@ -1750,7 +1753,7 @@ def api_employee_temp_overrides(employee_id):
     from core.database import get_conn
     conn = get_conn(app.config['DATA_FOLDER'])
     rows = conn.execute(
-        "SELECT id, salary_type, day_rate, monthly_salary, start_date, end_date, note "
+        "SELECT id, salary_type, day_rate, monthly_salary, start_date, end_date, note, team_id "
         "FROM overrides WHERE employee_id=? AND (start_date!='' OR end_date!='') "
         "AND (type IS NULL OR type != 'exclusion') ORDER BY start_date",
         (employee_id,)).fetchall()

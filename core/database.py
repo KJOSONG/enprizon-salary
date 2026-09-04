@@ -40,7 +40,8 @@ def init_db(data_folder):
             note TEXT DEFAULT '',
             type TEXT DEFAULT '',
             shift TEXT DEFAULT '',
-            captain TEXT DEFAULT ''
+            captain TEXT DEFAULT '',
+            team_id INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS attendance_overrides (
             employee_id TEXT NOT NULL,
@@ -103,6 +104,10 @@ def init_db(data_folder):
     # 月份隔离：新增 effective_from 列（"YYYY-MM"），空白=全局生效
     try:
         conn.execute("ALTER TABLE overrides ADD COLUMN effective_from TEXT DEFAULT ''")
+    except: pass
+    # 班组绑定：新增 team_id 列（1=LAMBA LAMBA, 2=SAKA SAKA, 3=MIZOZO），钻工沿用 captain
+    try:
+        conn.execute("ALTER TABLE overrides ADD COLUMN team_id INTEGER DEFAULT 0")
     except: pass
     # PAYE: 新增 paye 列到 monthly_data
     try:
@@ -849,6 +854,7 @@ def load_overrides(data_folder, month=None):
             'type': r['type'] or '',
             'shift': r['shift'] or '',
             'captain': r['captain'] or '',
+            'team_id': r['team_id'] if 'team_id' in r.keys() else 0,
             'effective_from': eff,
         })
     # 去重：同一员工的永久覆盖（无日期区间），只保留 effective_from 最大的
@@ -1035,10 +1041,10 @@ def save_override(data_folder, data):
                          (eid, st, eff))
 
     conn.execute(
-        "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from, team_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (eid, st, data.get('day_rate',0), data.get('monthly_salary',0),
          start, data.get('end_date',''), data.get('note',''), tp,
-         data.get('shift',''), data.get('captain',''), eff)
+         data.get('shift',''), data.get('captain',''), eff, data.get('team_id',0))
     )
     conn.commit()
     conn.close()

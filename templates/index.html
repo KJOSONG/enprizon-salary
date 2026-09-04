@@ -1540,6 +1540,12 @@
           <option value="N" data-i18n="modal_shift_night">夜班 (N)</option>
         </select>
       </div>
+      <div class="form-row" id="tempTeamRow" style="display:none;">
+        <label data-i18n="emp_team">班组</label>
+        <select id="modalTempTeam">
+          <option value="0" data-i18n="emp_no_team">未分班</option>
+        </select>
+      </div>
       <div class="form-row" id="tempCaptainRow" style="display:none;">
         <label data-i18n="modal_temp_captain">所属队长</label>
         <select id="modalTempCaptain">
@@ -5174,12 +5180,21 @@ function showOverrideModal(eid) {
   const ym = today.toISOString().slice(0,7);
   document.getElementById('modalTempStart').value = ym + '-01';
   document.getElementById('modalTempEnd').value = ym + '-' + new Date(today.getFullYear(), today.getMonth()+1, 0).getDate().toString().padStart(2,'0');
-  // 加载钻工队长列表
+  // 加载钻工队长列表（与编辑员工档案钻工时同源：/driller-captains 返回队长姓名字符串）
   fetch(api('/driller-captains')).then(r=>r.json()).then(caps=>{
     const sel = document.getElementById('modalTempCaptain');
     sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
     caps.forEach(c => { sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; });
   }).catch(()=>{});
+  // 加载井下班组列表（与编辑员工档案井下时同源：/api/employee_groups 返回 {id, name}）
+  fetch(api('/api/employee_groups')).then(r=>r.json()).then(data=>{
+    const groups = (data && data.groups) || [];
+    const sel = document.getElementById('modalTempTeam');
+    sel.innerHTML = '<option value="0">' + t('emp_no_team') + '</option>' +
+      groups.map(gr => '<option value="' + escHtml(gr.id) + '">' + escHtml(gr.name) + '</option>').join('');
+  }).catch(()=>{});
+  // 按 salary_type 联动显隐（默认 day_rate：班组/队长都隐藏）
+  syncTempFields();
   // 加载并展示已有临时例外
   renderExistingTemps(emp);
   document.getElementById('modalOverride').classList.add('show');
@@ -5193,11 +5208,23 @@ function renderExistingTemps(emp) {
     return;
   }
   const labels = {'piece_underground': t('emp_ug_piece'), 'piece_driller': t('emp_dr_piece'), 'piece_crush': t('emp_crush_piece'), 'day_rate': t('emp_dayrate'), 'monthly': t('emp_monthly')};
+  // 班组 id→名称映射：优先取临时例外下拉已加载的选项文本，回落到档案班组的 teamMap
+  const teamSel = document.getElementById('modalTempTeam');
+  const teamNameById = {};
+  if (teamSel) Array.from(teamSel.options).forEach(opt => {
+    if (opt.value && opt.value !== '0') teamNameById[opt.value] = opt.text;
+  });
   container.innerHTML = tempOvers.map((o, i) => {
     const typeLabel = labels[o.salary_type] || o.salary_type;
     const dates = (o.start_date||'') + (o.end_date ? ' ~ ' + o.end_date : '');
     const extra = [];
     if (o.shift) extra.push(t('modal_temp_shift') + ':' + o.shift);
+    // 班组回显：team_id 非零时显示名称（或 id 兜底）
+    const tid = parseInt(o.team_id, 10);
+    if (tid && !isNaN(tid)) {
+      const nm = teamNameById[String(tid)] || (t('dash_team_title') + ' ' + tid);
+      extra.push(t('emp_team') + ':' + nm);
+    }
     if (o.captain) extra.push(t('modal_temp_captain') + ':' + o.captain);
     if (o.note) extra.push(o.note);
     const extraStr = extra.length ? ' | ' + extra.join(' · ') : '';
@@ -5251,8 +5278,20 @@ function syncModalBaseField() {
 function syncTempFields() {
   const v = document.getElementById('modalTempType').value;
   document.getElementById('tempDayRateRow').style.display = v==='day_rate'?'flex':'none';
-  document.getElementById('tempShiftRow').style.display = v==='piece_underground'?'flex':'none';
-  document.getElementById('tempCaptainRow').style.display = v==='piece_driller'?'flex':'none';
+  // 井下(piece_underground)：显示班次+班组，隐藏队长；钻工(piece_driller)：显示队长，隐藏班次+班组；其他：全隐藏并清空
+  const ug = v==='piece_underground';
+  const dr = v==='piece_driller';
+  document.getElementById('tempShiftRow').style.display = ug?'flex':'none';
+  document.getElementById('tempTeamRow').style.display = ug?'flex':'none';
+  document.getElementById('tempCaptainRow').style.display = dr?'flex':'none';
+  // 隐藏时清空对应字段，避免提交无关数据
+  if (!ug) {
+    const sh = document.getElementById('modalTempShift'); if (sh) sh.value = 'D';
+    const tm = document.getElementById('modalTempTeam'); if (tm) tm.value = '0';
+  }
+  if (!dr) {
+    const cap = document.getElementById('modalTempCaptain'); if (cap) cap.value = '';
+  }
 }
 
 // 板块1：保存类型设置（永久），自动清零不相关基数
@@ -5295,6 +5334,9 @@ async function saveTempOverride() {
   const dr = parseFloat(document.getElementById('modalTempRate').value)||0;
   const shift = document.getElementById('modalTempShift').value;
   const captain = document.getElementById('modalTempCaptain').value;
+  // 班组仅井下可见时传值，其余传 0（与后端 team_id int 透传约定一致）
+  const teamIdEl = document.getElementById('modalTempTeam');
+  const teamId = (st === 'piece_underground' && teamIdEl) ? parseInt(teamIdEl.value, 10) || 0 : 0;
 
   await authFetch(api('/employees/override'), {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -5308,6 +5350,7 @@ async function saveTempOverride() {
       note: document.getElementById('modalTempNote').value,
       shift: st === 'piece_underground' ? shift : '',
       captain: st === 'piece_driller' ? captain : '',
+      team_id: teamId,
     }),
   });
   closeModal();
