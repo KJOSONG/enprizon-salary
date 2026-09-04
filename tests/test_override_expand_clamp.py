@@ -99,3 +99,32 @@ def test_underground_sentinel_end_date_bounded(tmp_path):
 def test_expand_limit_constant():
     """上限常量须存在且合理（>2 个月, <3 年）"""
     assert 60 <= _OVERRIDE_EXPAND_MAX_DAYS <= 1000
+
+
+def test_sentinel_expand_covers_beyond_800_days(tmp_path):
+    """哨兵展开上界=数据最大日期，突破 start+800 天（修复前 800 天后断薪）"""
+    data_folder = _seed_db(tmp_path)
+    # start='2025-06-01' + 800 天 = '2027-08-10'；数据日 '2027-09-01' 超出该截断
+    _insert_sentinel_override(data_folder, '300', 'piece_driller', '2025-06-01',
+                              captain='CAP B')
+
+    from core.calculator import calc_driller_piece
+    driller_data = [{
+        'date': '2027-09-01', 'captain': 'CAP B', 'slot': 0,
+        'nh': 6, 'nl': 0, 'mw': 0, 'futa': 0, 'waya': 0, 'kibiriti': 0,
+        'members': [],
+    }]
+    result, _, _ = calc_driller_piece(driller_data, data_folder=data_folder)
+    assert '300' in result, '哨兵例外生效超 800 天后仍应覆盖当前计薪数据日（断薪回归）'
+
+
+def test_sentinel_with_empty_data_no_expand(tmp_path):
+    """哨兵+空数据：不展开不炸，返回空结果"""
+    data_folder = _seed_db(tmp_path)
+    _insert_sentinel_override(data_folder, '400', 'piece_driller', '2025-06-01',
+                              captain='CAP C')
+
+    from core.calculator import calc_driller_piece
+    result, _, _ = calc_driller_piece([], data_folder=data_folder)
+    assert result == {}
+    assert '400' not in result

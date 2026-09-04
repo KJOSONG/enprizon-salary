@@ -1497,6 +1497,30 @@ def _calc_overtime_hours(start_time, end_time):
         return 0.0
     return math.floor(hours * 2) / 2.0
 
+def _resolve_driller_captain_name(conn, val):
+    """调岗 payload.captain 统一解析为队长名字。
+
+    calc_driller_piece 按名字串精确匹配 overrides.captain 与 driller_data 的 captain
+    （采集链路 eid→employees.name），落库存 id 会导致该员工永远进不了队长池分钱
+    （2026-09-04 生产事故：captain='9'）。兼容三种入参：队长名字 / driller_captains.employee_id / 数字 id。
+    """
+    v = (val or '').strip()
+    if not v:
+        return ''
+    r = conn.execute("SELECT name FROM driller_captains WHERE name=? LIMIT 1", (v,)).fetchone()
+    if r:
+        return r['name']
+    r = conn.execute(
+        "SELECT name FROM driller_captains WHERE employee_id=? OR CAST(id AS TEXT)=? LIMIT 1",
+        (v, v)).fetchone()
+    if r:
+        return r['name']
+    r = conn.execute(
+        "SELECT name FROM employees WHERE REPLACE(UPPER(name),' ','')=? LIMIT 1",
+        (v.replace(' ', '').upper(),)).fetchone()
+    return r['name'] if r else ''
+
+
 def apply_approved_event(data_folder, event):
     """P8: OA 事件审批通过后落员工主档（PRD §5.2 效果列，与 overrides 推导叠加）
 
@@ -1620,7 +1644,13 @@ def apply_approved_event(data_folder, event):
                 captain_val = str((payload.get('captain') or '').strip())
                 if not captain_val:
                     raise RuntimeError('调入钻工部门必须选择班组（队长）')
-                team_id_val = captain_val  # 钻工 team_id 存队长 employee_id
+                # 前端表单 value 绑定队长 employee_id，overrides.captain 必须落名字（calc 按名字匹配队长池）
+                captain_name_val = _resolve_driller_captain_name(conn, captain_val)
+                if not captain_name_val:
+                    captain_name_val = captain_val  # 不阻塞审批主流程，按原值落库
+                    print(f"[warn] OA transfer #{event.get('id')}: captain '{captain_val}' "
+                          '无法解析为队长名单/员工姓名，overrides.captain 按原值落库，钻工池可能匹配不上')
+                team_id_val = captain_val  # 钻工 team_id 存队长 employee_id（保持原语义）
             elif is_ug:
                 try:
                     team_id_val = int(payload.get('team_id') or 0)
@@ -1667,7 +1697,7 @@ def apply_approved_event(data_folder, event):
                     "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from)"
                     " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (eid, 'piece_driller', 0, 0, eff, '9999-12-31',
-                     f'OA调岗转钻工 #{event.get("id")}', '', '', captain_val, ''))
+                     f'OA调岗转钻工 #{event.get("id")}', '', '', captain_name_val, ''))
             elif is_ug:
                 conn.execute(
                     "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from)"
@@ -1680,7 +1710,7 @@ def apply_approved_event(data_folder, event):
                         'old_day_rate': old_day, 'old_monthly_salary': old_month,
                         'old_department': old_dept})
             if is_driller:
-                _p2['captain'] = captain_val
+                _p2['captain'] = captain_name_val
             if is_ug:
                 _p2['team_id'] = team_id_val
             conn.execute("UPDATE employee_events SET payload=? WHERE id=?",
@@ -3429,16 +3459,21 @@ def save_scoring_config(data_folder, data):
 
 # ── P4: 全局搜索 ──────────────────
 
-def search_all(data_folder, query, scope='all'):
-    """跨表模糊搜索，返回 [{type, id, title, subtitle, url}]，最多30条"""
+def search_all(data_folder, query, scope='all', include_dismissed=False):
+    """跨表模糊搜索，返回 [{type, id, title, subtitle, url}]，最多30条
+
+    include_dismissed=False 时员工结果排除离职（super_admin 全局搜索需查离职档案，传 True 放行）
+    """
     conn = get_conn(data_folder)
     results = []
     q = f'%{query}%'
 
     if scope in ('all', 'employees'):
+        _dis_filter = '' if include_dismissed else 'AND id NOT IN (SELECT employee_id FROM dismissed_employees)'
         rows = conn.execute(
-            "SELECT id, name, department, default_type FROM employees "
-            "WHERE name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ? LIMIT 20",
+            f"SELECT id, name, department, default_type FROM employees "
+            f"WHERE (name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ?) "
+            f"{_dis_filter} LIMIT 20",
             (q, q, q, q, q)).fetchall()
         for r in rows:
             results.append({

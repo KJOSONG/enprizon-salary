@@ -108,6 +108,8 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                 _ov_cols = {r[1] for r in conn.execute("PRAGMA table_info(overrides)").fetchall()}
                 _has_tid = 'team_id' in _ov_cols
                 _tid_expr = 'team_id' if _has_tid else '0'
+                # 数据最大日期：哨兵 end_date 的展开上界（只展开到计薪数据覆盖的最后一天）
+                _data_max = max((str(x.get('date') or '') for x in shift_data), default='')
                 for r in conn.execute(
                     f"SELECT employee_id, start_date, end_date, shift, {_tid_expr}"
                     " FROM overrides WHERE salary_type='piece_underground' AND start_date!=''"
@@ -118,9 +120,13 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                     from datetime import datetime as _dt, timedelta as _td
                     d = _dt.strptime(s, '%Y-%m-%d')
                     d_end = _dt.strptime(end, '%Y-%m-%d')
-                    # 展开硬上限：'9999-12-31' 等永久哨兵会把循环撑到百万天级
-                    # （2026-09-04 OOM 事故根因，单条例外吃掉 ~900MB），必须截断
-                    d_end = min(d_end, d + _td(days=_OVERRIDE_EXPAND_MAX_DAYS))
+                    if end == '9999-12-31':
+                        # 永久哨兵（OA 调岗写入）：展开到数据最后一天，永久语义完整且量级≤数据天数；
+                        # 不能用 start+800 天截断——生效满 800 天后当前计薪月不再被覆盖，员工静默断薪
+                        d_end = _dt.strptime(_data_max, '%Y-%m-%d') if _data_max else d - _td(days=1)
+                    else:
+                        # 真实区间防呆上限：异常大的 end_date 截断（2026-09-04 OOM 事故根因）
+                        d_end = min(d_end, d + _td(days=_OVERRIDE_EXPAND_MAX_DAYS))
                     while d <= d_end:
                         _ds = d.strftime('%Y-%m-%d')
                         if sh:
@@ -530,14 +536,20 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
             import sqlite3
             conn = sqlite3.connect(dbp)
             try:
+                # 数据最大日期：哨兵 end_date 的展开上界（同 calc_underground_piece）
+                _data_max = max((str(x.get('date') or '') for x in driller_data), default='')
                 for r in conn.execute("SELECT employee_id, start_date, end_date, captain FROM overrides WHERE salary_type='piece_driller' AND captain!='' AND start_date!=''").fetchall():
                     eid, s, e, cap = r[0], r[1], r[2], r[3]
                     end = e or s
                     from datetime import datetime as _dt, timedelta as _td
                     d = _dt.strptime(s, '%Y-%m-%d')
                     d_end = _dt.strptime(end, '%Y-%m-%d')
-                    # 展开硬上限：同 calc_underground_piece，防永久哨兵值撑爆内存
-                    d_end = min(d_end, d + _td(days=_OVERRIDE_EXPAND_MAX_DAYS))
+                    if end == '9999-12-31':
+                        # 永久哨兵：展开到数据最后一天（start+800 天截断会在生效约 2 年后断薪）
+                        d_end = _dt.strptime(_data_max, '%Y-%m-%d') if _data_max else d - _td(days=1)
+                    else:
+                        # 真实区间防呆上限：异常大的 end_date 截断（2026-09-04 OOM 事故根因）
+                        d_end = min(d_end, d + _td(days=_OVERRIDE_EXPAND_MAX_DAYS))
                     while d <= d_end:
                         driller_adds[(eid, d.strftime('%Y-%m-%d'))] = cap
                         d += _td(days=1)

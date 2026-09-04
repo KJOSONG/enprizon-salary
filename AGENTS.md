@@ -319,6 +319,12 @@ D(蓝)=井下白班, N(青)=井下夜班, B(紫)=D+N, R(青绿)=钻工, C(橙)=�
 
 - **override\_type 优先**：判断薪资类型用 `override_type or default_type`（P22-FIX 教训，见 §薪资五轨道）。
 
+- **日期/数量区间展开必须有硬上限（2026-09-04 OOM 瘫痪事故铁律）**：从 DB 读 `start_date/end_date` 做逐日（逐格/逐项）展开的循环，必须 clamp 到 `_OVERRIDE_EXPAND_MAX_DAYS`（800 天，`calculator.py` 顶部常量）。**永久哨兵值（`9999-12-31` 等）与展开循环组合 = 定时炸弹**：单条哨兵行曾把 `calc_driller_piece` 撑到 291 万天迭代 / +932MB / 10s CPU，894MB 服务器被 OOM killer 循环击杀瘫痪半天。新增任何"按区间展开"代码（calculator/导出/明细）必须复用同一 clamp 常量；写入远期 end_date 的功能（如 OA 调岗自动转计件 `core/database.py`）上线前必须验证消费方有界。
+
+- **生产服务器只有 894MB 内存**：单请求内存预算 <100MB 常态、峰值 <500MB。禁止在请求路径加载全表到内存后再 Python 过滤大集合；新功能上线前用 `python3` + RSS 采样跑一遍主流程（方法见 memory `project_oom_incident_20260904.md`）。
+
+- **落库字段必须存"消费方期望的形态"**：如 `overrides.captain` 存**队长名字**（与产量数据 `driller_data['captain']` 同源、能过 `make_employee_id` 解析），不能存下拉框 id（曾发生 captain='9' 导致员工进不了队长池分钱）。表单 value 绑定与落库形态要前后端对齐，新增下拉字段时先查消费方的匹配逻辑。
+
 ### 前端技术栈
 
 - **单文件 SPA**：`templates/index.html`（\~4000 lines），所有 JS 内联在 `<script>` 标签中，无独立 JS 模块或构建系统
@@ -572,6 +578,8 @@ app.py (Flask 路由 / 认证 / 数据管线)
 - 复杂任务（≥3 需求）用 KEJU 团队并行（designer/dev/qa），简单任务直接做
 
 - 判断薪资类型用 `override_type or default_type`
+
+- **日期区间展开必 clamp / 哨兵值消费方必设防 / 落库形态=消费方期望**（2026-09-04 OOM 事故三条铁律，详见 §代码修改关键不变量）
 
 ## 重构状态（2026-09-02 更新，main=2d8228e；P29/P30/P31/P32 已部署）
 

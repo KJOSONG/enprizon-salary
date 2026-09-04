@@ -3981,11 +3981,13 @@ async function renderEmployeeTable() {
       }
     }
 
-    const q = (document.getElementById('empSearch').value || '').toLowerCase();
+    // S5: 搜索归一化(去首尾空格+连续空格折叠),避免多词姓名因空格差异搜不到
+    const normQ = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const q = normQ(document.getElementById('empSearch').value);
     const d = sel.value;
     const tFilter = (teamSel && isUgDept) ? teamSel.value : '';
     const filtered = emps.filter(e => {
-      if (q && !(e.name || '').toLowerCase().includes(q) && !(e.alias || '').toLowerCase().includes(q)
+      if (q && !normQ(e.name).includes(q) && !normQ(e.alias).includes(q)
           && !String(e.custom_number || e.id).toLowerCase().includes(q)) return false;
       if (d && e.department !== d) return false;
       if (isUgDept) {
@@ -4025,7 +4027,7 @@ async function renderEmployeeTable() {
     }).join('');
     // adjust colspan for empty state
     const colCount = 11;
-    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + '</td></tr>';
+    if (filtered.length === 0) tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="text-align:center;color:var(--text-muted);">' + t('no_match_emp') + ((d || tFilter) ? '<div style="font-size:11px;margin-top:4px;">' + escHtml(t('emp_filter_active') + (d || '') + (tFilter ? ' / ' + tFilter : '')) + '</div>' : '') + '</td></tr>';
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--danger);">' + t('load_fail_prefix') + escHtml(e.message) + '</td></tr>';
   }
@@ -7615,6 +7617,7 @@ async function loadColHistory(formType, containerId) {
     if (date) qs += '&date=' + encodeURIComponent(date);
     const res = await authFetch(api(qs));
     const data = await res.json();
+    try { window._colDismissed = new Set((data.dismissed_ids || []).map(String)); } catch(e) { window._colDismissed = new Set(); }
     const subs = data.submissions || [];
     await _ensureUgGroups();
     const f = _colHisFilter[containerId];
@@ -7737,8 +7740,24 @@ function colEidToName(id) {
   const e = pool.find(x => String(x.id) === String(id));
   return e ? e.name : String(id || '');
 }
+/* 离职隐藏计数：与 mobile colPayloadDismissedCount 同逻辑（数据源 window._colDismissed） */
+function colPayloadDismissedCount(p) {
+  const dis = window._colDismissed || new Set();
+  if (!dis.size || !p) return 0;
+  const ids = [];
+  try {
+    const push = (a) => (a || []).forEach(x => { if (x != null) ids.push(typeof x === 'object' ? (x.employee_id ?? x) : x); });
+    if (Array.isArray(p.teams)) p.teams.forEach(tm => { if (!tm) return; if (tm.captain != null) ids.push(tm.captain); push(tm.members); });
+    ['day', 'night'].forEach(k => { const s = p[k] || {}; push(s.emps); push(s.drivers); });
+    push(p.emps); push((p.marks || []).map(m => m && m.employee_id));
+  } catch (e) {}
+  return ids.filter(id => dis.has(String(id))).length;
+}
 function renderColPayloadPreview(formType, payload, _sub, _containerId) {
-  const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
+  // S2: 提交显示隐藏离职人员
+  const _disW = window._colDismissed || new Set();
+  const _isDisW = (id) => _disW.has(String(id));
+  const names = (ids) => (ids || []).filter(id => !_isDisW(id)).map(colEidToName).join(', ') || '—';
   const ST = { D: t('st_d'), N: t('st_n'), P: t('st_p'), A: t('st_a'), L: t('st_l'), C: t('st_c'), R: t('st_r'), B: t('st_b') };
   const fmt = (n) => String(n == null ? 0 : n);
   const _badgeFor = (on) => on
@@ -7782,7 +7801,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   if (formType === 'driller') {
     const teams = payload.teams || [];
     return '<div style="font-size:12px;line-height:1.9;">' + teams.map((tm, i) =>
-      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(colEidToName(tm.captain)) + '</div>'
+      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(_isDisW(tm.captain) ? '—' : colEidToName(tm.captain)) + '</div>'
       + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
       + '<div>' + t('col_members') + ': ' + names(tm.members) + '</div>'
     ).join('<div style="margin-top:4px;"></div>') + '</div>';
@@ -7797,7 +7816,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   if (formType === 'attendance') {
     const marks = payload.marks || [];
     const AT = { P: t('att_status_p'), A: t('att_status_a'), S: t('att_status_s'), SK: t('att_status_sk'), T: t('att_status_t'), B: t('att_status_b'), L: t('att_status_l') };
-    return '<div style="font-size:12px;line-height:1.9;">' + marks.map(m =>
+    return '<div style="font-size:12px;line-height:1.9;">' + marks.filter(m => !_isDisW(m.employee_id)).map(m =>
       '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + escHtml(m.status || '') + ' · ' + escHtml(AT[m.status] || '') + '</div>'
     ).join('') + '</div>';
   }
@@ -7808,6 +7827,7 @@ async function previewColSubmission(formType, sid, containerId) {
     const month = STATE.currentMonth || '';
     const res = await authFetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
     const data = await res.json();
+    try { window._colDismissed = new Set((data.dismissed_ids || []).map(String)); } catch(e) { window._colDismissed = new Set(); }
     const sub = (data.submissions || []).find(s => String(s.id) === String(sid));
     if (!sub) { showToast(t('col_submission_not_found'), 'error'); return; }
     let payload = {};
@@ -7831,7 +7851,7 @@ async function previewColSubmission(formType, sid, containerId) {
           <div>${t('col_version')}: v${sub.version || 1}</div>
           <div>${t('col_operator')}: ${escHtml(sub.operator_id || '')}</div>
         </div>
-        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload, sub, containerId)}</div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload, sub, containerId)}${(() => { const n = colPayloadDismissedCount(payload); return n ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${escHtml(t('col_dismissed_hidden').replace('{n}', n))}</div>` : ''; })()}</div>
         <div style="display:flex;gap:8px;">
           ${canEdit ? `<button class="btn-primary" onclick="enterColEditFromPreview('${formType}','${sub.id}','${containerId}')" style="padding:6px 16px;font-size:12px;">${t('col_edit_btn')}</button>` : ''}
           <button class="btn-cancel" onclick="document.getElementById('colPreviewModal').remove()" style="padding:6px 16px;font-size:12px;">${t('col_close')}</button>
@@ -7874,6 +7894,7 @@ async function enterColEdit(formType, sid, containerId) {
     const month = STATE.currentMonth || '';
     const res = await fetch(api('/api/collection/history?form_type=' + formType + '&month=' + encodeURIComponent(month)));
     const data = await res.json();
+    try { window._colDismissed = new Set((data.dismissed_ids || []).map(String)); } catch(e) { window._colDismissed = new Set(); }
     const sub = (data.submissions || []).find(s => String(s.id) === String(sid));
     if (!sub) { showToast(t('col_submission_not_found'), 'error'); return; }
     _colEditing = sub;
