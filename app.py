@@ -3412,7 +3412,12 @@ def collection_history():
         operator = u
     subs = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type, month=month,
                                       date=date, operator=operator)
-    return jsonify({'submissions': subs})
+    from core.database import load_dismissed
+    try:
+        dismissed_ids = sorted(load_dismissed(app.config['DATA_FOLDER']))
+    except Exception:
+        dismissed_ids = []
+    return jsonify({'submissions': subs, 'dismissed_ids': dismissed_ids})
 
 @app.route('/api/collection/driller-teams', methods=['GET'])
 @editor_required

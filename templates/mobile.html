@@ -33,10 +33,9 @@
           <input type="password" id="login-pass" autocomplete="current-password" required style="padding-right:40px;">
           <button type="button" onclick="togglePwd('login-pass', this)" aria-label="切换密码可见" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);padding:4px;line-height:1;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-      </div>
-      <div id="mLoginError" style="display:none;color:#e53e3e;font-size:12px;margin:-4px 0 12px;"></div>
+           </button>
+               </div>
+       <div id="mLoginError" style="display:none;color:#e53e3e;font-size:12px;margin:-4px 0 12px;"></div>
       <button type="submit" class="btn btn-primary btn-block" data-i18n="login">登录</button>
     </form>
   </div>
@@ -127,9 +126,17 @@
                   <div class="segmented__option ore-tag" data-v="nh" onclick="setOreFilter('nh')" data-i18n="nh">NICKEL(H)</div>
                   <div class="segmented__option ore-tag" data-v="nl" onclick="setOreFilter('nl')" data-i18n="nl">NICKEL(L)</div>
                   <div class="segmented__option ore-tag" data-v="mw" onclick="setOreFilter('mw')" data-i18n="mw">MAWE</div>
-                </div>
-              </div>
-            </div>
+                 </div>
+               </div>
+               <div class="filter-group">
+                 <div class="filter-group__label" data-i18n="dash_date_range">日期范围</div>
+                 <div style="display:flex;gap:6px;align-items:center;">
+                   <input type="date" id="dashDateFrom" class="dash-date-input" style="flex:1;min-width:0;">
+                   <span style="color:var(--text-muted);font-size:12px;">—</span>
+                   <input type="date" id="dashDateTo" class="dash-date-input" style="flex:1;min-width:0;">
+                 </div>
+               </div>
+             </div>
           </div>
           <div class="kpi-grid" id="kpi-grid"></div>
           <div class="chart-box">
@@ -283,6 +290,8 @@
     attBatchSel: null,
     _batchStatus: '',
     attJump: '',
+    dashDateFrom: '',
+    dashDateTo: '',
   };
 
   const I18N = null; // 已废弃：统一使用 static/js/i18n.js 的 I18N_DICT
@@ -467,6 +476,17 @@
   }
   function selectMonth(m){
     closeSheet();
+    // S1: 切月重置日期范围为当月首末日
+    const parts = String(m).split('-');
+    const yr = parts[0], mo = parts[1];
+    const lastDay = new Date(Number(yr), Number(mo), 0).getDate();
+    const from = yr+'-'+mo+'-01';
+    const to = yr+'-'+mo+'-'+String(lastDay).padStart(2,'0');
+    STATE.dashDateFrom = from; STATE.dashDateTo = to;
+    const inpFrom = document.getElementById('dashDateFrom');
+    const inpTo = document.getElementById('dashDateTo');
+    if(inpFrom){ inpFrom.value = from; inpFrom.min = from; inpFrom.max = to; }
+    if(inpTo){ inpTo.value = to; inpTo.min = from; inpTo.max = to; }
     api('/set-month', { method:'POST', body: JSON.stringify({ month:m }) }).then(r=>{
       if(r.ok){ STATE.currentMonth = m; STATE.dashboard=null; loadDashboard(); toast(m); } else { toast('无权限切换月份', 'warning'); }
     }).catch(()=>toast('切换失败','error'));
@@ -635,20 +655,38 @@
       if(label){ label.setAttribute('data-i18n','shift'); label.textContent = t('dash_shift'); }
       STATE.teamFilter = 'all';
     }
+    // S1: 日期输入 DOM 绑定（去重：dataset.bound 标记）
+    if(!seg.dataset.bound){
+      seg.dataset.bound = '1';
+      var elFrom = document.getElementById('dashDateFrom');
+      var elTo = document.getElementById('dashDateTo');
+      if(elFrom) elFrom.addEventListener('change', function(){ setDashDateFrom(this.value); });
+      if(elTo) elTo.addEventListener('change', function(){ setDashDateTo(this.value); });
+    }
   }
   function setTeamFilter(v){ STATE.teamFilter=v; document.querySelectorAll('#dash-shift-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
   function setOreFilter(v){ STATE.dashOreFilter=v; document.querySelectorAll('#dash-ore-seg .segmented__option').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); renderDashboard(); }
   function setDnTab(v){ STATE.dnTab=v; document.querySelectorAll('#dn-cmp-tab .cmp-tab__item').forEach(o=>o.classList.toggle('active', o.dataset.v===v)); drawDayNight(); }
 
-  // 按班次 + 矿石类型双重过滤，返回逐日 {date, nh, nl, mw, total}
+   // S1: 日期输入变更 → 写 STATE + 重绘
+   function setDashDateFrom(v){ STATE.dashDateFrom=v; renderDashboard(); }
+   function setDashDateTo(v){ STATE.dashDateTo=v; renderDashboard(); }
+
+   // 按班次 + 矿石类型双重过滤，返回逐日 {date, nh, nl, mw, total}
   // C8: 新格式(teams)存在时按 teams 聚合(不受 shiftFilter)，旧格式保持原逻辑
   function filteredShift(){
     const d = STATE.dashboard; if(!d) return [];
+    // S1: 日期范围过滤
+    const df = STATE.dashDateFrom, dt = STATE.dashDateTo;
     const ore = STATE.dashOreFilter;
     const isNew = (d.shift_production||[]).some(s=>Array.isArray(s.teams));
+    // S1: 先按日期范围切片，再走后续聚合
+    let _rows = (d.shift_production||[]);
+    if(df) _rows = _rows.filter(s => s.date >= df);
+    if(dt) _rows = _rows.filter(s => s.date <= dt);
     if(isNew){
       const tf = STATE.teamFilter;
-      return (d.shift_production||[]).map(s=>{
+      return _rows.map(s=>{
         let nh=0,nl=0,mw=0;
         (s.teams||[]).forEach(tm=>{
           // P31 B1: 班组筛选时只累加该班组产量，其余班组置 0（对齐 Web getProdValue）
@@ -661,7 +699,7 @@
         return { date:s.date, nh, nl, mw, total:nh+nl+mw, teams:s.teams||[] };
       });
     }
-    return (d.shift_production||[]).map(s=>{
+    return _rows.map(s=>{
       let nh, nl, mw;
       if(STATE.shiftFilter==='day'){ nh=s.day_nh||0; nl=s.day_nl||0; mw=s.day_mw||0; }
       else if(STATE.shiftFilter==='night'){ nh=s.night_nh||0; nl=s.night_nl||0; mw=s.night_mw||0; }
@@ -763,7 +801,11 @@
     chart.draw();
   }
   function drawTrend(){
-    const sp = STATE.dashboard.shift_production || [];
+    let sp = STATE.dashboard.shift_production || [];
+    // S1: 日期范围过滤
+    const df = STATE.dashDateFrom, dt = STATE.dashDateTo;
+    if(df) sp = sp.filter(s => s.date >= df);
+    if(dt) sp = sp.filter(s => s.date <= dt);
     if(!sp.length) return;
     const isNew = sp.some(s=>Array.isArray(s.teams));
     const labels = sp.map(s=>s.date.slice(5));
@@ -850,7 +892,11 @@
   }
   // 白班 vs 夜班：按 dnTab 切换 NH/NL/MW/合计 双柱 — C8 新格式用班组对比
   function drawDayNight(){
-    const sp = STATE.dashboard.shift_production || [];
+    let sp = STATE.dashboard.shift_production || [];
+    // S1: 日期范围过滤
+    const df = STATE.dashDateFrom, dt = STATE.dashDateTo;
+    if(df) sp = sp.filter(s => s.date >= df);
+    if(dt) sp = sp.filter(s => s.date <= dt);
     const labels = sp.map(s=>s.date.slice(5));
     const isNew = sp.some(s=>Array.isArray(s.teams));
     // 标题切换：新格式=班组对比（无 Day vs Night），并同步 data-i18n 以便语言切换
@@ -919,7 +965,11 @@
   }
   // 班组薪资对比：每日各班薪资总额（V2 凸性计薪：Σ(产量×单价)×加速系数），与出勤无关
   function drawDrillerSalary(){
-    const sp = STATE.dashboard.shift_production || [];
+    let sp = STATE.dashboard.shift_production || [];
+    // S1: 日期范围过滤
+    const df = STATE.dashDateFrom, dt = STATE.dashDateTo;
+    if(df) sp = sp.filter(s => s.date >= df);
+    if(dt) sp = sp.filter(s => s.date <= dt);
     const el = document.getElementById('chart-salary');
     if(!el) return;
     if(!sp.length || !sp.some(s=>Array.isArray(s.teams))){ el.style.display='none'; return; }
@@ -976,7 +1026,11 @@
   }
   // 钻工组产量：按队长分组对比（对齐 Web renderDrillerGroupChart），点击柱子查看逐日明细
   function drawDriller(){
-    const dp = STATE.dashboard.driller_production || [];
+    let dp = STATE.dashboard.driller_production || [];
+    // S1: 日期范围过滤
+    const df = STATE.dashDateFrom, dt = STATE.dashDateTo;
+    if(df) dp = dp.filter(d => d.date >= df);
+    if(dt) dp = dp.filter(d => d.date <= dt);
     const el = document.getElementById('chart-driller');
     if(!el) return;
     if(!dp.length){ el.style.display='none'; return; }
@@ -1111,8 +1165,9 @@
   function renderEmpList(){
     const el = document.getElementById('emp-list');
     if(!STATE.employees.length){ el.innerHTML='<div class="state-box"><div class="state-box__icon">👥</div><div class="state-box__title">'+t('no_emp')+'</div><div class="state-box__desc">'+t('emp_empty_desc')+'</div></div>'; return; }
-    const q = (STATE._empSearch||'').toLowerCase();
-    const list = STATE.employees.filter(e=> !q || (e.name||'').toLowerCase().includes(q) || (e.alias||'').toLowerCase().includes(q) || String(e.custom_number||'').includes(q) || String(e.id||'').includes(q));
+    const nq = (s)=>(s||'').toLowerCase().trim().replace(/\s+/g,' ');
+    const q = nq(STATE._empSearch);
+    const list = STATE.employees.filter(e=> !q || nq(e.name).includes(q) || nq(e.alias).includes(q) || String(e.custom_number||'').includes(q) || String(e.id||'').includes(q));
     if(!list.length){ el.innerHTML='<div class="state-box"><div class="state-box__icon">🔍</div><div class="state-box__title">'+t('no_emp')+'</div></div>'; return; }
     el.innerHTML = list.map(empCard).join('') + '<div class="emp-list-footer">'+t('show_n',{n:list.length})+'</div>';
   }
@@ -1341,27 +1396,36 @@
     body.innerHTML = '<img src="'+esc(img.getAttribute('src'))+'" style="width:100%;border-radius:8px;">';
     openSheet(name || t('emp_profile'), body);
   }
-  function openLeave(empId){
-    const body = document.getElementById('sheet-body');
-    body.innerHTML = '<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="">'+t('sel_placeholder')+'</option><option value="casual">'+t('personal_leave')+'</option><option value="comp_leave">'+t('comp_leave')+'</option><option value="sick">'+t('sick_leave')+'</option></select></div>'
-      + '<div class="field"><label class="field__label">'+t('leave_days')+'</label><input type="number" id="lv-days" min="1"></div>'
-      + '<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
-      + '<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
-      + '<button class="btn btn-primary btn-block" onclick="submitLeave(\''+esc(empId)+'\')">'+t('submit')+'</button>';
-    openSheet(t('leave_apply'), body);
+  function openLeave(empId, empName){
+    const body=document.getElementById('sheet-body');
+    const title=empName ? t('leave_apply')+' - '+esc(empName) : t('leave_apply');
+    body.innerHTML='<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="">'+t('sel_placeholder')+'</option><option value="casual">'+t('personal_leave')+'</option><option value="sick">'+t('sick_leave')+'</option><option value="annual_leave">'+t('leave_annual')+'</option><option value="comp_leave">'+t('comp_leave')+'</option></select></div>'
+      +'<div class="field"><label class="field__label">'+t('leave_days')+'</label><input type="number" id="lv-days" min="1"></div>'
+      +'<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
+      +'<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
+      +'<button class="btn btn-primary btn-block" onclick="submitLeave(\''+esc(empId)+'\')">'+t('submit')+'</button>';
+    openSheet(title, body);
   }
   function submitLeave(empId){
-    const type = document.getElementById('lv-type').value;
-    const date = document.getElementById('lv-date').value;
-    const days = parseInt(document.getElementById('lv-days')?.value || '0') || 0;
-    const note = document.getElementById('lv-note').value.trim();
+    const type=document.getElementById('lv-type').value;
+    const date=document.getElementById('lv-date').value;
+    const days=parseInt(document.getElementById('lv-days')?.value||'0')||0;
+    const note=document.getElementById('lv-note').value.trim();
     if(!type){ toast(t('sel_type_required'),'warning'); return; }
     if(!date){ toast(t('fill_date'),'warning'); return; }
-    if(days < 1){ toast(t('fill_date'),'warning'); return; }
-    const payload = { employee_id: empId, event_type: type, effective_date: date, note, days };
-    api('/api/oa/leave', { method:'POST', body: JSON.stringify(payload) }).then(r=>{
-      if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error');
-    }).catch(()=>toast(t('fail'),'error'));
+    if(days<1){ toast(t('fill_date'),'warning'); return; }
+    const lang=(STATE.lang||'zh');
+    // sick 走独立端点 /api/leave/sick，其余走 /api/oa/leave
+    if(type==='sick'){
+      api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:empId,effective_date:date,days,note})}).then(function(r){
+        if(r.ok){ toast(t('leave_sick_ok')||t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error');
+      }).catch(function(){ toast(t('fail'),'error'); });
+    } else {
+      const payload={employee_id:empId,event_type:type,effective_date:date,days,note,lang:lang};
+      api('/api/oa/leave',{method:'POST',body:JSON.stringify(payload)}).then(function(r){
+        if(r.ok){ toast(t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error');
+      }).catch(function(){ toast(t('fail'),'error'); });
+    }
   }
 
   // ── 全局搜索（员工列表过滤，防抖 300ms）──
@@ -1501,6 +1565,7 @@
     apiStatus(qs).then(async ({status,json})=>{
       const subs=(json.submissions||[]).slice(0,8);
       STATE._colSubs = json.submissions || [];
+      try{ STATE._dismissedIds = new Set((json.dismissed_ids||[]).map(String)); }catch(e){ STATE._dismissedIds = new Set(); }
       if(status===403){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('need_editor')+'</span></div>'; return; }
       if(status!==200){ el.innerHTML='<div class="history-row"><span class="history-row__date">'+t('load_fail')+'</span></div>'; return; }
       await _mobUgGroups();
@@ -1565,7 +1630,10 @@
     return e? (e.name||id) : String(id||'');
   }
   function colDetailSummary(ty, p, sid){
-    const names=(ids)=>(ids||[]).map(colMobEidName).join(', ')||'—';
+    // S2: 提交显示隐藏离职人员
+    const _dis = STATE._dismissedIds || new Set();
+    const _isDis = (id)=>_dis.has(String(id));
+    const names=(ids)=>{ const arr=(ids||[]).filter(id=>!_isDis(id)); return arr.map(colMobEidName).join(', ')||'—'; };
     const ST={D:t('st_d'),N:t('st_n'),P:t('st_p'),A:t('st_a'),L:t('st_l'),C:t('st_c'),R:t('st_r'),B:t('st_b')};
     const _badgeOn='<span style="display:inline-block;font-size:10px;padding:2px 6px;background:var(--warning);color:#fff;border-radius:999px;margin-left:6px;">'+t('col_ug_exempt_badge_on')+'</span>';
     const _badgeOff='<span style="display:inline-block;font-size:10px;padding:2px 6px;background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);border-radius:999px;margin-left:6px;">'+t('col_ug_exempt_badge_off')+'</span>';
@@ -1596,7 +1664,7 @@
     if(ty==='driller'){
       const teams=p.teams||[];
       return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'
-        + teams.map((tm,i)=>'<div class="detail-line"><b>'+t('col_team')+' '+(i+1)+': '+esc(colMobEidName(tm.captain))+'</b> · NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
+        + teams.map((tm,i)=>'<div class="detail-line"><b>'+t('col_team')+' '+(i+1)+': '+(_isDis(tm.captain)?'—':esc(colMobEidName(tm.captain)))+'</b> · NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
           + '<div class="detail-line">'+t('col_members')+': '+esc(names(tm.members))+'</div>').join('');
     }
     if(ty==='crush'){
@@ -1608,9 +1676,22 @@
       const marks=p.marks||[];
       const AT={P:t('att_status_p'),A:t('att_status_a'),S:t('att_status_s'),SK:t('att_status_sk'),T:t('att_status_t'),B:t('att_status_b'),L:t('att_status_l')};
       return '<div class="detail-line">'+t('col_marks')+': '+marks.length+'</div>'
-        + marks.map(m=>'<div class="detail-line">'+esc(colMobEidName(m.employee_id))+': '+esc(m.status||'')+' · '+esc(AT[m.status]||'')+'</div>').join('');
+        + marks.filter(m=>!_isDis(m.employee_id)).map(m=>'<div class="detail-line">'+esc(colMobEidName(m.employee_id))+': '+esc(m.status||'')+' · '+esc(AT[m.status]||'')+'</div>').join('');
     }
     return '';
+  }
+  // S2: 统计 payload 内离职人员数量(用于隐藏提示)
+  function colPayloadDismissedCount(p){
+    const dis = STATE._dismissedIds || new Set();
+    if(!dis.size || !p) return 0;
+    const ids=[];
+    try{
+      const push=(a)=>(a||[]).forEach(x=>{ if(x!=null) ids.push(typeof x==='object'?(x.employee_id??x):x); });
+      if(Array.isArray(p.teams)) p.teams.forEach(tm=>{ if(!tm) return; if(tm.captain!=null) ids.push(tm.captain); push(tm.members); });
+      ['day','night'].forEach(k=>{ const s=p[k]||{}; push(s.emps); push(s.drivers); });
+      push(p.emps); push((p.marks||[]).map(m=>m&&m.employee_id));
+    }catch(e){}
+    return ids.filter(id=>dis.has(String(id))).length;
   }
   function openColDetail(id){
     const s=(STATE._colSubs||[]).find(x=>x.id===id);
@@ -1633,6 +1714,7 @@
       + '<div class="info-row"><span class="info-row__label">'+t('col_operator')+'</span><span class="info-row__value">'+esc(s.operator_id||'')+'</span></div>'
       + '<div style="margin:10px 0;border-top:1px solid var(--border);"></div>'
       + colDetailSummary(s.form_type, p, s.id)
+      + (function(){ const n=colPayloadDismissedCount(p); return n? '<div style="font-size:11px;color:var(--muted-foreground);margin-top:6px;">'+((STATE.lang||'zh')==='en'?'Hidden '+n+' dismissed employee(s)':'已隐藏 '+n+' 名离职人员')+'</div>':''; })()
       + (canEdit ? '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="editColDetail('+s.id+',\''+s.form_type+'\')">'+t('col_edit_btn')+'</button>'
         : '<div style="margin-top:12px;font-size:12px;color:var(--muted-foreground);">'+t('col_readonly_hint')+'</div>');
     openSheet(typeLabel[s.form_type]||'', body);
@@ -2362,7 +2444,55 @@
   function doAttJump(){ const dt=document.getElementById('attJumpDate').value; closeSheet(); if(!dt) return; STATE.attJump=dt; renderAttGrid(); const cell=document.querySelector('.status-cell[data-d="'+dt+'"]'); if(cell) cell.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'}); }
 
   // 请假快捷入口
-  function quickLeave(){ const body=document.getElementById('sheet-body'); const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="ql-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="const v=document.getElementById(\'ql-emp\').value; if(!v){toast(t(\'need_editor\'),\'warning\');return;} openLeave(v)">'+t('next')+'</button>'; openSheet(t('leave_apply'), body); }
+  // S1S5: 三段式部门→员工搜索→类型
+  function getUniqueDepts(){ return [...new Set((STATE.employees||[]).map(e=>e.department).filter(Boolean))].sort(); }
+  function filterEmpsByDept(dept){ return (STATE.employees||[]).filter(e=>!dept || e.department===dept); }
+  function showEmpSearch(dept, onSelect, inputId, pickId){
+    const body=document.getElementById('sheet-body');
+    const emps=filterEmpsByDept(dept);
+    const inpId=inputId||'ql-emp-search';
+    const pkId=pickId||'ql-emp-pick';
+    body.innerHTML='<div class="field"><label class="field__label">'+t('dept')+'</label><div style="padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius);font-size:13px;color:var(--text-muted);margin-bottom:8px;">'+esc(dept)+'</div></div>'
+      +'<div class="field"><label class="field__label">'+t('emp_list')+'</label><input type="text" id="'+inpId+'" placeholder="'+t('search_emp_ph')+'" autocomplete="off" style="padding:8px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>'
+      +'<div id="'+pkId+'" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);max-height:200px;overflow-y:auto;margin-bottom:8px;"></div>';
+    const inp=document.getElementById(inpId);
+    const pk=document.getElementById(pkId);
+    if(!inp||!pk) return;
+    inp.addEventListener('input',function(){
+      clearTimeout(this._timer);
+      this._timer=setTimeout(function(){
+        const q=inp.value.trim().toLowerCase();
+        if(q.length<1){ pk.innerHTML=''; pk.style.display='none'; return; }
+        const hits=emps.filter(function(e){
+          return (e.name||'').toLowerCase().includes(q) || String(e.custom_number||e.id).toLowerCase().includes(q) || (e.alias||'').toLowerCase().includes(q);
+        }).slice(0,8);
+        if(!hits.length){
+          pk.innerHTML='<div style="padding:8px 10px;color:var(--text-muted);font-size:12px;">'+t('no_match_emp')+'</div>';
+          pk.style.display='block'; return;
+        }
+        pk.innerHTML=hits.map(function(e){
+          return '<div onclick="'+onSelect+'(\''+esc(String(e.id))+'\',\''+esc(e.name||'')+'\')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">'+esc(e.name||'')+' <span style="color:var(--text-muted);font-size:11px;">#'+esc(String(e.custom_number||e.id))+'</span></div>';
+        }).join('');
+        pk.style.display='block';
+      },300);
+    });
+    inp.addEventListener('blur',function(){ setTimeout(function(){ pk.style.display='none'; },200); });
+    setTimeout(function(){ inp.focus(); },100);
+  }
+  function quickLeave(){
+    const depts=getUniqueDepts();
+    const body=document.getElementById('sheet-body');
+    const opts='<option value="">'+t('sel_placeholder')+'</option>'+depts.map(function(d){ return '<option value="'+esc(d)+'">'+esc(d)+'</option>'; }).join('');
+    body.innerHTML='<div class="field"><label class="field__label">'+t('dept')+'</label><select id="ql-dept" onchange="pickLeaveDept(this.value)">'+opts+'</select></div>';
+    openSheet(t('leave_apply'), body);
+  }
+  function pickLeaveDept(dept){
+    if(!dept){ toast(t('sel_placeholder'),'warning'); return; }
+    showEmpSearch(dept, 'pickLeaveEmp', 'ql-emp-search', 'ql-emp-pick');
+  }
+  function pickLeaveEmp(eid, ename){
+    openLeave(eid, ename);
+  }
   function quickSick(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } const body=document.getElementById('sheet-body'); const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join(''); body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qs-emp">'+opts+'</select></div><div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="qs-date"></div><button class="btn btn-primary btn-block" onclick="submitQuickSick()">'+t('submit')+'</button>'; openSheet(t('leave_sick'), body); }
   function submitQuickSick(){ const eid=document.getElementById('qs-emp').value; const date=document.getElementById('qs-date').value; if(!eid||!date){ toast(t('fill_date'),'warning'); return; } api('/api/leave/sick',{method:'POST',body:JSON.stringify({employee_id:eid,start_date:date,days:1})}).then(r=>{ if(r.ok){ toast(r.message || t('submitted')); closeSheet(); } else toast(r.error||t('fail'),'error'); }).catch(()=>toast(t('fail'),'error')); }
   // 采集页快捷操作四宫格入口(需求 1b)
@@ -2370,10 +2500,18 @@
   function openQuickLeave(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickLeave(); }
   // ── P23 R2: 加班申请（移动端） ──
   function quickOvertime(){
+    const depts=getUniqueDepts();
     const body=document.getElementById('sheet-body');
-    const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
-    body.innerHTML='<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="qot-emp">'+opts+'</select></div><button class="btn btn-primary btn-block" onclick="const v=document.getElementById(\'qot-emp\').value; if(!v){toast(t(\'need_editor\'),\'warning\');return;} openOvertime(v)">'+t('next')+'</button>';
+    const opts='<option value="">'+t('sel_placeholder')+'</option>'+depts.map(function(d){ return '<option value="'+esc(d)+'">'+esc(d)+'</option>'; }).join('');
+    body.innerHTML='<div class="field"><label class="field__label">'+t('dept')+'</label><select id="qot-dept" onchange="pickOtDept(this.value)">'+opts+'</select></div>';
     openSheet(t('overtime_apply'), body);
+  }
+  function pickOtDept(dept){
+    if(!dept){ toast(t('sel_placeholder'),'warning'); return; }
+    showEmpSearch(dept, 'pickOtEmp', 'qot-emp-search', 'qot-emp-pick');
+  }
+  function pickOtEmp(eid, ename){
+    openOvertime(eid, ename);
   }
   function openQuickOvertime(){ if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; } quickOvertime(); }
   // R2: 加班日期须在今日±2天内（本地时区格式化，非超管受限）
@@ -2384,10 +2522,11 @@
     const f=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     return {min:f(lo), max:f(hi)};
   }
-  function openOvertime(empId){
+  function openOvertime(empId, empName){
     const body=document.getElementById('sheet-body');
     const _sa=isSuperAdmin();
     const _w=_mobOtWindow();
+    const title=empName ? t('overtime_apply')+' - '+esc(empName) : t('overtime_apply');
     body.innerHTML='<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"'+( _sa?'':' min="'+_w.min+'" max="'+_w.max+'"')+'></div>'
       + (_sa?'':'<div style="font-size:11px;color:var(--muted-foreground);margin:-6px 0 8px;">'+t('ot_window_hint')+'</div>')
       + '<div class="field"><label class="field__label">'+t('overtime_start')+'</label><input type="time" id="ot-start" onchange="calcMobOtHours()"></div>'
@@ -2395,7 +2534,7 @@
       + '<div class="field"><label class="field__label">'+t('overtime_hours')+'</label><input type="text" id="ot-hours" readonly placeholder="'+t('overtime_calc_hint')+'" style="color:var(--muted-foreground);"></div>'
       + '<div class="field"><label class="field__label">'+t('overtime_note')+'</label><textarea id="ot-note" rows="2"></textarea></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitOvertime(\''+esc(empId)+'\')">'+t('submit')+'</button>';
-    openSheet(t('overtime_apply'), body);
+    openSheet(title, body);
   }
   function calcMobOtHours(){
     const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
@@ -2422,7 +2561,7 @@
     const hours=parseFloat(document.getElementById('ot-hours').value||'0');
     if(!st||!et||!hours){ toast(t('err_overtime_time'),'warning'); return; }
     if(hours>12){ toast(t('err_overtime_hours'),'warning'); return; }
-    api('/api/oa/events',{ method:'POST', body:JSON.stringify({event_type:'overtime', employee_id:empId, effective_date:date, payload:{date, start_time:st, end_time:et, hours, note}}) }).then(r=>{
+    api('/api/oa/events',{ method:'POST', body:JSON.stringify({event_type:'overtime', employee_id:empId, effective_date:date, lang:(STATE.lang||'zh'), payload:{date, start_time:st, end_time:et, hours, note}}) }).then(r=>{
       if(r.ok){ toast(t('submitted')); closeSheet(); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
     }).catch(()=>toast(t('fail'),'error'));
   }

@@ -3438,7 +3438,8 @@ def search_all(data_folder, query, scope='all'):
     if scope in ('all', 'employees'):
         rows = conn.execute(
             "SELECT id, name, department, default_type FROM employees "
-            "WHERE name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ? LIMIT 20",
+            "WHERE (name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ?) "
+            "AND id NOT IN (SELECT employee_id FROM dismissed_employees) LIMIT 20",
             (q, q, q, q, q)).fetchall()
         for r in rows:
             results.append({
