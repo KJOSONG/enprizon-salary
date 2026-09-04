@@ -7754,10 +7754,8 @@ function colPayloadDismissedCount(p) {
   return ids.filter(id => dis.has(String(id))).length;
 }
 function renderColPayloadPreview(formType, payload, _sub, _containerId) {
-  // S2: 提交显示隐藏离职人员
-  const _disW = window._colDismissed || new Set();
-  const _isDisW = (id) => _disW.has(String(id));
-  const names = (ids) => (ids || []).filter(id => !_isDisW(id)).map(colEidToName).join(', ') || '—';
+  // 离职员工的历史提交记录不再隐藏（离职不回溯清史，已提交出勤照常显示）
+  const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
   const ST = { D: t('st_d'), N: t('st_n'), P: t('st_p'), A: t('st_a'), L: t('st_l'), C: t('st_c'), R: t('st_r'), B: t('st_b') };
   const fmt = (n) => String(n == null ? 0 : n);
   const _badgeFor = (on) => on
@@ -7801,7 +7799,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   if (formType === 'driller') {
     const teams = payload.teams || [];
     return '<div style="font-size:12px;line-height:1.9;">' + teams.map((tm, i) =>
-      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(_isDisW(tm.captain) ? '—' : colEidToName(tm.captain)) + '</div>'
+      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(colEidToName(tm.captain)) + '</div>'
       + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
       + '<div>' + t('col_members') + ': ' + names(tm.members) + '</div>'
     ).join('<div style="margin-top:4px;"></div>') + '</div>';
@@ -7816,7 +7814,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   if (formType === 'attendance') {
     const marks = payload.marks || [];
     const AT = { P: t('att_status_p'), A: t('att_status_a'), S: t('att_status_s'), SK: t('att_status_sk'), T: t('att_status_t'), B: t('att_status_b'), L: t('att_status_l') };
-    return '<div style="font-size:12px;line-height:1.9;">' + marks.filter(m => !_isDisW(m.employee_id)).map(m =>
+    return '<div style="font-size:12px;line-height:1.9;">' + marks.map(m =>
       '<div>' + escHtml(colEidToName(m.employee_id)) + ': ' + escHtml(m.status || '') + ' · ' + escHtml(AT[m.status] || '') + '</div>'
     ).join('') + '</div>';
   }
@@ -7851,7 +7849,7 @@ async function previewColSubmission(formType, sid, containerId) {
           <div>${t('col_version')}: v${sub.version || 1}</div>
           <div>${t('col_operator')}: ${escHtml(sub.operator_id || '')}</div>
         </div>
-        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload, sub, containerId)}${(() => { const n = colPayloadDismissedCount(payload); return n ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${escHtml(t('col_dismissed_hidden').replace('{n}', n))}</div>` : ''; })()}</div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:14px;">${renderColPayloadPreview(formType, payload, sub, containerId)}</div>
         <div style="display:flex;gap:8px;">
           ${canEdit ? `<button class="btn-primary" onclick="enterColEditFromPreview('${formType}','${sub.id}','${containerId}')" style="padding:6px 16px;font-size:12px;">${t('col_edit_btn')}</button>` : ''}
           <button class="btn-cancel" onclick="document.getElementById('colPreviewModal').remove()" style="padding:6px 16px;font-size:12px;">${t('col_close')}</button>

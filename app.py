@@ -1110,8 +1110,6 @@ def load_employees_from_db(data_folder):
             _st = (r['status'] or '').strip().lower()
         except Exception:
             _st = ''
-        if _st == 'dismissed':
-            continue
         employees.append({
             'id': eid,
             'name': r['name'] or eid,
@@ -1133,9 +1131,10 @@ def load_employees_from_db(data_folder):
             'status': r['status'] or 'active',
         })
 
-    # 离职过滤（仅对 status 非 active 的旧数据兜底；active 员工即便在 dismissed_employees 有残留也显示）
-    dismissed = load_dismissed(data_folder)
-    employees = [e for e in employees if e.get('status') == 'active' or e['id'] not in dismissed]
+    # 离职员工保留在管线清单（薪资按实际出勤实算：离职生效日前的出勤照常计薪，
+    # 生效日后无新出勤自然归零）；花名册/搜索等 UI 层各自按 status/dismissed 过滤。
+    # dismissed = load_dismissed(data_folder)
+    # employees = [e for e in employees if e.get('status') == 'active' or e['id'] not in dismissed]
     return employees
 
 
@@ -2813,6 +2812,29 @@ def oa_submit_leave():
             return jsonify({'ok': False,
                             'error': _leave_err_msg(chk.get('codes', []), chk.get('reasons', []), lang),
                             'codes': chk.get('codes', [])}), 403
+    elif event_type == 'comp_leave':
+        # 调休提交端校验：当月余额（每月 4 天、当月清零不累计）须覆盖申请天数，
+        # 否则会挂起永远批不了的申请（审批端 deduct 失败会整单回滚）
+        from core.database import get_leave_balance, accrue_comp_leave_monthly
+        try:
+            accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
+        except Exception:
+            pass
+        try:
+            _days = int(data.get('days', 1) or 0)
+        except (TypeError, ValueError):
+            _days = 0
+        if _days < 1:
+            return jsonify({'ok': False, 'error': '调休天数至少 1 天'}), 400
+        _year = (data.get('effective_date') or '')[:4]
+        if not (_year and _year.isdigit()):
+            from datetime import datetime as _dt2, timezone as _tz2, timedelta as _td2
+            _year = str(_dt2.now(_tz2(_td2(hours=3))).year)
+        _bal = get_leave_balance(app.config['DATA_FOLDER'], eid, int(_year))
+        _remain = (_bal.get('comp_entitled', 0) or 0) - (_bal.get('comp_used', 0) or 0)
+        if _days > _remain:
+            return jsonify({'ok': False,
+                            'error': f'调休余额不足：当月可用 {_remain} 天（每月 4 天，不跨月累计），本次申请 {_days} 天'}), 400
     # P21 R1: comp_leave 由「提交即生效」改为「创建 pending 事件」，审批通过才扣余额+落 T
     data['operator_id'] = session.get('username', 'unknown')
     data['payload'] = json.dumps({
