@@ -2574,7 +2574,7 @@
   function oaFormHTML(html){ const body=document.getElementById('sheet-body'); body.innerHTML=html+'<div class="form-message" id="oaFormMsg"></div>'; }
   // 入职申请(全字段,对齐桌面端 index.html:5128-5155)
   function openHireApply(){
-    if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
+    if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; }
     const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
     api('/api/employee_groups').then(d=>{ STATE._groups=d.groups||[]; renderHireForm(depts); }).catch(()=>{ STATE._groups=[]; renderHireForm(depts); });
   }
@@ -2632,7 +2632,7 @@
   }
   // 调岗申请
   function openTransferApply(){
-    if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
+    if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; }
     const opts='<option value="">—</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
     const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
     const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
@@ -2687,7 +2687,7 @@
   }
   // 离职申请
   function openDismissApply(){
-    if(!hasPermission('oa','view')){ toast(t('need_editor'),'warning'); return; }
+    if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; }
     const opts='<option value="">'+t('sel_placeholder')+'</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
     oaFormHTML(
       '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaDmEid">'+opts+'</select></div>'
