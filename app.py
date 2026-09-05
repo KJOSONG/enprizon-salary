@@ -3755,14 +3755,18 @@ def api_collection_roster():
     emps = list_employees_extended(app.config['DATA_FOLDER'], status_filter='active') or []
     keep = ('id', 'name', 'department', 'default_type', 'team_id', 'custom_number', 'alias')
     slim = [{k: e.get(k) for k in keep} for e in emps]
-    # 出勤采集「已批假期」排除：可选 ?date=YYYY-MM-DD，命中者 approved_leave=true
-    # （仅布尔标记，不回传具体 status / 薪酬字段；不传 date 行为完全不变）
+    # 出勤采集「已批假期」标记：可选 ?date=YYYY-MM-DD，命中者 approved_leave=true
+    # （附带 approved_leave_status=假期状态字符，供前端灰显标注；不回传薪酬字段；
+    #   不传 date 行为完全不变）
     date = (request.args.get('date') or '').strip()
     if date:
         from core.database import get_approved_leave_statuses
-        approved = set(str(eid) for eid in get_approved_leave_statuses(app.config['DATA_FOLDER'], date).keys())
+        approved = {str(k): v for k, v in get_approved_leave_statuses(app.config['DATA_FOLDER'], date).items()}
         for e in slim:
-            e['approved_leave'] = str(e.get('id')) in approved
+            _st = approved.get(str(e.get('id')))
+            if _st:
+                e['approved_leave'] = True
+                e['approved_leave_status'] = _st
     return jsonify({'ok': True, 'employees': slim})
 
 @app.route('/api/collection/cleanup-routed-leave', methods=['POST'])

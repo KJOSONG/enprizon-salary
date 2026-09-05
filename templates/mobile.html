@@ -1454,7 +1454,7 @@
     const list = pool || STATE.employees;
     const sel = new Set(selected||[]);
     const p = prefix||'';
-    return '<div id="'+hid+'List" style="max-height:36vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px;margin-top:6px;">'
+    return '<div id="'+hid+'List" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px;margin-top:6px;">'
       + (list.length? list.map(e=>'<div class="worker-item" onclick="if(event.target.tagName!==\'INPUT\')this.querySelector(\'input\').click()"><input type="checkbox" value="'+esc(e.id)+'" '+(sel.has(e.id)?'checked':'')+' onchange="syncChecklist(\''+hid+'\',\''+p+'\')"> <span class="worker-item__name">'+esc(e.name||'')+'</span> <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></div>').join('') : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('no_emp')+'</div>')
       + '</div>';
   }
@@ -2124,18 +2124,25 @@
 
   // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣; C3: UG属单独分支带 team_id+drivers）
   // P32: 当日已批假期排除（NU/T/SK/L 已审批通过）——不显示、不提交
-  let _mobAttLeave = {}; // {date: Set<employee_id string>}
+  let _mobAttLeave = {}; // {date: {employee_id: 状态字符}}——当天已批假人员（灰显标注用）
   async function refreshMobAttLeave(dateStr){
     if(!dateStr) return;
     try{
       const r = await api('/api/collection/roster?date='+encodeURIComponent(dateStr));
-      _mobAttLeave[dateStr] = new Set(((r&&r.employees)||[]).filter(e=>e.approved_leave).map(e=>String(e.id)));
+      const m={};
+      ((r&&r.employees)||[]).forEach(e=>{ if(e.approved_leave) m[String(e.id)] = e.approved_leave_status || 'L'; });
+      _mobAttLeave[dateStr] = m;
     }catch(e){}
   }
   function mobAttLeaveHas(dateStr, eid){
     if(!dateStr) return false;
     const s=_mobAttLeave[dateStr];
-    return !!s && s.has(String(eid));
+    return !!s && (String(eid) in s);
+  }
+  function mobAttLeaveStatus(dateStr, eid){
+    if(!dateStr) return '';
+    const s=_mobAttLeave[dateStr];
+    return (s && String(eid) in s) ? s[String(eid)] : '';
   }
   function onMobAttDateChange(){
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
@@ -2184,7 +2191,7 @@
       + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="onAttDeptChange()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+deptOpts+'</select></div>'
       + '<div class="field" id="attTeamRow" style="display:'+(isUgInit?'block':'none')+';"><label class="field__label">'+t('col_att_ug_team')+'</label><select id="attTeamSel" onchange="renderAttRoster()"><option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
-      + '<div id="attRoster" style="max-height:45vh;overflow:auto;"></div>'
+      + '<div id="attRoster"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderAttRoster();
@@ -2205,10 +2212,10 @@
       const tid=document.getElementById('attTeamSel')?.value || '';
       STATE._attTeamId=tid;
       if(!tid) return [];
-      return deptPool('underground', tid).filter(e=>!mobAttLeaveHas(dt, e.id));
+      return deptPool('underground', tid);
     }
     const pool = STATE._attPool || deptPool('other');
-    return pool.filter(e=>(!sel||e.department===sel) && !mobAttLeaveHas(dt, e.id));
+    return pool.filter(e=>(!sel||e.department===sel));
   }
   function renderAttRoster(){ const list=attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
@@ -2233,12 +2240,22 @@
     if(batchRow) batchRow.style.display='';
     const marks = STATE._attEditMarks || {};
     const drivers = STATE._attEditDrivers || new Set();
+    const dtNow=((document.getElementById('colDate')||{}).value||'').trim();
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || '';
       const isDriverOn = drivers.has(String(e.id));
       const chk = isDriverOn ? ' checked' : '';
-      return '<div class="worker-item" style="gap:6px;"><span class="worker-item__name" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span></span>'
-        + '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="">'+t('att_status_placeholder')+'</option>'+['P','A','T','L','SK'].map(s=>{const lab=s==='A'?t('att_status_a_direct'):s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_direct'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>'
-        + (isUg ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '')
+      // 当天已批假：灰显锁定+状态标注，不再静默隐藏
+      const onLeave = mobAttLeaveHas(dtNow, String(e.id));
+      const ls = mobAttLeaveStatus(dtNow, String(e.id));
+      const nameCls = onLeave ? 'worker-item__name att-leave-name' : 'worker-item__name';
+      const leaveTag = onLeave ? ' <span class="att-leave-tag">'+esc(t('col_on_leave'))+(ls?' · '+esc(ls):'')+'</span>' : '';
+      const stSel = onLeave
+        ? '<span class="att-leave-st">'+esc(t('col_on_leave'))+'</span>'
+        : '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="">'+t('att_status_placeholder')+'</option>'+['P','A','T','L','SK'].map(s=>{const lab=s==='A'?t('att_status_a_direct'):s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_direct'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>';
+      const drvCb = (isUg && !onLeave) ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '';
+      return '<div class="worker-item'+(onLeave?' att-leave':'')+'" style="gap:6px;"><span class="'+nameCls+'" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span>'+leaveTag+'</span>'
+        + stSel
+        + drvCb
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
@@ -2246,7 +2263,8 @@
     const deptSel=document.getElementById('attColDept')?.value || '';
     const UG_DEPT='Production TEAM （underground）';
     if(deptSel===UG_DEPT && !document.getElementById('attTeamSel')?.value) return;
-    const list=attRosterEmpIds(); list.forEach(e=>{ const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
+    const dt=((document.getElementById('colDate')||{}).value||'').trim();
+    const list=attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveHas(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
   }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
     const deptEl=document.getElementById('attColDept');
@@ -2255,8 +2273,8 @@
     const isUg = deptEl.value===UG_DEPT;
     if(isUg && !document.getElementById('attTeamSel').value){ showFormMsg('attendance', t('col_att_ug_pick_team'), false); return; }
     const list=attRosterEmpIds();
-    // B→P 兜底: 若状态为 B 则转 P
-    const marks=list.map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
+    // B→P 兜底: 若状态为 B 则转 P；当天已批假者无状态选择器，跳过
+    const marks=list.filter(e=>!mobAttLeaveHas(date,String(e.id))).map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
     // 出勤状态不允许留空：每位员工必须手动选择（可先用全P/全A批量）
     for(const m of marks){ if(!m.status){ showFormMsg('attendance', t('att_need_status'), false); return; } }
     // 编辑保数据: 同 team 的原 marks 保底（UG 仅同 team）
