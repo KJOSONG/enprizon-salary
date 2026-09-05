@@ -3222,6 +3222,12 @@ def collection_submit():
     from datetime import datetime
     from core.database import insert_collection_submission, update_collection_submission, \
         get_collection_submissions, save_attendance_override, mark_driver_flag, log_audit
+    # 月度调休发放懒触发：跨月首次采集 T 扣减须用当月余额，不能吃上月遗留
+    from core.database import accrue_comp_leave_monthly
+    try:
+        accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
+    except Exception:
+        pass
     data = request.get_json() or {}
     form_type = data.get('form_type', '')
     date = data.get('submission_date', '')
@@ -3355,6 +3361,9 @@ def collection_submit():
                 continue
             if status not in ('P', 'A', 'T'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+            # T 幂等：当日已有 T 则跳过写入与扣减，防同日重复提交重复扣余额
+            if status == 'T' and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'T':
+                continue
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=0)
                 if status == 'T':
@@ -3526,6 +3535,12 @@ def collection_edit(submission_id):
     from datetime import datetime
     from core.database import get_collection_submission, get_collection_submissions, update_collection_submission, \
         delete_collection_submission, log_audit, delete_attendance_override, save_attendance_override
+    # 月度调休发放懒触发：跨月首次编辑采集 T 扣减须用当月余额（对齐 submit 路径）
+    from core.database import accrue_comp_leave_monthly
+    try:
+        accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
+    except Exception:
+        pass
     username = session.get('username', 'unknown')
     sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     if not sub:
@@ -3622,17 +3637,12 @@ def collection_edit(submission_id):
                            and (e.get('department') or '') == sub_dept), None)
         else:
             ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
-        if ex:
-            ok = update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username, date=new_date)
-            delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
-            submission_id = ex['id']
-            merged_target = ex
-        else:
-            ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username, date=new_date)
+        # 落库动作延后：marks 处理（余额预检/直写/routing）全部通过后才更新提交行，
+        # 避免 T 预检失败 return 400 时 payload 已被改写
+        _merge_target_id = ex['id'] if ex else None
+        merged_target = ex
     else:
-        ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
-    if not ok:
-        return jsonify({'ok': False, 'error': '更新失败'}), 500
+        _merge_target_id = None
     if form_type == 'attendance':
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
@@ -3710,6 +3720,9 @@ def collection_edit(submission_id):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
             # 余额预检：避免编辑中途部分写入（同提交路径，2026-09-05 petro 案例）
             if status == 'T':
+                # T 幂等：当日已有 T 则跳过写入与扣减，防重复编辑重复扣余额
+                if get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'T':
+                    continue
                 from core.database import get_leave_balance as _glb2
                 _bal2 = _glb2(app.config['DATA_FOLDER'], str(eid), int(new_date[:4]))
                 if (_bal2.get('comp_entitled', 0) or 0) - (_bal2.get('comp_used', 0) or 0) < 1:
@@ -3731,6 +3744,18 @@ def collection_edit(submission_id):
                 _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], old_date)
         except Exception:
             pass
+    # 落库：marks 处理（OA routing/预检/直写）全部通过后才更新提交行（防 T 预检失败 payload 被改写）
+    if new_date != old_date:
+        if _merge_target_id is not None:
+            ok = update_collection_submission(app.config['DATA_FOLDER'], _merge_target_id, payload, username, date=new_date)
+            delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
+            submission_id = _merge_target_id
+        else:
+            ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username, date=new_date)
+    else:
+        ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
+    if not ok:
+        return jsonify({'ok': False, 'error': '更新失败'}), 500
     # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict + __all__ base evict
     _invalidate_month_cache(old_date[:7])
     if new_date != old_date:
