@@ -2977,19 +2977,30 @@ def _table_exists(conn, table):
 
 # ── P2: 假期余额 ─────────────────────
 
-def get_leave_balance(data_folder, employee_id, year):
+def get_leave_balance(data_folder, employee_id, year, include_defaults=True):
     conn = get_conn(data_folder)
     row = conn.execute(
         "SELECT * FROM leave_balances WHERE employee_id=? AND year=?",
         (employee_id, year)).fetchone()
     conn.close()
     if not row:
+        if not include_defaults:
+            # 无余额行：entitled/used 全 0 + exists 标记，供档案页显示「—」（区别于硬编码默认 28/14）
+            return {
+                'exists': False,
+                'annual_entitled': 0, 'annual_used': 0,
+                'comp_entitled': 0, 'comp_used': 0,
+                'sick_entitled': 0, 'sick_used': 0
+            }
         return {
+            'exists': False,
             'annual_entitled': 28, 'annual_used': 0,
             'comp_entitled': 0, 'comp_used': 0,
             'sick_entitled': 14, 'sick_used': 0
         }
-    return dict(row)
+    d = dict(row)
+    d['exists'] = True
+    return d
 
 def add_leave_balance(data_folder, employee_id, year, annual=0, comp=0):
     conn = get_conn(data_folder)
@@ -3547,15 +3558,18 @@ def search_all(data_folder, query, scope='all', include_dismissed=False):
     """
     conn = get_conn(data_folder)
     results = []
-    q = f'%{query}%'
+    # 空白归一化 + 空白宽松匹配：名字含双空格（生产至少 5 人）时单空格全名也能命中
+    q_norm = ' '.join((query or '').split())
+    q = f'%{q_norm}%'
+    q_ws = f"%{q_norm.replace(' ', '%')}%"
 
     if scope in ('all', 'employees'):
         _dis_filter = '' if include_dismissed else 'AND id NOT IN (SELECT employee_id FROM dismissed_employees)'
         rows = conn.execute(
             f"SELECT id, name, department, default_type FROM employees "
-            f"WHERE (name LIKE ? OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ?) "
+            f"WHERE ((name LIKE ? OR name LIKE ?) OR department LIKE ? OR id LIKE ? OR alias LIKE ? OR custom_number LIKE ?) "
             f"{_dis_filter} LIMIT 20",
-            (q, q, q, q, q)).fetchall()
+            (q, q_ws, q, q, q, q)).fetchall()
         for r in rows:
             results.append({
                 'type': 'employee', 'id': r['id'],
