@@ -8993,20 +8993,23 @@ async function submitColPayload(formType, date, payload, historyId) {
     _colEditing = null;
     loadColHistory(formType, historyId);
     refreshAfterCollection();
+    // T 幂等跳过提示（拼接进成功消息，避免覆盖）
+    const tSkipMsg = (formType === 'attendance' && data.t_skipped && data.t_skipped.length)
+      ? ' · ' + t('col_t_skipped_n').replace('{n}', data.t_skipped.length) : '';
     if (formType === 'attendance' && (data.oa_created || data.oa_skipped)) {
       const oaN = (data.oa_created || []).length;
       const skN = (data.oa_skipped || []).length;
       if (oaN) {
         const msg = t('col_att_mixed_result', {a: 'P/A', b: oaN});
-        showToast(msg + (skN ? ' ('+skN+' 已存在待审批)' : '') + ' → maua', 'info');
+        showToast(msg + (skN ? ' ('+skN+' 已存在待审批)' : '') + ' → maua' + tSkipMsg, 'info');
       } else if (skN) {
-        showToast(skN + ' 条已存在待审批（maua）', 'info');
+        showToast(skN + ' 条已存在待审批（maua）' + tSkipMsg, 'info');
       }
-      if (!oaN && !skN) showToast(wasEditing ? t('col_updated') : t('col_submitted'));
-      else if (!oaN) {} else showToast(t('col_att_direct_written', {n: 'P/A'}), 'success');
+      if (!oaN && !skN) showToast((wasEditing ? t('col_updated') : t('col_submitted')) + tSkipMsg);
+      else if (!oaN) {} else showToast(t('col_att_direct_written', {n: 'P/A'}) + tSkipMsg, 'success');
     } else {
       if (data.discarded) showToast(t('col_discarded_some', {n: data.discarded}), 'error');
-      else showToast(wasEditing ? t('col_updated') : t('col_submitted'));
+      else showToast((wasEditing ? t('col_updated') : t('col_submitted')) + tSkipMsg);
     }
   } else {
     showToast(data.error || t('submit_fail'), 'error');

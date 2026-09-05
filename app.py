@@ -3253,6 +3253,7 @@ def collection_submit():
     att_team_id = None
     if form_type == 'attendance':
         marks = payload.get('marks') or []
+        t_skipped = []  # T 幂等跳过清单（当日已有 T 被跳过的员工），随响应返回供前端提示
         is_ug_att = _is_ug_dept(dept)
         if is_ug_att:
             att_team_id = payload.get('team_id')
@@ -3364,6 +3365,7 @@ def collection_submit():
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
             # T 幂等：当日已有 T 则跳过写入与扣减，防同日重复提交重复扣余额
             if status == 'T' and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'T':
+                t_skipped.append({'employee_id': eid, 'date': date})
                 continue
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=0)
@@ -3450,6 +3452,9 @@ def collection_submit():
             result['oa_created'] = _collection_oa_created
         if _collection_oa_skipped:
             result['oa_skipped'] = _collection_oa_skipped
+    if form_type == 'attendance' and 't_skipped' in locals():
+        if t_skipped:
+            result['t_skipped'] = t_skipped
     if discarded:
         result['discarded'] = discarded
         result['warning'] = '已忽略 %d 名部门不符的员工' % discarded
@@ -3645,6 +3650,37 @@ def collection_edit(submission_id):
     else:
         _merge_target_id = None
     if form_type == 'attendance':
+        # 只读预检（第一遍）：校验类失败在任何 override/routing 改动之前 return，
+        # 保证预检失败时旧直写状态完好（此前"先删旧再写新"会先清掉旧 override 再失败）
+        _OA_MAP_EDIT = {'L': 'casual', 'SK': 'sick'}
+        t_skipped = []  # T 幂等跳过清单，随响应返回供前端提示
+        try:
+            _old_marks = (json.loads(sub['payload'] or '{}').get('marks') or [])
+        except Exception:
+            _old_marks = []
+        for m in (payload.get('marks') or []):
+            eid = m.get('employee_id', '')
+            status = m.get('status', '')
+            if not eid or not status:
+                continue
+            if status in _OA_MAP_EDIT:
+                continue  # L/SK 走 routing，由下方写循环处理
+            if status not in ('P', 'A', 'T'):
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+            if status == 'T':
+                # 净额语义：日期不变且旧 payload 同员工是 T 时，删旧阶段会先 restore 1，
+                # 写循环 deduct 需求净 0（used_effective = used-1）；当日已有 T 且非旧 marks
+                # 来源（如 OA 审批写入）时写循环幂等跳过，无余额需求
+                _was_t = new_date == old_date and any(
+                    str(om.get('employee_id')) == str(eid) and om.get('status') == 'T' for om in _old_marks)
+                if not _was_t and get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'T':
+                    t_skipped.append({'employee_id': eid, 'date': new_date})
+                    continue
+                from core.database import get_leave_balance as _glb_pre
+                _bal_pre = _glb_pre(app.config['DATA_FOLDER'], str(eid), int(new_date[:4]))
+                _used_eff = max((_bal_pre.get('comp_used', 0) or 0) - (1 if _was_t else 0), 0)
+                if (_bal_pre.get('comp_entitled', 0) or 0) - _used_eff < 1:
+                    return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T（编辑未保存）'}), 400
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
         # P21: 删除时跳过 NU 天（年假由审批管理，不随采集编辑被清掉）
@@ -3671,7 +3707,6 @@ def collection_edit(submission_id):
                         delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
             except Exception:
                 pass
-        _OA_MAP_EDIT = {'L': 'casual', 'SK': 'sick'}
         _oa_created_edit = []
         _oa_skipped_edit = []
         for m in (payload.get('marks') or []):
@@ -3719,15 +3754,13 @@ def collection_edit(submission_id):
                 continue
             if status not in ('P', 'A', 'T'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
-            # 余额预检：避免编辑中途部分写入（同提交路径，2026-09-05 petro 案例）
+            # 余额预检已前移至只读预检循环（校验失败不动旧 override）
             if status == 'T':
-                # T 幂等：当日已有 T 则跳过写入与扣减，防重复编辑重复扣余额
+                # T 幂等双保险：写循环时当日已有 T 则跳过写入与扣减（marks 内重复 T 等场景）
                 if get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'T':
+                    if not any(x['employee_id'] == eid for x in t_skipped):
+                        t_skipped.append({'employee_id': eid, 'date': new_date})
                     continue
-                from core.database import get_leave_balance as _glb2
-                _bal2 = _glb2(app.config['DATA_FOLDER'], str(eid), int(new_date[:4]))
-                if (_bal2.get('comp_entitled', 0) or 0) - (_bal2.get('comp_used', 0) or 0) < 1:
-                    return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T（编辑未保存）'}), 400
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status, source=0)
                 if status == 'T':
@@ -3776,6 +3809,9 @@ def collection_edit(submission_id):
             _res['oa_created'] = _oa_created_edit
         if _oa_skipped_edit:
             _res['oa_skipped'] = _oa_skipped_edit
+    if form_type == 'attendance' and 't_skipped' in locals():
+        if t_skipped:
+            _res['t_skipped'] = t_skipped
     return jsonify(_res)
 
 @app.route('/api/collection/roster', methods=['GET'])

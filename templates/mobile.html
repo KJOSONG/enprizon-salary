@@ -1779,14 +1779,16 @@
     req.then(r=>{
       if(r.ok){
         STATE._colEditing=null;
+        // T 幂等跳过提示（拼接进成功消息，避免覆盖）
+        const tSkipMsg=(ty==='attendance' && r.t_skipped && r.t_skipped.length)?' · '+t('col_t_skipped_n').replace('{n}', r.t_skipped.length):'';
         if(ty==='attendance' && (r.oa_created||r.oa_skipped)){
           const oaN=(r.oa_created||[]).length, skN=(r.oa_skipped||[]).length;
-          if(oaN) showFormMsg(ty, oaN+' '+t('col_att_oa_created'), true);
-          else if(skN) showFormMsg(ty, skN+' pending', true);
-          else showFormMsg(ty, t(editing?'col_updated':'success'), true);
+          if(oaN) showFormMsg(ty, oaN+' '+t('col_att_oa_created')+tSkipMsg, true);
+          else if(skN) showFormMsg(ty, skN+' pending'+tSkipMsg, true);
+          else showFormMsg(ty, t(editing?'col_updated':'success')+tSkipMsg, true);
           setTimeout(()=>{ backColHome(); }, 900);
         } else if(r.discarded){ showFormMsg(ty, t('col_discarded_some',{n:r.discarded}), false); setTimeout(()=>{ backColHome(); }, 1600); }
-        else { showFormMsg(ty, t(editing?'col_updated':'success'), true); setTimeout(()=>{ backColHome(); }, 500); }
+        else { showFormMsg(ty, t(editing?'col_updated':'success')+tSkipMsg, true); setTimeout(()=>{ backColHome(); }, 500); }
       }
       else { showFormMsg(ty, r.error||t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
     }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
