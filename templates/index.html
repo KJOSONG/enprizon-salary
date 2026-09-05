@@ -2985,7 +2985,7 @@ function renderDashboardKPI() {
   const rows = getFilteredShiftData();
 
   let totalNH = 0, totalNL = 0, totalMW = 0;
-  let peakVal = 0, peakDate = '';
+  let monthTotal = 0;
   let dayTotal = 0, nightTotal = 0;
   let activeDays = 0;
 
@@ -2999,7 +2999,8 @@ function renderDashboardKPI() {
 
     const dailySum = (f.ore === 'all') ? (nh + nl + mw) : (f.ore === 'nh' ? nh : f.ore === 'nl' ? nl : mw);
     if (dailySum > 0) activeDays++;
-    if (dailySum > peakVal) { peakVal = dailySum; peakDate = d.date; }
+    // 2026-09-06: 第 5 卡由"日最高"改为"本月总产量"（NH+NL+MW 全物料合计，随班组/班次筛选联动，不随矿石筛选变化）
+    monthTotal += nh + nl + mw;
 
     // 白夜班比用全量（不过滤班次）
     const dnh = (d.day_nh || 0) + (d.day_nl || 0) + (d.day_mw || 0);
@@ -3058,9 +3059,9 @@ function renderDashboardKPI() {
       <div class="value">${fmtK(dailyAvg)}</div>
       <div class="label" data-i18n="dash_daily_avg">日均车次</div>
     </div>
-    <div class="stat-glass kpi-peak">
-      <div class="value">${peakVal > 0 ? fmtK(peakVal) : '—'}</div>
-      <div class="label">${peakDate ? peakDate.slice(5) : ''} <span data-i18n="dash_daily_peak">日最高</span></div>
+    <div class="stat-glass">
+      <div class="value">${fmtK(monthTotal)}</div>
+      <div class="label" data-i18n="dash_month_total">本月总产量</div>
     </div>
     ${kpiTeamCard || `
     <div class="stat-glass kpi-ratio">
