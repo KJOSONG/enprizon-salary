@@ -816,54 +816,28 @@
     const oreKeys = STATE.dashOreFilter==='all' ? ['nh','nl','mw'] : [STATE.dashOreFilter];
     const colors = { nh:'hsl(30 92% 52%)', nl:'hsl(210 85% 52%)', mw:'hsl(150 70% 38%)' };
     let datasets, tooltipCb;
-    if(isNew){
-      // P31 D2: 新格式 = 每班组一条线，labels 与 datasets 同源于 sp（决策 3：矿石筛选取 tm[ore]/否则 tm.total）
-      const teamInfo = {};
-      sp.forEach(s=>{(s.teams||[]).forEach(tm=>{ teamInfo[tm.team_id]=tm.team_name||('T'+tm.team_id); });});
-      let teamIds = Object.keys(teamInfo).sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
-      // P31 B1: 班组筛选时只渲染该班组一条线（对齐 Web）
-      if(STATE.teamFilter!=='all') teamIds = teamIds.filter(tid=>String(tid)===String(STATE.teamFilter));
-      const ore = STATE.dashOreFilter;
-      tooltipCb = (ctx)=>{ 
-        // P32: 每个班组按物料拆分 NH/NL/MW，仅显示有产量的物料（0 不显示）
-        let label = ' '+(ctx.dataset.teamName||ctx.dataset.label);
-        if(ore==='all'){
-          const tid = teamIds[ctx.datasetIndex];
-          const s = sp[ctx.dataIndex];
-          const tm = s && (s.teams||[]).find(x=>String(x.team_id)===String(tid));
-          if(tm){
-            const parts=[];
-            if((tm.nh||0)>0) parts.push('NH '+fmt(tm.nh));
-            if((tm.nl||0)>0) parts.push('NL '+fmt(tm.nl));
-            if((tm.mw||0)>0) parts.push('MW '+fmt(tm.mw));
-            if(parts.length) return label+': '+parts.join('   ');
-          }
-        }
-        return label+': '+fmt(ctx.parsed.y||0);
-      };
-      datasets = teamIds.map((tid,i)=>{
-        const c = TEAM_COLORS[i % TEAM_COLORS.length];
-        return {
-          label: teamInfo[tid], teamName: teamInfo[tid],
-          data: sp.map(s=>{
-            const tm=(s.teams||[]).find(x=>String(x.team_id)===String(tid));
-            if(!tm) return 0;
-            return ore==='all' ? (tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0))) : (tm[ore]||0);
-          }),
-          borderColor: c.line, backgroundColor: 'transparent', fill:false, tension:0.3, pointRadius:0,
-        };
-      });
-    } else {
+    // 2026-09-06: 与 Web P36 对齐——趋势图统一为每日 NH/NL/MW 三线；
+    // 新格式 rec 跨班组按日汇总（班组筛选 STATE.teamFilter 时仅计该班组），旧格式仍按班次前缀取值；
+    // 班组维度由下方"班组对比"图承担，避免同页冗余
+    const dayVal = (s, k) => {
+      if(Array.isArray(s.teams)){
+        return (s.teams||[]).reduce((a, tm) => {
+          if(STATE.teamFilter !== 'all' && String(tm.team_id) !== String(STATE.teamFilter)) return a;
+          return a + (tm[k] || 0);
+        }, 0);
+      }
       const prefix = STATE.shiftFilter==='day' ? 'day_' : STATE.shiftFilter==='night' ? 'night_' : 'total_';
-      tooltipCb = (ctx)=>{
-        const k = ctx.dataset.oreKey;
-        const s = sp[ctx.dataIndex];
-        const dayV = s ? (s['day_'+k]||0) : 0;
-        const nightV = s ? (s['night_'+k]||0) : 0;
-        return ' '+k.toUpperCase()+': '+fmt(ctx.parsed.y||0)+'  ('+t('day_shift')+' '+fmt(dayV)+' / '+t('night_shift')+' '+fmt(nightV)+')';
-      };
-      datasets = oreKeys.map(k=>({ label:k.toUpperCase(), oreKey:k, data: sp.map(s=>s[prefix+k]||0), borderColor:colors[k], backgroundColor:'transparent', fill:false, tension:0.3, pointRadius:0 }));
-    }
+      return s[prefix + k] || 0;
+    };
+    tooltipCb = (ctx) => {
+      const k = ctx.dataset.oreKey;
+      if(isNew) return ' ' + k.toUpperCase() + ': ' + fmt(ctx.parsed.y || 0);
+      const s = sp[ctx.dataIndex];
+      const dayV = s ? (s['day_'+k]||0) : 0;
+      const nightV = s ? (s['night_'+k]||0) : 0;
+      return ' ' + k.toUpperCase() + ': ' + fmt(ctx.parsed.y || 0) + '  (' + t('day_shift') + ' ' + fmt(dayV) + ' / ' + t('night_shift') + ' ' + fmt(nightV) + ')';
+    };
+    datasets = oreKeys.map(k => ({ label:k.toUpperCase(), oreKey:k, data: sp.map(s=>dayVal(s,k)), borderColor:colors[k], backgroundColor:'transparent', fill:false, tension:0.3, pointRadius:0 }));
     const opts = Object.assign(baseOpts(), {
       plugins:{
         legend:{ display:true, position:'bottom', labels:{ font:{size:9} } },
