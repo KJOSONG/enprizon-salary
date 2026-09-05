@@ -2247,13 +2247,19 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .notif-icon { font-size: 16px; line-height: 1; transition: transform var(--transition-normal); }
 .notif-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
   background: var(--destructive);
   border: 2px solid var(--background);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
   animation: badgePulse 2s ease-in-out infinite;
 }
 /* ── 铃铛摇动（有新通知时） ── */
@@ -2310,6 +2316,44 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .notif-list {
   overflow-y: auto;
   max-height: 360px;
+}
+/* OA 重设计 R2: 面板整体滚动容器（待审 + 结果通知两段） */
+.notif-scroll {
+  overflow-y: auto;
+  max-height: 380px;
+}
+.notif-list { max-height: none; }
+.notif-section-title {
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 4) calc(var(--spacing) * 1);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+}
+.notif-result-item {
+  padding: calc(var(--spacing) * 2.5) calc(var(--spacing) * 4);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.notif-result-item:hover { background: var(--accent); }
+.notif-result-item:last-child { border-bottom: none; }
+.notif-result-item.is-unread { background: var(--muted); }
+.notif-result-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.notif-result-body {
+  font-size: 0.74rem;
+  color: var(--muted-foreground);
+  margin-bottom: 2px;
+  word-break: break-word;
+}
+.notif-result-meta {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
 }
 .notif-item {
   padding: calc(var(--spacing) * 2.5) calc(var(--spacing) * 4);

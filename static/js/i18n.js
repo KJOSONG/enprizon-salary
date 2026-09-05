@@ -823,6 +823,19 @@ const I18N_DICT = {
     notif_loading: '加载中...',
     notif_submitter: '提交人',
     notif_load_fail: '加载失败',
+    /* OA 重设计 R1/R2/R3 */
+    oa_mine_tab: '我的申请',
+    oa_mine_hint: '我提交的全部 OA 申请及审批结果',
+    oa_mine_empty: '暂无自己的申请记录',
+    oa_approver_filter: '审批人',
+    oa_employee_info: '员工信息',
+    oa_goto_profile: '进入档案',
+    notif_pending_section: '待我审批',
+    notif_result_section: '审批结果',
+    notif_no_result: '暂无结果通知',
+    notif_approved: '已通过',
+    notif_rejected: '已驳回',
+    notif_mark_all_read: '全部已读',
     /* P1 事件类型 */
     event_hire: '入职',
     event_transfer: '调岗',
@@ -897,6 +910,8 @@ const I18N_DICT = {
     emp_att_mark: '出勤标记', d_unit: '天',
     mark_src_collection: '采集提交', mark_src_manual: '手动标记', mark_src_approval: '审批产生',
     mark_st_nu: '年假', mark_st_t: '调休', mark_st_sk: '病假', mark_st_l: '请假', mark_st_a: '缺勤',
+    pf_att_overview: '出勤概览', pf_att_present: '出勤', pf_att_absent: '旷工', pf_att_leave: '请假',
+    pf_att_total: '合计', pf_att_casual: '事假', pf_att_load_fail: '概览加载失败',
     event_date: '日期',
     event_delete_confirm: '确认删除此事件？',
     event_deleted: '事件已删除',
@@ -931,6 +946,7 @@ const I18N_DICT = {
     oa_status: '状态',
     approved_label: '已批准',
     rejected_label: '已驳回',
+    pending_label: '待审批',
     oa_reject_reason_ph: '驳回原因（必填）',
     oa_no_history: '暂无已处理事件',
     op_fail: '操作失败',
@@ -2056,6 +2072,19 @@ const I18N_DICT = {
     notif_loading: 'Loading...',
     notif_submitter: 'Submitted by',
     notif_load_fail: 'Failed to load',
+    /* OA redesign R1/R2/R3 */
+    oa_mine_tab: 'My Applications',
+    oa_mine_hint: 'All OA applications I submitted and their results',
+    oa_mine_empty: 'No applications submitted yet',
+    oa_approver_filter: 'Approver',
+    oa_employee_info: 'Employee',
+    oa_goto_profile: 'Open Profile',
+    notif_pending_section: 'Pending My Approval',
+    notif_result_section: 'Approval Results',
+    notif_no_result: 'No result notifications',
+    notif_approved: 'Approved',
+    notif_rejected: 'Rejected',
+    notif_mark_all_read: 'Mark all read',
     /* P1 Event Types */
     event_hire: 'Hired',
     event_transfer: 'Transferred',
@@ -2131,6 +2160,8 @@ const I18N_DICT = {
     emp_att_mark: 'Attendance mark', d_unit: 'd',
     mark_src_collection: 'Collection', mark_src_manual: 'Manual', mark_src_approval: 'From approval',
     mark_st_nu: 'Annual', mark_st_t: 'Comp leave', mark_st_sk: 'Sick', mark_st_l: 'Leave', mark_st_a: 'Absent',
+    pf_att_overview: 'Attendance Overview', pf_att_present: 'Present', pf_att_absent: 'Absent', pf_att_leave: 'Leave',
+    pf_att_total: 'Total', pf_att_casual: 'Casual', pf_att_load_fail: 'Failed to load overview',
     event_date: 'Date',
     event_delete_confirm: 'Delete this note?',
     event_deleted: 'Note deleted',
@@ -2165,6 +2196,7 @@ const I18N_DICT = {
     oa_status: 'Status',
     approved_label: 'Approved',
     rejected_label: 'Rejected',
+    pending_label: 'Pending',
     oa_reject_reason_ph: 'Reject reason (required)',
     oa_no_history: 'No processed events',
     op_fail: 'Operation failed',
@@ -2601,6 +2633,15 @@ function switchLang(lang) {
   /* 重新渲染产量核验表 */
   if (STATE._verifyData && typeof renderVerifyTable === 'function') {
     renderVerifyTable();
+  }
+
+  /* BUG-8: 通知面板打开时一并重渲染（头部「N 提交人」计数随语言变化） */
+  if (typeof renderNotifPanel === 'function') {
+    const panel = document.getElementById('notifPanel');
+    if (panel && panel.style.display === 'block') {
+      renderNotifPanel();
+      if (typeof loadNotifResults === 'function') loadNotifResults();
+    }
   }
 }
 
