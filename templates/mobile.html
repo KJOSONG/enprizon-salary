@@ -1397,7 +1397,7 @@
   function openLeave(empId, empName){
     const body=document.getElementById('sheet-body');
     const title=empName ? t('leave_apply')+' - '+esc(empName) : t('leave_apply');
-    body.innerHTML='<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="">'+t('sel_placeholder')+'</option><option value="casual">'+t('personal_leave')+'</option><option value="sick">'+t('sick_leave')+'</option><option value="annual_leave">'+t('leave_annual')+'</option><option value="comp_leave">'+t('comp_leave')+'</option></select></div>'
+    body.innerHTML='<div class="field"><label class="field__label">'+t('leave_type')+'</label><select id="lv-type"><option value="">'+t('sel_placeholder')+'</option><option value="casual">'+t('att_note_l')+'</option><option value="sick">'+t('att_note_sk')+'</option><option value="annual_leave">'+t('leave_annual')+'</option><option value="comp_leave">'+t('att_note_t')+'</option></select></div>'
       +'<div class="field"><label class="field__label">'+t('leave_days')+'</label><input type="number" id="lv-days" min="1"></div>'
       +'<div class="field"><label class="field__label">'+t('start_date')+'</label><input type="date" id="lv-date"></div>'
       +'<div class="field"><label class="field__label">'+t('reason')+'</label><textarea id="lv-note" rows="3"></textarea></div>'
@@ -2126,25 +2126,31 @@
 
   // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣; C3: UG属单独分支带 team_id+drivers）
   // P32: 当日已批假期排除（NU/T/SK/L 已审批通过）——不显示、不提交
-  let _mobAttLeave = {}; // {date: {employee_id: 状态字符}}——当天已批假人员（灰显标注用）
+  let _mobAttLeave = {}; // {date: {employee_id: {status, origin}}}——当天已批假人员（origin: oa=OA审批锁定 / collection=采集直批可改）
   async function refreshMobAttLeave(dateStr){
     if(!dateStr) return;
     try{
       const r = await api('/api/collection/roster?date='+encodeURIComponent(dateStr));
       const m={};
-      ((r&&r.employees)||[]).forEach(e=>{ if(e.approved_leave) m[String(e.id)] = e.approved_leave_status || 'L'; });
+      ((r&&r.employees)||[]).forEach(e=>{ if(e.approved_leave) m[String(e.id)] = {status: e.approved_leave_status || 'L', origin: e.leave_origin || 'oa'}; });
       _mobAttLeave[dateStr] = m;
     }catch(e){}
-  }
-  function mobAttLeaveHas(dateStr, eid){
-    if(!dateStr) return false;
-    const s=_mobAttLeave[dateStr];
-    return !!s && (String(eid) in s);
   }
   function mobAttLeaveStatus(dateStr, eid){
     if(!dateStr) return '';
     const s=_mobAttLeave[dateStr];
-    return (s && String(eid) in s) ? s[String(eid)] : '';
+    const v = (s && String(eid) in s) ? s[String(eid)] : '';
+    return v ? (typeof v==='object' ? v.status : v) : '';
+  }
+  function mobAttLeaveLocked(dateStr, eid){
+    if(!dateStr) return false;
+    const s=_mobAttLeave[dateStr];
+    const v = (s && String(eid) in s) ? s[String(eid)] : null;
+    if(!v) return false;
+    const st = typeof v==='object' ? v.status : v;
+    const og = typeof v==='object' ? (v.origin||'oa') : 'oa';
+    // collection 直批的 T 可由采集员改回（改回退余额），其余一律锁定
+    return !(st==='T' && og==='collection');
   }
   function onMobAttDateChange(){
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
@@ -2246,14 +2252,14 @@
     box.innerHTML=list.map(e=>{ const mv = marks[String(e.id)] || '';
       const isDriverOn = drivers.has(String(e.id));
       const chk = isDriverOn ? ' checked' : '';
-      // 当天已批假：灰显锁定+状态标注，不再静默隐藏
-      const onLeave = mobAttLeaveHas(dtNow, String(e.id));
+      // 当天已批假：灰显锁定+状态标注（collection 直批 T 不锁，可改回退余额）
+      const onLeave = mobAttLeaveLocked(dtNow, String(e.id));
       const ls = mobAttLeaveStatus(dtNow, String(e.id));
       const nameCls = onLeave ? 'worker-item__name att-leave-name' : 'worker-item__name';
       const leaveTag = onLeave ? ' <span class="att-leave-tag">'+esc(t('col_on_leave'))+(ls?' · '+esc(ls):'')+'</span>' : '';
       const stSel = onLeave
         ? '<span class="att-leave-st">'+esc(t('col_on_leave'))+'</span>'
-        : '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="">'+t('att_status_placeholder')+'</option>'+['P','A','T','L','SK'].map(s=>{const lab=s==='A'?t('att_status_a_direct'):s==='L'?t('att_status_l_pending'):s==='SK'?t('att_status_sk_pending'):s==='T'?t('att_status_t_direct'):s; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+lab+'</option>';}).join('')+'</select>';
+        : '<select id="attSt'+esc(e.id)+'" style="min-height:44px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="">'+t('att_status_placeholder')+'</option>'+['P','A','T','L','SK'].map(s=>{ if(s==='P'){ return '<option value="P" '+(s===mv?'selected':'')+'>P</option>'; } const noteKey=s==='A'?'att_note_a':s==='T'?'att_note_t':s==='L'?'att_note_l':'att_note_sk'; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+esc(t(noteKey))+'</option>';}).join('')+'</select>';
       const drvCb = (isUg && !onLeave) ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '';
       return '<div class="worker-item'+(onLeave?' att-leave':'')+'" style="gap:6px;"><span class="'+nameCls+'" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span>'+leaveTag+'</span>'
         + stSel
@@ -2266,7 +2272,7 @@
     const UG_DEPT='Production TEAM （underground）';
     if(deptSel===UG_DEPT && !document.getElementById('attTeamSel')?.value) return;
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
-    const list=attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveHas(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
+    const list=attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveLocked(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
   }
   function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
     const deptEl=document.getElementById('attColDept');
@@ -2276,15 +2282,15 @@
     if(isUg && !document.getElementById('attTeamSel').value){ showFormMsg('attendance', t('col_att_ug_pick_team'), false); return; }
     const list=attRosterEmpIds();
     // B→P 兜底: 若状态为 B 则转 P；当天已批假者无状态选择器，跳过
-    const marks=list.filter(e=>!mobAttLeaveHas(date,String(e.id))).map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
+    const marks=list.filter(e=>!mobAttLeaveLocked(date,String(e.id))).map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
     // 出勤状态不允许留空：每位员工必须手动选择（可先用全P/全A批量）
     for(const m of marks){ if(!m.status){ showFormMsg('attendance', t('att_need_status'), false); return; } }
     // 编辑保数据: 同 team 的原 marks 保底（UG 仅同 team）
     const submitted=new Set(marks.map(m=>String(m.employee_id)));
     Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
       if(!submitted.has(String(eid))){
-        // P32: 当日已批假期——编辑合并同样跳过，避免重新引入冲突
-        if(mobAttLeaveHas(date,String(eid))) return;
+        // 当日已批假期（OA 来源）——编辑合并同样跳过；collection 直批 T 允许被新值覆盖
+        if(mobAttLeaveLocked(date,String(eid))) return;
         // UG 时校验是否属于当前 team
         if(isUg){
           const tid=document.getElementById('attTeamSel').value;

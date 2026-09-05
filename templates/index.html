@@ -513,10 +513,10 @@
       <div id="leavePick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
       <div class="form-row"><label data-i18n="leave_type">类型</label><select id="leaveType" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
         <option value="" data-i18n="sel_placeholder">请选择</option>
-        <option value="casual" data-i18n="leave_casual">事假</option>
-        <option value="sick" data-i18n="leave_sick">病假</option>
+        <option value="casual" data-i18n="att_note_l">事假（NO money）</option>
+        <option value="sick" data-i18n="att_note_sk">病假（提供诊断证明）</option>
         <option value="annual_leave" data-i18n="leave_annual">年假</option>
-        <option value="comp_leave" data-i18n="leave_comp">调休</option>
+        <option value="comp_leave" data-i18n="att_note_t">调休（仅 4 天，扣余额）</option>
       </select></div>
       <div class="form-row"><label data-i18n="leave_date">日期</label><input type="date" id="leaveDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="leave_days">天数</label><input type="number" id="leaveDays" min="1" placeholder="" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -8618,7 +8618,7 @@ const COL_ATT_STATUS = [
 ];
 
 // P32: 出勤采集「当日已批假期」排除（NU/T/SK/L 已审批通过）——员工灰显锁定、不提交
-let _attLeaveByDate = {}; // {date: {employee_id: 假期状态字符（NU/T/SK/L）}}
+let _attLeaveByDate = {}; // {date: {employee_id: {status, origin}}}——origin: oa=OA审批锁定 / collection=采集直批可改
 async function refreshAttLeaveGuard(dateStr) {
   if (!dateStr) return;
   try {
@@ -8627,18 +8627,24 @@ async function refreshAttLeaveGuard(dateStr) {
     const d = await res.json();
     const m = {};
     (d.employees || []).forEach(e => {
-      if (e.approved_leave) m[String(e.id)] = e.approved_leave_status || '';
+      if (e.approved_leave) m[String(e.id)] = { status: e.approved_leave_status || '', origin: e.leave_origin || 'oa' };
     });
     _attLeaveByDate[dateStr] = m;
   } catch (e) {}
 }
-function attLeaveHas(dateStr, eid) {
-  const m = _attLeaveByDate[dateStr];
-  return !!m && m[String(eid)] != null;
-}
 function attLeaveStatus(dateStr, eid) {
   const m = _attLeaveByDate[dateStr];
-  return (m && m[String(eid)]) || '';
+  const v = (m && m[String(eid)]) || '';
+  return v ? (typeof v === 'object' ? v.status : v) : '';
+}
+function attLeaveLocked(dateStr, eid) {
+  const m = _attLeaveByDate[dateStr];
+  const v = m ? m[String(eid)] : null;
+  if (!v) return false;
+  const st = typeof v === 'object' ? v.status : v;
+  const og = typeof v === 'object' ? (v.origin || 'oa') : 'oa';
+  // collection 直批的 T 可由采集员改回（改回退余额），其余一律锁定
+  return !(st === 'T' && og === 'collection');
 }
 async function onAttDateChange() {
   const dt = ((document.getElementById('attDate') || {}).value || '').trim();
@@ -8673,7 +8679,11 @@ async function renderAttCollectionForm(payload) {
   const selTeamId = payload.team_id != null ? String(payload.team_id) : '';
   const marksMap = {};
   (payload.marks || []).forEach(m => { marksMap[String(m.employee_id)] = m; });
-  const attStatusOpts = (selSt) => `<option value="">${t('att_status_placeholder')}</option>` + COL_ATT_STATUS.map(([v, key]) => `<option value="${v}" ${selSt === v ? 'selected' : ''}>${t(key)}</option>`).join('');
+  const attStatusOpts = (selSt) => `<option value="">${t('att_status_placeholder')}</option>` + COL_ATT_STATUS.map(([v, key]) => {
+    if (v === 'P') return `<option value="P" ${selSt === v ? 'selected' : ''}>P</option>`;
+    const noteKey = v === 'A' ? 'att_note_a' : v === 'T' ? 'att_note_t' : v === 'L' ? 'att_note_l' : 'att_note_sk';
+    return `<option value="${v}" ${selSt === v ? 'selected' : ''}>${escHtml(t(noteKey))}</option>`;
+  }).join('');
   const otherHtml = rosterOther.map(e => {
     const m = marksMap[String(e.id)] || {};
     const st = m.status || '';
@@ -8754,8 +8764,8 @@ function filterAttRoster() {
     const eid = row.getAttribute('data-emp-id');
     const sel = row.querySelector('select');
     const cb = row.querySelector('input[type="checkbox"]');
-    // 当日已批假期：灰显锁定（不隐藏），状态不可改（对齐移动端 P32 深化）
-    if (attLeaveHas(curDate, eid)) {
+    // 当日已批假期：灰显锁定（不隐藏），状态不可改；collection 直批 T 不锁（可改回退余额）
+    if (attLeaveLocked(curDate, eid)) {
       leaveLocked++;
       row.classList.add('att-leave');
       if (sel) sel.disabled = true;
@@ -8838,8 +8848,8 @@ async function submitAttCollection() {
   }
   const marks = [];
   for (const e of roster) {
-    // 当日已有审批通过假期：跳过，不参与提交（与显示隐藏一致）
-    if (attLeaveHas(date, e.id)) continue;
+    // 当日已有审批通过假期（OA 来源）：跳过，不参与提交；collection 直批 T 不跳过
+    if (attLeaveLocked(date, e.id)) continue;
     const sel = document.getElementById('attSt' + e.id);
     if (!sel) continue;
     let status = sel.value;
@@ -8850,7 +8860,7 @@ async function submitAttCollection() {
   let drivers = [];
   if (isUg) {
     for (const e of roster) {
-      if (attLeaveHas(date, e.id)) continue;
+      if (attLeaveLocked(date, e.id)) continue;
       const chk = document.getElementById('attDrv' + e.id);
       if (chk && chk.checked) {
         drivers.push(e.id);
@@ -8868,8 +8878,8 @@ async function submitAttCollection() {
       if (isUg) {
         if (String(oldTeam) !== String(teamId)) return;
       }
-      // 当日已批假期：编辑合并同样跳过，避免重新引入冲突
-      if (attLeaveHas(date, m.employee_id)) return;
+      // 当日已批假期（OA 来源）：编辑合并同样跳过；collection 直批 T 允许被新值覆盖
+      if (attLeaveLocked(date, m.employee_id)) return;
       if (!submitted.has(String(m.employee_id))) {
         submitted.add(String(m.employee_id));
         marks.push({ employee_id: m.employee_id, status: m.status === 'B' ? 'P' : m.status });
