@@ -3669,11 +3669,18 @@ def collection_edit(submission_id):
         t_skipped = []  # T 幂等跳过清单，随响应返回供前端提示
         t_skip_ids = set()  # 外部来源 T 保护名单（单一事实源，贯穿预检/删旧/写循环）
 
-        def _mark_t_skipped(eid_, date_):
+        def _mark_t_skipped(eid_, date_, reason=None):
             # 收集去重：一人一条；同时登记进保护集合供删旧/写循环判定
             t_skip_ids.add(str(eid_))
             if not any(str(x['employee_id']) == str(eid_) for x in t_skipped):
-                t_skipped.append({'employee_id': eid_, 'date': date_})
+                item = {'employee_id': eid_, 'date': date_}
+                if reason:
+                    item['reason'] = reason
+                t_skipped.append(item)
+
+        # OA 调休集合：新 marks 覆盖当日已有 T 时判定来源用（一次查询全员）
+        from core.database import get_oa_comp_leave_dates as _goacd_edit
+        _oa_set_new = _goacd_edit(app.config['DATA_FOLDER'], new_date)
 
         try:
             _old_marks = (json.loads(sub['payload'] or '{}').get('marks') or [])
@@ -3797,6 +3804,10 @@ def collection_edit(submission_id):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
             # 外部 T 保护：预检/删旧已判定保留的员工一律跳过（无论新 marks 标 T 还是 P）
             if str(eid) in t_skip_ids:
+                continue
+            # OA 调休保护：当日被 approved comp_leave 事件覆盖的 T 不可被编辑覆盖（含新 marks 标 P）
+            if get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'T' and str(eid) in _oa_set_new:
+                _mark_t_skipped(eid, new_date, reason='oa')
                 continue
             # 余额预检已前移至只读预检循环（校验失败不动旧 override）
             if status == 'T':
