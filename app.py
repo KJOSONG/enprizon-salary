@@ -2434,6 +2434,15 @@ def _oa_read_gate():
         return None, (jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'oa'}), 403)
     return (None if has_view else u), None
 
+def _attach_employee_info(events):
+    """OA 重设计 R3: 列表事件附员工信息条（姓名/部门/薪资类型），详情/我的申请/移动端共用。
+    事件量级小，循环调用 get_employee_info；查不到为 None，前端容错显示 '-'。"""
+    from core.database import get_employee_info
+    for ev in events:
+        ev['employee_info'] = get_employee_info(app.config['DATA_FOLDER'],
+                                                ev.get('employee_id', ''))
+    return events
+
 @app.route('/api/oa/pending', methods=['GET'])
 @login_required
 def oa_pending():
@@ -2448,7 +2457,7 @@ def oa_pending():
         approver=session.get('username', ''),
         is_super_admin=(session.get('role') == 'super_admin'),
         operator_filter=op_filter)
-    return jsonify({'events': events})
+    return jsonify({'events': _attach_employee_info(events)})
 
 @app.route('/api/oa/pending/count', methods=['GET'])
 @login_required
@@ -2488,7 +2497,15 @@ def oa_history():
         approver = None
     events = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type,
                                   operator_filter=op_filter, approver=approver)
-    return jsonify({'events': events})
+    # BUG-1: 我的申请需含 pending 态（复用 get_pending_events 的 operator_filter 查询），
+    # 统一按 created_at 倒序合并；仅 mine 请求受影响
+    if mine:
+        from core.database import get_pending_events
+        pending = get_pending_events(app.config['DATA_FOLDER'],
+                                     operator_filter=session.get('username', ''))
+        events = pending + events
+        events.sort(key=lambda e: e.get('created_at') or '', reverse=True)
+    return jsonify({'events': _attach_employee_info(events)})
 
 @app.route('/api/notifications', methods=['GET'])
 @login_required
