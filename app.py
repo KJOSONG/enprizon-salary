@@ -2056,6 +2056,73 @@ def api_create_employee_event(employee_id):
     conn.close()
     return jsonify({'ok': True})
 
+# R4: 出勤状态统计口径 — 出勤=P/D/N/B/R/C（D/N/B 班次、R 钻工、C 破碎均视为出勤日），
+# 旷工=A，请假=NU(年假)/T(调休)/SK(病假)/L+S(事假普通假)；E 为豁免缺勤，不归入三类
+# （状态语义见 docs/P28_LEAVE_RULES_SPEC.md §2）
+_ATT_PRESENT_CODES = ('P', 'D', 'N', 'B', 'R', 'C')
+
+def _summarize_attendance_days(days: dict) -> dict:
+    """按天状态字典 → 出勤概览计数（天数为 int，落库口径全为整天）"""
+    present = absent = leave = 0
+    detail = {'annual': 0, 'sick': 0, 'personal': 0, 'comp': 0}
+    for st in (days or {}).values():
+        st = (st or '').strip().upper()
+        if st in _ATT_PRESENT_CODES:
+            present += 1
+        elif st == 'A':
+            absent += 1
+        elif st == 'NU':
+            leave += 1; detail['annual'] += 1
+        elif st == 'T':
+            leave += 1; detail['comp'] += 1
+        elif st == 'SK':
+            leave += 1; detail['sick'] += 1
+        elif st in ('L', 'S'):
+            leave += 1; detail['personal'] += 1
+    return {'present': present, 'absent': absent, 'leave': leave,
+            'leave_detail': detail, 'total_days': present + absent + leave}
+
+def _employee_month_attendance(employee_id, month):
+    """单月该员工逐日出勤状态。月数据缺失时退化为仅统计 attendance_overrides
+    （自动出勤来源为月度 pipeline，overrides 与 grid 的手动覆盖优先口径一致）"""
+    md_wrap = _get_month_data(month)
+    if md_wrap is not None:
+        grid = _build_attendance_grid(md_wrap.get('main_data'), md_wrap.get('employees'))
+        for r in grid['rows']:
+            if r['id'] == employee_id:
+                return r.get('days') or {}
+        return {}
+    from core.database import load_attendance_overrides
+    manual = load_attendance_overrides(app.config['DATA_FOLDER'])
+    return {k.split('|', 1)[1]: v['status']
+            for k, v in manual.items()
+            if k.startswith(employee_id + '|') and k.split('|', 1)[1][:7] == month}
+
+@app.route('/api/employees/<employee_id>/attendance_summary', methods=['GET'])
+@login_required
+@require_permission('employees', 'view')
+def api_employee_attendance_summary(employee_id):
+    """R4: 档案页出勤概览。?month=YYYY-MM 单月统计；month=all 逐月返回（供前端累计/联动）"""
+    month = (request.args.get('month') or '').strip()[:7]
+    if MONTH_RE.match(month):
+        return jsonify({'ok': True, 'month': month,
+                        **_summarize_attendance_days(_employee_month_attendance(employee_id, month))})
+    # "全部"：月份来源 = 该员工 overrides 月份 ∪ 采集提交月份（自动出勤随月度数据存在）
+    from core.database import get_conn
+    conn = get_conn(app.config['DATA_FOLDER'])
+    months = {r[0] for r in conn.execute(
+        "SELECT DISTINCT substr(date,1,7) FROM attendance_overrides "
+        "WHERE employee_id=? AND date LIKE '____-__-__'", (employee_id,)).fetchall()}
+    months |= {r[0] for r in conn.execute(
+        "SELECT DISTINCT substr(submission_date,1,7) FROM collection_submissions "
+        "WHERE submission_date LIKE '____-__-__'").fetchall()}
+    conn.close()
+    out = []
+    for m in sorted(months):
+        out.append({'month': m,
+                    **_summarize_attendance_days(_employee_month_attendance(employee_id, m))})
+    return jsonify({'ok': True, 'months': out})
+
 @app.route('/api/employees/<employee_id>/annual-leave-override', methods=['POST'])
 @editor_required
 @require_permission('oa', 'approve')
