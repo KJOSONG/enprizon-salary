@@ -57,6 +57,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         </button>
         <button class="icon-btn lang-pill" id="lang-btn" onclick="toggleLang()" title="语言">中</button>
+        <!-- OA 重设计 R2: 通知铃铛（登录显示，角标=未读通知数） -->
+        <button class="icon-btn" id="notif-bell-m" onclick="openNotifSheet()" style="display:none;position:relative;" aria-label="通知">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span id="notif-badge-m" style="display:none;position:absolute;top:2px;right:2px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:var(--destructive);color:#fff;font-size:10px;font-weight:700;line-height:15px;text-align:center;"></span>
+        </button>
         <button class="icon-btn" id="theme-btn" onclick="toggleTheme()" title="主题" aria-label="主题">
           <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
           <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
@@ -193,6 +198,7 @@
           <div class="segmented__option active" data-v="list" onclick="setEmpSeg('list')" data-i18n="emp_list">员工列表</div>
           <div class="segmented__option" data-v="pending" onclick="setEmpSeg('pending')"><span class="seg-pill-label"><span data-i18n="oa_pending">待审</span><span class="oa-badge" id="oa-pending-n" style="display:none;">0</span></span></div>
           <div class="segmented__option" data-v="history" onclick="setEmpSeg('history')" data-i18n="oa_history">已审批</div>
+          <div class="segmented__option" data-v="mine" id="emp-seg-mine" onclick="setEmpSeg('mine')" data-i18n="oa_mine_tab">我的申请</div>
         </div>
         <!-- 搜索栏 -->
         <div id="emp-search-wrap" class="search-field" style="display:none;">
@@ -1262,6 +1268,18 @@
 
   // ── OA 审批 ──
   function loadOAPendingCount(){
+    // R2: 通知未读角标（所有登录用户；铃铛登录显示）
+    const bell=document.getElementById('notif-bell-m');
+    if(bell && STATE.auth && STATE.auth.logged_in){
+      bell.style.display='';
+      api('/api/notifications?count_only=1').then(d=>{
+        const nb=document.getElementById('notif-badge-m');
+        if(nb){ const u=d.unread||0; nb.textContent=u>9?'9+':u; nb.style.display=u>0?'block':'none'; }
+      }).catch(()=>{});
+    } else if(bell) bell.style.display='none';
+    // R1: 「我的申请」段仅 oa:apply 可见
+    const segMine=document.getElementById('emp-seg-mine');
+    if(segMine) segMine.style.display=(STATE.auth && STATE.auth.logged_in && hasPermission('oa','apply')) ? '' : 'none';
     // 徽标仅审批人可见（oa:approve），采集员/申请人仅看自己提交的不显示待审批角标
     if(!hasPermission('oa','approve')){
       const b0=document.getElementById('oa-pending-n'); if(b0) b0.style.display='none';
@@ -1282,6 +1300,42 @@
       if(tb){ tb.textContent = n>99? '99+':n; tb.style.display = n>0? 'flex':'none'; }
     }).catch(()=>{});
   }
+  // ── OA 重设计 R2: 通知 Sheet（列表+全部已读，点击跳我的申请段） ──
+  function openNotifSheet(){
+    const body=document.getElementById('sheet-body');
+    body.innerHTML='<div class="loading">'+t('loading')+'</div>';
+    openSheet(t('notif_title'), body);
+    api('/api/notifications').then(d=>{
+      const items=d.items||[];
+      const markAllBtn = (d.unread||0)>0 ? '<button class="btn btn-block" style="margin-bottom:10px;" onclick="markAllNotifsReadM()">'+t('notif_mark_all_read')+'</button>' : '';
+      if(!items.length){ body.innerHTML=markAllBtn+'<div class="empty-state">'+t('notif_no_result')+'</div>'; return; }
+      body.innerHTML = markAllBtn + items.map(n=>{
+        const ok = n.type==='oa_approved';
+        return '<div class="card-item" onclick="notifGoEventM('+n.id+','+n.ref_id+')">'
+          + '<div class="card-item__body"><div class="card-item__title" style="color:var(--' + (ok?'success':'destructive') + ');">'+(ok?t('notif_approved'):t('notif_rejected'))+(!n.read?' ●':'')+'</div>'
+          + (n.body?'<div style="font-size:12px;color:var(--muted-foreground);margin-top:2px;">'+esc(n.body)+'</div>':'')
+          + '<div style="font-size:11px;color:var(--muted-foreground);margin-top:2px;">'+esc(String(n.created_at||'').slice(0,16))+'</div>'
+          + '</div><div class="card-item__trailing">›</div></div>';
+      }).join('');
+    }).catch(()=>{ body.innerHTML='<div class="empty-state">'+t('notif_load_fail')+'</div>'; });
+  }
+  function markAllNotifsReadM(){
+    api('/api/notifications/read',{method:'POST',body:JSON.stringify({all:true})}).then(()=>{
+      openNotifSheet(); loadOAPendingCount();
+    }).catch(()=>{});
+  }
+  function notifGoEventM(nid, refId){
+    api('/api/notifications/read',{method:'POST',body:JSON.stringify({id:nid})}).catch(()=>{});
+    closeSheet();
+    loadOAPendingCount();
+    switchTab('employees');
+    setEmpSeg('mine');
+    // 等列表渲染后滚动到对应卡片
+    setTimeout(()=>{
+      const el=document.getElementById('oa-list');
+      if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+    }, 400);
+  }
   function loadOA(mode){
     const el = document.getElementById('oa-list');
     // P29 V2.1: OA 列表对 oa:view 或 oa:apply 开放;仅 apply 时由后端(T4)过滤为本人提交
@@ -1290,14 +1344,15 @@
       return;
     }
     el.innerHTML='<div class="skeleton-card kpi"></div><div class="skeleton-card kpi"></div>';
-    const url = mode==='history' ? '/api/oa/history' : '/api/oa/pending';
-    // P29 V2.1: 现网 /api/oa/history 仅接受 type 参数、无 mine 入参,故不附加伪参数;仅 apply 者只看自己提交由 T4 服务端强制
+    // OA 重设计 R1: mine 段走 history?mine=1（仅 oa:apply 可见，后端强制本人数据）
+    const url = mode==='history' ? '/api/oa/history' : (mode==='mine' ? '/api/oa/history?mine=1' : '/api/oa/pending');
     api(url).then(d=>{
       const evs = d.events||[];
       STATE._oaEvents = evs;
-      if(mode!=='history'){ const badge=document.getElementById('oa-pending-n'); if(badge){ badge.textContent=evs.length; badge.style.display=evs.length>0?'inline-flex':'none'; } }
+      if(mode==='pending'){ const badge=document.getElementById('oa-pending-n'); if(badge){ badge.textContent=evs.length; badge.style.display=evs.length>0?'inline-flex':'none'; } }
       if(!evs.length){
-        el.innerHTML='<div class="state-box"><div class="state-box__icon">✅</div><div class="state-box__title">'+(mode==='history'?t('oa_done_desc'):t('no_oa'))+'</div></div>';
+        const emptyKey = mode==='history' ? 'oa_done_desc' : (mode==='mine' ? 'oa_mine_empty' : 'no_oa');
+        el.innerHTML='<div class="state-box"><div class="state-box__icon">✅</div><div class="state-box__title">'+t(emptyKey)+'</div></div>';
         return;
       }
       el.innerHTML = evs.map(ev=>oaCard(ev, mode)).join('');
@@ -1350,13 +1405,20 @@
     if(!ev) return;
     const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), overtime:t('event_overtime') };
     const st = ev.status==='approved';
+    const isProcessed = (mode==='history' || mode==='mine');  // R1: mine 与 history 同为已处理只读
     let html = '<div class="oa-card" style="margin-bottom:12px;pointer-events:none;"><div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div></div>';
+    // OA 重设计 R3: 员工信息条（缺失容错 '-'；移动端无档案跳转按钮）
+    const info = ev.employee_info || null;
+    const salaryMap0 = { piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
+    html += '<div class="info-row"><span class="info-row__label">'+t('oa_employee_info')+'</span><span class="info-row__value">'
+      + (info ? esc((info.name||'-')+' · '+(info.department||'-')+' · '+(salaryMap0[info.salary_type]||info.salary_type||'-')) : '-')
+      + '</span></div>';
     // 固定区
     html += '<div class="info-row"><span class="info-row__label">'+t('oa_effective_date')+'</span><span class="info-row__value">'+esc(ev.effective_date||'')+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('oa_submitter')+'</span><span class="info-row__value">'+esc(ev.operator_id||'')+'</span></div>'
       + '<div class="info-row"><span class="info-row__label">'+t('oa_created_at')+'</span><span class="info-row__value">'+esc(ev.created_at||'')+'</span></div>';
     // 历史：状态 + 审批人 + 审批时间 + 驳回原因
-    if(mode==='history'){
+    if(isProcessed){
       html += '<div class="info-row"><span class="info-row__label">'+t('oa_status')+'</span><span class="info-row__value"><span class="oa-status-badge '+(st?'approved':'rejected')+'">'+(st?t('approved'):t('rejected'))+'</span></span></div>'
         + '<div class="info-row"><span class="info-row__label">'+t('oa_approver')+'</span><span class="info-row__value">'+esc(ev.approved_by||ev.rejected_by||'—')+'</span></div>'
         + '<div class="info-row"><span class="info-row__label">'+t('oa_approved_at')+'</span><span class="info-row__value">'+esc(String(ev.updated_at||'').slice(0,16))+'</span></div>'
@@ -1374,14 +1436,14 @@
       if(k==='salary_type') val = salaryMap[v] || val;
       html += '<div class="info-row"><span class="info-row__label">'+esc(label)+'</span><span class="info-row__value">'+esc(val)+'</span></div>';
     }
-    // 操作区
-    if(mode!=='history'){
+    // 操作区（已处理列表只读）
+    if(!isProcessed){
       html += '<div style="display:flex;gap:8px;margin-top:14px;"><button class="btn btn-primary" style="flex:1;" onclick="closeSheet();approveOA('+ev.id+')">'+t('approve')+'</button>'
         + '<button class="btn" style="flex:1;" onclick="closeSheet();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
     }
     const body = document.getElementById('sheet-body');
     body.innerHTML = html;
-    openSheet(mode==='history'? t('oa_history') : t('oa_pending'), body);
+    openSheet(mode==='history'? t('oa_history') : (mode==='mine' ? t('oa_mine_tab') : t('oa_pending')), body);
   }
 
   // ── 请假 ──
