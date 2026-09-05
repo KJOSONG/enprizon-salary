@@ -7077,8 +7077,81 @@ function toggleOaDetail(eventId) {
   box.style.display = box.style.display === 'block' ? 'none' : 'block';
 }
 
+/* ── P35-B5: 跨计件/非计件调岗审批确认层 ── */
+const _TRANSFER_PIECE_TYPES = ['piece_underground', 'piece_driller', 'piece_crush'];
+const _SALARY_TYPE_LABELS = () => ({ piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'), piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') });
+
+async function _transferNeedsConfirm(ev) {
+  let p = {};
+  try { p = JSON.parse(ev.payload || '{}'); } catch (e) { p = {}; }
+  const nd = (p.new_department || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase();
+  if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') return false;  // 井下内部调动，计件自动保持
+  if (p.new_type) return false;                            // 已带显式类型
+  let oldType = p.old_type || '';
+  if (!oldType) {
+    try {
+      const r = await fetch(api('/api/employees/' + ev.employee_id));
+      if (!r.ok) return true;                              // 查不到 → 保守弹窗
+      const d = await r.json();
+      oldType = ((d.employee || {}).default_type) || '';
+    } catch (e) { return true; }
+  }
+  return _TRANSFER_PIECE_TYPES.includes(oldType);
+}
+
+function _pickTransferType(ev) {
+  return new Promise(resolve => {
+    const labels = _SALARY_TYPE_LABELS();
+    const opts = Object.entries(labels).map(([v, l]) => `<option value="${v}">${escHtml(l)}</option>`).join('');
+    const overlay = document.createElement('div');
+    overlay.id = 'ttConfirmOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `<div style="background:var(--bg-primary,#fff);border-radius:12px;padding:20px;width:min(92vw,420px);box-shadow:0 10px 40px rgba(0,0,0,.25);">
+      <h3 style="margin:0 0 6px;font-size:16px;">${escHtml(t('oa_transfer'))} · ${escHtml(ev.employee_name || ev.employee_id || '')}</h3>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">${escHtml(t('transfer_type_confirm_hint'))}</div>
+      <select id="ttTypeSel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">${opts}</select>
+      <div id="ttBaseRow" style="display:none;margin-top:8px;"><input id="ttBase" type="number" min="0" step="100" placeholder="${escHtml(t('transfer_base_placeholder'))}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button id="ttCancel" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">${escHtml(t('btn_cancel'))}</button>
+        <button id="ttOk" style="flex:1;padding:8px;border:none;border-radius:8px;background:var(--primary,#2563eb);color:#fff;">${escHtml(t('approve'))}</button>
+      </div></div>`;
+    document.body.appendChild(overlay);
+    const typeSel = overlay.querySelector('#ttTypeSel');
+    const baseRow = overlay.querySelector('#ttBaseRow');
+    typeSel.addEventListener('change', () => { baseRow.style.display = (typeSel.value === 'day_rate' || typeSel.value === 'monthly') ? 'block' : 'none'; });
+    const close = v => { overlay.remove(); resolve(v); };
+    overlay.querySelector('#ttCancel').addEventListener('click', () => close(null));
+    overlay.querySelector('#ttOk').addEventListener('click', () => {
+      const nt = typeSel.value;
+      const body = { new_type: nt };
+      if (nt === 'day_rate' || nt === 'monthly') {
+        const base = parseFloat(overlay.querySelector('#ttBase').value) || 0;
+        if (base <= 0) { showToast(t('transfer_base_placeholder'), 'error'); return; }
+        body[nt === 'day_rate' ? 'day_rate' : 'monthly_salary'] = base;
+      }
+      close(body);
+    });
+  });
+}
+
 async function oaApprove(eventId) {
-  const res = await authFetch(api(`/api/oa/events/${eventId}/approve`), { method: 'POST' });
+  // P35-B5: 跨计件/非计件调岗先弹确认层，再携带确认结果批准
+  let confirmBody = {};
+  try {
+    const r0 = await fetch(api('/api/oa/events/' + eventId));
+    const d0 = await r0.json();
+    const ev0 = d0.event || d0;
+    if (ev0 && ev0.event_type === 'transfer' && await _transferNeedsConfirm(ev0)) {
+      const picked = await _pickTransferType(ev0);
+      if (!picked) return;  // 用户取消
+      confirmBody = picked;
+    }
+  } catch (e) {}
+  const res = await authFetch(api(`/api/oa/events/${eventId}/approve`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(confirmBody),
+  });
   const data = await res.json();
   if (data.ok) {
     showToast(t('approved_label'));

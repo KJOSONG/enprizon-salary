@@ -1426,7 +1426,57 @@
     html += '</div>';
     return html;
   }
-  function approveOA(id){ api('/api/oa/events/'+id+'/approve', { method:'POST', body:'{}' }).then(r=>{ if(r.ok){ toast(t('approved')); STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */ loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error'); }); }
+  /* ── P35-B5: 跨计件/非计件调岗审批确认层（移动端） ── */
+  async function _mobTransferNeedsConfirm(ev){
+    let p={};
+    try{ p=JSON.parse(ev.payload||'{}'); }catch(e){ p={}; }
+    const nd=(p.new_department||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase();
+    if(nd==='PRODUCTIONTEAM(UNDERGROUND)') return false;
+    if(p.new_type) return false;
+    let oldType=p.old_type||'';
+    if(!oldType){
+      try{
+        const d=await api('/api/employees/'+ev.employee_id);
+        oldType=((d&&d.employee)||{}).default_type||'';
+      }catch(e){ return true; }
+    }
+    return ['piece_underground','piece_driller','piece_crush'].indexOf(oldType)>=0;
+  }
+  function _mobPickTransferType(ev){
+    return new Promise(resolve=>{
+      const labels={ piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
+      const opts=Object.keys(labels).map(v=>'<option value="'+v+'">'+esc(labels[v])+'</option>').join('');
+      const body='<div class="field"><label class="field__label">'+esc(t('transfer_type_confirm_hint'))+'</label>'
+        +'<select id="mobTtType">'+opts+'</select></div>'
+        +'<div class="field" id="mobTtBaseRow" style="display:none;"><label class="field__label">'+esc(t('transfer_base_placeholder'))+'</label><input id="mobTtBase" type="number" min="0" step="100"></div>';
+      showModal(t('oa_transfer'), body, '<button class="btn btn-block" onclick="closeModal();window.__mobTtResolve(null)">'+t('cancel')+'</button><button class="btn btn-primary btn-block" onclick="window.__mobTtOk()">'+t('approve')+'</button>');
+      const sel=document.getElementById('mobTtType');
+      sel.addEventListener('change',()=>{ document.getElementById('mobTtBaseRow').style.display=(sel.value==='day_rate'||sel.value==='monthly')?'block':'none'; });
+      window.__mobTtResolve=resolve;
+      window.__mobTtOk=function(){
+        const nt=sel.value;
+        const bodyOut={new_type:nt};
+        if(nt==='day_rate'||nt==='monthly'){
+          const base=parseFloat((document.getElementById('mobTtBase')||{}).value)||0;
+          if(base<=0){ toast(t('transfer_base_placeholder'),'warning'); return; }
+          bodyOut[nt==='day_rate'?'day_rate':'monthly_salary']=base;
+        }
+        closeModal(); resolve(bodyOut);
+      };
+    });
+  }
+  async function approveOA(id){
+    let body='{}';
+    try{
+      const r0=await api('/api/oa/events/'+id);
+      const ev0=r0.event||r0;
+      if(ev0 && ev0.event_type==='transfer' && await _mobTransferNeedsConfirm(ev0)){
+        const picked=await _mobPickTransferType(ev0);
+        if(!picked) return;
+        body=JSON.stringify(picked);
+      }
+    }catch(e){}
+    api('/api/oa/events/'+id+'/approve', { method:'POST', body }).then(r=>{ if(r.ok){ toast(t('approved')); STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */ loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error'); }); }
   // 拒绝原因 Modal（非 prompt）
   function openRejectModal(id, empName){
     const body = '<div class="oa-card" style="margin-bottom:12px;"><div class="oa-card__head"><span class="oa-card__type">'+t('reject')+'</span><span class="oa-card__emp">'+esc(empName||'')+'</span></div></div>'

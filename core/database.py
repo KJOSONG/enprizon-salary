@@ -1687,6 +1687,11 @@ def apply_approved_event(data_folder, event):
             is_ug = _nd == 'PRODUCTIONTEAM(UNDERGROUND)'
             # 自动目标薪资类型：仅调入钻工/井下自动切计件，其余部门保持原薪资
             new_type = 'piece_driller' if is_driller else ('piece_underground' if is_ug else '')
+            # P35-B5: 审批人显式确认的新薪资类型（跨计件/非计件调岗），优先于自动推断
+            _explicit_type = payload.get('new_type') if payload.get('new_type') in (
+                'day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush') else ''
+            if not (is_driller or is_ug) and _explicit_type:
+                new_type = _explicit_type
             # 班组校验：钻工/井下必须选择班组，否则拒绝审批
             team_id_val = 0
             captain_val = ''
@@ -1726,10 +1731,17 @@ def apply_approved_event(data_folder, event):
                     " VALUES (?,?,?,?,?,?,?,?,?)",
                     (eid, _base_from, old_dept, old_type, old_day, old_month, old_team, '基线', 'system'))
             _eff_month = eff[:7]
+            # P35-B5: 显式确认类型的调岗，当月台账条目直接落新类型与新基数
+            _entry_type = old_type
+            _entry_day, _entry_month_sal = old_day, old_month
+            if not (is_driller or is_ug) and _explicit_type:
+                _entry_type = _explicit_type
+                _entry_day = float(payload.get('day_rate') or 0) if _explicit_type == 'day_rate' else old_day
+                _entry_month_sal = float(payload.get('monthly_salary') or 0) if _explicit_type == 'monthly' else old_month
             conn.execute(
                 "INSERT INTO employee_base_history (employee_id,from_month,department,default_type,day_rate,monthly_salary,team_id,note,operator_id)"
                 " VALUES (?,?,?,?,?,?,?,?,?)",
-                (eid, _eff_month, new_dept, old_type, old_day, old_month, team_id_val,
+                (eid, _eff_month, new_dept, _entry_type, _entry_day, _entry_month_sal, team_id_val,
                  f'OA调岗 #{event.get("id")}', 'system'))
 
             # 更新主档（部门/岗位；钻工/井下同步切薪资类型与班组）
@@ -1741,6 +1753,27 @@ def apply_approved_event(data_folder, event):
                     (new_type, team_id_val, eid))
             else:
                 conn.execute("UPDATE employees SET team_id=0 WHERE id=?", (eid,))
+                if _explicit_type:
+                    _d = float(payload.get('day_rate') or 0)
+                    _m = float(payload.get('monthly_salary') or 0)
+                    conn.execute(
+                        "UPDATE employees SET default_type=?, day_rate=?, monthly_salary=? WHERE id=?",
+                        (_explicit_type, _d if _explicit_type == 'day_rate' else 0,
+                         _m if _explicit_type == 'monthly' else 0, eid))
+            # ── P35-B3: 调岗回收旧的永久哨兵覆盖（9999-12-31）──
+            # 生效日之前保留旧覆盖（保生效日前薪资），生效日起由新状态/新哨兵接管；
+            # 否则调出后旧 piece 覆盖永续，部门虽已排除但类型解析被污染。
+            try:
+                from datetime import datetime as _dtb, timedelta as _tdb
+                _prev_day = (_dtb.strptime(eff, '%Y-%m-%d') - _tdb(days=1)).strftime('%Y-%m-%d')
+            except Exception:
+                _prev_day = eff
+            conn.execute(
+                "DELETE FROM overrides WHERE employee_id=? AND end_date='9999-12-31' AND start_date>=?",
+                (eid, _prev_day))
+            conn.execute(
+                "UPDATE overrides SET end_date=? WHERE employee_id=? AND end_date='9999-12-31' AND start_date<?",
+                (_prev_day, eid, _prev_day))
             # 物理带日期 override（生效日→远期）：驱动 per_date_type 及钻工 driller_adds 成员名单
             if is_driller:
                 conn.execute(
@@ -3011,7 +3044,7 @@ def get_approved_events_for_month(data_folder, month):
         SELECT * FROM employee_events
         WHERE status = 'approved'
         AND event_type IN ('hire', 'transfer', 'salary_change', 'resign', 'dismiss')
-        AND effective_date <= ?
+        AND substr(effective_date,1,7) <= ?
         ORDER BY employee_id, effective_date
     """, (month,)).fetchall()
     conn.close()
