@@ -3337,6 +3337,17 @@ def collection_submit():
             for d in drivers:
                 if str(d) not in marks_ids:
                     return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中（仅 P/A 人员可标记驾驶，L/SK/T 已转审批）'}), 400
+        # 余额预检：任一 T 员工调休余额不足则整体失败，避免部分写入（routing 事件/
+        # 前序 override/扣减已落库但提交审计缺失的孤儿数据，见 2026-09-05 petro 案例）
+        from core.database import get_leave_balance as _glb
+        for m in marks:
+            if m.get('status') == 'T':
+                _eid_t = str(m.get('employee_id') or '')
+                if not _eid_t:
+                    continue
+                _bal = _glb(app.config['DATA_FOLDER'], _eid_t, int(date[:4]))
+                if (_bal.get('comp_entitled', 0) or 0) - (_bal.get('comp_used', 0) or 0) < 1:
+                    return jsonify({'ok': False, 'error': f'员工 {_eid_t} 调休余额不足，无法标记 T（整单未提交，请调整后重试）'}), 400
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -3697,6 +3708,12 @@ def collection_edit(submission_id):
                 continue
             if status not in ('P', 'A', 'T'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+            # 余额预检：避免编辑中途部分写入（同提交路径，2026-09-05 petro 案例）
+            if status == 'T':
+                from core.database import get_leave_balance as _glb2
+                _bal2 = _glb2(app.config['DATA_FOLDER'], str(eid), int(new_date[:4]))
+                if (_bal2.get('comp_entitled', 0) or 0) - (_bal2.get('comp_used', 0) or 0) < 1:
+                    return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T（编辑未保存）'}), 400
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, new_date, status, source=0)
                 if status == 'T':

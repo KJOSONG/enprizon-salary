@@ -2566,7 +2566,9 @@ def get_employee_attendance_marks(data_folder, employee_id):
         elif src == 1:
             kind, op = 'manual', ''
         else:
-            kind, op = 'approval', ''
+            # source=0 且反查不到采集记录：多为提交中途失败的孤儿写入（如 petro 案例），
+            # 审批落库的日期已被 OA 事件覆盖集排除，故此处归为采集写入
+            kind, op = 'collection', ''
         if items and items[-1]['status'] == st and items[-1]['source'] == kind                 and items[-1]['_next'] == r['date']:
             items[-1]['end_date'] = r['date']
             items[-1]['days'] += 1
