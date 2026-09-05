@@ -3081,48 +3081,24 @@ function renderProductionTrend() {
   if (!rows.length) return;
 
   const dates = rows.map(d => d.date.slice(5));
-  const datasets = [];
-  // P32: selTids 需在函数作用域可见（tooltip label 回调在函数级别引用，不能是 if 块内 const）
-  let selTids = [];
-  // P31 B2/决策 3: 新格式 = 每班组一条线（班组筛选联动，矿石筛选取 tm[ore]/否则 tm.total）
-  if (isNewDashFormat()) {
-    const teamInfo = {};
-    rows.forEach(d => (d.teams || []).forEach(tm => {
-      teamInfo[tm.team_id] = tm.team_name || (t('dash_team_title') + ' ' + tm.team_id);
-    }));
-    selTids = (f.shift === 'all')
-      ? Object.keys(teamInfo).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
-      : [f.shift];
-    selTids.forEach((tid, i) => {
-      const c = TEAM_COLORS[i % TEAM_COLORS.length];
-      datasets.push({
-        label: teamInfo[tid],
-        data: rows.map(d => getProdValue(d, tid, f.ore)),
-        borderColor: c.line,
-        backgroundColor: c.bg,
-        fill: true, tension: 0.35, borderWidth: 2.5,
-        pointRadius: 2, pointHoverRadius: 6,
-        pointBackgroundColor: c.line,
-        pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
-        datalabels: { color: c.line },
-      });
-    });
-  } else {
-    const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
-    oreKeys.forEach(key => {
-      const c = ORE_COLORS[key];
-      datasets.push({
-        label: key.toUpperCase(),
-        data: rows.map(d => getProdValue(d, f.shift, key)),
-        borderColor: c.line,
-        backgroundColor: c.bg,
-        fill: true, tension: 0.35, borderWidth: 2.5,
-        pointRadius: 2, pointHoverRadius: 6,
-        pointBackgroundColor: c.line,
-        pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
-      });
-    });
-  }
+  // 2026-09-06: 趋势图改为按每日产量统计——NH/NL/MW 每日一条线（新格式 rec 经 getProdValue
+  // 按日跨班组汇总；班组筛选选中具体班组时仅显示该班组）。班组维度由下方"班组对比"图承担，
+  // 避免同页冗余；旧格式 rec 仍走 day_/night_/total_ 前缀逻辑不变。
+  const oreKeys = f.ore === 'all' ? ['nh', 'nl', 'mw'] : [f.ore];
+  const datasets = oreKeys.map(key => {
+    const c = ORE_COLORS[key];
+    return {
+      label: key.toUpperCase(),
+      data: rows.map(d => getProdValue(d, f.shift, key)),
+      borderColor: c.line,
+      backgroundColor: c.bg,
+      fill: true, tension: 0.35, borderWidth: 2.5,
+      pointRadius: 2, pointHoverRadius: 6,
+      pointBackgroundColor: c.line,
+      pointBorderColor: '#fbfaf9', pointBorderWidth: 1.5,
+      datalabels: { color: c.line },
+    };
+  });
 
   renderChart('chartProdTrend', 'line', { labels: dates, datasets }, {
     responsive: true, maintainAspectRatio: false,
@@ -3157,18 +3133,8 @@ function renderProductionTrend() {
             const d = rows[ctx.dataIndex];
             if (!d) return '';
             if (isNewDashFormat()) {
-              // P32: 每个班组按物料拆分 NH/NL/MW，仅显示有产量的物料（0 不显示）
-              if (f.ore === 'all') {
-                const tid = selTids[ctx.datasetIndex];
-                const tm = (d.teams || []).find(t => String(t.team_id) === String(tid));
-                if (tm) {
-                  const parts = [];
-                  if ((tm.nh || 0) > 0) parts.push('NH ' + fmtNum(tm.nh));
-                  if ((tm.nl || 0) > 0) parts.push('NL ' + fmtNum(tm.nl));
-                  if ((tm.mw || 0) > 0) parts.push('MW ' + fmtNum(tm.mw));
-                  return parts.length ? `${ctx.dataset.label}: ${parts.join('   ')}` : `${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
-                }
-              }
+              // 2026-09-06: 趋势图为每日 NH/NL/MW 三线，tooltip 直接显示该物料当日汇总；
+              // 班组拆分细节由点击弹窗（showDayDetailPopup）承担
               return `${ctx.dataset.label}: ${fmtNum(ctx.raw)}`;
             }
             const key = ctx.dataset.label.toLowerCase();
