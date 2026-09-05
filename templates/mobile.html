@@ -814,7 +814,7 @@
     const isNew = sp.some(s=>Array.isArray(s.teams));
     const labels = sp.map(s=>s.date.slice(5));
     const oreKeys = STATE.dashOreFilter==='all' ? ['nh','nl','mw'] : [STATE.dashOreFilter];
-    const colors = { nh:'hsl(30 92% 52%)', nl:'hsl(210 85% 52%)', mw:'hsl(150 70% 38%)' };
+    const colors = { nh:'#EE892B', nl:'#3F81A6', mw:'#3F8356' }; // 2026-09-06 同步 Web P36-d 主题暖调三色（原亮橙/亮蓝/亮绿）
     let datasets, tooltipCb;
     // 2026-09-06: 与 Web P36 对齐——趋势图统一为每日 NH/NL/MW 三线；
     // 新格式 rec 跨班组按日汇总（班组筛选 STATE.teamFilter 时仅计该班组），旧格式仍按班次前缀取值；
@@ -1025,7 +1025,7 @@
     const capNames = Object.keys(captains);
     if(!capNames.length){ el.style.display='none'; return; }
     el.style.display='block';
-    const colors = ['hsl(55 24% 49%)','hsl(0 15% 32%)','hsl(70 10% 50%)']; // NH/NL/MW
+    const colors = ['#EE892B','#3F81A6','#3F8356']; // NH/NL/MW
     const datasets = ['nh','nl','mw'].map((key,i)=>({
       label:t(key), data:capNames.map(c=>captains[c][key]||0),
       backgroundColor:colors[i], borderRadius:2,
@@ -1077,7 +1077,7 @@
   function drawOre(totals){
     const sum = totals.nh+totals.nl+totals.mw;
     document.getElementById('donut-total').textContent = fmt(sum);
-    const colors = ['hsl(55 24% 49%)','hsl(0 15% 32%)','hsl(70 10% 50%)'];
+    const colors = ['#EE892B','#3F81A6','#3F8356'];
     const items = [[t('nh'),totals.nh,'st-nh'],[t('nl'),totals.nl,'st-nl'],[t('mw'),totals.mw,'st-mw']];
     document.getElementById('ore-legend').innerHTML = items.map(([lab,v,dummy],i)=>{
       const pct = sum? Math.round(v/sum*100) : 0;

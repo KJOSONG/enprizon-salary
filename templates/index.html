@@ -2791,12 +2791,12 @@ async function loadDashboard() {
 // ════════════════════════════════════════════════
 
 // ── 矿石颜色常量 ──
-// 2026-09-06: 与移动端 mobile.html drawTrend 配色对齐（橙/蓝/绿，最大区分度），
-// 解决原暖陶土/琥珀（nh/mw）色相过近、趋势图三线对比度不足的问题；KPI 卡 CSS 变量同步更新
+// 2026-09-06 二版: 从 Golden Time 主题色系设计——NH 焦糖琥珀（--warning 同族）/ NL 青瓷蓝（唯一冷锚点）/ 
+// MW 鼠尾草绿（--success 同族），全部降饱和适配奶油底色，色相 29°/202°/140° 间隔最大保证三线对比度
 const ORE_COLORS = {
-  nh: { line: '#F08519', bg: 'rgba(240,133,25,0.12)', solid: '#F08519', label: 'NH' },
-  nl: { line: '#1D85ED', bg: 'rgba(29,133,237,0.12)', solid: '#1D85ED', label: 'NL' },
-  mw: { line: '#1DA561', bg: 'rgba(29,165,97,0.12)', solid: '#1DA561', label: 'MW' },
+  nh: { line: '#EE892B', bg: 'rgba(238,137,43,0.12)', solid: '#EE892B', label: 'NH' },
+  nl: { line: '#3F81A6', bg: 'rgba(63,129,166,0.12)', solid: '#3F81A6', label: 'NL' },
+  mw: { line: '#3F8356', bg: 'rgba(63,131,86,0.12)', solid: '#3F8356', label: 'MW' },
 };
 
 // ── P31 B: 班组线色（决策 9：暖陶土/金橄榄/琥珀，循环取色，桌面/移动共享同一组值） ──
