@@ -21,6 +21,7 @@ static/avatars/*
 .codebuddy/
 .workbuddy/
 .codebase-memory/
+.trae/
 
 # oh-my-openagent 运行时状态目录（非应用代码）
 .omo/
