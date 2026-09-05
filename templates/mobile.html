@@ -196,7 +196,7 @@
         <!-- 分段控制（999px 胶囊 + 待审红色 badge） -->
         <div class="segmented segmented--pills" id="emp-seg" style="margin-bottom:12px;">
           <div class="segmented__option active" data-v="list" onclick="setEmpSeg('list')" data-i18n="emp_list">员工列表</div>
-          <div class="segmented__option" data-v="pending" onclick="setEmpSeg('pending')"><span class="seg-pill-label"><span data-i18n="oa_pending">待审</span><span class="oa-badge" id="oa-pending-n" style="display:none;">0</span></span></div>
+          <div class="segmented__option" data-v="pending" id="emp-seg-pending" style="display:none;" onclick="setEmpSeg('pending')"><span class="seg-pill-label"><span data-i18n="oa_pending">待审</span><span class="oa-badge" id="oa-pending-n" style="display:none;">0</span></span></div>
           <div class="segmented__option" data-v="history" onclick="setEmpSeg('history')" data-i18n="oa_history">已审批</div>
           <div class="segmented__option" data-v="mine" id="emp-seg-mine" onclick="setEmpSeg('mine')" data-i18n="oa_mine_tab">我的申请</div>
         </div>
@@ -1281,11 +1281,15 @@
     const segMine=document.getElementById('emp-seg-mine');
     if(segMine) segMine.style.display=(STATE.auth && STATE.auth.logged_in && hasPermission('oa','apply')) ? '' : 'none';
     // 徽标仅审批人可见（oa:approve），采集员/申请人仅看自己提交的不显示待审批角标
+    // BUG-7(DESIGN A1): 「待审」分段仅 oa:approve 渲染
+    const segPending=document.getElementById('emp-seg-pending');
     if(!hasPermission('oa','approve')){
+      if(segPending) segPending.style.display='none';
       const b0=document.getElementById('oa-pending-n'); if(b0) b0.style.display='none';
       const tb0=document.getElementById('oaTabBadge'); if(tb0) tb0.style.display='none';
       return;
     }
+    if(segPending) segPending.style.display='';
     if(!(hasPermission('oa','view') || hasPermission('oa','apply'))){
       const b0=document.getElementById('oa-pending-n'); if(b0) b0.style.display='none';
       const tb0=document.getElementById('oaTabBadge'); if(tb0) tb0.style.display='none';
@@ -1300,24 +1304,59 @@
       if(tb){ tb.textContent = n>99? '99+':n; tb.style.display = n>0? 'flex':'none'; }
     }).catch(()=>{});
   }
-  // ── OA 重设计 R2: 通知 Sheet（列表+全部已读，点击跳我的申请段） ──
+  // ── OA 重设计 R2: 通知 Sheet（BUG-6: 双段对照桌面——待我审批+审批结果） ──
   function openNotifSheet(){
     const body=document.getElementById('sheet-body');
     body.innerHTML='<div class="loading">'+t('loading')+'</div>';
     openSheet(t('notif_title'), body);
-    api('/api/notifications').then(d=>{
-      const items=d.items||[];
-      const markAllBtn = (d.unread||0)>0 ? '<button class="btn btn-block" style="margin-bottom:10px;" onclick="markAllNotifsReadM()">'+t('notif_mark_all_read')+'</button>' : '';
-      if(!items.length){ body.innerHTML=markAllBtn+'<div class="empty-state">'+t('notif_no_result')+'</div>'; return; }
-      body.innerHTML = markAllBtn + items.map(n=>{
-        const ok = n.type==='oa_approved';
-        return '<div class="card-item" onclick="notifGoEventM('+n.id+','+n.ref_id+')">'
-          + '<div class="card-item__body"><div class="card-item__title" style="color:var(--' + (ok?'success':'destructive') + ');">'+(ok?t('notif_approved'):t('notif_rejected'))+(!n.read?' ●':'')+'</div>'
-          + (n.body?'<div style="font-size:12px;color:var(--muted-foreground);margin-top:2px;">'+esc(n.body)+'</div>':'')
-          + '<div style="font-size:11px;color:var(--muted-foreground);margin-top:2px;">'+esc(String(n.created_at||'').slice(0,16))+'</div>'
-          + '</div><div class="card-item__trailing">›</div></div>';
-      }).join('');
+    // BUG-7: 待审段仅 oa:approve 渲染
+    const canApprove = hasPermission('oa','approve');
+    const pendingP = canApprove ? api('/api/oa/pending').catch(()=>({events:[]})) : Promise.resolve({events:[]});
+    Promise.all([pendingP, api('/api/notifications').catch(()=>({items:[],unread:0}))]).then(([pd,nd])=>{
+      const items=nd.items||[];
+      const markAllBtn = (nd.unread||0)>0 ? '<button class="btn btn-block" style="margin-bottom:10px;" onclick="markAllNotifsReadM()">'+t('notif_mark_all_read')+'</button>' : '';
+      let html = markAllBtn;
+      if (canApprove) {
+        const pendEv = pd.events||[];
+        const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), skill_change:t('event_skill_change'), reinstatement:t('event_reinstatement'), sick:t('event_sick_leave'), sick_leave:t('event_sick_leave'), casual:t('event_casual'), annual_leave:t('event_annual_leave'), comp_leave:t('event_comp_leave'), overtime:t('event_overtime') };
+        html += '<div style="font-size:12px;font-weight:600;color:var(--muted-foreground);margin:2px 0 8px;">'+t('notif_pending_section')+'</div>';
+        if (!pendEv.length) {
+          html += '<div class="empty-state">'+t('notif_empty')+'</div>';
+        } else {
+          html += pendEv.map(ev=>
+            '<div class="card-item" onclick="notifGoPendingM('+ev.id+')">'
+            + '<div class="card-item__body"><div class="card-item__title">'+esc(typeMap[ev.event_type]||ev.event_type)+'</div>'
+            + '<div style="font-size:12px;color:var(--muted-foreground);margin-top:2px;">'+esc(ev.employee_name||ev.employee_id)+' · '+t('oa_effective_date')+': '+esc(ev.effective_date||'')+'</div>'
+            + '<div style="font-size:11px;color:var(--muted-foreground);margin-top:2px;">'+t('notif_submitter')+': '+esc(ev.operator_id||'—')+'</div>'
+            + '</div><div class="card-item__trailing">›</div></div>'
+          ).join('');
+        }
+      }
+      html += '<div style="font-size:12px;font-weight:600;color:var(--muted-foreground);margin:12px 0 8px;">'+t('notif_result_section')+'</div>';
+      if(!items.length){
+        html += '<div class="empty-state">'+t('notif_no_result')+'</div>';
+      } else {
+        html += items.map(n=>{
+          const ok = n.type==='oa_approved';
+          return '<div class="card-item" onclick="notifGoEventM('+n.id+','+n.ref_id+')">'
+            + '<div class="card-item__body"><div class="card-item__title" style="color:var(--' + (ok?'success':'destructive') + ');">'+(ok?t('notif_approved'):t('notif_rejected'))+(!n.read?' ●':'')+'</div>'
+            + (n.body?'<div style="font-size:12px;color:var(--muted-foreground);margin-top:2px;">'+esc(n.body)+'</div>':'')
+            + '<div style="font-size:11px;color:var(--muted-foreground);margin-top:2px;">'+esc(String(n.created_at||'').slice(0,16))+'</div>'
+            + '</div><div class="card-item__trailing">›</div></div>';
+        }).join('');
+      }
+      body.innerHTML = html;
     }).catch(()=>{ body.innerHTML='<div class="empty-state">'+t('notif_load_fail')+'</div>'; });
+  }
+  function notifGoPendingM(eventId){
+    closeSheet();
+    switchTab('employees');
+    setEmpSeg('pending');
+    // 卡片无 id，滚到 OA 列表容器
+    setTimeout(()=>{
+      const el=document.getElementById('oa-list');
+      if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+    }, 400);
   }
   function markAllNotifsReadM(){
     api('/api/notifications/read',{method:'POST',body:JSON.stringify({all:true})}).then(()=>{
@@ -1359,7 +1398,7 @@
     }).catch(()=>{ el.innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('load_fail')+'</div><button class="state-box__action" onclick="loadOA(\''+mode+'\')">'+t('retry')+'</button></div>'; });
   }
   function oaCard(ev, mode){
-    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), overtime:t('event_overtime') };
+    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), skill_change:t('event_skill_change'), reinstatement:t('event_reinstatement'), sick:t('event_sick_leave'), sick_leave:t('event_sick_leave'), casual:t('event_casual'), annual_leave:t('event_annual_leave'), comp_leave:t('event_comp_leave'), overtime:t('event_overtime') };
     let summary='';
     try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : (p.new_position? t('oa_transfer')+': '+p.new_position : '')); if (ev.event_type==='salary_change' && p.salary_type) { summary = t('oa_salary')+': '+(p.old_type? p.old_type+' → ':'')+p.salary_type; } } catch(e){}
     // C3/C4: 点击整张卡片弹出预览（sheet）
@@ -1375,8 +1414,12 @@
         html += '<div class="oa-card__desc" style="margin-top:6px;color:var(--muted-foreground);font-size:12px;">'+t('oa_pending_own_hint')+'</div>';
       }
     } else {
-      const st = ev.status==='approved';
-      html += '<div class="oa-card__desc" style="margin-top:6px;"><span class="oa-status-badge '+(st?'approved':'rejected')+'">'+(st?t('approved'):t('rejected'))+'</span>'+(ev.reject_reason?(' <span style="color:var(--muted-foreground);">'+esc(ev.reject_reason)+'</span>'):'')+'</div>';
+      // BUG-5/BUG-1 配套: 四态徽章（revoked 原误显「已驳回」；pending 来自 mine 列表）
+      const ST_CLS = { approved:'approved', rejected:'rejected', revoked:'revoked', pending:'pending' };
+      const ST_KEY = { approved:'approved', rejected:'rejected', revoked:'event_revoked', pending:'pending_label' };
+      const stCls = ST_CLS[ev.status] || 'rejected';
+      const stKey = ST_KEY[ev.status] || 'rejected';
+      html += '<div class="oa-card__desc" style="margin-top:6px;"><span class="oa-status-badge '+stCls+'">'+t(stKey)+'</span>'+(ev.reject_reason?(' <span style="color:var(--muted-foreground);">'+esc(ev.reject_reason)+'</span>'):'')+'</div>';
       // C5: 审批历史卡片显示审批人 + 审批时间
       html += '<div class="oa-card__date" style="margin-top:4px;">'+t('oa_approver')+': '+esc(ev.approved_by||ev.rejected_by||'—')+' · '+t('oa_approved_at')+': '+esc(String(ev.updated_at||'').slice(0,16))+'</div>';
     }
@@ -1403,8 +1446,7 @@
   function oaPreview(id, mode){
     const ev = (STATE._oaEvents||[]).find(x=>String(x.id)===String(id));
     if(!ev) return;
-    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), overtime:t('event_overtime') };
-    const st = ev.status==='approved';
+    const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), skill_change:t('event_skill_change'), reinstatement:t('event_reinstatement'), sick:t('event_sick_leave'), sick_leave:t('event_sick_leave'), casual:t('event_casual'), annual_leave:t('event_annual_leave'), comp_leave:t('event_comp_leave'), overtime:t('event_overtime') };
     const isProcessed = (mode==='history' || mode==='mine');  // R1: mine 与 history 同为已处理只读
     let html = '<div class="oa-card" style="margin-bottom:12px;pointer-events:none;"><div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div></div>';
     // OA 重设计 R3: 员工信息条（缺失容错 '-'；移动端无档案跳转按钮）
@@ -1419,7 +1461,9 @@
       + '<div class="info-row"><span class="info-row__label">'+t('oa_created_at')+'</span><span class="info-row__value">'+esc(ev.created_at||'')+'</span></div>';
     // 历史：状态 + 审批人 + 审批时间 + 驳回原因
     if(isProcessed){
-      html += '<div class="info-row"><span class="info-row__label">'+t('oa_status')+'</span><span class="info-row__value"><span class="oa-status-badge '+(st?'approved':'rejected')+'">'+(st?t('approved'):t('rejected'))+'</span></span></div>'
+      const ST_CLS = { approved:'approved', rejected:'rejected', revoked:'revoked', pending:'pending' };
+      const ST_KEY = { approved:'approved', rejected:'rejected', revoked:'event_revoked', pending:'pending_label' };
+      html += '<div class="info-row"><span class="info-row__label">'+t('oa_status')+'</span><span class="info-row__value"><span class="oa-status-badge '+(ST_CLS[ev.status]||'rejected')+'">'+t(ST_KEY[ev.status]||'rejected')+'</span></span></div>'
         + '<div class="info-row"><span class="info-row__label">'+t('oa_approver')+'</span><span class="info-row__value">'+esc(ev.approved_by||ev.rejected_by||'—')+'</span></div>'
         + '<div class="info-row"><span class="info-row__label">'+t('oa_approved_at')+'</span><span class="info-row__value">'+esc(String(ev.updated_at||'').slice(0,16))+'</span></div>'
         + (ev.reject_reason?'<div class="info-row"><span class="info-row__label">'+t('oa_reject_reason')+'</span><span class="info-row__value">'+esc(ev.reject_reason)+'</span></div>':'');
