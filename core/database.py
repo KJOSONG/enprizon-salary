@@ -1230,6 +1230,45 @@ def get_approved_leave_statuses(data_folder, date):
     conn.close()
     return {r['employee_id']: r['status'] for r in rows}
 
+def get_oa_comp_leave_dates(data_folder, date):
+    """返回某日被「已审批通过调休(comp_leave)事件」覆盖的员工 id 集合（字符串）。
+
+    overrides.source 落库均为 0，无法区分 OA/采集来源；来源判定以当日是否有
+    approved comp_leave 事件覆盖为准：在集合内=OA 来源，不在=采集直批。
+    一次查询全员（事件数有限），勿逐人调用。
+    """
+    from datetime import date as _date, timedelta as _td
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT employee_id, effective_date, payload FROM employee_events "
+        "WHERE status='approved' AND event_type='comp_leave' AND effective_date<=?",
+        (date,)).fetchall()
+    conn.close()
+    out = set()
+    try:
+        target = _date.fromisoformat(date)
+    except ValueError:
+        return out
+    for r in rows:
+        eff = r['effective_date'] or ''
+        try:
+            eff_d = _date.fromisoformat(eff)
+        except ValueError:
+            continue
+        try:
+            payload = json.loads(r['payload'] or '{}')
+        except Exception:
+            payload = {}
+        try:
+            days = int(payload.get('days') or 1)
+        except (TypeError, ValueError):
+            days = 1
+        if days < 1:
+            days = 1
+        if target <= eff_d + _td(days=days - 1):
+            out.add(str(r['employee_id']))
+    return out
+
 def find_conflicting_routed_leave_events(data_folder):
     """检测「出勤采集自动路由产生、但与被批假期冲突」的 pending 请假事件。
 

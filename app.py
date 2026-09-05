@@ -3356,6 +3356,9 @@ def collection_submit():
                 _bal = _glb(app.config['DATA_FOLDER'], _eid_t, int(date[:4]))
                 if (_bal.get('comp_entitled', 0) or 0) - (_bal.get('comp_used', 0) or 0) < 1:
                     return jsonify({'ok': False, 'error': f'员工 {_eid_t} 调休余额不足，无法标记 T（整单未提交，请调整后重试）'}), 400
+        # OA 调休集合：T→非T 时判定来源用（一次查询全员）
+        from core.database import get_oa_comp_leave_dates as _goacd
+        _oa_comp_set = _goacd(app.config['DATA_FOLDER'], date)
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -3367,6 +3370,16 @@ def collection_submit():
             if status == 'T' and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'T':
                 t_skipped.append({'employee_id': eid, 'date': date})
                 continue
+            # T→非T：OA 来源的调休不可覆盖（跳过）；采集直批 T 改回时退 1 天余额
+            if status != 'T' and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'T':
+                if str(eid) in _oa_comp_set:
+                    t_skipped.append({'employee_id': eid, 'date': date, 'reason': 'oa'})
+                    continue
+                try:
+                    from core.database import restore_comp_leave
+                    restore_comp_leave(app.config['DATA_FOLDER'], eid, int(date[:4]), 1)
+                except Exception:
+                    pass  # SQL 内 MAX(...,0) 防负，失败不阻断状态修正
             try:
                 save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=0)
                 if status == 'T':
@@ -3871,13 +3884,16 @@ def api_collection_roster():
     #   不传 date 行为完全不变）
     date = (request.args.get('date') or '').strip()
     if date:
-        from core.database import get_approved_leave_statuses
+        from core.database import get_approved_leave_statuses, get_oa_comp_leave_dates
         approved = {str(k): v for k, v in get_approved_leave_statuses(app.config['DATA_FOLDER'], date).items()}
+        # 调休 T 来源判定：当日被 approved comp_leave 事件覆盖 = OA，否则 = 采集直批
+        oa_comp = get_oa_comp_leave_dates(app.config['DATA_FOLDER'], date)
         for e in slim:
             _st = approved.get(str(e.get('id')))
             if _st:
                 e['approved_leave'] = True
                 e['approved_leave_status'] = _st
+                e['leave_origin'] = 'oa' if (_st == 'T' and str(e.get('id')) not in oa_comp) or _st in ('NU', 'SK', 'L') else 'collection'
     return jsonify({'ok': True, 'employees': slim})
 
 @app.route('/api/collection/cleanup-routed-leave', methods=['POST'])
