@@ -722,8 +722,18 @@
     const totals = { nh:sum('nh'), nl:sum('nl'), mw:sum('mw') };
     const dayTot = data.map(s=>s.total).filter(x=>x>0);
     const avg = dayTot.length? dayTot.reduce((a,b)=>a+b,0)/dayTot.length : 0;
-    const maxVal = dayTot.length? Math.max(...dayTot) : 0;
-    const maxDate = maxVal? (data.find(s=>s.total===maxVal)||{}).date||'' : '';
+    // 2026-09-06: 第 5 卡由"日最高"改为"本月总产量"（与 Web P36-b 口径一致：随日期/班组/班次筛选联动，不随矿石筛选变化）
+    const rawSp = (STATE.dashboard.shift_production||[]).filter(s=>(!STATE.dashDateFrom||s.date>=STATE.dashDateFrom)&&(!STATE.dashDateTo||s.date<=STATE.dashDateTo));
+    const sumOreAll = (s)=>{
+      if(Array.isArray(s.teams)){
+        const list = (s.teams||[]).filter(tm=>STATE.teamFilter==='all'||String(tm.team_id)===String(STATE.teamFilter));
+        return list.reduce((b,tm)=>b+(tm.total!=null?tm.total:((tm.nh||0)+(tm.nl||0)+(tm.mw||0))),0);
+      }
+      if(STATE.shiftFilter==='day') return (s.day_nh||0)+(s.day_nl||0)+(s.day_mw||0);
+      if(STATE.shiftFilter==='night') return (s.night_nh||0)+(s.night_nl||0)+(s.night_mw||0);
+      return (s.total_nh||0)+(s.total_nl||0)+(s.total_mw||0);
+    };
+    const monthTotal = rawSp.reduce((a,s)=>a+sumOreAll(s),0);
     const isNew = (STATE.dashboard.shift_production||[]).some(s=>Array.isArray(s.teams));
     let kpis;
     if(isNew){
@@ -742,7 +752,7 @@
         { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
         { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
         { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
-        { l:t('kpi_day_max'), v:fmt(maxVal), sub:maxDate? maxDate.slice(5).replace('-','/') : '', ind:'ind-i2' },
+        { l:t('dash_month_total'), v:fmt(monthTotal), ind:'ind-i2' },
         { l:t('dash_team_title'), v:teamStr, ind:'ind-i4' },
       ];
     } else {
@@ -754,7 +764,7 @@
         { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
         { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
         { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
-        { l:t('kpi_day_max'), v:fmt(maxVal), sub:maxDate? maxDate.slice(5).replace('-','/') : '', ind:'ind-i2' },
+        { l:t('dash_month_total'), v:fmt(monthTotal), ind:'ind-i2' },
         { l:t('kpi_ratio'), v:ratio, ind:'ind-i4' },
       ];
     }
