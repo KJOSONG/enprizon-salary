@@ -980,10 +980,12 @@ def _resolve_export_month_data(requested_month):
     exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
     bonus_penalties = _load_bp(app.config['DATA_FOLDER'], requested_month)
     ug_team_members = _build_ug_team_members(app.config['DATA_FOLDER'])
+    dept_day_map = _build_transfer_day_map(app.config['DATA_FOLDER'], requested_month)  # P35
     try:
         result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
                                pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
-                               bonus_penalties=bonus_penalties, ug_team_members=ug_team_members)
+                               bonus_penalties=bonus_penalties, ug_team_members=ug_team_members,
+                               dept_day_map=dept_day_map)
     except TypeError:
         result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
                                pricing=APP_STATE.get('config', {}), data_folder=app.config['DATA_FOLDER'],
@@ -1318,10 +1320,12 @@ def _run_pipeline(month_filter=None):
     exclusions = _load_excl(app.config.get('DATA_FOLDER'))
     bonus_penalties = _load_bp(app.config.get('DATA_FOLDER'), month_filter) if month_filter else {}
     ug_team_members = _build_ug_team_members(app.config.get('DATA_FOLDER'), month=month_filter)
+    dept_day_map = _build_transfer_day_map(app.config.get('DATA_FOLDER'), month_filter)  # P35: 调岗日粒度时间线
     try:
         result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
                                pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
-                               bonus_penalties=bonus_penalties, ug_team_members=ug_team_members)
+                               bonus_penalties=bonus_penalties, ug_team_members=ug_team_members,
+                               dept_day_map=dept_day_map)
     except TypeError:
         result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
                                pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
@@ -2547,6 +2551,44 @@ def oa_approve_event(event_id):
     # P13: 自审限制——super_admin 例外，可批准自己提交的事件
     if event['operator_id'] == username and session.get('role') != 'super_admin':
         return jsonify({'ok': False, 'error': '不能批准自己提交的事件'}), 400
+    # ── P35-B5: 跨计件/非计件调岗，必须由审批人显式确认新岗位薪资类型 ──
+    _confirm = request.get_json(silent=True) or {}
+    if event.get('event_type') == 'transfer':
+        try:
+            _pl = json.loads(event.get('payload') or '{}')
+        except Exception:
+            _pl = {}
+        _valid5 = ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush')
+        _old_type = _pl.get('old_type') or ''
+        if not _old_type:
+            try:
+                from core.database import get_conn as _gc
+                _c = _gc(app.config['DATA_FOLDER'])
+                _r = _c.execute("SELECT default_type FROM employees WHERE id=?", (event['employee_id'],)).fetchone()
+                _c.close()
+                _old_type = (_r['default_type'] if _r else '') or ''
+            except Exception:
+                _old_type = ''
+        # 合并审批人确认字段（new_type/day_rate/monthly_salary）
+        _changed = False
+        for _k in ('new_type', 'day_rate', 'monthly_salary'):
+            if _k in _confirm and _confirm.get(_k) is not None:
+                _pl[_k] = _confirm[_k]
+                _changed = True
+        _nt = _pl.get('new_type') or ''
+        _nd = (_pl.get('new_department') or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
+        if _old_type in ('piece_underground', 'piece_driller', 'piece_crush') \
+                and _nt not in _valid5 and _nd != 'PRODUCTIONTEAM(UNDERGROUND)':
+            return jsonify({'ok': False, 'error': 'transfer_salary_type_required'}), 400
+        if _nt in ('day_rate', 'monthly'):
+            try:
+                _base_ok = float(_pl.get('day_rate') or 0) > 0 or float(_pl.get('monthly_salary') or 0) > 0
+            except (TypeError, ValueError):
+                _base_ok = False
+            if not _base_ok:
+                return jsonify({'ok': False, 'error': 'transfer_salary_base_required'}), 400
+        if _changed:
+            event['payload'] = json.dumps(_pl, ensure_ascii=False)
     # P28: 须在 approve_event 抢占状态之前入账——放后面会把批准卡死在无法回退的半途
     from core.database import accrue_comp_leave_monthly
     try:
@@ -3160,6 +3202,87 @@ def _build_ug_team_members(data_folder, month=None):
     except Exception:
         pass
     return team_map
+
+
+_VALID_SALARY_TYPES = ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush')
+
+
+def _build_transfer_day_map(data_folder, month=None):
+    """P35: 调岗/调薪日粒度时间线。返回
+    {eid: {'start_dept','start_team','start_type','transitions':[(eff,dept,team,type),...]}}
+    数据源：已批准 transfer/salary_change 事件（effective_date 落在查看月；month=None 时全量）。
+    生效前基线取事件链首个生效日之前一个月的月台账（回退主档）。
+    无事件员工不进入返回值 → calculator 完全回退月粒度行为（零风险兜底）。"""
+    try:
+        from core.database import get_conn, resolve_base_for_month
+        conn = get_conn(data_folder)
+        if month and len(month) == 7:
+            rows = conn.execute(
+                "SELECT employee_id, event_type, effective_date, payload FROM employee_events"
+                " WHERE status='approved' AND event_type IN ('transfer','salary_change')"
+                " AND substr(effective_date,1,7)=? ORDER BY employee_id, effective_date, id",
+                (month,)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT employee_id, event_type, effective_date, payload FROM employee_events"
+                " WHERE status='approved' AND event_type IN ('transfer','salary_change')"
+                " ORDER BY employee_id, effective_date, id").fetchall()
+        main_rows = {str(r['id']): dict(r) for r in conn.execute(
+            "SELECT id, department, default_type, team_id FROM employees").fetchall()}
+        conn.close()
+    except Exception:
+        return {}
+    by_emp = {}
+    for r in rows:
+        eid = str(r['employee_id'])
+        try:
+            payload = json.loads(r['payload'] or '{}')
+        except Exception:
+            payload = {}
+        eff = (r['effective_date'] or '')[:10]
+        if not eff:
+            continue
+        dept = team = typ = None
+        if r['event_type'] == 'transfer':
+            dept = (payload.get('new_department') or '').strip() or None
+            # team 解析：payload 有班组用之；调入 UG 但无 team_id（旧事件/补录）→ None 继承先前班组；
+            # 调出 UG（或转入无班组部门）→ 0
+            try:
+                team = int(payload.get('team_id') or 0)
+            except (TypeError, ValueError):
+                team = 0
+            if team <= 0:
+                team = None if (dept and _norm_ug_dept(dept) == _UG_NORM_TARGET) else 0
+            nt = payload.get('new_type') or ''
+            typ = nt if nt in _VALID_SALARY_TYPES else None
+        else:  # salary_change
+            nt = payload.get('salary_type') or ''
+            typ = nt if nt in _VALID_SALARY_TYPES else None
+        by_emp.setdefault(eid, []).append((eff, dept, team if r['event_type'] == 'transfer' else None, typ))
+    day_map = {}
+    for eid, transitions in by_emp.items():
+        if not transitions:
+            continue
+        first_eff = transitions[0][0]
+        try:
+            from datetime import datetime as _dtm
+            _y, _m = int(first_eff[:4]), int(first_eff[5:7])
+            _pm = f'{_y - 1}-12' if _m == 1 else f'{_y}-{_m - 1:02d}'
+        except Exception:
+            _pm = ''
+        base = None
+        try:
+            base = resolve_base_for_month(data_folder, eid, _pm) if _pm else None
+        except Exception:
+            base = None
+        main_row = main_rows.get(eid, {})
+        day_map[eid] = {
+            'start_dept': (base or {}).get('department') if base and base.get('department') is not None else (main_row.get('department') or ''),
+            'start_team': int((base or {}).get('team_id') or 0) if base and base.get('team_id') is not None else int(main_row.get('team_id') or 0),
+            'start_type': (base or {}).get('default_type') if base and base.get('default_type') else (main_row.get('default_type') or ''),
+            'transitions': transitions,
+        }
+    return day_map
 
 def _merge_collection_to_main_data(main_data, form_type, date, payload):
     """P9: 单条采集提交合并进 main_data（Web 采集覆盖 Excel 同日期）"""
@@ -5071,6 +5194,7 @@ def get_daily_wages():
     _emps_dw = (_md.get('employees') if _md else []) if _md is not None else []
     _cfg_dw = (_md.get('config_snapshot') if _md else {}) if _md is not None else {}
     _ug_dw = _build_ug_team_members(app.config.get('DATA_FOLDER'))
+    _ddm_dw = _build_transfer_day_map(app.config.get('DATA_FOLDER'), month)  # P35
     try:
         result = compute_daily_breakdown(
             main_data=cur_md_dw,
@@ -5080,6 +5204,7 @@ def get_daily_wages():
             pricing=_cfg_dw,
             data_folder=app.config.get('DATA_FOLDER'),
             ug_team_members=_ug_dw,
+            dept_day_map=_ddm_dw,
         )
     except TypeError:
         result = compute_daily_breakdown(
@@ -5963,6 +6088,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         from core.calculator import compute_daily_breakdown
         from core.exceptions import load_overrides as _ld_ov, load_daily_exclusions
         _ug_exp = _build_ug_team_members(app.config['DATA_FOLDER'])
+        _ddm_exp = _build_transfer_day_map(app.config['DATA_FOLDER'], _eff_month)  # P35
         try:
             dw_result = compute_daily_breakdown(
                 main_data=_eff_md, employees=employees,
@@ -5971,6 +6097,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                 pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
                 data_folder=app.config['DATA_FOLDER'],
                 ug_team_members=_ug_exp,
+                dept_day_map=_ddm_exp,
             )
         except TypeError:
             dw_result = compute_daily_breakdown(

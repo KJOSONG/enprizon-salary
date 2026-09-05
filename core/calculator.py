@@ -61,6 +61,88 @@ def is_ug_production_emp(emp):
     """P28 R4: 井下生产工判定 = 部门匹配目标井下部门（规范化比较）"""
     return _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT)
 
+# ── P35: 调岗/调薪日粒度时间线 ─────────────────────────────
+# dept_day_map 形如 {eid: {'start_dept':..,'start_team':..,'start_type':..,
+#                          'transitions': [(eff_date, dept_or_None, team_or_None, type_or_None), ...]}}
+# 由 app._build_transfer_day_map 构建；无事件员工不在 map 中 → 一律回退月粒度基线（零行为差异）。
+
+def _tl_dept(tl, dt, fallback=''):
+    dept = tl.get('start_dept') or fallback or ''
+    for eff, nd, _t, _ty in (tl.get('transitions') or []):
+        if dt >= eff and nd:
+            dept = nd
+    return dept
+
+def _tl_team(tl, dt, fallback=0):
+    team = tl.get('start_team')
+    if team is None:
+        team = fallback or 0
+    for eff, _nd, t, _ty in (tl.get('transitions') or []):
+        # t=None 表示该事件不改变班组（如旧调岗事件缺 team_id），保持原值
+        if dt >= eff and t is not None:
+            team = int(t or 0)
+    return int(team or 0)
+
+def _tl_type(tl, dt, fallback):
+    typ = tl.get('start_type') or fallback
+    for eff, _nd, _t, ty in (tl.get('transitions') or []):
+        if dt >= eff and ty:
+            typ = ty
+    return typ
+
+def _dept_at(eid, dt, emp, ddm):
+    """P35: 员工在 dt 的部门（日粒度时间线 > 月粒度基线）"""
+    tl = (ddm or {}).get(eid)
+    if not tl:
+        return (emp or {}).get('department', '')
+    return _tl_dept(tl, dt, (emp or {}).get('department', ''))
+
+def _team_at(eid, dt, emp, ddm):
+    """P35: 员工在 dt 的班组（日粒度）"""
+    tl = (ddm or {}).get(eid)
+    if not tl:
+        return int((emp or {}).get('team_id') or 0)
+    return _tl_team(tl, dt, (emp or {}).get('team_id') or 0)
+
+def _type_at(eid, dt, ddm, perm_type):
+    """P35: 员工在 dt 的薪资类型（日粒度时间线 > perm_type 兜底；
+    注意 per_date_type（DB 覆盖/派生桥）优先级始终高于本函数）"""
+    tl = (ddm or {}).get(eid)
+    if not tl:
+        return perm_type
+    return _tl_type(tl, dt, perm_type)
+
+_UG_NORM = _norm_dept(PRODUCTION_UG_DEPT)
+
+def _team_roster_at(date_str, tid, base_roster, ddm):
+    """P35: 逐日班组名单——调岗生效日切分。
+    base_roster 为月粒度名单；有 timeline 的成员按生效日进出，
+    调出方向员工（月名单已不含）在生效日之前按旧班组注入。"""
+    if not ddm:
+        return base_roster
+    out = []
+    for e in base_roster:
+        se = str(e)
+        tl = ddm.get(se)
+        if tl is None:
+            out.append(e)
+            continue
+        if _tl_team(tl, date_str) == tid and _norm_dept(_tl_dept(tl, date_str)) == _UG_NORM:
+            out.append(e)
+    for se, tl in ddm.items():
+        if se in base_roster or not isinstance(se, str):
+            continue
+        if _tl_team(tl, date_str) == tid and _norm_dept(_tl_dept(tl, date_str)) == _UG_NORM:
+            out.append(se)
+    return out
+
+def _ug_exception_active(eid, dt, ug_exc_intervals):
+    """P35-B2: 该 (eid, dt) 是否处于 piece_underground 临时例外（team_id>0）区间内"""
+    for s, e in ug_exc_intervals.get(eid, ()):  # e 为 '' 表示无上限（永久哨兵）
+        if dt >= s and (not e or dt <= e):
+            return True
+    return False
+
 # 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
 EAT = timezone(timedelta(hours=3))
 TODAY = datetime.now(EAT).date()
@@ -71,7 +153,7 @@ CURRENT_YEAR = TODAY.year
 #  1. 生产薪资计算
 # ═══════════════════════════════════════════════════════════
 
-def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None, mode=None, pricing=None, ug_team_members=None):
+def calc_underground_piece(shift_data, exclusions, override_excludes, data_folder=None, all_attendance_pairs=None, mode=None, pricing=None, ug_team_members=None, dept_day_map=None):
     """
     计算井下工人计件工资
     白班+夜班合并，总金额均分给出勤人员
@@ -184,7 +266,8 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                 if ug_team_members is None or _tid not in ug_team_members:
                     v2_warnings.append(f"no team roster / zero attendance, pool skipped team {_tid} {date_str}")
                     continue
-                _roster = ug_team_members.get(_tid) or []
+                # P35: 逐日班组名单——调岗生效日切分（调出前在旧班组、调入后在新班组）
+                _roster = _team_roster_at(date_str, _tid, ug_team_members.get(_tid) or [], dept_day_map)
                 # V2: piece_underground 临时例外 (team_id>0) 注入计件池有效名单。
                 # 绕过 _roster 检查——临时例外本身代表"这天他属于该班组"。
                 # 例: LOWASA SOINGE MOLLEL 已调入 Sort Crush(team_id=0)，但当日
@@ -841,7 +924,7 @@ def calc_monthly_salary(employees, overrides, underground_mode='piecework'):
         if is_monthly and emp.get('monthly_salary', 0) > 0:
             result[eid] = emp['monthly_salary']
     return result
-def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, bonus_penalties=None, ug_team_members=None):
+def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, bonus_penalties=None, ug_team_members=None, dept_day_map=None):
     overrides = overrides or {}
     exclusions = exclusions or set()
     pricing = pricing or {}
@@ -978,14 +1061,19 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             for emp in employees:
                 eid = emp['id']
                 # P21 M6/R4: 双条件——井下计件重定向 monthly 需「类型=piece_underground ∧ 部门=目标井下部门」
-                if emp.get('default_type') == 'piece_underground' \
-                        and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
-                    scoring_employees.add(eid)
+                # P35: 部门条件按日粒度解析（调岗生效日切分）
+                if emp.get('default_type') == 'piece_underground':
+                    _hit = False
                     for dt in all_dates:
                         # P27: 临时例外优先于模式重定向——带日期区间的临时例外（如 8月过渡日薪）
                         # 先于本块写入 per_date_type（见上方 787 行临时例外循环），此处不得覆盖。
-                        if dt not in per_date_type.get(eid, {}):
+                        if dt in per_date_type.get(eid, {}):
+                            continue
+                        if _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) == _norm_dept(PRODUCTION_UG_DEPT):
+                            _hit = True
                             per_date_type[eid][dt] = 'monthly'
+                    if _hit:
+                        scoring_employees.add(eid)
         elif underground_mode == 'v2':
             pass  # V2: no scoring redirect, keep piece_underground type
 
@@ -998,6 +1086,13 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         ug_type_excl = set()
         dr_type_excl = set()
         cr_type_excl = set()
+        # P35-B2: piece_underground 临时例外（team_id>0）区间索引——例外语义即"这天他属于该班组"，
+        # 豁免部门双条件的排除（否则例外先注入又被部门条件踢出，永不生效）
+        ug_exc_intervals = {}
+        for _eid, _ovs in overrides.items():
+            for _o in _ovs:
+                if _o.get('salary_type') == 'piece_underground' and (_o.get('start_date') or '') and int(_o.get('team_id') or 0) > 0:
+                    ug_exc_intervals.setdefault(_eid, []).append((_o['start_date'], _o.get('end_date') or ''))
         for emp in employees:
             eid = emp['id']
             perm_type = emp['default_type']
@@ -1007,18 +1102,24 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     if st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush') and not (s or e):
                         perm_type = st
             for dt in all_shift_dates:
-                dtype = per_date_type.get(eid, {}).get(dt, perm_type)
+                # P35: per_date_type（DB 覆盖/派生桥）优先；无覆盖时按调岗时间线逐日解析类型
+                dtype = per_date_type.get(eid, {}).get(dt)
+                if dtype is None:
+                    dtype = _type_at(eid, dt, dept_day_map, perm_type)
                 # P14.3: 非井下计件类型一律从井下计件排除。
                 # scoring 模式下井下工人已在 per_date_type 准备阶段被一次性改写为 monthly，
                 # 因此无需再按 scoring_employees 运行时逐个判断（该集合仅保留供评分奖金等下游使用）。
                 # P21 M6/R4: 双条件——部门不在目标井下部门的 piece_underground 同样排除（当前 bug 根修）
-                if dtype != 'piece_underground' \
-                        or _norm_dept(emp.get('department')) != _norm_dept(PRODUCTION_UG_DEPT):
+                # P35: 部门条件按调岗时间线逐日解析；临时例外命中日豁免部门条件（B2）
+                if dtype != 'piece_underground':
+                    ug_type_excl.add((eid, dt))
+                elif _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) != _norm_dept(PRODUCTION_UG_DEPT) \
+                        and not _ug_exception_active(eid, dt, ug_exc_intervals):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
-        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing, ug_team_members=ug_team_members)
+        underground_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_exclusions | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing, ug_team_members=ug_team_members, dept_day_map=dept_day_map)
         driller_sal, _, driller_daily = calc_driller_piece(driller_data, data_folder, combined_exclusions | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_exclusions | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
         monthly_base = calc_monthly_salary(employees, overrides, underground_mode=underground_mode)
@@ -1318,7 +1419,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 #  日工资明细（复用逐日单轨逻辑）
 # ═══════════════════════════════════════════════════════════
 
-def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, ug_team_members=None):
+def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=None, pricing=None, data_folder=None, ug_team_members=None, dept_day_map=None):
     """逐日工资明细，与 calculate_all 共用 per_date_type + 子函数结果"""
     overrides = overrides or {}
     exclusions = exclusions or set()
@@ -1445,14 +1546,18 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         if underground_mode == 'scoring':
             for emp in employees:
                 eid = emp['id']
-                # P21 M6/R4: 双条件（与 calculate_all 一致）
-                if emp.get('default_type') == 'piece_underground' \
-                        and _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT):
-                    scoring_employees.add(eid)
+                # P21 M6/R4: 双条件（与 calculate_all 一致）；P35: 部门条件日粒度
+                if emp.get('default_type') == 'piece_underground':
+                    _hit = False
                     for dt in all_dates:
-                        # P27: 临时例外优先于模式重定向（与 calculate_all 843 行保持一致）
-                        if dt not in per_date_type.get(eid, {}):
+                        # P27: 临时例外优先于模式重定向（与 calculate_all 保持一致）
+                        if dt in per_date_type.get(eid, {}):
+                            continue
+                        if _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) == _norm_dept(PRODUCTION_UG_DEPT):
+                            _hit = True
                             per_date_type[eid][dt] = 'monthly'
+                    if _hit:
+                        scoring_employees.add(eid)
         elif underground_mode == 'v2':
             pass  # V2: no scoring redirect
         combined_excl = exclusions | att_exclusions | range_exclusions
@@ -1465,6 +1570,12 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         ug_type_excl = set()
         dr_type_excl = set()
         cr_type_excl = set()
+        # P35-B2: 临时例外区间索引（与 calculate_all 一致）
+        ug_exc_intervals = {}
+        for _eid, _ovs in overrides.items():
+            for _o in _ovs:
+                if _o.get('salary_type') == 'piece_underground' and (_o.get('start_date') or '') and int(_o.get('team_id') or 0) > 0:
+                    ug_exc_intervals.setdefault(_eid, []).append((_o['start_date'], _o.get('end_date') or ''))
         for emp in employees:
             eid = emp['id']
             perm_type = emp['default_type']
@@ -1474,16 +1585,22 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     if st in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush') and not (s or e):
                         perm_type = st
             for dt in all_shift_dates:
-                dtype = per_date_type.get(eid, {}).get(dt, perm_type)
+                # P35: per_date_type 优先；无覆盖时按调岗时间线逐日解析类型
+                dtype = per_date_type.get(eid, {}).get(dt)
+                if dtype is None:
+                    dtype = _type_at(eid, dt, dept_day_map, perm_type)
                 # P14.3: 非井下计件类型一律从井下计件排除（scoring 井下工人已前置改写为 monthly）
                 # P21 M6/R4: 双条件——部门不符同样排除（与 calculate_all 一致）
-                if dtype != 'piece_underground' \
-                        or _norm_dept(emp.get('department')) != _norm_dept(PRODUCTION_UG_DEPT):
+                # P35: 部门条件日粒度 + 临时例外豁免（B2）
+                if dtype != 'piece_underground':
+                    ug_type_excl.add((eid, dt))
+                elif _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) != _norm_dept(PRODUCTION_UG_DEPT) \
+                        and not _ug_exception_active(eid, dt, ug_exc_intervals):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
                 if dtype != 'piece_crush': cr_type_excl.add((eid, dt))
 
-        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing, ug_team_members=ug_team_members)
+        ug_sal, ug_daily, ug_shifts = calc_underground_piece(shift_data, combined_excl | ug_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs, mode=underground_mode, pricing=pricing, ug_team_members=ug_team_members, dept_day_map=dept_day_map)
         dr_sal, dups, dr_daily = calc_driller_piece(driller_data, data_folder, combined_excl | dr_type_excl, att_exclusions=att_exclusions, all_attendance_pairs=all_attendance_pairs)
         crush_sal, crush_daily, crush_shifts = calc_crush_piece(crush_data, combined_excl | cr_type_excl, {'permanent': set()}, data_folder, all_attendance_pairs)
 
