@@ -4045,7 +4045,15 @@ async function loadEmployeeProfilePage(eid) {
       fetch(api('/api/employees/' + eid + '/events')),
     ]);
     const emp = (await empRes.json()).employee;
-    const events = (await evtRes.json()).events || [];
+    const evtData = await evtRes.json();
+    let events = evtData.events || [];
+    // 出勤标记合成条目：采集标假/手动标记直接落 overrides 无事件 → 补进时间线
+    (evtData.attendance_marks || []).forEach(m => {
+      events.push({ event_type: 'attendance_mark', status: 'approved',
+        effective_date: m.start_date, created_at: m.start_date,
+        payload: JSON.stringify({ status: m.status, days: m.days, start_date: m.start_date, end_date: m.end_date, source: m.source, operator: m.operator }) });
+    });
+    events.sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || ''));
     if (!emp) { document.getElementById('profileName').textContent = t('emp_not_found'); return; }
 
     document.getElementById('profileName').textContent = emp.name;
@@ -4155,7 +4163,8 @@ async function loadEmployeeProfilePage(eid) {
     // 时间线
     const EVENT_LABELS = { hire: t('event_hire'), transfer: t('event_transfer'), dismiss: t('event_dismiss'),
       salary_change: t('event_salary_change'), skill_change: t('event_skill_change'), reinstatement: t('event_reinstatement'),
-      annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note') };
+      annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note'),
+      attendance_mark: t('emp_att_mark') };
     const tl = document.getElementById('profileTimeline');
     const activeEvents = events.filter(ev => ev.status !== 'revoked');
     if (activeEvents.length === 0) {
@@ -4199,6 +4208,12 @@ async function loadEmployeeProfilePage(eid) {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(startDate)} ~ ${escHtml(endDate||'?')} (${days}天)</div>`;
         } else if (ev.event_type === 'overtime') {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.date||'?')} ${escHtml(payload.start_time||'')}-${escHtml(payload.end_time||'')} (${payload.hours||0}h)</div>`;
+        } else if (ev.event_type === 'attendance_mark') {
+          const stLbl = t('mark_st_' + String(payload.status || '').toLowerCase()) || payload.status || '?';
+          const srcLbl = payload.source === 'collection' ? t('mark_src_collection') : payload.source === 'manual' ? t('mark_src_manual') : t('mark_src_approval');
+          const range = (payload.days > 1) ? (payload.start_date + ' ~ ' + payload.end_date + ' (' + payload.days + t('d_unit') + ')') : payload.start_date;
+          const opTxt = payload.operator ? (' · ' + payload.operator) : '';
+          details = '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escHtml(stLbl + ' · ' + range + ' · ' + srcLbl + opTxt) + '</div>';
         } else if (ev.event_type === 'note') {
           details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.content||'')}</div>`;
         } else if (payload.note) {

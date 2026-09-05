@@ -2025,9 +2025,10 @@ def api_employee_profile(employee_id):
 @login_required
 @require_permission('employees', 'view')
 def api_employee_events(employee_id):
-    from core.database import get_employee_events
+    from core.database import get_employee_events, get_employee_attendance_marks
     events = get_employee_events(app.config['DATA_FOLDER'], employee_id)
-    return jsonify({'events': events})
+    marks = get_employee_attendance_marks(app.config['DATA_FOLDER'], employee_id)
+    return jsonify({'events': events, 'attendance_marks': marks})
 
 @app.route('/api/employees/<employee_id>/events', methods=['POST'])
 @login_required

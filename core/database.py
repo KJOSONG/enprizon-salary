@@ -2502,6 +2502,84 @@ def get_employee_events(data_folder, employee_id):
     conn.close()
     return [dict(r) for r in rows]
 
+def get_employee_attendance_marks(data_folder, employee_id):
+    """合成事件时间线的「出勤标记」条目（不含 P 等常规出勤）。
+
+    覆盖直接落 attendance_overrides 而无 employee_events 的出勤状态变更：
+    采集提交标假(T/SK/L 等)、桌面手动标记。OA 审批通过的请假(annual_leave/
+    comp_leave/sick/casual)已有事件条目，其覆盖日期不重复生成。
+    连续日期+同状态合并为一段；来源按采集提交记录反查：
+    collection=采集提交(附操作人) / manual=桌面手动 / approval=审批落库。
+    返回 [{status, start_date, end_date, days, source, operator}]，按日期倒序。
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    conn = get_conn(data_folder)
+    try:
+        rows = conn.execute(
+            "SELECT date, status, source FROM attendance_overrides "
+            "WHERE employee_id=? AND status!='P' ORDER BY date", (employee_id,)).fetchall()
+        if not rows:
+            return []
+        # OA 已批请假事件覆盖的日期集合（这些日期的 override 由审批逐日落，时间线已有事件条目）
+        ev_rows = conn.execute(
+            "SELECT event_type, effective_date, payload FROM employee_events "
+            "WHERE employee_id=? AND status='approved' "
+            "AND event_type IN ('annual_leave','comp_leave','sick','casual')", (employee_id,)).fetchall()
+        covered = set()
+        for ev in ev_rows:
+            try:
+                days = int(json.loads(ev['payload'] or '{}').get('days', 1) or 1)
+            except (ValueError, TypeError):
+                days = 1
+            days = max(days, 1)
+            try:
+                d0 = _dt.strptime(ev['effective_date'], '%Y-%m-%d')
+            except (TypeError, ValueError):
+                continue
+            for _i in range(days):
+                covered.add((d0 + _td(days=_i)).strftime('%Y-%m-%d'))
+        # 采集提交记录（反查来源/操作人）：{(date, employee_id): (status, operator)}
+        coll_map = {}
+        subs = conn.execute(
+            "SELECT submission_date, operator_id, payload FROM collection_submissions "
+            "WHERE form_type='attendance' AND submission_date IS NOT NULL").fetchall()
+        for s in subs:
+            try:
+                p = json.loads(s['payload'] or '{}')
+            except (ValueError, TypeError):
+                continue
+            op = s['operator_id'] or ''
+            for m in (p.get('marks') or []):
+                if str(m.get('employee_id')) == str(employee_id):
+                    coll_map[(s['submission_date'], str(m.get('status') or ''))] = op
+    finally:
+        conn.close()
+    # 过滤：跳过 P、跳过 OA 事件覆盖日、同状态连续日合并
+    items = []
+    for r in rows:
+        if r['date'] in covered:
+            continue
+        st = r['status']
+        src = int(r['source'] or 0)
+        if (r['date'], st) in coll_map:
+            kind, op = 'collection', coll_map[(r['date'], st)]
+        elif src == 1:
+            kind, op = 'manual', ''
+        else:
+            kind, op = 'approval', ''
+        if items and items[-1]['status'] == st and items[-1]['source'] == kind                 and items[-1]['_next'] == r['date']:
+            items[-1]['end_date'] = r['date']
+            items[-1]['days'] += 1
+            items[-1]['_next'] = (lambda d0: (_dt.strptime(d0, '%Y-%m-%d') + _td(days=1)).strftime('%Y-%m-%d'))(r['date'])
+        else:
+            items.append({'status': st, 'start_date': r['date'], 'end_date': r['date'],
+                          'days': 1, 'source': kind, 'operator': op,
+                          '_next': (lambda d0: (_dt.strptime(d0, '%Y-%m-%d') + _td(days=1)).strftime('%Y-%m-%d'))(r['date'])})
+    for it in items:
+        it.pop('_next', None)
+    items.sort(key=lambda x: x['start_date'], reverse=True)
+    return items
+
 def approve_event(data_folder, event_id, approved_by):
     """批准事件：更新 status + approved_by"""
     conn = get_conn(data_folder)
