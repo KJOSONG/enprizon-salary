@@ -2402,15 +2402,53 @@ def oa_pending_count():
 @login_required
 def oa_history():
     """P8: 已处理事件列表（approved/rejected）；P22 R2: 支持 ?type= 按事件类型筛选
-    P29 T4 A4: (oa:view || oa:apply) 门控；仅 apply 者只看自己提交的（含 revoked）"""
-    from core.database import get_processed_events
+    P29 T4 A4: (oa:view || oa:apply) 门控；仅 apply 者只看自己提交的（含 revoked）
+    OA 重设计 R1: ?mine=1 强制只看自己提交的（任何双键账号可用，仅 apply 者天然如此）；
+    ?approver= 按审批人（approved_by/rejected_by）筛，仅 oa:view 账号生效。
+    mine 与 approver 语义互斥，同时传以 mine 为准。"""
+    from core.database import get_processed_events, check_permission
     op_filter, denied = _oa_read_gate()
     if denied:
         return denied
     ev_type = (request.args.get('type') or '').strip() or None
+    mine = (request.args.get('mine') or '') in ('1', 'true')
+    approver = (request.args.get('approver') or '').strip() or None
+    if mine:
+        op_filter = session.get('username', '')
+        approver = None
+    elif approver and not check_permission(app.config['DATA_FOLDER'],
+                                           session.get('username', ''), 'oa', 'view'):
+        approver = None
     events = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type,
-                                  operator_filter=op_filter)
+                                  operator_filter=op_filter, approver=approver)
     return jsonify({'events': events})
+
+@app.route('/api/notifications', methods=['GET'])
+@login_required
+def api_notifications():
+    """OA 重设计 R2: 本人通知列表 + 未读数；?count_only=1 供轮询轻量拉取"""
+    from core.database import get_notifications, count_unread_notifications
+    username = session.get('username', '')
+    if (request.args.get('count_only') or '') in ('1', 'true'):
+        return jsonify({'unread': count_unread_notifications(app.config['DATA_FOLDER'], username)})
+    return jsonify(get_notifications(app.config['DATA_FOLDER'], username))
+
+@app.route('/api/notifications/read', methods=['POST'])
+@login_required
+def api_notifications_read():
+    """OA 重设计 R2: 标记通知已读（{id} 单条 或 {all:true} 全部），仅限本人"""
+    from core.database import mark_notifications_read
+    data = request.get_json() or {}
+    if data.get('all'):
+        mark_notifications_read(app.config['DATA_FOLDER'], session.get('username', ''),
+                                mark_all=True)
+    else:
+        try:
+            nid = int(data.get('id'))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': '缺少通知 id'}), 400
+        mark_notifications_read(app.config['DATA_FOLDER'], session.get('username', ''), nid=nid)
+    return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/approve', methods=['POST'])
 @editor_required
@@ -2449,6 +2487,14 @@ def oa_approve_event(event_id):
     log_audit(app.config['DATA_FOLDER'], 'oa_approve',
               event['employee_id'], json.dumps({'event_id': event_id}),
               operator=session.get('username',''))
+    # OA 重设计 R2: 通知提交人审批通过（旁路，失败不阻断；自审不发）
+    if event.get('operator_id') and event['operator_id'] != username:
+        try:
+            from core.database import create_notification
+            create_notification(app.config['DATA_FOLDER'], event['operator_id'],
+                                'oa_approved', ref_id=event_id)
+        except Exception as e:
+            app.logger.warning('写审批通知失败 event=%s: %s', event_id, e)
     # P27 按月隔离修复：按事件生效月份精准刷新，避免全局 APP_STATE.month 错月污染
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
@@ -2475,6 +2521,14 @@ def oa_reject_event(event_id):
             log_audit(app.config['DATA_FOLDER'], 'oa_reject',
                       event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}),
                       operator=session.get('username',''))
+            # OA 重设计 R2: 通知提交人审批驳回（body 带原因；旁路，失败不阻断）
+            if event.get('operator_id') and event['operator_id'] != username:
+                try:
+                    from core.database import create_notification
+                    create_notification(app.config['DATA_FOLDER'], event['operator_id'],
+                                        'oa_rejected', ref_id=event_id, body=reason)
+                except Exception as e:
+                    app.logger.warning('写驳回通知失败 event=%s: %s', event_id, e)
     return jsonify({'ok': ok})
 
 @app.route('/api/oa/events/<int:event_id>', methods=['GET'])
@@ -2493,6 +2547,10 @@ def oa_event_detail(event_id):
         _audit('perm_denied', '', json.dumps({'user': session.get('username', ''),
                                               'module': 'oa', 'action': 'view'}))
         return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'oa'}), 403
+    # OA 重设计 R3: 附员工信息条（姓名/部门/薪资类型）；查不到不报错，前端容错显示 '-'
+    from core.database import get_employee_info
+    ev['employee_info'] = get_employee_info(app.config['DATA_FOLDER'],
+                                            ev.get('employee_id', ''))
     return jsonify({'event': ev})
 
 @app.route('/api/oa/events/<int:event_id>/revoke', methods=['POST'])

@@ -237,6 +237,16 @@ def init_db(data_folder):
         );
         CREATE INDEX IF NOT EXISTS idx_events_employee ON employee_events(employee_id, effective_date);
         CREATE INDEX IF NOT EXISTS idx_events_status ON employee_events(status);
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            type TEXT NOT NULL,
+            ref_id INTEGER DEFAULT 0,
+            body TEXT DEFAULT '',
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(username, read, created_at);
         CREATE TABLE IF NOT EXISTS leave_balances (
             employee_id TEXT NOT NULL,
             year TEXT NOT NULL,
@@ -2506,11 +2516,12 @@ def get_pending_events(data_folder, approver='', is_super_admin=False, operator_
     conn.close()
     return [dict(r) for r in rows]
 
-def get_processed_events(data_folder, event_type=None, operator_filter=None):
+def get_processed_events(data_folder, event_type=None, operator_filter=None, approver=None):
     """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked
     P22 R2: 增加 event_type 可选过滤（None 时不过滤）
     P29 T4: operator_filter（oa:apply-only 用户）时仅返回该提交人的事件
-    （全状态含 revoked——撤销结果对本人可见）"""
+    （全状态含 revoked——撤销结果对本人可见）
+    OA 重设计 R1: approver 匹配 approved_by OR rejected_by（与 event_type/operator_filter 可叠加）"""
     conn = get_conn(data_folder)
     sql = """
         SELECT e.*, em.name as employee_name
@@ -2525,6 +2536,9 @@ def get_processed_events(data_folder, event_type=None, operator_filter=None):
     if operator_filter:
         sql += " AND e.operator_id=?"
         params.append(operator_filter)
+    if approver:
+        sql += " AND (e.approved_by=? OR e.rejected_by=?)"
+        params += [approver, approver]
     sql += " ORDER BY e.updated_at DESC, e.created_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
@@ -2908,6 +2922,87 @@ def get_event(data_folder, event_id):
     row = conn.execute("SELECT * FROM employee_events WHERE id=?", (event_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+def get_employee_info(data_folder, employee_id):
+    """OA 重设计 R3: 审批详情信息条用 {name, department, salary_type}。
+    salary_type = override_type or default_type（铁律）：
+    永久覆盖（overrides 无日期区间且类型有效）优先于主档 default_type，
+    判定规则对齐档案页 api_employee_profile（app.py 仅永久覆盖更新类型）。
+    员工已删等查不到时返回 None，调用方容错。"""
+    conn = get_conn(data_folder)
+    try:
+        emp = conn.execute(
+            "SELECT name, department, default_type FROM employees WHERE id=?",
+            (employee_id,)).fetchone()
+        if not emp:
+            return None
+        override_type = ''
+        for o in conn.execute(
+                "SELECT salary_type, start_date, end_date FROM overrides WHERE employee_id=?",
+                (employee_id,)).fetchall():
+            if (o['salary_type'] in ('day_rate', 'monthly', 'piece_underground',
+                                     'piece_driller', 'piece_crush')
+                    and not (o['start_date'] or o['end_date'])):
+                override_type = o['salary_type']
+        return {'name': emp['name'] or '',
+                'department': emp['department'] or '',
+                'salary_type': override_type or emp['default_type'] or ''}
+    finally:
+        conn.close()
+
+# ── OA 重设计: 站内通知中心（审批结果旁路通知） ─────────────────────
+
+def create_notification(data_folder, username, ntype, ref_id=0, body=''):
+    """写一条站内通知（仅通知接收人 username）。失败由调用方 try/except 兜底，不阻断审批。"""
+    conn = get_conn(data_folder)
+    try:
+        conn.execute(
+            "INSERT INTO notifications (username, type, ref_id, body) VALUES (?,?,?,?)",
+            (username, ntype, ref_id, body))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_notifications(data_folder, username, limit=20):
+    """取本人最近通知 + 未读数。前端按 type+i18n 渲染 title，后端不持久化文案。"""
+    conn = get_conn(data_folder)
+    try:
+        items = [dict(r) for r in conn.execute(
+            "SELECT id, type, ref_id, body, read, created_at FROM notifications "
+            "WHERE username=? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (username, limit)).fetchall()]
+        unread = conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE username=? AND read=0",
+            (username,)).fetchone()[0]
+    finally:
+        conn.close()
+    return {'items': items, 'unread': unread}
+
+def count_unread_notifications(data_folder, username):
+    """未读数（轻量轮询用，不拉明细）"""
+    conn = get_conn(data_folder)
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE username=? AND read=0",
+            (username,)).fetchone()[0]
+    finally:
+        conn.close()
+
+def mark_notifications_read(data_folder, username, nid=None, mark_all=False):
+    """标记已读：nid 指定单条，mark_all 全部。只动本人数据。"""
+    conn = get_conn(data_folder)
+    try:
+        if mark_all:
+            cur = conn.execute(
+                "UPDATE notifications SET read=1 WHERE username=? AND read=0", (username,))
+        else:
+            cur = conn.execute(
+                "UPDATE notifications SET read=1 WHERE username=? AND id=? AND read=0",
+                (username, nid))
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
 
 def get_approved_events_for_month(data_folder, month):
     """获取指定月份及之前生效的已批准事件（按类型筛选可用于计薪的事件）"""
