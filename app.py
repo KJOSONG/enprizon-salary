@@ -2868,7 +2868,8 @@ def leave_balance(employee_id):
         log_audit(app.config['DATA_FOLDER'], 'comp_accrual_lazy_failed', employee_id,
                   json.dumps({'error': str(e)}),
                   operator=session.get('username',''))
-    balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year)
+    # include_defaults=False：无余额行返回 exists:false + 全 0，档案页显示「—」而非虚构的 28/14
+    balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year, include_defaults=False)
     return jsonify({'balance': balance})
 
 @app.route('/api/leave/sick', methods=['POST'])

@@ -4127,9 +4127,18 @@ async function loadEmployeeProfilePage(eid) {
       const balRes = await fetch(api('/api/leave/balance/' + eid + '?year=' + new Date().getFullYear()));
       const balData = await balRes.json();
       const b = balData.balance || {};
-      document.getElementById('pfAnnual').textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
-      document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' ' + t('unit_day');
-      document.getElementById('pfSick').textContent = ((b.sick_entitled||0) - (b.sick_used||0)) + ' / ' + (b.sick_entitled||0) + ' ' + t('unit_day');
+      if (b.exists === false) {
+        // 无余额行：显示 — （未初始化，无可用余额），避免误显示默认 28/14
+        ['pfAnnual','pfComp','pfSick'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) { el.textContent = '—'; el.title = t('leave_not_initialized'); }
+        });
+      } else {
+        // exists undefined（旧缓存/旧后端）或 true：保持原渲染
+        document.getElementById('pfAnnual').textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
+        document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' ' + t('unit_day');
+        document.getElementById('pfSick').textContent = ((b.sick_entitled||0) - (b.sick_used||0)) + ' / ' + (b.sick_entitled||0) + ' ' + t('unit_day');
+      }
     } catch(e) {}
     // P12: 余额调整按钮仅 admin 可见
     ['pfAnnualAdjBtn','pfCompAdjBtn','pfSickAdjBtn'].forEach(id => {
@@ -8608,20 +8617,28 @@ const COL_ATT_STATUS = [
   ['L', 'att_status_l_pending'], ['SK', 'att_status_sk_pending'],
 ];
 
-// P32: 出勤采集「当日已批假期」排除（NU/T/SK/L 已审批通过）——员工不显示、不提交
-let _attLeaveByDate = {}; // {date: Set<employee_id string>}
+// P32: 出勤采集「当日已批假期」排除（NU/T/SK/L 已审批通过）——员工灰显锁定、不提交
+let _attLeaveByDate = {}; // {date: {employee_id: 假期状态字符（NU/T/SK/L）}}
 async function refreshAttLeaveGuard(dateStr) {
   if (!dateStr) return;
   try {
     const res = await fetch(api('/api/collection/roster?date=' + encodeURIComponent(dateStr)));
     if (!res.ok) return;
     const d = await res.json();
-    _attLeaveByDate[dateStr] = new Set((d.employees || []).filter(e => e.approved_leave).map(e => String(e.id)));
+    const m = {};
+    (d.employees || []).forEach(e => {
+      if (e.approved_leave) m[String(e.id)] = e.approved_leave_status || '';
+    });
+    _attLeaveByDate[dateStr] = m;
   } catch (e) {}
 }
 function attLeaveHas(dateStr, eid) {
-  const s = _attLeaveByDate[dateStr];
-  return !!s && s.has(String(eid));
+  const m = _attLeaveByDate[dateStr];
+  return !!m && m[String(eid)] != null;
+}
+function attLeaveStatus(dateStr, eid) {
+  const m = _attLeaveByDate[dateStr];
+  return (m && m[String(eid)]) || '';
 }
 async function onAttDateChange() {
   const dt = ((document.getElementById('attDate') || {}).value || '').trim();
@@ -8638,6 +8655,16 @@ async function renderAttCollectionForm(payload) {
   const rosterOther = filterEmpByDept(pool, 'other');
   const ugDeptExact = 'Production TEAM （underground）';
   const ugPool = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)');
+  // 编辑模式：原 marks 员工并入名单池（对齐移动端 P1 修复）——部门变更/不在 other 池的原员工也能显示与改状态
+  if (payload.marks && payload.marks.length) {
+    const ids = new Set(payload.marks.map(m => String(m.employee_id)).filter(Boolean));
+    const have = ids.has.bind(ids);
+    pool.forEach(e => {
+      if (!have(String(e.id))) return;
+      const target = normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)' ? ugPool : rosterOther;
+      if (!target.some(p => String(p.id) === String(e.id))) target.push(e);
+    });
+  }
   const deptsOther = [...new Set(rosterOther.map(e => e.department).filter(Boolean))].sort();
   const depts = deptsOther.slice();
   if (ugPool.length && !depts.some(d => normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)')) depts.push(ugDeptExact);
@@ -8713,7 +8740,7 @@ function filterAttRoster() {
   }
   if (hint) hint.style.display = 'none';
   const curDate = ((document.getElementById('attDate') || {}).value || '').trim();
-  let leaveHidden = 0;
+  let leaveLocked = 0;
   document.querySelectorAll('#attRoster .att-row').forEach(row => {
     row.style.display = 'none';
     const dept = row.getAttribute('data-dept') || '';
@@ -8724,16 +8751,43 @@ function filterAttRoster() {
       if (!tid) return;
       if (String(tid) !== String(teamVal)) return;
     }
-    // 当日已批假期：实时按职工 id 判定（随日期切换即时更新），命中即隐藏（也不会被提交）
-    if (attLeaveHas(curDate, row.getAttribute('data-emp-id'))) { leaveHidden++; return; }
+    const eid = row.getAttribute('data-emp-id');
+    const sel = row.querySelector('select');
+    const cb = row.querySelector('input[type="checkbox"]');
+    // 当日已批假期：灰显锁定（不隐藏），状态不可改（对齐移动端 P32 深化）
+    if (attLeaveHas(curDate, eid)) {
+      leaveLocked++;
+      row.classList.add('att-leave');
+      if (sel) sel.disabled = true;
+      if (cb) cb.disabled = true;
+      const nameSpan = row.querySelector('span');
+      if (nameSpan) {
+        let tag = row.querySelector('.att-leave-tag');
+        if (!tag) {
+          tag = document.createElement('span');
+          tag.className = 'att-leave-tag';
+          nameSpan.appendChild(tag);
+        }
+        const ls = attLeaveStatus(curDate, eid);
+        tag.textContent = ' · ' + t('col_on_leave') + (ls ? ' · ' + ls : '');
+      }
+      row.style.display = '';
+      return;
+    }
+    // 还原非命中行（日期切换后灰显可能过期）
+    row.classList.remove('att-leave');
+    if (sel) sel.disabled = false;
+    if (cb) cb.disabled = false;
+    const tag = row.querySelector('.att-leave-tag');
+    if (tag) tag.remove();
     row.style.display = '';
   });
-  // 提示「本日已有审批假期 N 人，已自动隐藏」
+  // 提示「本日已有审批假期 N 人，已灰显锁定」
   const note = document.getElementById('attLeaveNote');
   if (note) {
-    if (leaveHidden > 0) {
+    if (leaveLocked > 0) {
       note.style.display = '';
-      note.textContent = t('col_att_leave_hidden_n').replace('{n}', leaveHidden);
+      note.textContent = t('col_att_leave_hidden_n').replace('{n}', leaveLocked);
     } else {
       note.style.display = 'none';
     }
@@ -8772,6 +8826,15 @@ async function submitAttCollection() {
     roster = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)' && String(e.team_id||'') === String(teamId));
   } else {
     roster = filterEmpByDept(pool, 'other').filter(e => e.department === dept);
+  }
+  // 编辑模式：原 marks 员工并入 roster（与渲染池一致，部门变更员工的新选择也被收集；池外员工靠下方回填）
+  if (_colEditing) {
+    let oldPayload0 = {};
+    try { oldPayload0 = _colEditing.payload ? JSON.parse(_colEditing.payload) : {}; } catch(e) {}
+    const oldIds = new Set((oldPayload0.marks || []).map(m => String(m.employee_id)).filter(Boolean));
+    pool.forEach(e => {
+      if (oldIds.has(String(e.id)) && !roster.some(p => String(p.id) === String(e.id))) roster.push(e);
+    });
   }
   const marks = [];
   for (const e of roster) {

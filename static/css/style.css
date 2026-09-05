@@ -1857,6 +1857,9 @@ body {
 }
 .picker-row.att-row > span { flex: 1; min-width: 0; }
 .picker-row.att-row select { flex-shrink: 0; }
+/* 出勤采集行：当日已批假灰显锁定（对齐移动端 mobile.css .att-leave 语义） */
+.picker-row.att-row.att-leave { opacity: 0.62; background: var(--bg-secondary); border-radius: var(--radius); }
+.att-leave-tag { display: inline-block; font-size: 11px; color: var(--warning); font-weight: 600; white-space: nowrap; }
 .emp-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
