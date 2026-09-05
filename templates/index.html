@@ -7212,10 +7212,11 @@ async function loadOAHistory() {
     // 审批人下拉选项从已加载数据聚合（merge 补充，切筛选后已选项不丢失）
     if (apSel) {
       const known = new Set(Array.from(apSel.options).map(o => o.value).filter(v => v));
+      // BUG-3: 审批人下拉不含撤销人——revoked_by 非审批语义（?approver= 只匹配
+      // approved_by/rejected_by，选中撤销人必空结果）；rejected_by 仅驳回态可信
       events.forEach(ev => {
-        ['approved_by', 'rejected_by', 'revoked_by'].forEach(k => {
-          if (ev[k]) known.add(ev[k]);
-        });
+        if (ev.approved_by) known.add(ev.approved_by);
+        if (ev.rejected_by && ev.status === 'rejected') known.add(ev.rejected_by);
       });
       const cur = apSel.value;
       apSel.innerHTML = '<option value="" data-i18n="all_types">' + t('all_types') + '</option>'
@@ -7238,7 +7239,7 @@ function _renderOAHistoryCards(events, container, cardPrefix, detailPrefix, read
       <div class="oa-event-info">
         <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
         <div class="oa-event-meta">
-          ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_submitter')}: ${escHtml(ev.operator_id || '—')} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
+          ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_submitter')}: ${escHtml(ev.operator_id || '—')} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : ev.status === 'pending' ? t('pending_label') : t('event_revoked')}
           ${ev.status === 'revoked' && ev.revoked_by ? ' · ' + t('oa_revoke_by') + ': ' + escHtml(ev.revoked_by) : ''}
           ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
           · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || ev.revoked_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
@@ -7279,9 +7280,13 @@ function toggleOaHistDetail(eventId, detailPrefix) {
 /* C4: 审批历史详情预览（只读：状态徽章 + 驳回原因 + 审批人/时间 + 动态字段） */
 async function _oaHistDetailHtml(ev) {
   const detail = await _oaDetailHtml(ev);
-  const st = ev.status === 'approved';
+  const stMap = { approved: ['approved_label', 'var(--success)'],
+                  rejected: ['rejected_label', 'var(--danger)'],
+                  pending: ['pending_label', 'var(--warning)'],
+                  revoked: ['event_revoked', 'var(--text-muted)'] };
+  const [stKey, stColor] = stMap[ev.status] || stMap.revoked;
   const rows = `
-    <div class="oa-detail-row"><span class="oa-detail-label">${t('oa_status')}</span><span class="oa-detail-value" style="color:${st ? 'var(--success)' : 'var(--danger)'};font-weight:600;">${st ? t('approved_label') : t('rejected_label')}</span></div>
+    <div class="oa-detail-row"><span class="oa-detail-label">${t('oa_status')}</span><span class="oa-detail-value" style="color:${stColor};font-weight:600;">${t(stKey)}</span></div>
     ${ev.approved_by || ev.rejected_by ? `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_approver')}</span><span class="oa-detail-value">${escHtml(ev.approved_by || ev.rejected_by || '—')}</span></div>` : ''}
     ${ev.updated_at ? `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_approved_at')}</span><span class="oa-detail-value">${escHtml(String(ev.updated_at).slice(0, 16))}</span></div>` : ''}
     ${ev.reject_reason ? `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_reject_reason')}</span><span class="oa-detail-value">${escHtml(ev.reject_reason)}</span></div>` : ''}`;
@@ -7302,6 +7307,20 @@ async function loadNotifCount() {
     const nr = await fetch(api('/api/notifications?count_only=1'));
     _notifUnread = (await nr.json()).unread || 0;
   } catch (e) { _notifUnread = 0; }
+  // BUG-7(DESIGN A1): 仅 oa:approve 才拉待审列表/渲染「待我审批」段，
+  // 仅 apply 者的红点只反映通知未读数
+  if (!hasPermission('oa', 'approve')) {
+    _notifEvents = [];
+    const badge = document.getElementById('notifBadge');
+    if (badge) {
+      if (_notifUnread > 0) { badge.style.display = ''; badge.textContent = _notifUnread > 9 ? '9+' : _notifUnread; }
+      else badge.style.display = 'none';
+    }
+    const cnt = document.getElementById('notifCount');
+    if (cnt) cnt.textContent = '';
+    updateOaSideBadge();
+    return;
+  }
   try {
     const res = await fetch(api('/api/oa/pending'));
     const data = await res.json();
@@ -7401,6 +7420,12 @@ function renderNotifPanel() {
   const list = document.getElementById('notifList');
   const count = document.getElementById('notifCount');
   if (!list) return;
+  // BUG-7(DESIGN A1): 无 oa:approve 权限不渲染「待我审批」段
+  if (!hasPermission('oa', 'approve')) {
+    list.innerHTML = '';
+    if (count) count.textContent = '';
+    return;
+  }
   if (_notifEvents.length === 0) {
     list.innerHTML = '<div style="text-align:center;color:var(--muted-foreground);padding:20px;" data-i18n="notif_empty">暂无待审批</div>';
     if (count) count.textContent = '';

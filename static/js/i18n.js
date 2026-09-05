@@ -946,6 +946,7 @@ const I18N_DICT = {
     oa_status: '状态',
     approved_label: '已批准',
     rejected_label: '已驳回',
+    pending_label: '待审批',
     oa_reject_reason_ph: '驳回原因（必填）',
     oa_no_history: '暂无已处理事件',
     op_fail: '操作失败',
@@ -2195,6 +2196,7 @@ const I18N_DICT = {
     oa_status: 'Status',
     approved_label: 'Approved',
     rejected_label: 'Rejected',
+    pending_label: 'Pending',
     oa_reject_reason_ph: 'Reject reason (required)',
     oa_no_history: 'No processed events',
     op_fail: 'Operation failed',
@@ -2631,6 +2633,15 @@ function switchLang(lang) {
   /* 重新渲染产量核验表 */
   if (STATE._verifyData && typeof renderVerifyTable === 'function') {
     renderVerifyTable();
+  }
+
+  /* BUG-8: 通知面板打开时一并重渲染（头部「N 提交人」计数随语言变化） */
+  if (typeof renderNotifPanel === 'function') {
+    const panel = document.getElementById('notifPanel');
+    if (panel && panel.style.display === 'block') {
+      renderNotifPanel();
+      if (typeof loadNotifResults === 'function') loadNotifResults();
+    }
   }
 }
 
