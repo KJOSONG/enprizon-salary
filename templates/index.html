@@ -2443,6 +2443,10 @@ function showTargetPage(module, subPage) {
   // P5: 归档页面加载
   if (module === 'system' && subPage === 'archive') loadArchivePage();
   // P9: 数据采集子页
+  // P34: 进采集子页强制重拉花名册/班组 —— 调岗/入职审批后名单即时生效，无需 F5（与移动端 P33 对齐）
+  if (targetId === 'collection-underground' || targetId === 'collection-driller' || targetId === 'collection-crush' || targetId === 'collection-attendance') {
+    _colEmpPool = null; _ugGroupsCache = null;
+  }
   if (targetId === 'collection-underground') { renderUgCollectionForm(); loadColHistory('underground', 'colUgHistory'); }
   if (targetId === 'collection-driller') { renderDrCollectionForm(); loadColHistory('driller', 'colDrHistory'); }
   if (targetId === 'collection-crush') { renderCrCollectionForm(); loadColHistory('crush', 'colCrHistory'); }
@@ -4182,7 +4186,17 @@ async function loadEmployeeProfilePage(eid) {
         });
       } else {
         // exists undefined（旧缓存/旧后端）或 true：保持原渲染
-        document.getElementById('pfAnnual').textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
+        // C1: 年假资格规则 —— 入职未满 365 天不可用，不显示余额数字，改为生效日期提示
+        const _pfAnnualEl = document.getElementById('pfAnnual');
+        const _hd = emp.hire_date ? new Date(emp.hire_date) : null;
+        const _hdValid = _hd && !isNaN(_hd.getTime());
+        if (_hdValid && (Date.now() - _hd.getTime()) < 365 * 86400000) {
+          const _alDate = new Date(_hd.getTime() + 365 * 86400000).toISOString().slice(0, 10);
+          const _alText = t('leave_under_1year') + ' (' + _alDate + ')';
+          if (_pfAnnualEl) { _pfAnnualEl.textContent = _alText; _pfAnnualEl.title = _alText; }
+        } else {
+          if (_pfAnnualEl) _pfAnnualEl.textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
+        }
         document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' ' + t('unit_day');
         document.getElementById('pfSick').textContent = ((b.sick_entitled||0) - (b.sick_used||0)) + ' / ' + (b.sick_entitled||0) + ' ' + t('unit_day');
       }
@@ -5583,6 +5597,17 @@ document.addEventListener('click', function(e) {
   btn.appendChild(ripple);
   ripple.addEventListener('animationend', () => ripple.remove());
 });
+
+// P34: OA 写操作(批准/修改/撤销)后的跨模块缓存失效 —— 出勤网格/日工资/采集花名册/班组/OA锁定
+// 解决"审批通过后必须手动刷新页面才能看到变化"：所有受影响 tab 的缓存置空，下次进入自动重拉
+function invalidateAfterOaWrite() {
+  STATE.attendanceData = null;
+  STATE._dailyWages = null;
+  _attLeaveByDate = {};
+  _colEmpPool = null;
+  _empPool = null;
+  _ugGroupsCache = null;
+}
 
 async function recalculate() {
   const btn = document.getElementById('recalcBtn');
@@ -7059,6 +7084,7 @@ async function oaApprove(eventId) {
     showToast(t('approved_label'));
     loadOAPending();
     loadNotifCount();
+    invalidateAfterOaWrite();  // P34: 出勤网格/花名册等即时失效，无需 F5
     recalculate();  // P23 R2: 加班/入职等批准后薪资即时生效（请假撤销 recalc 已有先例）
   } else {
     showToast(data.error || t('op_fail'), 'error');
@@ -7154,6 +7180,7 @@ async function saveOaEdit() {
     if (data.ok) {
       showToast(t('leave_edit_ok'));
       document.getElementById('oaEditModal').style.display = 'none';
+      invalidateAfterOaWrite();  // P34
       await recalculate();
       loadOAPending();
       loadOAHistory();
@@ -7171,6 +7198,7 @@ async function revokeLeaveEvent(eventId) {
   const data = await res.json();
   if (data.ok) {
     showToast(t('toast_leave_revoke_ok'));
+    invalidateAfterOaWrite();  // P34: 撤销后出勤网格即时失效（原注释称刷新出勤但代码缺失，已补）
     await recalculate();
     loadOAPending();
     loadOAHistory();
@@ -8403,6 +8431,7 @@ function confirmPicker() {
 function refreshAfterCollection() {
   if (typeof loadProductionData === 'function') loadProductionData();
   if (typeof renderSalaryTable === 'function' && STATE.salaryResult) renderSalaryTable(STATE.salaryResult);
+  STATE.attendanceData = null;  // P34: 采集直批写 attendance_overrides，出勤网格缓存置空
 }
 
 function cancelColEdit(formType, historyId) {

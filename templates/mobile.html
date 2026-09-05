@@ -1426,7 +1426,7 @@
     html += '</div>';
     return html;
   }
-  function approveOA(id){ api('/api/oa/events/'+id+'/approve', { method:'POST', body:'{}' }).then(r=>{ if(r.ok){ toast(t('approved')); loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error'); }); }
+  function approveOA(id){ api('/api/oa/events/'+id+'/approve', { method:'POST', body:'{}' }).then(r=>{ if(r.ok){ toast(t('approved')); STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */ loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error'); }); }
   // 拒绝原因 Modal（非 prompt）
   function openRejectModal(id, empName){
     const body = '<div class="oa-card" style="margin-bottom:12px;"><div class="oa-card__head"><span class="oa-card__type">'+t('reject')+'</span><span class="oa-card__emp">'+esc(empName||'')+'</span></div></div>'
@@ -1437,7 +1437,7 @@
     const reason = document.getElementById('rj-reason').value.trim();
     if(!reason){ toast(t('reject_hint'),'warning'); return; }
     api('/api/oa/events/'+id+'/reject', { method:'POST', body: JSON.stringify({reject_reason:reason}) }).then(r=>{
-      if(r.ok){ toast(t('rejected')); closeModal(); loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
+      if(r.ok){ toast(t('rejected')); STATE.attendance=null; STATE.employees=[]; /* P34 */ closeModal(); loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
     }).catch(()=>toast(t('fail'),'error'));
   }
 
@@ -1742,7 +1742,7 @@
     // P29 V2.1: 采集入口按表单键守卫(collection:underground/driller/crush/attendance,与后端动作名一一对应)
     if(!hasPermission('collection', ty)){ toast(t('need_editor'),'warning'); return; }
     STATE.colType=ty; const titleKey = ty==='underground'?'col_ug':(ty==='driller'?'col_dr':(ty==='crush'?'col_cr':'col_att')); pushPage(t(titleKey)); document.getElementById('top-title').textContent = t(titleKey); document.getElementById('col-home').style.display='none'; document.getElementById('col-form').style.display='block';
-    if(ty==='underground') renderUgForm(initPayload); else if(ty==='driller') renderDrForm(initPayload); else if(ty==='crush') renderCrForm(initPayload); else renderAttForm(initPayload); }
+    if(ty==='underground') renderUgForm(initPayload); else if(ty==='driller') renderDrForm(initPayload); else if(ty==='crush') renderCrForm(initPayload); else { /* P34: 出勤收集打开前强制重拉员工 —— 调岗/入职后名单即时生效（P33 只覆盖进 tab，覆盖不到停留在本 tab 内再次打开表单的场景） */ loadEmployees().then(function(){ renderAttForm(initPayload); }); } }
   function backColHome(){ _pageStack[activeTab]=[]; document.getElementById('topback').classList.remove('visible'); document.getElementById('col-form').style.display='none'; document.getElementById('col-home').style.display='block'; document.getElementById('top-title').textContent = t('tab_collection'); loadCollectionHome(); }
 
   // ── 采集历史详情 + 可修改 ──
