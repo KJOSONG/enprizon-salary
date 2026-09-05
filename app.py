@@ -3893,7 +3893,7 @@ def api_collection_roster():
             if _st:
                 e['approved_leave'] = True
                 e['approved_leave_status'] = _st
-                e['leave_origin'] = 'oa' if (_st == 'T' and str(e.get('id')) not in oa_comp) or _st in ('NU', 'SK', 'L') else 'collection'
+                e['leave_origin'] = 'collection' if _st == 'T' and str(e.get('id')) not in oa_comp else 'oa'
     return jsonify({'ok': True, 'employees': slim})
 
 @app.route('/api/collection/cleanup-routed-leave', methods=['POST'])
