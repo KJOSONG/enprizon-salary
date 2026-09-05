@@ -2422,12 +2422,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
 /* ── 矿石颜色（Golden Time 暖色图表色系） ── */
 :root {
-  --nh-color: #B05A3C;
-  --nh-color-bg: rgba(176,90,60,0.12);
-  --nl-color: #B09F4A;
-  --nl-color-bg: rgba(176,159,74,0.12);
-  --mw-color: #E8923E;
-  --mw-color-bg: rgba(232,146,62,0.12);
+  --nh-color: #F08519;
+  --nh-color-bg: rgba(240,133,25,0.12);
+  --nl-color: #1D85ED;
+  --nl-color-bg: rgba(29,133,237,0.12);
+  --mw-color: #1DA561;
+  --mw-color-bg: rgba(29,165,97,0.12);
 }
 
 /* ── 控制栏 ── */

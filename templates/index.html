@@ -2791,11 +2791,12 @@ async function loadDashboard() {
 // ════════════════════════════════════════════════
 
 // ── 矿石颜色常量 ──
-// Golden Time 暖色图表色系：暖陶土 / 金橄榄 / 琥珀
+// 2026-09-06: 与移动端 mobile.html drawTrend 配色对齐（橙/蓝/绿，最大区分度），
+// 解决原暖陶土/琥珀（nh/mw）色相过近、趋势图三线对比度不足的问题；KPI 卡 CSS 变量同步更新
 const ORE_COLORS = {
-  nh: { line: '#B05A3C', bg: 'rgba(176,90,60,0.12)', solid: '#B05A3C', label: 'NH' },
-  nl: { line: '#B09F4A', bg: 'rgba(176,159,74,0.12)', solid: '#B09F4A', label: 'NL' },
-  mw: { line: '#E8923E', bg: 'rgba(232,146,62,0.12)', solid: '#E8923E', label: 'MW' },
+  nh: { line: '#F08519', bg: 'rgba(240,133,25,0.12)', solid: '#F08519', label: 'NH' },
+  nl: { line: '#1D85ED', bg: 'rgba(29,133,237,0.12)', solid: '#1D85ED', label: 'NL' },
+  mw: { line: '#1DA561', bg: 'rgba(29,165,97,0.12)', solid: '#1DA561', label: 'MW' },
 };
 
 // ── P31 B: 班组线色（决策 9：暖陶土/金橄榄/琥珀，循环取色，桌面/移动共享同一组值） ──
