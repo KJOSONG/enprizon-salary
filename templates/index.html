@@ -127,10 +127,16 @@
     <div class="notif-panel" id="notifPanel" style="display:none;">
       <div class="notif-panel-header">
         <span data-i18n="notif_title">通知</span>
-        <span class="notif-count" id="notifCount"></span>
+        <span style="display:flex;align-items:center;gap:8px;">
+          <span class="notif-count" id="notifCount"></span>
+          <button id="notifMarkAllBtn" onclick="markAllNotifsRead()" style="display:none;padding:2px 8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text-muted);cursor:pointer;" data-i18n="notif_mark_all_read">全部已读</button>
+        </span>
       </div>
-      <div class="notif-list" id="notifList">
-        <div style="text-align:center;color:var(--muted-foreground);padding:20px;" data-i18n="notif_loading">加载中...</div>
+      <div class="notif-scroll">
+        <div class="notif-list" id="notifList">
+          <div style="text-align:center;color:var(--muted-foreground);padding:20px;" data-i18n="notif_loading">加载中...</div>
+        </div>
+        <div id="notifResults"></div>
       </div>
     </div>
     <!-- 三道杠折叠菜单：收纳工具与用户操作 -->
@@ -320,6 +326,7 @@
     <button class="emp-tab" data-emp-tab="list" onclick="switchEmpTab('list')" style="padding:6px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--accent);color:#fff;font-size:13px;cursor:pointer;" data-i18n="emp_tab_list">员工列表</button>
     <button class="emp-tab" data-emp-tab="oa-pending" onclick="switchEmpTab('oa-pending')" style="padding:6px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-muted);font-size:13px;cursor:pointer;" data-i18n="nav_oa_pending">OA 待审</button>
     <button class="emp-tab" data-emp-tab="oa-history" onclick="switchEmpTab('oa-history')" style="padding:6px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-muted);font-size:13px;cursor:pointer;" data-i18n="nav_oa_history">OA 历史</button>
+    <button class="emp-tab" data-emp-tab="oa-mine" id="empTabMineBtn" onclick="switchEmpTab('oa-mine')" style="padding:6px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-muted);font-size:13px;cursor:pointer;" data-i18n="oa_mine_tab">我的申请</button>
   </div>
 
   <!-- Tab: 员工列表 -->
@@ -431,13 +438,28 @@
     <div class="card">
       <h2 style="margin-bottom:0;" data-i18n="nav_oa_history">审批历史</h2>
       <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_history_hint">以下为近期已处理的 OA 事件</p>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
         <span style="font-size:13px;color:var(--text-muted);" data-i18n="oa_history_filter">类型</span>
         <select id="oaHistoryTypeFilter" onchange="loadOAHistory()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
           <option value="" data-i18n="all_types">全部</option>
         </select>
+        <span style="font-size:13px;color:var(--text-muted);" data-i18n="oa_approver_filter">审批人</span>
+        <select id="oaHistoryApproverFilter" onchange="loadOAHistory()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+          <option value="" data-i18n="all_types">全部</option>
+        </select>
       </div>
       <div id="oaHistoryList" style="margin-top:12px;">
+        <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OA 重设计 R1: Tab 我的申请（仅 oa:apply 可见，数据 history?mine=1） -->
+  <div id="empTabOaMine" style="display:none;">
+    <div class="card">
+      <h2 style="margin-bottom:0;" data-i18n="oa_mine_tab">我的申请</h2>
+      <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_mine_hint">我提交的全部 OA 申请及审批结果</p>
+      <div id="oaMineList" style="margin-top:12px;">
         <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
       </div>
     </div>
@@ -615,7 +637,19 @@
         <button class="nav-btn" onclick="navigate('employees','list')" style="font-size:11px;padding:4px 10px;" data-i18n="btn_back">← 返回列表</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <!-- R4: 出勤概览 + R5: 月份联动（选择器同时驱动概览与时间线） -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 10px;">
+      <h2 style="margin:0;font-size:14px;" data-i18n="pf_att_overview">出勤概览</h2>
+      <select id="pfMonthSelect" onchange="onProfileMonthChange()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);"></select>
+    </div>
+    <div id="pfAttendanceSummary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+      <div class="stat-glass" style="padding:10px 14px;"><div class="value" style="font-size:1.5rem;">—</div></div>
+      <div class="stat-glass" style="padding:10px 14px;"><div class="value" style="font-size:1.5rem;">—</div></div>
+      <div class="stat-glass" style="padding:10px 14px;"><div class="value" style="font-size:1.5rem;">—</div></div>
+      <div class="stat-glass" style="padding:10px 14px;"><div class="value" style="font-size:1.5rem;">—</div></div>
+    </div>
+    <div id="pfAttendanceDetail" style="font-size:11px;color:var(--text-muted);margin-top:8px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
       <div style="min-width:0;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h2 style="margin-bottom:0;font-size:14px;" data-i18n="emp_basic_info">基本信息</h2>
@@ -1861,6 +1895,15 @@ function updateAuthUI() {
   const exportBtn = document.getElementById('exportBtn');
   if (exportBtn) exportBtn.style.display = _authState.logged_in && hasPermission('salary', 'export') ? '' : 'none';
   if (_authState.logged_in) { loadNotifCount(); } else { const b = document.getElementById('notifBell'); if (b) b.style.display = 'none'; }
+
+  // OA 重设计 R1: 我的申请页签对所有 oa:apply 可见（纯 view/未登录隐藏）
+  const mineBtn = document.getElementById('empTabMineBtn');
+  if (mineBtn) {
+    const mineVisible = _authState.logged_in && hasPermission('oa', 'apply');
+    mineBtn.style.display = mineVisible ? '' : 'none';
+    if (!mineVisible && document.getElementById('empTabOaMine') && document.getElementById('empTabOaMine').style.display !== 'none'
+        && STATE.currentSubPage === null) { switchEmpTab('list'); }
+  }
 
   // viewer 用户隐藏所有编辑相关操作
   const roleLevels = { super_admin: 3, admin: 2, editor: 1, viewer: 0 };
@@ -4035,10 +4078,12 @@ async function renderEmployeeTable() {
 
 /* ── P1 员工档案（P12: 独立页加载函数） ── */
 let _profileEid = null;
+let _profileEvents = [];
 async function loadEmployeeProfilePage(eid) {
   _profileEid = eid;
   const schemaForm = document.getElementById('profileSchemaForm');
   if (schemaForm) schemaForm.style.display = 'none';
+  fillProfileMonthSelect();
   try {
     const [empRes, evtRes] = await Promise.all([
       fetch(api('/api/employees/' + eid)),
@@ -4055,6 +4100,8 @@ async function loadEmployeeProfilePage(eid) {
     });
     events.sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || ''));
     if (!emp) { document.getElementById('profileName').textContent = t('emp_not_found'); return; }
+    _profileEvents = events;
+    loadProfileAttendance();
 
     document.getElementById('profileName').textContent = emp.name;
     document.getElementById('profileStatus').innerHTML = emp.status === 'active'
@@ -4168,87 +4215,182 @@ async function loadEmployeeProfilePage(eid) {
     loadProfileTempOverrides(eid);
     const toBtn = document.getElementById('pfTempOverrideAddBtn');
     if (toBtn) toBtn.style.display = hasPermission('employees','edit') ? 'inline-block' : 'none';
-
-    // 时间线
-    const EVENT_LABELS = { hire: t('event_hire'), transfer: t('event_transfer'), dismiss: t('event_dismiss'),
-      salary_change: t('event_salary_change'), skill_change: t('event_skill_change'), reinstatement: t('event_reinstatement'),
-      annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note'),
-      attendance_mark: t('emp_att_mark') };
-    const tl = document.getElementById('profileTimeline');
-    const activeEvents = events.filter(ev => ev.status !== 'revoked');
-    if (activeEvents.length === 0) {
-      tl.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px;">${t('no_events')}</div>`;
-    } else {
-      tl.innerHTML = activeEvents.map(ev => {
-        let payload = {};
-        try { payload = JSON.parse(ev.payload || '{}'); } catch(e) {}
-        let details = '';
-        // P26-b: 时间线详情键与事件 payload 键对齐（此前读 old_type/from_department 等不存在的键 → "? 0 → ? 0"）
-        if (ev.event_type === 'transfer') {
-          // 实际键: new_department / new_position（OA 调岗表单）；P29-F 复职调岗含 from_department → 显示 从 → 至
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.from_department ? escHtml(payload.from_department) + ' → ' : ''}${escHtml(payload.new_department||'?')}${payload.new_position ? ' · ' + escHtml(payload.new_position) : ''}</div>`;
-        } else if (ev.event_type === 'salary_change') {
-          // 实际键: salary_type / day_rate / monthly_salary（档案页端点）；事件含 old_type/old_salary 时显示 旧 → 新
-          const scTxt = (ty, base) => {
-            const lbl = TYPE_LBL[ty] || ty;
-            const bs = ty === 'day_rate' ? fmtNum(base||0) + ' TZS' + t('salary_per_day')
-                     : ty === 'monthly' ? fmtNum(base||0) + ' TZS' + t('salary_per_month') : '';
-            return bs ? lbl + ' · ' + bs : lbl;
-          };
-          const newBase = payload.salary_type === 'day_rate' ? payload.day_rate : payload.monthly_salary;
-          let sc = scTxt(payload.salary_type, newBase);
-          if (payload.old_type) sc = scTxt(payload.old_type, payload.old_salary) + ' → ' + sc;
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(sc)}</div>`;
-        } else if (ev.event_type === 'reinstatement') {
-          // P29-F 复职事件: 结构化键 department / salary_type
-          const ri = [payload.department, TYPE_LBL[payload.salary_type] || payload.salary_type].filter(Boolean).join(' · ');
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(ri)}</div>`;
-        } else if (ev.event_type === 'dismiss') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.reason||'')}</div>`;
-        } else if (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') {
-          const startDate = payload.start_date || ev.effective_date;
-          const days = payload.days || 1;
-          let endDate = payload.end_date;
-          if (!endDate && startDate) {
-            const d = new Date(startDate);
-            d.setDate(d.getDate() + days - 1);
-            endDate = d.toISOString().split('T')[0];
-          }
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(startDate)} ~ ${escHtml(endDate||'?')} (${days}天)</div>`;
-        } else if (ev.event_type === 'overtime') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.date||'?')} ${escHtml(payload.start_time||'')}-${escHtml(payload.end_time||'')} (${payload.hours||0}h)</div>`;
-        } else if (ev.event_type === 'attendance_mark') {
-          const stLbl = t('mark_st_' + String(payload.status || '').toLowerCase()) || payload.status || '?';
-          const srcLbl = payload.source === 'collection' ? t('mark_src_collection') : payload.source === 'manual' ? t('mark_src_manual') : t('mark_src_approval');
-          const range = (payload.days > 1) ? (payload.start_date + ' ~ ' + payload.end_date + ' (' + payload.days + t('d_unit') + ')') : payload.start_date;
-          const opTxt = payload.operator ? (' · ' + payload.operator) : '';
-          details = '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escHtml(stLbl + ' · ' + range + ' · ' + srcLbl + opTxt) + '</div>';
-        } else if (ev.event_type === 'note') {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.content||'')}</div>`;
-        } else if (payload.note) {
-          details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.note)}</div>`;
-        }
-        const isNote = ev.event_type === 'note';
-        const canEdit = isNote || (ev.status === 'approved' && ['annual_leave','comp_leave','overtime'].includes(ev.event_type));
-        const canDelete = isNote;
-        return `
-        <div class="timeline-item">
-          <div class="timeline-dot ${ev.status}"></div>
-          <div class="timeline-content">
-            <div class="timeline-header">
-              <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
-              <span class="timeline-date">${ev.event_type === 'salary_change' ? (ev.created_at || ev.effective_date).slice(0,16) : ev.effective_date}</span>
-              <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
-              ${canEdit ? `<button onclick="editEvent(${ev.id}, '${ev.event_type}', '${ev.effective_date}', '${btoa(encodeURIComponent(ev.payload||'{}'))}')" style="font-size:10px;padding:1px 6px;margin-left:auto;">✎</button>` : ''}
-              ${canDelete ? `<button onclick="deleteEvent(${ev.id}, '${eid}')" style="font-size:10px;padding:1px 6px;color:var(--danger);">🗑</button>` : ''}
-            </div>
-            ${details}
-          </div>
-        </div>`;
-      }).join('');
-    }
   } catch (e) {
     console.error('Failed to load profile', e);
+  }
+}
+
+/* ── R4/R5: 档案页出勤概览 + 月份联动（选择器驱动概览与时间线两板块） ── */
+async function fillProfileMonthSelect() {
+  const sel = document.getElementById('pfMonthSelect');
+  if (!sel) return;
+  const cur = new Date().toLocaleDateString('sv-SE').slice(0,7);
+  // 同步先塞当前月，保证并行期 loadProfileAttendance 读到有效月份；随后异步补全历史月
+  sel.innerHTML = `<option value="${cur}">${cur}</option>`;
+  sel.value = cur;
+  try {
+    const res = await fetch(api('/available-months'));
+    const months = (await res.json()).filter(m => /^\d{4}-\d{2}$/.test(m) && m <= cur);
+    if (!months.includes(cur)) months.unshift(cur);
+    months.sort((a,b) => b.localeCompare(a));
+    sel.innerHTML = months.map(m => `<option value="${m}">${m}</option>`).join('')
+      + `<option value="all">${t('month_all')}</option>`;
+    sel.value = cur;
+  } catch(e) {
+    sel.innerHTML = `<option value="${cur}">${cur}</option><option value="all">${t('month_all')}</option>`;
+    sel.value = cur;
+  }
+}
+
+function onProfileMonthChange() {
+  loadProfileAttendance();
+}
+
+async function loadProfileAttendance() {
+  const sel = document.getElementById('pfMonthSelect');
+  const month = sel ? sel.value : 'all';
+  let summary = null;
+  try {
+    const res = await fetch(api('/api/employees/' + _profileEid + '/attendance_summary?month=' + month));
+    const d = await res.json();
+    if (month === 'all') {
+      summary = { present:0, absent:0, leave:0, total_days:0, leave_detail:{annual:0,sick:0,personal:0,comp:0} };
+      (d.months || []).forEach(x => {
+        summary.present += x.present || 0;
+        summary.absent += x.absent || 0;
+        summary.leave += x.leave || 0;
+        summary.total_days += x.total_days || 0;
+        for (const k of ['annual','sick','personal','comp']) summary.leave_detail[k] += (x.leave_detail||{})[k] || 0;
+      });
+    } else {
+      summary = d.ok ? d : null;
+    }
+  } catch(e) { summary = null; }
+  renderProfileAttendance(summary);
+  renderProfileTimeline();
+}
+
+function renderProfileAttendance(s) {
+  const box = document.getElementById('pfAttendanceSummary');
+  const detailEl = document.getElementById('pfAttendanceDetail');
+  if (!box) return;
+  if (!s) {
+    box.innerHTML = `<div style="grid-column:1/-1;color:var(--danger);font-size:12px;text-align:center;padding:8px;">${t('pf_att_load_fail')}</div>`;
+    if (detailEl) detailEl.textContent = '';
+    return;
+  }
+  const card = (val, label, color) => `
+    <div class="stat-glass" style="padding:10px 14px;">
+      <div class="value" style="font-size:1.5rem;color:${color};">${val}</div>
+      <div class="label">${label}</div>
+    </div>`;
+  box.innerHTML =
+    card(s.present, t('pf_att_present'), 'var(--success)') +
+    card(s.absent, t('pf_att_absent'), 'var(--danger)') +
+    card(s.leave, t('pf_att_leave'), 'var(--warning)') +
+    card(s.total_days, t('pf_att_total'), 'var(--accent)');
+  if (detailEl) {
+    const d = s.leave_detail || {};
+    detailEl.textContent = s.leave > 0
+      ? `${t('mark_st_nu')} ${d.annual||0} · ${t('mark_st_sk')} ${d.sick||0} · ${t('pf_att_casual')} ${d.personal||0} · ${t('mark_st_t')} ${d.comp||0}`
+      : '';
+  }
+}
+
+function renderProfileTimeline() {
+  const TYPE_LBL = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
+    piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
+  const EVENT_LABELS = { hire: t('event_hire'), transfer: t('event_transfer'), dismiss: t('event_dismiss'),
+    salary_change: t('event_salary_change'), skill_change: t('event_skill_change'), reinstatement: t('event_reinstatement'),
+    annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note'),
+    attendance_mark: t('emp_att_mark') };
+  const eid = _profileEid;
+  const tl = document.getElementById('profileTimeline');
+  if (!tl) return;
+  const sel = document.getElementById('pfMonthSelect');
+  const month = sel ? sel.value : 'all';
+  const activeEvents = _profileEvents.filter(ev => {
+    if (ev.status === 'revoked') return false;
+    if (month === 'all') return true;
+    if (ev.event_type === 'attendance_mark') {
+      let p = {}; try { p = JSON.parse(ev.payload || '{}'); } catch(e) {}
+      const sd = p.start_date || ev.effective_date || '';
+      const ed = p.end_date || sd;
+      // 跨月段与所选月有交集即显示
+      return ed >= month + '-01' && sd <= month + '-31';
+    }
+    return (ev.effective_date || '').slice(0,7) === month;
+  });
+  if (activeEvents.length === 0) {
+    tl.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px;">${t('no_events')}</div>`;
+  } else {
+    tl.innerHTML = activeEvents.map(ev => {
+      let payload = {};
+      try { payload = JSON.parse(ev.payload || '{}'); } catch(e) {}
+      let details = '';
+      // P26-b: 时间线详情键与事件 payload 键对齐（此前读 old_type/from_department 等不存在的键 → "? 0 → ? 0"）
+      if (ev.event_type === 'transfer') {
+        // 实际键: new_department / new_position（OA 调岗表单）；P29-F 复职调岗含 from_department → 显示 从 → 至
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${payload.from_department ? escHtml(payload.from_department) + ' → ' : ''}${escHtml(payload.new_department||'?')}${payload.new_position ? ' · ' + escHtml(payload.new_position) : ''}</div>`;
+      } else if (ev.event_type === 'salary_change') {
+        // 实际键: salary_type / day_rate / monthly_salary（档案页端点）；事件含 old_type/old_salary 时显示 旧 → 新
+        const scTxt = (ty, base) => {
+          const lbl = TYPE_LBL[ty] || ty;
+          const bs = ty === 'day_rate' ? fmtNum(base||0) + ' TZS' + t('salary_per_day')
+                   : ty === 'monthly' ? fmtNum(base||0) + ' TZS' + t('salary_per_month') : '';
+          return bs ? lbl + ' · ' + bs : lbl;
+        };
+        const newBase = payload.salary_type === 'day_rate' ? payload.day_rate : payload.monthly_salary;
+        let sc = scTxt(payload.salary_type, newBase);
+        if (payload.old_type) sc = scTxt(payload.old_type, payload.old_salary) + ' → ' + sc;
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(sc)}</div>`;
+      } else if (ev.event_type === 'reinstatement') {
+        // P29-F 复职事件: 结构化键 department / salary_type
+        const ri = [payload.department, TYPE_LBL[payload.salary_type] || payload.salary_type].filter(Boolean).join(' · ');
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(ri)}</div>`;
+      } else if (ev.event_type === 'dismiss') {
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.reason||'')}</div>`;
+      } else if (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') {
+        const startDate = payload.start_date || ev.effective_date;
+        const days = payload.days || 1;
+        let endDate = payload.end_date;
+        if (!endDate && startDate) {
+          const d = new Date(startDate);
+          d.setDate(d.getDate() + days - 1);
+          endDate = d.toISOString().split('T')[0];
+        }
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(startDate)} ~ ${escHtml(endDate||'?')} (${days}天)</div>`;
+      } else if (ev.event_type === 'overtime') {
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.date||'?')} ${escHtml(payload.start_time||'')}-${escHtml(payload.end_time||'')} (${payload.hours||0}h)</div>`;
+      } else if (ev.event_type === 'attendance_mark') {
+        const stLbl = t('mark_st_' + String(payload.status || '').toLowerCase()) || payload.status || '?';
+        const srcLbl = payload.source === 'collection' ? t('mark_src_collection') : payload.source === 'manual' ? t('mark_src_manual') : t('mark_src_approval');
+        const range = (payload.days > 1) ? (payload.start_date + ' ~ ' + payload.end_date + ' (' + payload.days + t('d_unit') + ')') : payload.start_date;
+        const opTxt = payload.operator ? (' · ' + payload.operator) : '';
+        details = '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escHtml(stLbl + ' · ' + range + ' · ' + srcLbl + opTxt) + '</div>';
+      } else if (ev.event_type === 'note') {
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.content||'')}</div>`;
+      } else if (payload.note) {
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.note)}</div>`;
+      }
+      const isNote = ev.event_type === 'note';
+      const canEdit = isNote || (ev.status === 'approved' && ['annual_leave','comp_leave','overtime'].includes(ev.event_type));
+      const canDelete = isNote;
+      return `
+      <div class="timeline-item">
+        <div class="timeline-dot ${ev.status}"></div>
+        <div class="timeline-content">
+          <div class="timeline-header">
+            <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
+            <span class="timeline-date">${ev.event_type === 'salary_change' ? (ev.created_at || ev.effective_date).slice(0,16) : ev.effective_date}</span>
+            <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
+            ${canEdit ? `<button onclick="editEvent(${ev.id}, '${ev.event_type}', '${ev.effective_date}', '${btoa(encodeURIComponent(ev.payload||'{}'))}')" style="font-size:10px;padding:1px 6px;margin-left:auto;">✎</button>` : ''}
+            ${canDelete ? `<button onclick="deleteEvent(${ev.id}, '${eid}')" style="font-size:10px;padding:1px 6px;color:var(--danger);">🗑</button>` : ''}
+          </div>
+          ${details}
+        </div>
+      </div>`;
+    }).join('');
   }
 }
 
@@ -6852,7 +6994,16 @@ async function _oaDetailHtml(ev) {
     rows.push(`<div class="oa-detail-row"><span class="oa-detail-label">${escHtml(label)}</span><span class="oa-detail-value">${escHtml(val)}</span></div>`);
   }
   const submitterRow = `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_submitter')}</span><span class="oa-detail-value">${escHtml(ev.operator_id || '—')}${ev.created_at ? ' · ' + escHtml(String(ev.created_at).slice(0, 16)) : ''}</span></div>`;
-  return submitterRow + avatarHtml + rows.join('');
+  // OA 重设计 R3: 员工信息条（后端 employee_info；缺失容错显示 '-'）+ 进入档案
+  const info = ev.employee_info || null;
+  const typeLbl = info && OA_SALARY_TYPE_MAP[info.salary_type] ? t(OA_SALARY_TYPE_MAP[info.salary_type]) : (info ? info.salary_type : '');
+  const infoRow = `<div class="oa-detail-row"><span class="oa-detail-label">${t('oa_employee_info')}</span><span class="oa-detail-value">${info
+    ? `${escHtml(info.name || '-')} · ${escHtml(info.department || '-')} · ${escHtml(typeLbl || '-')}`
+    : '-'}</span></div>`;
+  const profileBtn = info && hasPermission('employees', 'view')
+    ? `<div style="margin:6px 0 2px;"><button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="navigate('employees','profile',{id:'${escHtml(ev.employee_id)}'})">${t('oa_goto_profile')}</button></div>`
+    : '';
+  return submitterRow + infoRow + profileBtn + avatarHtml + rows.join('');
 }
 
 async function loadOAPending() {
@@ -7050,43 +7201,77 @@ async function loadOAHistory() {
       });
     }
     const filter = sel ? sel.value : '';
-    const qs = filter ? '?type=' + encodeURIComponent(filter) : '';
+    // OA 重设计 R1: 审批人筛选（approved_by/rejected_by，后端 oa:view 生效）
+    const apSel = document.getElementById('oaHistoryApproverFilter');
+    const approver = apSel ? apSel.value : '';
+    let qs = filter ? '?type=' + encodeURIComponent(filter) : '';
+    if (approver) qs += (qs ? '&' : '?') + 'approver=' + encodeURIComponent(approver);
     const res = await fetch(api('/api/oa/history' + qs));
     const data = await res.json();
     const events = data.events || [];
-    if (events.length === 0) {
-      container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('oa_no_history') + '</div>';
-      return;
+    // 审批人下拉选项从已加载数据聚合（merge 补充，切筛选后已选项不丢失）
+    if (apSel) {
+      const known = new Set(Array.from(apSel.options).map(o => o.value).filter(v => v));
+      events.forEach(ev => {
+        ['approved_by', 'rejected_by', 'revoked_by'].forEach(k => {
+          if (ev[k]) known.add(ev[k]);
+        });
+      });
+      const cur = apSel.value;
+      apSel.innerHTML = '<option value="" data-i18n="all_types">' + t('all_types') + '</option>'
+        + Array.from(known).sort().map(a => `<option value="${escHtml(a)}">${escHtml(a)}</option>`).join('');
+      apSel.value = Array.from(known).includes(cur) ? cur : '';
     }
-    container.innerHTML = events.map(ev => `
-      <div class="oa-event-card" style="opacity:0.7;" id="oaHistCard${ev.id}">
-        <div class="oa-event-info">
-          <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
-          <div class="oa-event-meta">
-            ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_submitter')}: ${escHtml(ev.operator_id || '—')} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
-            ${ev.status === 'revoked' && ev.revoked_by ? ' · ' + t('oa_revoke_by') + ': ' + escHtml(ev.revoked_by) : ''}
-            ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
-            · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || ev.revoked_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
-          </div>
-        </div>
-        <div class="oa-event-actions">
-          <button class="oa-btn" onclick="toggleOaHistDetail(${ev.id})" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
-          ${ev.status === 'approved' && ['annual_leave','comp_leave','sick','casual','overtime'].includes(ev.event_type) && hasPermission('oa', 'approve') ? `
-          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
-          <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
-        </div>
-        <div id="oaHistDetail${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
-      </div>`).join('');
-    // 异步渲染详情（班组名需查接口）
-    events.forEach(ev => {
-      const box = document.getElementById('oaHistDetail' + ev.id);
-      if (box) _oaHistDetailHtml(ev).then(h => { box.innerHTML = h; });
-    });
+    _renderOAHistoryCards(events, container, 'oaHistCard', 'oaHistDetail', false);
   } catch (e) { container.innerHTML = t('load_fail'); }
 }
 
-function toggleOaHistDetail(eventId) {
-  const box = document.getElementById('oaHistDetail' + eventId);
+/* OA 重设计 R1: 历史卡片渲染公共函数（history 与 mine 页签共用）
+   readonly=true 时渲染只读操作区（mine 页签不显示编辑/撤销按钮——操作权限与历史页同款判断保留在调用侧） */
+function _renderOAHistoryCards(events, container, cardPrefix, detailPrefix, readonly) {
+  if (events.length === 0) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">' + t('oa_no_history') + '</div>';
+    return;
+  }
+  container.innerHTML = events.map(ev => `
+    <div class="oa-event-card" style="opacity:0.7;" id="${cardPrefix}${ev.id}">
+      <div class="oa-event-info">
+        <div class="oa-event-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type} — ${escHtml(ev.employee_name || ev.employee_id)}</div>
+        <div class="oa-event-meta">
+          ${t('oa_effective_date')}: ${ev.effective_date} · ${t('oa_submitter')}: ${escHtml(ev.operator_id || '—')} · ${t('oa_status')}: ${ev.status === 'approved' ? t('approved_label') : ev.status === 'rejected' ? t('rejected_label') : t('event_revoked')}
+          ${ev.status === 'revoked' && ev.revoked_by ? ' · ' + t('oa_revoke_by') + ': ' + escHtml(ev.revoked_by) : ''}
+          ${ev.reject_reason ? ' · ' + t('oa_reject_reason') + ': ' + escHtml(ev.reject_reason) : ''}
+          · ${t('oa_approver')}: ${escHtml(ev.approved_by || ev.rejected_by || ev.revoked_by || '—')} · ${t('oa_approved_at')}: ${escHtml(String(ev.updated_at || '').slice(0, 16))}
+        </div>
+      </div>
+      <div class="oa-event-actions">
+        <button class="oa-btn" onclick="toggleOaHistDetail(${ev.id}, '${detailPrefix}')" style="background:var(--bg-secondary);color:var(--text-muted);">${t('oa_view_detail')}</button>
+        ${!readonly && ev.status === 'approved' && ['annual_leave','comp_leave','sick','casual','overtime'].includes(ev.event_type) && hasPermission('oa', 'approve') ? `
+        <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="editLeaveEvent(${ev.id})">${t('btn_edit')}</button>
+        <button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="revokeLeaveEvent(${ev.id})">${t('btn_revoke')}</button>` : ''}
+      </div>
+      <div id="${detailPrefix}${ev.id}" style="display:none;width:100%;" class="oa-detail"></div>
+    </div>`).join('');
+  // 异步渲染详情（班组名需查接口）
+  events.forEach(ev => {
+    const box = document.getElementById(detailPrefix + ev.id);
+    if (box) _oaHistDetailHtml(ev).then(h => { box.innerHTML = h; });
+  });
+}
+
+/* OA 重设计 R1: 我的申请（仅 oa:apply；后端 ?mine=1 强制 operator_id=本人） */
+async function loadOAMine() {
+  const container = document.getElementById('oaMineList');
+  if (!container) return;
+  try {
+    const res = await fetch(api('/api/oa/history?mine=1'));
+    const data = await res.json();
+    _renderOAHistoryCards(data.events || [], container, 'oaMineCard', 'oaMineDetail', true);
+  } catch (e) { container.innerHTML = t('load_fail'); }
+}
+
+function toggleOaHistDetail(eventId, detailPrefix) {
+  const box = document.getElementById((detailPrefix || 'oaHistDetail') + eventId);
   if (!box) return;
   box.style.display = box.style.display === 'block' ? 'none' : 'block';
 }
@@ -7103,24 +7288,32 @@ async function _oaHistDetailHtml(ev) {
   return rows + detail;
 }
 
-/* ── P13: 通知铃铛 / 红点 / 待审批面板 ── */
+/* ── P13: 通知铃铛 / 红点 / 待审批面板（OA 重设计 R2: 增审批结果通知段） ── */
 let _notifEvents = [];
+let _notifUnread = 0;
 async function loadNotifCount() {
   const bell = document.getElementById('notifBell');
   const badge = document.getElementById('notifBadge');
   if (!bell || !badge) return;
   if (!_authState.logged_in) { bell.style.display = 'none'; return; }
   bell.style.display = '';
+  // R2: 待审数与通知未读数各拉各的，红点显示合并数（9+ 封顶）
+  try {
+    const nr = await fetch(api('/api/notifications?count_only=1'));
+    _notifUnread = (await nr.json()).unread || 0;
+  } catch (e) { _notifUnread = 0; }
   try {
     const res = await fetch(api('/api/oa/pending'));
     const data = await res.json();
     const prevCount = _notifEvents.length;
     _notifEvents = data.events || [];
     const newCount = _notifEvents.length;
-    if (newCount > 0) {
+    const total = newCount + _notifUnread;
+    if (total > 0) {
       badge.style.display = '';
+      badge.textContent = total > 9 ? '9+' : total;
       const count = document.getElementById('notifCount');
-      if (count) count.textContent = newCount + ' ' + t('notif_submitter');
+      if (count) count.textContent = (newCount > 0 ? newCount + ' ' + t('notif_submitter') : '');
       // 有新通知时摇动铃铛
       if (newCount > prevCount) {
         bell.classList.add('has-notif');
@@ -7141,8 +7334,67 @@ function toggleNotifPanel() {
     panel.style.display = 'none';
   } else {
     renderNotifPanel();
+    loadNotifResults();
     panel.style.display = 'block';
   }
+}
+
+async function loadNotifResults() {
+  const box = document.getElementById('notifResults');
+  if (!box) return;
+  try {
+    const res = await fetch(api('/api/notifications'));
+    const data = await res.json();
+    const items = data.items || [];
+    _notifUnread = data.unread || 0;
+    const typeLabel = (n) => n.type === 'oa_approved' ? t('notif_approved') : t('notif_rejected');
+    const typeColor = (n) => n.type === 'oa_approved' ? 'var(--success)' : 'var(--destructive)';
+    box.innerHTML = '<div class="notif-section-title" data-i18n="notif_result_section">' + t('notif_result_section') + '</div>'
+      + (items.length === 0
+        ? '<div style="text-align:center;color:var(--muted-foreground);padding:16px;" data-i18n="notif_no_result">' + t('notif_no_result') + '</div>'
+        : items.map(n => `
+          <div class="notif-result-item${n.read ? '' : ' is-unread'}" onclick="notifGoEvent(${n.id}, ${n.ref_id})">
+            <div class="notif-result-title" style="color:${typeColor(n)};">${typeLabel(n)}</div>
+            ${n.body ? `<div class="notif-result-body">${escHtml(n.body)}</div>` : ''}
+            <div class="notif-result-meta">${escHtml(String(n.created_at || '').slice(0, 16))}</div>
+          </div>`).join(''));
+    const markAll = document.getElementById('notifMarkAllBtn');
+    if (markAll) markAll.style.display = _notifUnread > 0 ? '' : 'none';
+  } catch (e) {
+    box.innerHTML = '<div class="notif-section-title" data-i18n="notif_result_section">' + t('notif_result_section') + '</div>'
+      + '<div style="text-align:center;color:var(--muted-foreground);padding:16px;">' + t('notif_load_fail') + '</div>';
+  }
+}
+
+async function notifGoEvent(nid, refId) {
+  // 标已读（旁路，失败不跳转阻断）
+  try { await fetch(api('/api/notifications/read'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: nid }) }); } catch (e) {}
+  const panel = document.getElementById('notifPanel');
+  if (panel) panel.style.display = 'none';
+  loadNotifCount();
+  // 审批结果事件在「我的申请」页签查看（提交人视角；数据源 history?mine=1 含全部状态）
+  navigate('employees', 'list');
+  switchEmpTab('oa-mine');
+  setTimeout(() => {
+    const card = document.getElementById('oaMineCard' + refId);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 500);
+}
+
+async function markAllNotifsRead() {
+  try {
+    await fetch(api('/api/notifications/read'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) });
+  } catch (e) { return; }
+  _notifUnread = 0;
+  const badge = document.getElementById('notifBadge');
+  const pendingN = _notifEvents.length;
+  if (badge) {
+    if (pendingN > 0) { badge.style.display = ''; badge.textContent = pendingN > 9 ? '9+' : pendingN; }
+    else badge.style.display = 'none';
+  }
+  const markAll = document.getElementById('notifMarkAllBtn');
+  if (markAll) markAll.style.display = 'none';
+  loadNotifResults();
 }
 
 function renderNotifPanel() {
@@ -7156,7 +7408,8 @@ function renderNotifPanel() {
   }
   if (count) count.textContent = _notifEvents.length + ' ' + t('notif_submitter');
   const EVENT_LABELS_MAP = window.EVENT_LABELS_MAP || {};
-  list.innerHTML = _notifEvents.map(ev => `
+  list.innerHTML = '<div class="notif-section-title" data-i18n="notif_pending_section">' + t('notif_pending_section') + '</div>'
+    + _notifEvents.map(ev => `
     <div class="notif-item" onclick="closeNotifAndGo('${ev.id}')">
       <div class="notif-item-type">${EVENT_LABELS_MAP[ev.event_type] ? t(EVENT_LABELS_MAP[ev.event_type]) : ev.event_type}</div>
       <div class="notif-item-name">${escHtml(ev.employee_name || ev.employee_id)}</div>
@@ -7309,10 +7562,11 @@ async function submitOvertime() {
 
 /* ── P8: 员工模块 Tabs 切换 ── */
 function switchEmpTab(tab) {
-  const tabs = ['list', 'oa-pending', 'oa-history'];
+  const tabs = ['list', 'oa-pending', 'oa-history', 'oa-mine'];
+  const panelIds = { 'list': 'empTabList', 'oa-pending': 'empTabOaPending', 'oa-history': 'empTabOaHistory', 'oa-mine': 'empTabOaMine' };
   tabs.forEach(k => {
     const btn = document.querySelector(`.emp-tab[data-emp-tab="${k}"]`);
-    const panel = document.getElementById('empTab' + (k === 'list' ? 'List' : k === 'oa-pending' ? 'OaPending' : 'OaHistory'));
+    const panel = document.getElementById(panelIds[k]);
     if (btn) {
       btn.style.background = k === tab ? 'var(--accent)' : 'var(--bg-secondary)';
       btn.style.color = k === tab ? '#fff' : 'var(--text-muted)';
@@ -7321,6 +7575,7 @@ function switchEmpTab(tab) {
   });
   if (tab === 'oa-pending') loadOAPending();
   if (tab === 'oa-history') loadOAHistory();
+  if (tab === 'oa-mine') loadOAMine();
 }
 
 /* ── P8: 员工姓名/工号 typeahead（防抖 300ms） ── */
