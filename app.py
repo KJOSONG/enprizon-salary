@@ -3654,6 +3654,14 @@ def collection_edit(submission_id):
         # 保证预检失败时旧直写状态完好（此前"先删旧再写新"会先清掉旧 override 再失败）
         _OA_MAP_EDIT = {'L': 'casual', 'SK': 'sick'}
         t_skipped = []  # T 幂等跳过清单，随响应返回供前端提示
+        t_skip_ids = set()  # 外部来源 T 保护名单（单一事实源，贯穿预检/删旧/写循环）
+
+        def _mark_t_skipped(eid_, date_):
+            # 收集去重：一人一条；同时登记进保护集合供删旧/写循环判定
+            t_skip_ids.add(str(eid_))
+            if not any(str(x['employee_id']) == str(eid_) for x in t_skipped):
+                t_skipped.append({'employee_id': eid_, 'date': date_})
+
         try:
             _old_marks = (json.loads(sub['payload'] or '{}').get('marks') or [])
         except Exception:
@@ -3669,12 +3677,13 @@ def collection_edit(submission_id):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
             if status == 'T':
                 # 净额语义：日期不变且旧 payload 同员工是 T 时，删旧阶段会先 restore 1，
-                # 写循环 deduct 需求净 0（used_effective = used-1）；当日已有 T 且非旧 marks
-                # 来源（如 OA 审批写入）时写循环幂等跳过，无余额需求
+                # 写循环 deduct 需求净 0（used_effective = used-1）
                 _was_t = new_date == old_date and any(
                     str(om.get('employee_id')) == str(eid) and om.get('status') == 'T' for om in _old_marks)
+                # DB 的 T 来自外部（OA 审批/手动/其他提交，旧 marks 未标 T）→ 保护保留，
+                # 删旧不删、写循环不重扣（此前会物理删掉 OA 的 T 再重扣 1 天）
                 if not _was_t and get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'T':
-                    t_skipped.append({'employee_id': eid, 'date': new_date})
+                    _mark_t_skipped(eid, new_date)
                     continue
                 from core.database import get_leave_balance as _glb_pre
                 _bal_pre = _glb_pre(app.config['DATA_FOLDER'], str(eid), int(new_date[:4]))
@@ -3688,11 +3697,21 @@ def collection_edit(submission_id):
         try:
             old_payload = json.loads(sub['payload'] or '{}')
             for m in (old_payload.get('marks') or []):
-                if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], old_date) != 'NU':
-                    if m.get('status') == 'T':
-                        from core.database import restore_comp_leave
-                        restore_comp_leave(app.config['DATA_FOLDER'], m['employee_id'], int(old_date[:4]), 1)
-                    delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], old_date)
+                eid = m.get('employee_id')
+                if not eid:
+                    continue
+                db_st = _att_st(app.config['DATA_FOLDER'], eid, old_date)
+                if db_st == 'NU':
+                    continue
+                # 外部 T 保护：DB 的 T 非旧 marks 来源（OA 审批写入等）→ 原样保留不删，
+                # 余额不动（含 eid 已被预检判定的场景）；纯重提 P 也不得无辜清掉外部 T
+                if db_st == 'T' and (str(eid) in t_skip_ids or m.get('status') != 'T'):
+                    _mark_t_skipped(eid, old_date)
+                    continue
+                if m.get('status') == 'T':
+                    from core.database import restore_comp_leave
+                    restore_comp_leave(app.config['DATA_FOLDER'], eid, int(old_date[:4]), 1)
+                delete_attendance_override(app.config['DATA_FOLDER'], eid, old_date)
         except Exception:
             pass
         # B1b: 覆盖合并场景——目标行(new_date)原来的 marks 也要删除，避免残留
@@ -3700,11 +3719,20 @@ def collection_edit(submission_id):
             try:
                 target_payload = json.loads(merged_target['payload'] or '{}')
                 for m in (target_payload.get('marks') or []):
-                    if m.get('employee_id') and _att_st(app.config['DATA_FOLDER'], m['employee_id'], new_date) != 'NU':
-                        if m.get('status') == 'T':
-                            from core.database import restore_comp_leave
-                            restore_comp_leave(app.config['DATA_FOLDER'], m['employee_id'], int(new_date[:4]), 1)
-                        delete_attendance_override(app.config['DATA_FOLDER'], m['employee_id'], new_date)
+                    eid = m.get('employee_id')
+                    if not eid:
+                        continue
+                    db_st = _att_st(app.config['DATA_FOLDER'], eid, new_date)
+                    if db_st == 'NU':
+                        continue
+                    # 同删旧：DB 的 T 非目标 marks 来源时保护保留（外部 T 不被合并清掉）
+                    if db_st == 'T' and (str(eid) in t_skip_ids or m.get('status') != 'T'):
+                        _mark_t_skipped(eid, new_date)
+                        continue
+                    if m.get('status') == 'T':
+                        from core.database import restore_comp_leave
+                        restore_comp_leave(app.config['DATA_FOLDER'], eid, int(new_date[:4]), 1)
+                    delete_attendance_override(app.config['DATA_FOLDER'], eid, new_date)
             except Exception:
                 pass
         _oa_created_edit = []
@@ -3754,6 +3782,9 @@ def collection_edit(submission_id):
                 continue
             if status not in ('P', 'A', 'T'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+            # 外部 T 保护：预检/删旧已判定保留的员工一律跳过（无论新 marks 标 T 还是 P）
+            if str(eid) in t_skip_ids:
+                continue
             # 余额预检已前移至只读预检循环（校验失败不动旧 override）
             if status == 'T':
                 # T 幂等双保险：写循环时当日已有 T 则跳过写入与扣减（marks 内重复 T 等场景）
