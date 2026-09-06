@@ -734,6 +734,18 @@
       return (s.total_nh||0)+(s.total_nl||0)+(s.total_mw||0);
     };
     const monthTotal = rawSp.reduce((a,s)=>a+sumOreAll(s),0);
+    // 2026-09-06: 第 2 卡由"NL 月车次"改为"NH 日均"（与 Web P36-g 口径一致：NH 月总量 ÷ 全部有产量天数，不随矿石筛选变化）
+    const nhSumM = rawSp.reduce((a,s)=>{
+      if(Array.isArray(s.teams)){
+        const list=(s.teams||[]).filter(tm=>STATE.teamFilter==='all'||String(tm.team_id)===String(STATE.teamFilter));
+        return a+list.reduce((b,tm)=>b+(tm.nh||0),0);
+      }
+      if(STATE.shiftFilter==='day') return a+(s.day_nh||0);
+      if(STATE.shiftFilter==='night') return a+(s.night_nh||0);
+      return a+(s.total_nh||0);
+    },0);
+    const nhAllProdDays = rawSp.filter(s=>sumOreAll(s)>0).length;
+    const nhDailyAvg = nhAllProdDays? Math.round(nhSumM/nhAllProdDays) : 0;
     const isNew = (STATE.dashboard.shift_production||[]).some(s=>Array.isArray(s.teams));
     let kpis;
     if(isNew){
@@ -749,7 +761,7 @@
       const teamStr = _tv.length? Object.entries(teamTotals).map(([k,v])=>k+' '+Math.round(v/_grand*100)+'%').join('  ') : '—';
       kpis = [
         { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
-        { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
+        { l:t('dash_nh_daily_avg'), v:fmt(nhDailyAvg), ind:'ind-i2' },
         { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
         { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
         { l:t('dash_month_total'), v:fmt(monthTotal), ind:'ind-i2' },
@@ -761,7 +773,7 @@
       const ratio = nightSum? (daySum/nightSum).toFixed(2)+':1' : '—';
       kpis = [
         { l:t('kpi_nh_month'), v:fmt(totals.nh), ind:'ind-i4' },
-        { l:t('kpi_nl_month'), v:fmt(totals.nl), ind:'ind-i2' },
+        { l:t('dash_nh_daily_avg'), v:fmt(nhDailyAvg), ind:'ind-i2' },
         { l:t('kpi_mw_month'), v:fmt(totals.mw), ind:'ind-i5' },
         { l:t('kpi_daily_avg'), v:fmt(Math.round(avg)), ind:'ind-neutral' },
         { l:t('dash_month_total'), v:fmt(monthTotal), ind:'ind-i2' },
