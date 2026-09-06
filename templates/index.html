@@ -2986,6 +2986,7 @@ function renderDashboardKPI() {
   const rows = getFilteredShiftData();
 
   let totalNH = 0, totalNL = 0, totalMW = 0;
+  let nhSum = 0, nhAllProdDays = 0;
   let monthTotal = 0;
   let dayTotal = 0, nightTotal = 0;
   let activeDays = 0;
@@ -2997,6 +2998,9 @@ function renderDashboardKPI() {
     if (f.ore === 'all' || f.ore === 'nh') totalNH += nh;
     if (f.ore === 'all' || f.ore === 'nl') totalNL += nl;
     if (f.ore === 'all' || f.ore === 'mw') totalMW += mw;
+    // 2026-09-06: 第 2 卡由"NL 车次"改为"NH 日均"——NH 总量与分母（全部有产量天数）均不随矿石筛选变化，随班组/班次筛选联动
+    nhSum += nh;
+    if (nh + nl + mw > 0) nhAllProdDays++;
 
     const dailySum = (f.ore === 'all') ? (nh + nl + mw) : (f.ore === 'nh' ? nh : f.ore === 'nl' ? nl : mw);
     if (dailySum > 0) activeDays++;
@@ -3011,6 +3015,7 @@ function renderDashboardKPI() {
   });
 
   const dailyAvg = activeDays > 0 ? Math.round((totalNH + totalNL + totalMW) / activeDays) : 0;
+  const nhDailyAvg = nhAllProdDays > 0 ? Math.round(nhSum / nhAllProdDays) : 0;
   let ratioStr = nightTotal > 0 ? (dayTotal / nightTotal).toFixed(1) + ' : 1' : dayTotal > 0 ? '∞ : 1' : '—';
   let ratioLabelKey = 'dash_day_night_ratio';
   let kpiTeamCard = '';
@@ -3048,9 +3053,9 @@ function renderDashboardKPI() {
       <div class="value">${fmtK(totalNH)}</div>
       <div class="label">NH <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
     </div>
-    <div class="stat-glass kpi-ore kpi-nl">
-      <div class="value">${fmtK(totalNL)}</div>
-      <div class="label">NL <span class="kpi-unit">${t('dash_unit_trips')}</span></div>
+    <div class="stat-glass kpi-nh">
+      <div class="value">${fmtK(nhDailyAvg)}</div>
+      <div class="label" data-i18n="dash_nh_daily_avg">NH 日均</div>
     </div>
     <div class="stat-glass kpi-ore kpi-mw">
       <div class="value">${fmtK(totalMW)}</div>
