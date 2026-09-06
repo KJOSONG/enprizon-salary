@@ -1872,13 +1872,17 @@
   }
   async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt){
     if(!isSuperAdmin()){ toast(t('need_super_admin')||'need super admin','error'); return; }
+    const newVal=!currentExempt;
+    // P38: 开启豁免改为 prompt 强制填写豁免原因；关闭豁免保持 confirm 不需要备注
+    let remark='';
     if(!currentExempt){
-      if(!confirm(t('col_ug_exempt_confirm_set'))) return;
+      remark=(prompt(t('col_ug_exempt_reason_prompt'))||'').trim();
+      if(!remark) return;
     } else {
       if(!confirm(t('col_ug_exempt_confirm_unset'))) return;
     }
-    const newVal=!currentExempt;
     const body = isOldFormat ? {shift:String(teamOrShift), exempt:newVal} : {team_id:parseInt(teamOrShift,10), exempt:newVal};
+    if(newVal) body.remark=remark;
     try{
       const res = await apiStatus('/api/collection/exempt/'+submissionId, {method:'POST', body:JSON.stringify(body)});
       const j=res.json;
@@ -1931,8 +1935,9 @@
     req.then(r=>{
       if(r.ok){
         STATE._colEditing=null;
-        // T 幂等跳过提示（拼接进成功消息，避免覆盖）
-        const tSkipMsg=(ty==='attendance' && r.t_skipped && r.t_skipped.length)?' · '+t('col_t_skipped_n').replace('{n}', r.t_skipped.length):'';
+        // T 幂等跳过提示（拼接进成功消息，避免覆盖）；P37: 兜底失败清单提示
+        const tSkipMsg=((ty==='attendance' && r.t_skipped && r.t_skipped.length)?' · '+t('col_t_skipped_n').replace('{n}', r.t_skipped.length):'')
+          +((ty==='attendance' && r.t_failed && r.t_failed.length)?' · '+t('col_t_failed_n').replace('{n}', r.t_failed.length):'');
         if(ty==='attendance' && (r.oa_created||r.oa_skipped)){
           const oaN=(r.oa_created||[]).length, skN=(r.oa_skipped||[]).length;
           if(oaN) showFormMsg(ty, oaN+' '+t('col_att_oa_created')+tSkipMsg, true);
@@ -2215,6 +2220,8 @@
           seen.add(String(tt.team_id));
         }
       }
+      // P38: 豁免班组必须填写豁免原因（备注）
+      for(const tt of ts){ if(tt.exempt && !String(tt.remark||'').trim()){ showFormMsg('underground', t('col_ug_exempt_remark_required'), false); return false; } }
       return true;
     });
   }
@@ -2426,7 +2433,7 @@
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
     const list=attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveLocked(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
   }
-  function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
+  async function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
     const deptEl=document.getElementById('attColDept');
     if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
     const UG_DEPT='Production TEAM （underground）';
@@ -2453,6 +2460,7 @@
         submitted.add(String(eid)); marks.push({employee_id:eid, status:s});
       }
     });
+    if(!await precheckTBalance(date, marks)) return;
     if(isUg){
       const team_id=parseInt(document.getElementById('attTeamSel').value,10)||0;
       const drivers=list.filter(e=>{ const cb=document.getElementById('attDrv'+e.id); return cb && cb.checked; }).map(e=>String(e.id));
@@ -2460,6 +2468,25 @@
     } else {
       colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null);
     } }
+
+  // P37: 调休余额预检——标记 T 的员工余额不足则整单阻断（与 Web 同口径；后端预检仍兜底）
+  async function precheckTBalance(date, marks){
+    const tMarks = marks.filter(m => m.status === 'T');
+    if(!tMarks.length) return true;
+    const noBal = [];
+    for(const m of tMarks){
+      try{
+        const j = await api('/api/leave/balance/' + m.employee_id + '?year=' + date.slice(0,4));
+        const b = (j && j.balance) || {};
+        if(b.exists === false || ((b.comp_entitled||0) - (b.comp_used||0)) < 1){
+          const emp = (STATE.employees||[]).find(x=>String(x.id)===String(m.employee_id));
+          noBal.push((emp && emp.name) || m.employee_id);
+        }
+      }catch(e){ /* 预检异常不阻断，由后端兜底拦截 */ }
+    }
+    if(noBal.length){ showFormMsg('attendance', t('col_t_balance_block') + noBal.join('、'), false); return false; }
+    return true;
+  }
 
   // ── 出勤模块 (Phase 4 / 2e) ──
   const ATT_STATUS = ['P','A','L','SK','D','N','C','R','B'];

@@ -8244,9 +8244,16 @@ function enterColEditFromPreview(formType, sid, containerId) {
 async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt, containerId) {
   if (!isSuperAdmin()) { showToast(t('need_super_admin'), 'error'); return; }
   const newVal = !currentExempt;
-  const confirmKey = newVal ? 'col_ug_exempt_confirm_set' : 'col_ug_exempt_confirm_unset';
-  if (!confirm(t(confirmKey))) return;
+  // P38: 开启豁免改为 prompt 强制填写豁免原因；关闭豁免保持 confirm 不需要备注
+  let remark = '';
+  if (newVal) {
+    remark = (prompt(t('col_ug_exempt_reason_prompt')) || '').trim();
+    if (!remark) return;
+  } else {
+    if (!confirm(t('col_ug_exempt_confirm_unset'))) return;
+  }
   const body = isOldFormat ? { shift: String(teamOrShift), exempt: newVal } : { team_id: parseInt(teamOrShift,10), exempt: newVal };
+  if (newVal) body.remark = remark;
   try {
     const res = await authFetch(api('/api/collection/exempt/' + submissionId), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
@@ -9246,6 +9253,23 @@ async function submitAttCollection() {
     }
   }
   const payload = isUg ? { department: dept, team_id: teamId, marks, drivers } : { marks, department: dept };
+  // P37: 调休余额预检——标记 T 的员工余额不足则整单阻断，明确提示改选其他出勤状态（后端预检仍兜底）
+  const tMarks = marks.filter(m => m.status === 'T');
+  if (tMarks.length) {
+    const nameOf = {};
+    pool.forEach(e => { nameOf[String(e.id)] = e.name; });
+    const noBal = [];
+    for (const m of tMarks) {
+      try {
+        const r = await authFetch(api('/api/leave/balance/' + m.employee_id + '?year=' + date.slice(0, 4)));
+        const b = ((await r.json()).balance) || {};
+        if (b.exists === false || ((b.comp_entitled || 0) - (b.comp_used || 0)) < 1) {
+          noBal.push(nameOf[String(m.employee_id)] || m.employee_id);
+        }
+      } catch (e) { /* 预检异常不阻断，由后端兜底拦截 */ }
+    }
+    if (noBal.length) { showToast(t('col_t_balance_block') + noBal.join('、'), 'error'); return; }
+  }
   await submitColPayload('attendance', date, payload, 'colAttHistory');
 }
 
@@ -9286,6 +9310,8 @@ async function submitUgCollection() {
     if (new Set(ids).size !== ids.length) { showToast('duplicate team', 'error'); return; }
     for (const tm of payloadTeams) { if (!tm.team_id) { showToast(t('col_ug_team_required'), 'error'); return; } }
     if (!payloadTeams.some(x=> (x.nh+x.nl+x.mw)>0 )) { showToast(t('pick_date'), 'error'); return; }
+    // P38: 豁免班组必须填写豁免原因（备注）
+    for (const tm of payloadTeams) { if (tm.exempt && !String(tm.remark||'').trim()) { showToast(t('col_ug_exempt_remark_required'), 'error'); return; } }
     const payload = { teams: payloadTeams };
     await submitColPayload('underground', date, payload, 'colUgHistory');
     return;
@@ -9358,9 +9384,11 @@ async function submitColPayload(formType, date, payload, historyId) {
     _colEditing = null;
     loadColHistory(formType, historyId);
     refreshAfterCollection();
-    // T 幂等跳过提示（拼接进成功消息，避免覆盖）
-    const tSkipMsg = (formType === 'attendance' && data.t_skipped && data.t_skipped.length)
-      ? ' · ' + t('col_t_skipped_n').replace('{n}', data.t_skipped.length) : '';
+    // T 幂等跳过提示（拼接进成功消息，避免覆盖）；P37: 兜底失败清单提示
+    const tSkipMsg = ((formType === 'attendance' && data.t_skipped && data.t_skipped.length)
+      ? ' · ' + t('col_t_skipped_n').replace('{n}', data.t_skipped.length) : '')
+      + ((formType === 'attendance' && data.t_failed && data.t_failed.length)
+      ? ' · ' + t('col_t_failed_n').replace('{n}', data.t_failed.length) : '');
     if (formType === 'attendance' && (data.oa_created || data.oa_skipped)) {
       const oaN = (data.oa_created || []).length;
       const skN = (data.oa_skipped || []).length;

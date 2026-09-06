@@ -1228,6 +1228,69 @@ def build_attendance_from_overrides(main_data, data_folder):
     main_data['attendance'] = attendance
 
 
+# P38: 薪资行金额字段全集（任一非 0 即视为"有工资"）
+_SALARY_MONEY_FIELDS = ('piece_underground', 'piece_driller', 'piece_crush', 'day_rate',
+                        'monthly', 'overtime', 'bonus', 'driver_allowance', 'gross',
+                        'advance', 'penalty', 'nssf', 'paye', 'paye_half', 'net', 'ug_base')
+
+
+def _active_attendance_ids(data_folder, month):
+    """当月（month=None 时为全部月份）有 attendance_overrides 记录的员工 id 集合"""
+    import sqlite3 as _sq, os as _os
+    out = set()
+    db_path = _os.path.join(data_folder or '', 'kilwa.db')
+    if not _os.path.exists(db_path):
+        return out
+    conn = _sq.connect(db_path)
+    try:
+        if month:
+            rows = conn.execute(
+                "SELECT DISTINCT employee_id FROM attendance_overrides WHERE date LIKE ?",
+                (month + '%',)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT employee_id FROM attendance_overrides").fetchall()
+        out = {str(r[0]) for r in rows}
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return out
+
+
+def _filter_dismissed_empty_salary(result, employees, month, data_folder=None):
+    """P38: 薪资结果输出层过滤——离职（status='dismissed'）且当月无任何工资/记录的
+    员工行从 result['employees'] 剔除。
+
+    保留（任一命中即保留）：① 任一金额字段非 0（离职生效日前照常计薪）；
+    ② 当月有 attendance_overrides 出勤记录；③ 有临时例外/覆盖记录。
+    剔除行金额全为 0，故 total_* 汇总不变；仅离职者被过滤，active 零薪行不受影响。
+    load_employees_from_db 的"离职保留在管线"设计不动，本函数只在输出层收口。
+    异常时回退为不过滤（fail-open，保持原行为）。
+    """
+    try:
+        if not result or not result.get('employees') or not employees:
+            return result
+        dismissed = {str(e.get('id')) for e in employees if (e.get('status') or '') == 'dismissed'}
+        if not dismissed:
+            return result
+        att_ids = _active_attendance_ids(data_folder or app.config.get('DATA_FOLDER'), month)
+        kept = []
+        for row in result['employees']:
+            eid = str(row.get('employee_id') or row.get('id') or '')
+            if eid not in dismissed:
+                kept.append(row)
+                continue
+            has_money = any(row.get(f) for f in _SALARY_MONEY_FIELDS)
+            has_temp = bool(row.get('temp_overrides')) or bool(row.get('temp_exception'))
+            if has_money or has_temp or eid in att_ids:
+                kept.append(row)
+        result['employees'] = kept
+        return result
+    except Exception:
+        return result
+
+
 def _run_pipeline(month_filter=None):
     """
     纯采集模式：从数据库重建并计算，落 MONTH_CACHE 并同步 APP_STATE 别名。
@@ -1330,6 +1393,9 @@ def _run_pipeline(month_filter=None):
         result = calculate_all(main_data, employees, overrides=overrides, exclusions=exclusions,
                                pricing=cfg, data_folder=app.config.get('DATA_FOLDER'),
                                bonus_penalties=bonus_penalties)
+
+    # P38: 输出层过滤——离职且当月无任何工资/记录的员工行剔除（有出勤/计薪的离职者保留）
+    _filter_dismissed_empty_salary(result, employees, month_filter, app.config.get('DATA_FOLDER'))
 
     headless = not bool(main_data.get('dates'))
     if month_filter and headless and employees:
@@ -2086,6 +2152,17 @@ def _summarize_attendance_days(days: dict) -> dict:
     return {'present': present, 'absent': absent, 'leave': leave,
             'leave_detail': detail, 'total_days': present + absent + leave}
 
+def _emp_name(data_folder, eid):
+    """按 employee_id 查姓名（查不到/异常返回 None），供采集 T 余额拦截提示用人名"""
+    try:
+        from core.database import get_conn as _gc
+        _c = _gc(data_folder)
+        _r = _c.execute("SELECT name FROM employees WHERE id=?", (str(eid),)).fetchone()
+        _c.close()
+        return (_r['name'] if _r else None)
+    except Exception:
+        return None
+
 def _employee_month_attendance(employee_id, month):
     """单月该员工逐日出勤状态。月数据缺失时退化为仅统计 attendance_overrides
     （自动出勤来源为月度 pipeline，overrides 与 grid 的手动覆盖优先口径一致）"""
@@ -2655,6 +2732,40 @@ def oa_reject_event(event_id):
                                         'oa_rejected', ref_id=event_id, body=reason)
                 except Exception as e:
                     app.logger.warning('写驳回通知失败 event=%s: %s', event_id, e)
+            # P38-3: 出勤采集自动转 OA 的请假(casual)/病假(sick)被驳回 → 对应日期落旷工 A
+            # 仅 collection_routing 来源生效（OA 手动申请驳回不落 A，维持现状）；
+            # 已有任何状态（P/T/NU/E 等）跳过不覆盖（防覆盖采集员改标/已批假期，保单轨不变量）
+            try:
+                if event.get('event_type') in ('casual', 'sick'):
+                    try:
+                        _pl_a = json.loads(event.get('payload') or '{}')
+                    except Exception:
+                        _pl_a = {}
+                    if isinstance(_pl_a, dict) and _pl_a.get('source') == 'collection_routing':
+                        from core.database import get_attendance_status as _gas, save_attendance_override as _sao
+                        _eid_a = event.get('employee_id', '')
+                        _eff_a = (event.get('effective_date') or '')[:10]
+                        try:
+                            _days_a = int(_pl_a.get('days') or 1)
+                        except Exception:
+                            _days_a = 1
+                        _days_a = max(1, min(_days_a, 800))  # 区间展开硬上限（OOM 铁律同款 clamp）
+                        if _eid_a and _eff_a:
+                            _marked_a, _skipped_a = [], []
+                            for _i in range(_days_a):
+                                _d_a = (datetime.strptime(_eff_a, '%Y-%m-%d') + timedelta(days=_i)).strftime('%Y-%m-%d')
+                                if _gas(app.config['DATA_FOLDER'], _eid_a, _d_a):
+                                    _skipped_a.append(_d_a)
+                                else:
+                                    _sao(app.config['DATA_FOLDER'], _eid_a, _d_a, 'A', source=0)
+                                    _marked_a.append(_d_a)
+                            log_audit(app.config['DATA_FOLDER'], 'oa_reject_attendance_a',
+                                      _eid_a, json.dumps({'event_id': event_id, 'days': _days_a,
+                                                          'marked': _marked_a, 'skipped': _skipped_a},
+                                                         ensure_ascii=False),
+                                      operator=session.get('username', ''))
+            except Exception as e:
+                app.logger.warning('驳回后落旷工 A 失败 event=%s: %s', event_id, e)
     return jsonify({'ok': ok})
 
 @app.route('/api/oa/events/<int:event_id>', methods=['GET'])
@@ -3481,6 +3592,20 @@ def _filter_marks_by_department(marks, dept, team_id=None):
         kept.append(m)
     return kept, discarded
 
+def _ug_exempt_remark_error(payload):
+    """P38: 井下出渣新格式 teams 中任一 exempt=true 的班组必须带非空 remark。
+
+    仅对新格式（payload 含 teams 键）生效；旧格式 day/night 历史 payload 零改动、不校验。
+    返回错误文案或 None。
+    """
+    if not isinstance(payload, dict) or 'teams' not in payload:
+        return None
+    for _tm in (payload.get('teams') or []):
+        if isinstance(_tm, dict) and _tm.get('exempt') and not str(_tm.get('remark') or '').strip():
+            return '开启豁免必须填写豁免原因，请在备注中说明'
+    return None
+
+
 @app.route('/api/collection/submit', methods=['POST'])
 @login_required
 def collection_submit():
@@ -3510,6 +3635,11 @@ def collection_submit():
         return jsonify({'ok': False, 'error': '缺少日期'}), 400
     if date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
+    # P38: 井下出渣新格式 teams 中豁免班组必须带非空备注（旧格式 day/night 历史数据零改动）
+    if form_type == 'underground':
+        _exempt_err = _ug_exempt_remark_error(payload)
+        if _exempt_err:
+            return jsonify({'ok': False, 'error': _exempt_err}), 400
     username = session.get('username', 'unknown')
     dept = (payload.get('department') or '').strip()
 
@@ -3620,10 +3750,12 @@ def collection_submit():
                     continue
                 _bal = _glb(app.config['DATA_FOLDER'], _eid_t, int(date[:4]))
                 if (_bal.get('comp_entitled', 0) or 0) - (_bal.get('comp_used', 0) or 0) < 1:
-                    return jsonify({'ok': False, 'error': f'员工 {_eid_t} 调休余额不足，无法标记 T（整单未提交，请调整后重试）'}), 400
+                    _nm = _emp_name(app.config['DATA_FOLDER'], _eid_t) or _eid_t
+                    return jsonify({'ok': False, 'error': f'{_nm} 本月调休已满 4 天（余额用完），该出勤不能提交调休，请改选其他出勤状态'}), 400
         # OA 调休集合：T→非T 时判定来源用（一次查询全员）
         from core.database import get_oa_comp_leave_dates as _goacd
         _oa_comp_set = _goacd(app.config['DATA_FOLDER'], date)
+        _t_failed = []  # P37: 写循环内扣减兜底失败的 T 清单（跳过不中断，随响应返回供前端提示）
         for m in marks:
             eid = m.get('employee_id', '')
             status = m.get('status', '')
@@ -3651,8 +3783,10 @@ def collection_submit():
                     from core.database import deduct_comp_leave
                     _year = int(date[:4])
                     if not deduct_comp_leave(app.config['DATA_FOLDER'], eid, _year, 1):
+                        # P37: 兜底失败（预检与扣减间的极端竞态）——跳过该人不中断整批，随响应返回失败清单
                         delete_attendance_override(app.config['DATA_FOLDER'], eid, date)
-                        return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T'}), 400
+                        _t_failed.append({'employee_id': eid, 'name': _emp_name(app.config['DATA_FOLDER'], eid) or eid, 'date': date})
+                        continue
             except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # 标记 driver flag（通过 helper 重设，保证与旧地下 drivers 合并一致）
@@ -3733,6 +3867,9 @@ def collection_submit():
     if form_type == 'attendance' and 't_skipped' in locals():
         if t_skipped:
             result['t_skipped'] = t_skipped
+    if form_type == 'attendance' and '_t_failed' in locals():
+        if _t_failed:
+            result['t_failed'] = _t_failed
     if discarded:
         result['discarded'] = discarded
         result['warning'] = '已忽略 %d 名部门不符的员工' % discarded
@@ -3845,6 +3982,11 @@ def collection_edit(submission_id):
     new_date = data.get('submission_date') or old_date
     if new_date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
+    # P38: 井下出渣新格式 teams 中豁免班组必须带非空备注（旧格式 day/night 历史数据零改动）
+    if form_type == 'underground':
+        _exempt_err = _ug_exempt_remark_error(payload)
+        if _exempt_err:
+            return jsonify({'ok': False, 'error': _exempt_err}), 400
 
     # P21: NU（年假）由审批管理，编辑出勤收集不得覆盖——在任何 DB 修改之前拦截
     # C3: UG attendance 按 team 过滤 + B→P + drivers 校验
@@ -3974,10 +4116,12 @@ def collection_edit(submission_id):
                 _bal_pre = _glb_pre(app.config['DATA_FOLDER'], str(eid), int(new_date[:4]))
                 _used_eff = max((_bal_pre.get('comp_used', 0) or 0) - (1 if _was_t else 0), 0)
                 if (_bal_pre.get('comp_entitled', 0) or 0) - _used_eff < 1:
-                    return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T（编辑未保存）'}), 400
+                    _nm_pre = _emp_name(app.config['DATA_FOLDER'], str(eid)) or str(eid)
+                    return jsonify({'ok': False, 'error': f'{_nm_pre} 本月调休已满 4 天（余额用完），该出勤不能提交调休，请改选其他出勤状态（编辑未保存）'}), 400
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
         # P21: 删除时跳过 NU 天（年假由审批管理，不随采集编辑被清掉）
+        _t_failed = []  # P37: 写循环内扣减兜底失败的 T 清单（跳过不中断，随响应返回供前端提示）
         from core.database import get_attendance_status as _att_st
         try:
             old_payload = json.loads(sub['payload'] or '{}')
@@ -4087,8 +4231,10 @@ def collection_edit(submission_id):
                     from core.database import deduct_comp_leave
                     _year = int(new_date[:4])
                     if not deduct_comp_leave(app.config['DATA_FOLDER'], eid, _year, 1):
+                        # P37: 兜底失败（预检与扣减间的极端竞态）——跳过该人不中断整批，随响应返回失败清单
                         delete_attendance_override(app.config['DATA_FOLDER'], eid, new_date)
-                        return jsonify({'ok': False, 'error': f'员工 {eid} 调休余额不足，无法标记 T'}), 400
+                        _t_failed.append({'employee_id': eid, 'name': _emp_name(app.config['DATA_FOLDER'], eid) or eid, 'date': new_date})
+                        continue
             except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # C4: 重设 driver flags（编辑后 attendance drivers 可能变）
@@ -4132,6 +4278,9 @@ def collection_edit(submission_id):
     if form_type == 'attendance' and 't_skipped' in locals():
         if t_skipped:
             _res['t_skipped'] = t_skipped
+    if form_type == 'attendance' and '_t_failed' in locals():
+        if _t_failed:
+            _res['t_failed'] = _t_failed
     return jsonify(_res)
 
 @app.route('/api/collection/roster', methods=['GET'])
@@ -4250,7 +4399,14 @@ def api_collection_exempt(submission_id):
                 continue
         if target is None:
             return jsonify({'ok': False, 'error': '团队不存在'}), 404
+        # P38: 豁免 false→true 必须带非空备注，写入对应 team 的 remark
+        _exempt_remark = str(data.get('remark') or '').strip()
+        if exempt_val and not old_val and not _exempt_remark:
+            return jsonify({'ok': False, 'error': '开启豁免必须填写豁免原因（备注）'}), 400
         target['exempt'] = exempt_val
+        # P38: 仅在带新备注时写入——true→true 无备注不清空已有备注
+        if exempt_val and _exempt_remark:
+            target['remark'] = _exempt_remark
         payload['teams'] = payload.get('teams')
     else:
         if 'shift' not in data or 'exempt' not in data:
@@ -4262,9 +4418,16 @@ def api_collection_exempt(submission_id):
         if not isinstance(exempt_val, bool):
             return jsonify({'ok': False, 'error': 'exempt 必须为布尔值'}), 400
         old_val = bool((payload.get(shift) or {}).get('exempt', False))
+        # P38: 豁免 false→true 必须带非空备注，写入对应 shift 的 remark（旧格式仅在二次编辑开启豁免时校验）
+        _exempt_remark = str(data.get('remark') or '').strip()
+        if exempt_val and not old_val and not _exempt_remark:
+            return jsonify({'ok': False, 'error': '开启豁免必须填写豁免原因（备注）'}), 400
         if shift not in payload or not isinstance(payload.get(shift), dict):
             payload[shift] = {}
         payload[shift]['exempt'] = exempt_val
+        # P38: 仅在带新备注时写入——true→true 无备注不清空已有备注
+        if exempt_val and _exempt_remark:
+            payload[shift]['remark'] = _exempt_remark
     ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, session.get('username','unknown'))
     if not ok:
         return jsonify({'ok': False, 'error': '更新失败'}), 500
