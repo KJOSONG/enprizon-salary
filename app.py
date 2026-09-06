@@ -2741,7 +2741,7 @@ def oa_reject_event(event_id):
                         _pl_a = json.loads(event.get('payload') or '{}')
                     except Exception:
                         _pl_a = {}
-                    if isinstance(_pl_a, dict) and _pl_a.get('source') == 'collection_routing':
+                    if isinstance(_pl_a, dict) and _pl_a.get('source') in ('collection_routing', 'collection_edit_routing'):
                         from core.database import get_attendance_status as _gas, save_attendance_override as _sao
                         _eid_a = event.get('employee_id', '')
                         _eff_a = (event.get('effective_date') or '')[:10]
