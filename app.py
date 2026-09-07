@@ -5421,33 +5421,74 @@ def api_driller_captains_list():
 @app.route('/api/driller-captains', methods=['POST'])
 @admin_required
 def api_driller_captains_create():
-    """P12: 新增钻工队长（admin+）；name 可空则从 employees 查"""
+    """P12: 新增钻工队长（admin+）；name 可空则从 employees 查。
+    P40-e: 队长不在通讯录/employees 时（支持仅传姓名、employee_id 留空），自动创建
+    正式 employees 行——id 取现有纯数字工号最大值+1（只统计纯数字 id，避免撞 legacy
+    姓名回退工号行），department 默认 'Driller Team'、default_type 按 payload（缺省
+    piece_driller）、status='active'，并刷新 namematch _AB_INDEX 使 make_employee_id
+    即时命中。driller_captains.employee_id 与队伍成员引用统一用该数字工号。
+    存量姓名回退工号（如 FREDYSONGOROLAIZ）不迁移不改（存量兼容）。"""
     from core.database import get_conn, add_driller_captain, log_audit
     data = request.get_json() or {}
     eid = (data.get('employee_id') or '').strip()
-    if not eid:
-        return jsonify({'ok': False, 'error': '缺少员工ID'}), 400
     name = (data.get('name') or '').strip()
-    if not name:
-        conn = None
+    employee_created = False
+    conn = None
+    try:
+        conn = get_conn(app.config['DATA_FOLDER'])
+        row = None
+        if eid:
+            row = conn.execute("SELECT id, name FROM employees WHERE id=?", (eid,)).fetchone()
+        if row is None and name:
+            # P40-e: 按姓名查重（同人不同请求/仅传姓名场景），命中则复用已有工号
+            row = conn.execute(
+                "SELECT id, name FROM employees WHERE REPLACE(UPPER(name),' ','')=? LIMIT 1",
+                (name.replace(' ', '').upper(),)).fetchone()
+        if row is not None:
+            eid = row['id']
+            if not name:
+                name = row['name']
+        elif name:
+            # P40-e: 队长不在通讯录 → 建正式 employees 行（纯数字工号最大值+1）
+            all_ids = [r['id'] for r in conn.execute("SELECT id FROM employees").fetchall()]
+            numeric = [int(x) for x in all_ids if isinstance(x, str) and x.isdigit()]
+            new_id = str(max(numeric) + 1) if numeric else '1'
+            dtype = data.get('default_type')
+            if dtype not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+                dtype = 'piece_driller'
+            dept = (data.get('department') or '').strip() or 'Driller Team'
+            conn.execute(
+                "INSERT INTO employees (id, name, department, default_type, day_rate, monthly_salary, status, team_id)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (new_id, name, dept, dtype, 0, 0, 'active', 0))
+            conn.commit()
+            eid = new_id
+            employee_created = True
+        if not eid or not name:
+            return jsonify({'ok': False, 'error': '缺少员工ID或姓名（员工不存在）'}), 400
+    except Exception:
+        return jsonify({'ok': False, 'error': '队长档案处理失败'}), 500
+    finally:
+        if conn:
+            conn.close()
+    if employee_created:
+        # P40-e: 刷新 namematch 索引源，make_employee_id/采集反查即时命中新工号
         try:
-            conn = get_conn(app.config['DATA_FOLDER'])
-            r = conn.execute("SELECT name FROM employees WHERE id=?", (eid,)).fetchone()
-            name = r['name'] if r else ''
+            _build_db_ab_index(app.config['DATA_FOLDER'])
         except Exception:
-            name = ''
-        finally:
-            if conn:
-                conn.close()
-    if not name:
-        return jsonify({'ok': False, 'error': '缺少姓名（员工不存在）'}), 400
+            pass
+        log_audit(app.config['DATA_FOLDER'], 'driller_captain_employee_created', eid,
+                  json.dumps({'name': name, 'department': data.get('department') or 'Driller Team',
+                              'default_type': dtype if employee_created else ''}),
+                  operator=session.get('username', ''))
     cid = add_driller_captain(app.config['DATA_FOLDER'], eid, name)
     if not cid:
         return jsonify({'ok': False, 'error': '该员工已在钻工队长名单'}), 400
     log_audit(app.config['DATA_FOLDER'], 'driller_captain_create', eid,
-              json.dumps({'name': name}),
+              json.dumps({'name': name, 'employee_created': employee_created}),
               operator=session.get('username',''))
-    return jsonify({'ok': True, 'captain': {'id': cid, 'employee_id': eid, 'name': name}})
+    return jsonify({'ok': True, 'captain': {'id': cid, 'employee_id': eid, 'name': name},
+                    'employee_created': employee_created})
 
 @app.route('/api/driller-captains/<int:captain_id>', methods=['PUT'])
 @admin_required

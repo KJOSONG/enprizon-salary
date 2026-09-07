@@ -6868,18 +6868,27 @@ async function loadCaptainsAdmin() {
 
 async function addDrillerCaptain() {
   const eid = document.getElementById('captainEid').value;
-  if (!eid) { showToast(t('captains_pick_first'), 'error'); return; }
-  const pool = await getEmpPool();
-  const e = pool.find(x => String(x.id) === String(eid));
-  if (!e) { showToast(t('captains_emp_not_found'), 'error'); return; }
+  const rawName = (document.getElementById('captainSearch').value || '').split('#')[0].trim();
+  if (!eid && !rawName) { showToast(t('captains_pick_first'), 'error'); return; }
+  let body;
+  if (eid) {
+    const pool = await getEmpPool();
+    const e = pool.find(x => String(x.id) === String(eid));
+    if (!e) { showToast(t('captains_emp_not_found'), 'error'); return; }
+    body = { employee_id: eid, name: e.name };
+  } else {
+    // P40-e: 队长不在通讯录——仅传姓名，后端自动建正式 employees 行（数字工号）
+    body = { name: rawName };
+  }
   const res = await authFetch(api('/api/driller-captains'), {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ employee_id: eid, name: e.name }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (data.ok) {
-    showToast(t('toast_saved'));
+    showToast(t('toast_saved') + (data.employee_created ? ' #' + ((data.captain || {}).employee_id || '') : ''));
     _drCaptains = null;
+    clearColEmpPoolCache();  // P40-e: 新员工入池，花名册缓存失效
     loadCaptainsAdmin();
     const input = document.getElementById('captainSearch');
     if (input) input.value = '';
