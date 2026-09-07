@@ -562,7 +562,7 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;max-width:640px;">
       <div class="form-row" style="grid-column:1 / -1;"><label data-i18n="emp_name">员工</label><input type="text" id="otEmpId" data-i18n-placeholder="ph_search_id" placeholder="搜索姓名/工号..." style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><input type="hidden" id="otEmpEid"></div>
       <div id="otPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
-      <div class="form-row"><label data-i18n="ot_type_label">加班类型</label><select id="otTypeSel" onchange="onOtTypeChange()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><option value="hourly" selected data-i18n="ot_type_hourly">A 延时加班</option><option value="daily2" data-i18n="ot_type_daily2">B 未调休加班（整日）</option></select></div>
+      <div class="form-row"><label data-i18n="ot_type_label">加班类型</label><select id="otTypeSel" onchange="onOtTypeChange()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"><option value="" data-i18n="sel_placeholder">请选择</option><option value="hourly" data-i18n="ot_type_hourly">A 延时加班</option><option value="daily2" data-i18n="ot_type_daily2">B 未调休加班（整日）</option></select></div>
       <div class="form-row"><label data-i18n="overtime_date">加班日期</label><input type="date" id="otDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="overtime_start">开始时间</label><input type="time" id="otStart" onchange="calcOtHours()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="overtime_end">结束时间</label><input type="time" id="otEnd" onchange="calcOtHours()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
@@ -7776,7 +7776,7 @@ function _otUpdateTypeVisibility() {
   const bOpt = sel.querySelector('option[value="daily2"]');
   const isPiece = !!_otEmpType && String(_otEmpType).startsWith('piece');
   if (bOpt) bOpt.hidden = isPiece;
-  if (isPiece && sel.value === 'daily2') sel.value = 'hourly';  // 计件员工强制回 A
+  if (isPiece && sel.value === 'daily2') sel.value = '';  // 计件员工隐藏 B 后清空，须手动重选
   onOtTypeChange();
 }
 function onOtTypeChange() {
@@ -7823,7 +7823,9 @@ async function submitOvertime() {
   calcOtHours();
   const hours = parseFloat(document.getElementById('otHours').value || '0');
   // P42: B 类（daily2）必填仅日期，起止时间可选仅记录；A 类（hourly）保持原必填校验
-  const otType = (document.getElementById('otTypeSel') || {}).value || 'hourly';
+  // P42: 加班类型必须手动选择，禁止预填默认值
+  const otType = (document.getElementById('otTypeSel') || {}).value || '';
+  if (!otType) { msg.textContent = t('ot_type_required'); msg.style.color = 'var(--danger)'; return; }
   if (otType === 'hourly') {
     if (!st || !et || !hours || hours <= 0) { msg.textContent = t('err_overtime_time'); msg.style.color = 'var(--danger)'; return; }
     if (hours > 12) { msg.textContent = t('err_overtime_hours'); msg.style.color = 'var(--danger)'; return; }
@@ -7859,7 +7861,7 @@ async function submitOvertime() {
       document.getElementById('otDate').value = ''; document.getElementById('otStart').value = '';
       document.getElementById('otEnd').value = ''; document.getElementById('otHours').value = '';
       document.getElementById('otNote').value = '';
-      const ts = document.getElementById('otTypeSel'); if (ts) ts.value = 'hourly';  // P42: 类型复位 A
+      const ts = document.getElementById('otTypeSel'); if (ts) ts.value = '';  // P42: 类型复位为未选择
       _otEmpType = null;
       onOtTypeChange();
       navigate('oa', 'pending');

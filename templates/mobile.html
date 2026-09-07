@@ -2763,7 +2763,7 @@
     const _sa=isSuperAdmin();
     const _w=_mobOtWindow();
     const title=empName ? t('overtime_apply')+' - '+esc(empName) : t('overtime_apply');
-    body.innerHTML='<div class="field"><label class="field__label">'+t('ot_type_label')+'</label><select id="ot-type" onchange="onMobOtTypeChange()"><option value="hourly" selected>'+t('ot_type_hourly')+'</option><option value="daily2">'+t('ot_type_daily2')+'</option></select></div>'
+    body.innerHTML='<div class="field"><label class="field__label">'+t('ot_type_label')+'</label><select id="ot-type" onchange="onMobOtTypeChange()"><option value="">'+t('sel_placeholder')+'</option><option value="hourly">'+t('ot_type_hourly')+'</option><option value="daily2">'+t('ot_type_daily2')+'</option></select></div>'
       + '<div id="ot-d2-hint" style="display:none;font-size:11px;color:var(--warning);margin:-6px 0 8px;">'+esc(t('ot_daily2_preview_hint'))+'<br>'+esc(t('ot_daily2_time_optional'))+'</div>'
       + '<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"'+( _sa?'':' min="'+_w.min+'" max="'+_w.max+'"')+'></div>'
       + (_sa?'':'<div style="font-size:11px;color:var(--muted-foreground);margin:-6px 0 8px;">'+t('ot_window_hint')+'</div>')
@@ -2784,7 +2784,7 @@
     const bOpt=sel.querySelector('option[value="daily2"]');
     const isPiece=!!ety && String(ety).startsWith('piece');
     if(bOpt) bOpt.hidden=isPiece;
-    if(isPiece && sel.value==='daily2'){ sel.value='hourly'; }
+    if(isPiece && sel.value==='daily2'){ sel.value=''; }
   }
   function onMobOtTypeChange(){
     const sel=document.getElementById('ot-type'); const hint=document.getElementById('ot-d2-hint');
@@ -2803,10 +2803,11 @@
   }
   function submitOvertime(empId){
     const date=document.getElementById('ot-date').value;
-    const otType=(document.getElementById('ot-type')||{}).value||'hourly';  // P42
+    const otType=(document.getElementById('ot-type')||{}).value||'';  // P42: 必须手动选择，禁止预填
     const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
     const note=(document.getElementById('ot-note').value||'').trim();
     if(!empId||!date){ toast(t('fill_date'),'warning'); return; }
+    if(!otType){ toast(t('ot_type_required'),'warning'); return; }
     // R2: 非超管软校验（后端仍为权威）
     if(!isSuperAdmin()){
       const _t0=new Date(); _t0.setHours(0,0,0,0);

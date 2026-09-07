@@ -1234,7 +1234,7 @@ const I18N_DICT = {
     err_ot_window: '加班日期须在提交日期前后2天内，请及时提交加班申请',
     ot_window_hint: '仅可申请今日前后2天内的加班',
     /* P42: 未调休加班（B 类 daily2） */
-    ot_type_label: '加班类型', ot_type_hourly: 'A 延时加班', ot_type_daily2: 'B 未调休加班（整日）',
+    ot_type_label: '加班类型', ot_type_hourly: 'A 延时加班', ot_type_daily2: 'B 未调休加班（整日）', ot_type_required: '请选择加班类型',
     ot_daily2_preview_hint: '预估补差 =(倍数−1)×日薪基数，月末按当月出勤核定生效（出勤超过 26 天的部分），并要求当天已提交出勤记录',
     ot_daily2_time_optional: '起止时间可选，仅记录',
     ot_daily2_pending_note: '金额为预估补差，月末按当月出勤核定生效（出勤需超过 26 天）',
@@ -2537,7 +2537,7 @@ const I18N_DICT = {
     err_ot_window: 'Overtime date must be within ±2 days of submission',
     ot_window_hint: 'Overtime allowed only within ±2 days of today',
     /* P42: Daily2 overtime (Type B) */
-    ot_type_label: 'Overtime Type', ot_type_hourly: 'A Hourly Overtime', ot_type_daily2: 'B Daily Overtime (full-day)',
+    ot_type_label: 'Overtime Type', ot_type_hourly: 'A Hourly Overtime', ot_type_daily2: 'B Daily Overtime (full-day)', ot_type_required: 'Select overtime type',
     ot_daily2_preview_hint: 'Estimated top-up =(multiplier−1)×daily base, finalized at month end per attendance (days beyond 26); attendance record required for that day',
     ot_daily2_time_optional: 'Start/end times optional, record only',
     ot_daily2_pending_note: 'Amount is an estimated top-up, finalized at month end per attendance (must exceed 26 days)',
