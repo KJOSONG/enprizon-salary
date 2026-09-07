@@ -2545,13 +2545,61 @@ def oa_create_event():
     if data.get('event_type') == 'overtime':
         from core.database import _calc_overtime_hours
         _pl = data.get('payload') or {}
-        if not (_pl.get('date') and _pl.get('start_time') and _pl.get('end_time')):
+        # P42: 加班类型归一化——'hourly'（A 延时）| 'daily2'（B 未调休），缺省 hourly
+        _ot_type = _pl.get('ot_type') if _pl.get('ot_type') in ('hourly', 'daily2') else 'hourly'
+        _pl['ot_type'] = _ot_type
+        if not (_pl.get('date') and (_ot_type == 'daily2' or (_pl.get('start_time') and _pl.get('end_time')))):
             return jsonify({'ok': False, 'error': '加班申请缺少日期或起止时间'}), 400
-        _h = _calc_overtime_hours(_pl.get('start_time'), _pl.get('end_time'))
-        if _h <= 0:
-            return jsonify({'ok': False, 'error': '加班起止时间无效或超出 12 小时上限'}), 400
-        # 以后端计算为准（防前端伪造），同时保证 hours>0
-        _pl['hours'] = _h
+        if _ot_type == 'daily2':
+            # P42: B 类（未调休加班）仅限日薪/月薪员工——计件员工后端拒绝（前端隐藏兜底）
+            # 员工有效类型判定用 override_type or default_type（铁律）；employee_id 无效同样拒绝
+            from core.database import get_conn as _gc, load_config as _glc, \
+                _get_eff_salary_type as _gest, _daily2_premium_amount as _gd2
+            _conn = _gc(app.config['DATA_FOLDER'])
+            try:
+                _eff = _gest(_conn, data.get('employee_id', ''))
+                if _eff not in ('day_rate', 'monthly'):
+                    return jsonify({'ok': False,
+                                    'error': '未调休加班仅限日薪/月薪员工申请',
+                                    'error_key': 'ot_daily2_type_forbidden'}), 400
+                # P42 审查 Major #2: B 类一日仅一条——同员工同日已有 daily2
+                # （待审事件 payload 或已批 overtime_records 行）→ 400，杜绝同日重复补差。
+                # revoked/rejected 不占位；hourly 同日不受此限制。
+                _d2eid = data.get('employee_id', '')
+                _d2date = str(_pl.get('date') or '')
+                _dup = False
+                for _r in _conn.execute(
+                        "SELECT payload FROM employee_events WHERE employee_id=?"
+                        " AND event_type='overtime' AND status='pending'",
+                        (_d2eid,)).fetchall():
+                    try:
+                        _p = json.loads(_r['payload'] or '{}')
+                    except (ValueError, TypeError):
+                        continue
+                    if _p.get('ot_type') == 'daily2' and str(_p.get('date') or '') == _d2date:
+                        _dup = True
+                        break
+                if not _dup:
+                    _dup = _conn.execute(
+                        "SELECT 1 FROM overtime_records WHERE employee_id=? AND date=?"
+                        " AND ot_type='daily2' LIMIT 1",
+                        (_d2eid, _d2date)).fetchone() is not None
+                if _dup:
+                    return jsonify({'ok': False,
+                                    'error': '该员工当日已存在未调休加班，一日仅一条',
+                                    'error_key': 'ot_daily2_duplicate'}), 400
+                # 预估补差（仅展示参考，工资以计算链核定为准）
+                _amt2, _, _ = _gd2(_conn, data.get('employee_id', ''), _glc(app.config['DATA_FOLDER']))
+            finally:
+                _conn.close()
+            _pl['est_amount'] = round(_amt2)
+            _pl['hours'] = 0  # daily2 整日制，hours 无意义恒 0
+        else:
+            _h = _calc_overtime_hours(_pl.get('start_time'), _pl.get('end_time'))
+            if _h <= 0:
+                return jsonify({'ok': False, 'error': '加班起止时间无效或超出 12 小时上限'}), 400
+            # 以后端计算为准（防前端伪造），同时保证 hours>0
+            _pl['hours'] = _h
         data['payload'] = _pl
         # R2: 非 super_admin 提交加班时，日期须在提交日前后 2 天内（含）
         if session.get('role') != 'super_admin':
@@ -2946,11 +2994,35 @@ def oa_edit_event(event_id):
         if event['event_type'] == 'overtime':
             # 待审加班：同步更新 payload.date
             payload['date'] = new_date
-            # P41 需求3: 可选修改起止时间（HH:MM，两者须成对提供）→ 同步 payload
-            # 并用 _calc_overtime_hours 后端重算 hours 兜底（防伪造）
+            # P42: ot_type 固定于提交时（编辑不可改类型）；hourly 走 P41 重算 hours，
+            # daily2 起止时间仅记录、hours 不重算，改按预估补差公式重算 est_amount
+            _ot_type = payload.get('ot_type') \
+                if payload.get('ot_type') in ('hourly', 'daily2') else 'hourly'
             _ot_st = data.get('start_time')
             _ot_et = data.get('end_time')
-            if _ot_st is not None or _ot_et is not None:
+            if _ot_type == 'daily2':
+                if _ot_st is not None or _ot_et is not None:
+                    _ot_st = str(_ot_st or '').strip()
+                    _ot_et = str(_ot_et or '').strip()
+                    try:
+                        datetime.strptime(_ot_st, '%H:%M')
+                        datetime.strptime(_ot_et, '%H:%M')
+                    except (TypeError, ValueError):
+                        return jsonify({'ok': False, 'error': '加班起止时间格式应为 HH:MM'}), 400
+                    payload['start_time'] = _ot_st
+                    payload['end_time'] = _ot_et
+                from core.database import get_conn as _gc, load_config as _glc, \
+                    _daily2_premium_amount as _gd2
+                _conn = _gc(app.config['DATA_FOLDER'])
+                try:
+                    _amt2, _, _ = _gd2(_conn, event['employee_id'],
+                                       _glc(app.config['DATA_FOLDER']))
+                finally:
+                    _conn.close()
+                payload['est_amount'] = round(_amt2)
+            elif _ot_st is not None or _ot_et is not None:
+                # P41 需求3: 可选修改起止时间（HH:MM，两者须成对提供）→ 同步 payload
+                # 并用 _calc_overtime_hours 后端重算 hours 兜底（防伪造）
                 _ot_st = str(_ot_st or '').strip()
                 _ot_et = str(_ot_et or '').strip()
                 try:

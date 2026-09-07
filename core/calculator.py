@@ -27,6 +27,11 @@ PAYE_COMPANY_RATIO = 0.5
 # 实际业务例外区间为天~周级，800 天（>2 年）远超合理范围。
 _OVERRIDE_EXPAND_MAX_DAYS = 800
 
+# P42: B 类（daily2 未调休）加班核定参数默认值。config 键 ot_daily2_threshold / ot_daily2_multiplier
+# 可覆盖（与 overtime_base 相同的 config 读取机制：pricing dict 传入，读取处给默认值兜底）。
+OT_DAILY2_THRESHOLD_DEFAULT = 26
+OT_DAILY2_MULTIPLIER_DEFAULT = 2.0
+
 def compute_paye(taxable_income):
     """
     坦桑尼亚个人所得税（PAYE）累进税率计算
@@ -754,6 +759,123 @@ def get_day_rate_for_date(overrides, emp_map, eid, date_str):
     return emp.get('day_rate', 0) or 0
 
 
+# ═══════════════════════════════════════════════════════════
+#  P42: B 类（daily2 未调休）加班核定与补差 —— 单一来源
+# ═══════════════════════════════════════════════════════════
+# calculate_all / compute_daily_breakdown / verification 三处共用本节函数，
+# 禁止在任何消费点拷贝逻辑（规格 .codebuddy/specs/ot-daily2/00-spec.md 规则 4/5/6/7）。
+
+def _daily2_params(pricing):
+    """P42: 从 config（pricing dict）读核定参数，读取处默认值兜底（与 overtime_base 同机制）。"""
+    try:
+        threshold = int(float(pricing.get('ot_daily2_threshold', OT_DAILY2_THRESHOLD_DEFAULT)
+                               or OT_DAILY2_THRESHOLD_DEFAULT))
+    except (TypeError, ValueError):
+        threshold = OT_DAILY2_THRESHOLD_DEFAULT
+    try:
+        multiplier = float(pricing.get('ot_daily2_multiplier', OT_DAILY2_MULTIPLIER_DEFAULT)
+                           or OT_DAILY2_MULTIPLIER_DEFAULT)
+    except (TypeError, ValueError):
+        multiplier = OT_DAILY2_MULTIPLIER_DEFAULT
+    return threshold, multiplier
+
+
+def _monthly_covered_dates(eid, per_date_type, present_set, att_overrides, month_prefix):
+    """P42 规则5: 月薪分摊覆盖日 = dtype 为 monthly ∧ 在场 ∧ 非 A/L/E，升序前 26 天。
+    与 compute_daily_breakdown 的 ms_daily 分摊、calculate_all 的 monthly_present_count 同口径。
+    per_date_type 缺项时按员工自身 monthly 类型计（与消费点 fallback 一致）。"""
+    covered = []
+    for dt in sorted(present_set):
+        if month_prefix and not str(dt).startswith(month_prefix):
+            continue
+        if att_overrides.get((eid, dt)) in ('A', 'L', 'E'):
+            continue
+        dtype = per_date_type.get(eid, {}).get(dt)
+        if dtype is not None and dtype != 'monthly':
+            continue
+        covered.append(dt)
+    return set(covered[:26])
+
+
+def verified_ot_attendance_days(eid, present_set, att_overrides, month_prefix):
+    """P42 规则6: 核定出勤天数（B 类闸门分母）。
+    present_set 必须是【不含】 ENPRIZON 1-26 补齐 hack 的在场集合
+    （补齐是月薪分摊历史兼容，不代表真实出勤，绝不计入闸门）。
+    排除 A/L/E/T（规则 6/8：T 不算出勤，26 天台账自动防双得）；按月前缀过滤。"""
+    days = set()
+    for dt in (present_set or set()):
+        dt = str(dt)
+        if month_prefix and not dt.startswith(month_prefix):
+            continue
+        if att_overrides.get((eid, dt)) in ('A', 'L', 'E', 'T'):
+            continue
+        days.add(dt)
+    return len(days)
+
+
+def resolve_daily2_ot(ot_rows, emp_map, att_overrides, present_dates, overrides,
+                      per_date_type=None, month_prefix='', pricing=None):
+    """P42 单一来源：B 类（daily2）加班核定与补差。
+
+    ot_rows:       [(employee_id, date, amount, ot_type), ...]（ot_type 缺省视为 hourly）
+    emp_map:       {eid: employee dict}
+    att_overrides: {(eid, date): status}
+    present_dates: {eid: set(date)} —— 生产数据在场 + att P/NU 的集合，
+                   【必须不含 ENPRIZON 1-26 补齐 hack】（闸门口径，见 verified_ot_attendance_days）
+    overrides:     {eid: [override dict]}（day_rate 基数经 get_day_rate_for_date 逐日取）
+    per_date_type: 可选 {eid: {date: type}}（月薪分摊覆盖日判定）
+    pricing:       config dict（ot_daily2_threshold 默认 26 / ot_daily2_multiplier 默认 2.0）
+
+    返回 {eid: {date: premium}}（仅 daily2 生效条目；hourly 行不在此处理）"""
+    result = defaultdict(dict)
+    if not ot_rows:
+        return result
+    threshold, multiplier = _daily2_params(pricing or {})
+
+    rows_by_emp = defaultdict(dict)  # P42 防御性去重：{eid: {date: None 保持插入序}}
+    for r in ot_rows:
+        eid, dt = r[0], r[1]
+        ot_type = r[3] if len(r) > 3 else 'hourly'
+        if ot_type != 'daily2':
+            continue
+        if month_prefix and not str(dt).startswith(month_prefix):
+            continue
+        # 防御性去重：同一 (eid, date) 多条 daily2 只保留一条参与核定。
+        # 提交端已拒绝同日重复（规则5：当日合计必须恰为 倍数×日薪），此处防脏数据——
+        # 不去重会浪费配额槽位，导致闸门边界日期被错误挤出/计入。
+        rows_by_emp[eid].setdefault(str(dt), None)
+
+    for eid, dates in rows_by_emp.items():
+        emp = emp_map.get(eid) or {}
+        eff_type = emp.get('override_type') or emp.get('default_type') or ''
+        # 规则 2: B 类仅限 day_rate / monthly（计件员工异常数据不发钱，防双得）
+        if eff_type not in ('day_rate', 'monthly'):
+            continue
+        # 规则 4: 配额 = max(0, 核定出勤天数 − threshold)，按日期升序取前配额条生效
+        gate_days = verified_ot_attendance_days(eid, present_dates.get(eid) or set(),
+                                                att_overrides, month_prefix)
+        quota = max(0, gate_days - threshold)
+        if quota <= 0:
+            continue
+        effective = sorted(dates)[:quota]
+        if eff_type == 'monthly':
+            base26 = round(float(emp.get('monthly_salary', 0) or 0) / 26)
+            if base26 <= 0:
+                continue
+            covered = _monthly_covered_dates(eid, per_date_type or {},
+                                             present_dates.get(eid) or set(),
+                                             att_overrides, month_prefix)
+            for dt in effective:
+                # 规则5: 当日合计恰为 倍数×日薪基数；月薪覆盖日已付 1× → 补差
+                result[eid][dt] = max(0, round(multiplier * base26) - (base26 if dt in covered else 0))
+        else:  # day_rate
+            for dt in effective:
+                # 规则5: 日薪轨道已付 1× day_rate → 补 (倍数−1)×day_rate
+                dr_base = get_day_rate_for_date(overrides, emp_map, eid, dt)
+                result[eid][dt] = max(0, round((multiplier - 1) * dr_base))
+    return result
+
+
 def calc_day_salary(attendance_data, employees, overrides, data_folder=None, shift_data=None, date_range_overrides=None, month_prefix=None):
     """
     计算日薪工资
@@ -1143,19 +1265,31 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     ug_al_per_day = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000))
 
     # P23 R2: 读本月加班记录（审批通过后落库 overtime_records）
+    # P42: 拆分 hourly（照旧累加 amount）/ daily2（B类，核定补差后生效）。
+    # ot_type 列缺失（impl-backend 未合并）时回退 3 列查询、全部视为 hourly，零行为差异。
     ot_total = defaultdict(float)
     ot_daily = defaultdict(dict)
+    ot_daily2_rows = []
     if data_folder and month_prefix:
         _dbp = os.path.join(data_folder, 'kilwa.db')
         if os.path.exists(_dbp):
             try:
                 _oc = sqlite3.connect(_dbp)
-                for _r in _oc.execute(
+                try:
+                    _ot_rows = _oc.execute(
+                        "SELECT employee_id, date, amount, ot_type FROM overtime_records WHERE date LIKE ?",
+                        (month_prefix + '%',)).fetchall()
+                except sqlite3.OperationalError:
+                    _ot_rows = [(r[0], r[1], r[2], 'hourly') for r in _oc.execute(
                         "SELECT employee_id, date, amount FROM overtime_records WHERE date LIKE ?",
-                        (month_prefix + '%',)).fetchall():
+                        (month_prefix + '%',)).fetchall()]
+                _oc.close()
+                for _r in _ot_rows:
+                    if (_r[3] if len(_r) > 3 else 'hourly') == 'daily2':
+                        ot_daily2_rows.append(tuple(_r))
+                        continue
                     ot_total[_r[0]] += _r[2]
                     ot_daily[_r[0]][_r[1]] = _r[2]
-                _oc.close()
             except Exception:
                 ot_total, ot_daily = defaultdict(float), defaultdict(dict)
 
@@ -1217,6 +1351,15 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             if month_prefix and dt[:7] != month_prefix:
                 continue
             present_dates[eid].add(dt)
+
+    # P42: B类加班闸门出勤快照 —— 必须在下方 ENPRIZON 1-26 补齐 hack 之前取。
+    # 补齐是月薪分摊历史兼容，不代表真实出勤，绝不计入核定出勤天数（规格规则 6）。
+    ot_gate_present = {e: set(ds) for e, ds in present_dates.items()}
+    # P42: B类（daily2）核定与补差 —— 单一来源 resolve_daily2_ot（三处共用）
+    daily2_premiums = resolve_daily2_ot(
+        ot_daily2_rows, emp_map, att_overrides, ot_gate_present, overrides,
+        per_date_type=per_date_type, month_prefix=month_prefix, pricing=pricing)
+    daily2_total = {eid: sum(pm.values()) for eid, pm in daily2_premiums.items() if pm}
 
     # top department monthly: add 26 working days for full attendance
     if month_prefix:
@@ -1296,7 +1439,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             ug_base_raw[eid] = pu
 
         pu = round(pu); pd_val = round(pd_val); dr_total = round(dr_total); ms_total = round(ms_total); cr_total = round(cr_total)
-        ot = round(ot_total.get(eid, 0))
+        # P42: hourly 照旧累加 amount；daily2 累加核定 premium（resolve_daily2_ot 单一来源）
+        ot = round(ot_total.get(eid, 0) + daily2_total.get(eid, 0))
 
         bp = bonus_penalties.get(eid, {})
         advance = int(bp.get('advance', 0) or 0) or int(emp.get('advance_total', 0) or 0)
@@ -1622,17 +1766,28 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         ug_al_per_day_br = ug_annual_leave_per_day(pricing.get('ug_annual_leave_monthly', 400000))
 
         # P23 R2: 读本月加班记录（与 calculate_all 同一来源，保证日明细与薪资页一致）
+        # P42: 拆分 hourly / daily2（B类核定补差），ot_type 列缺失时回退全 hourly
         ot_daily_br = defaultdict(dict)
+        ot_daily2_rows_br = []
         if data_folder and _ym:
             _dbp3 = os.path.join(data_folder, 'kilwa.db')
             if os.path.exists(_dbp3):
                 try:
                     _oc3 = sqlite3.connect(_dbp3)
-                    for _r3 in _oc3.execute(
+                    try:
+                        _ot_rows3 = _oc3.execute(
+                            "SELECT employee_id, date, amount, ot_type FROM overtime_records WHERE date LIKE ?",
+                            (_ym + '%',)).fetchall()
+                    except sqlite3.OperationalError:
+                        _ot_rows3 = [(r[0], r[1], r[2], 'hourly') for r in _oc3.execute(
                             "SELECT employee_id, date, amount FROM overtime_records WHERE date LIKE ?",
-                            (_ym + '%',)).fetchall():
-                        ot_daily_br[_r3[0]][_r3[1]] = _r3[2]
+                            (_ym + '%',)).fetchall()]
                     _oc3.close()
+                    for _r3 in _ot_rows3:
+                        if (_r3[3] if len(_r3) > 3 else 'hourly') == 'daily2':
+                            ot_daily2_rows_br.append(tuple(_r3))
+                            continue
+                        ot_daily_br[_r3[0]][_r3[1]] = _r3[2]
                 except Exception:
                     ot_daily_br = defaultdict(dict)
 
@@ -1758,6 +1913,20 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             # P21 R2: NU 年假天计入月薪出勤天数（与 calculate_all present_dates 一致）
             if st in ('P', 'NU') and (not _ym or pdt[:7] == _ym):
                 present[peid].add(pdt)
+
+        # P42: B类加班闸门出勤快照 —— 必须在下方 ENPRIZON 1-26 补齐 hack 之前取
+        # （补齐是月薪分摊历史兼容，不代表真实出勤，绝不计入核定出勤天数，规格规则 6）
+        ot_gate_present_br = {e: set(ds) for e, ds in present.items()}
+        # P42: B类（daily2）核定与补差 —— 单一来源 resolve_daily2_ot，与 calculate_all 镜像
+        daily2_premiums_br = resolve_daily2_ot(
+            ot_daily2_rows_br, emp_map, att_all, ot_gate_present_br, overrides,
+            per_date_type=per_date_type, month_prefix=_ym, pricing=pricing)
+        # 核定 premium 并入逐日加班层（hourly amount 照旧；premium 叠加不覆盖）
+        for _deid, _dpm in daily2_premiums_br.items():
+            if not _dpm:
+                continue
+            for _ddt, _dprem in _dpm.items():
+                ot_daily_br[_deid][_ddt] = ot_daily_br[_deid].get(_ddt, 0) + _dprem
 
         # top department monthly: add 26 working days for full attendance
         if _ym:
