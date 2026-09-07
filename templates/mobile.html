@@ -1393,13 +1393,21 @@
       el.innerHTML = evs.map(ev=>oaCard(ev, mode)).join('');
     }).catch(()=>{ el.innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('load_fail')+'</div><button class="state-box__action" onclick="loadOA(\''+mode+'\')">'+t('retry')+'</button></div>'; });
   }
+  // P42: overtime 类型徽标（A 延时 / B 未调休）
+  function _mobOtBadge(ev){
+    if(ev.event_type!=='overtime') return '';
+    let tp=''; try{ tp=JSON.parse(ev.payload||'{}').ot_type||''; }catch(e){}
+    if(!tp) return '';
+    const isD2=tp==='daily2';
+    return '<span style="display:inline-block;padding:0 8px;border-radius:10px;font-size:11px;font-weight:600;background:'+(isD2?'var(--warning)':'var(--bg-secondary)')+';color:'+(isD2?'#fff':'var(--text-muted)')+';margin-left:6px;">'+esc(isD2?t('ot_type_daily2'):t('ot_type_hourly'))+'</span>';
+  }
   function oaCard(ev, mode){
     const typeMap = { hire:t('oa_hire'), transfer:t('oa_transfer'), dismiss:t('oa_dismiss'), resign:t('oa_resign'), leave:t('oa_leave'), salary_change:t('oa_salary'), skill_change:t('event_skill_change'), reinstatement:t('event_reinstatement'), sick:t('event_sick_leave'), sick_leave:t('event_sick_leave'), casual:t('event_casual'), annual_leave:t('event_annual_leave'), comp_leave:t('event_comp_leave'), overtime:t('event_overtime') };
     let summary='';
     try { const p = JSON.parse(ev.payload||'{}'); summary = p.note || (p.days? (p.days+' '+t('days')) : (p.new_position? t('oa_transfer')+': '+p.new_position : '')); if (ev.event_type==='salary_change' && p.salary_type) { summary = t('oa_salary')+': '+(p.old_type? p.old_type+' → ':'')+p.salary_type; } } catch(e){}
     // C3/C4: 点击整张卡片弹出预览（sheet）
     let html = '<div class="oa-card" onclick="oaPreview('+ev.id+',\''+mode+'\')">'
-      + '<div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div>'
+      + '<div class="oa-card__head"><span class="oa-card__type">'+esc(typeMap[ev.event_type]||ev.event_type)+_mobOtBadge(ev)+'</span><span class="oa-card__emp">'+esc(ev.employee_name||ev.employee_id)+'</span></div>'
       + (summary?'<div class="oa-card__desc">'+esc(summary)+'</div>':'')
       + '<div class="oa-card__date">'+esc(ev.effective_date||'')+'</div>'
       + '<div class="oa-card__date">'+t('oa_submitter')+': '+esc(ev.operator_id||'—')+'</div>';
@@ -1552,6 +1560,13 @@
     for(const k of Object.keys(p)){
       const v = p[k];
       if(v===undefined||v===null||v===''||v===0||k==='avatar_data') continue;
+      // P42: 加班类型徽标（A 延时 / B 未调休），B 附月末核定提示（对齐桌面 _oaDetailHtml）
+      if(k==='ot_type'){
+        const isD2 = v==='daily2';
+        html += '<div class="info-row"><span class="info-row__label">'+esc(t('ot_type_label'))+'</span><span class="info-row__value"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:'+(isD2?'var(--warning)':'var(--bg-secondary)')+';color:'+(isD2?'#fff':'var(--text-muted)')+';">'+esc(isD2?t('ot_type_daily2'):t('ot_type_hourly'))+'</span></span></div>';
+        if(isD2){ html += '<div class="info-row"><span class="info-row__label"></span><span class="info-row__value" style="color:var(--warning);font-size:11px;">'+esc(t('ot_daily2_pending_note'))+'</span></div>'; }
+        continue;
+      }
       const label = OA_PREVIEW_FLD[k] ? t(OA_PREVIEW_FLD[k]) : k;
       let val = String(v);
       if(k==='salary_type') val = salaryMap[v] || val;
@@ -2687,7 +2702,9 @@
     const _sa=isSuperAdmin();
     const _w=_mobOtWindow();
     const title=empName ? t('overtime_apply')+' - '+esc(empName) : t('overtime_apply');
-    body.innerHTML='<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"'+( _sa?'':' min="'+_w.min+'" max="'+_w.max+'"')+'></div>'
+    body.innerHTML='<div class="field"><label class="field__label">'+t('ot_type_label')+'</label><select id="ot-type" onchange="onMobOtTypeChange()"><option value="hourly" selected>'+t('ot_type_hourly')+'</option><option value="daily2">'+t('ot_type_daily2')+'</option></select></div>'
+      + '<div id="ot-d2-hint" style="display:none;font-size:11px;color:var(--warning);margin:-6px 0 8px;">'+esc(t('ot_daily2_preview_hint'))+'<br>'+esc(t('ot_daily2_time_optional'))+'</div>'
+      + '<div class="field"><label class="field__label">'+t('overtime_date')+'</label><input type="date" id="ot-date"'+( _sa?'':' min="'+_w.min+'" max="'+_w.max+'"')+'></div>'
       + (_sa?'':'<div style="font-size:11px;color:var(--muted-foreground);margin:-6px 0 8px;">'+t('ot_window_hint')+'</div>')
       + '<div class="field"><label class="field__label">'+t('overtime_start')+'</label><input type="time" id="ot-start" onchange="calcMobOtHours()"></div>'
       + '<div class="field"><label class="field__label">'+t('overtime_end')+'</label><input type="time" id="ot-end" onchange="calcMobOtHours()"></div>'
@@ -2695,6 +2712,23 @@
       + '<div class="field"><label class="field__label">'+t('overtime_note')+'</label><textarea id="ot-note" rows="2"></textarea></div>'
       + '<button class="btn btn-primary btn-block" onclick="submitOvertime(\''+esc(empId)+'\')">'+t('submit')+'</button>';
     openSheet(title, body);
+    // P42: 取员工 default_type，计件员工隐藏 B 并强制回 A（先查本地花名册，缺字段则现查档案接口）
+    const e0=(STATE.employees||[]).find(x=>String(x.id)===String(empId));
+    if(e0 && e0.default_type){ _mobOtApplyTypeGate(e0.default_type); }
+    else { api('/api/employees/'+encodeURIComponent(empId)).then(d=>{ const ty=((d.employee||d)||{}).default_type||''; if(ty) _mobOtApplyTypeGate(ty); }).catch(()=>{}); }
+  }
+  // P42: B 类门槛——计件员工隐藏 daily2 选项并强制回 A
+  function _mobOtApplyTypeGate(ety){
+    const sel=document.getElementById('ot-type'); if(!sel) return;
+    const bOpt=sel.querySelector('option[value="daily2"]');
+    const isPiece=!!ety && String(ety).startsWith('piece');
+    if(bOpt) bOpt.hidden=isPiece;
+    if(isPiece && sel.value==='daily2'){ sel.value='hourly'; }
+  }
+  function onMobOtTypeChange(){
+    const sel=document.getElementById('ot-type'); const hint=document.getElementById('ot-d2-hint');
+    if(!sel||!hint) return;
+    hint.style.display = sel.value==='daily2' ? 'block' : 'none';
   }
   function calcMobOtHours(){
     const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
@@ -2708,6 +2742,7 @@
   }
   function submitOvertime(empId){
     const date=document.getElementById('ot-date').value;
+    const otType=(document.getElementById('ot-type')||{}).value||'hourly';  // P42
     const st=document.getElementById('ot-start').value, et=document.getElementById('ot-end').value;
     const note=(document.getElementById('ot-note').value||'').trim();
     if(!empId||!date){ toast(t('fill_date'),'warning'); return; }
@@ -2718,10 +2753,20 @@
       if(Math.abs((_sel-_t0)/86400000)>2){ toast(t('err_ot_window'),'warning'); return; }
     }
     calcMobOtHours();
-    const hours=parseFloat(document.getElementById('ot-hours').value||'0');
-    if(!st||!et||!hours){ toast(t('err_overtime_time'),'warning'); return; }
-    if(hours>12){ toast(t('err_overtime_hours'),'warning'); return; }
-    api('/api/oa/events',{ method:'POST', body:JSON.stringify({event_type:'overtime', employee_id:empId, effective_date:date, lang:(STATE.lang||'zh'), payload:{date, start_time:st, end_time:et, hours, note}}) }).then(r=>{
+    let payload;
+    if(otType==='daily2'){
+      // P42: B 类仅日期必填，起止可选仅记录；hours 空则传 0（金额由后端/计算链核定）
+      const hours=parseFloat(document.getElementById('ot-hours').value||'0')||0;
+      if(hours>12){ toast(t('err_overtime_hours'),'warning'); return; }
+      payload={date, hours, note, ot_type:'daily2'};
+      if(st&&et){ payload.start_time=st; payload.end_time=et; }
+    } else {
+      const hours=parseFloat(document.getElementById('ot-hours').value||'0');
+      if(!st||!et||!hours){ toast(t('err_overtime_time'),'warning'); return; }
+      if(hours>12){ toast(t('err_overtime_hours'),'warning'); return; }
+      payload={date, start_time:st, end_time:et, hours, note, ot_type:'hourly'};
+    }
+    api('/api/oa/events',{ method:'POST', body:JSON.stringify({event_type:'overtime', employee_id:empId, effective_date:date, lang:(STATE.lang||'zh'), payload}) }).then(r=>{
       if(r.ok){ toast(t('submitted')); closeSheet(); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
     }).catch(()=>toast(t('fail'),'error'));
   }

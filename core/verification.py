@@ -21,7 +21,9 @@ DEFAULT_PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 
 
 
 def verify_salary(main_data, salary_result, prices_underground=None, prices_driller=None,
-                  underground_mode=None, pricing=None, ug_team_members=None):
+                  underground_mode=None, pricing=None, ug_team_members=None,
+                  ot_records=None, employees=None, att_overrides=None,
+                  present_dates=None, overrides=None, month_prefix=''):
     """
     执行双路径薪资核对
     ──────────────────────────────
@@ -104,6 +106,40 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
             'base_sum': 0, 'final_sum': 0, 'diff': 0, 'conserved': True,
         }
 
+    # ── P42: 加班核对（hourly 累加 + daily2 核定补差，共用 calculator.resolve_daily2_ot）──
+    # 路径一（基准）：hourly 行 amount 累加 + daily2 行经单一来源核定 premium 求和
+    # 路径二（实际）：salary_result.employees[].overtime
+    # 参数未提供（历史调用方）时跳过该段，返回 None，零行为差异。
+    ot_check = None
+    if ot_records is not None and employees is not None:
+        from core.calculator import resolve_daily2_ot
+        _emp_map = {e['id']: e for e in employees}
+        _rows = [tuple(r) for r in ot_records]
+        premiums = resolve_daily2_ot(
+            _rows, _emp_map, att_overrides or {}, present_dates or {}, overrides or {},
+            month_prefix=month_prefix, pricing=pricing or {})
+        hourly_total = defaultdict(float)
+        for r in _rows:
+            if (r[3] if len(r) > 3 else 'hourly') == 'hourly':
+                if not month_prefix or str(r[1]).startswith(month_prefix):
+                    hourly_total[r[0]] += r[2] or 0
+        expected = {}
+        for eid in set(hourly_total) | set(premiums):
+            expected[eid] = round(hourly_total.get(eid, 0) + sum((premiums.get(eid) or {}).values()))
+        actual = {e.get('employee_id'): e.get('overtime', 0) or 0
+                  for e in salary_result.get('employees', [])}
+        diffs = [
+            {'employee_id': eid, 'expected': expected.get(eid, 0), 'actual': actual.get(eid, 0)}
+            for eid in sorted(set(expected) | set(actual))
+            if round(expected.get(eid, 0)) != round(actual.get(eid, 0))
+        ]
+        ot_check = {
+            'match': not diffs,
+            'diffs': diffs,
+            'premiums': {eid: {dt: round(v) for dt, v in pm.items()}
+                         for eid, pm in premiums.items() if pm},
+        }
+
     return {
         'underground': {
             'path1': ug_path1,
@@ -118,6 +154,7 @@ def verify_salary(main_data, salary_result, prices_underground=None, prices_dril
             'match': dr_diff == 0,
         },
         'overall_match': (ug_diff == 0) and (dr_diff == 0),
+        'overtime': ot_check,
         'path1_details': {
             'underground': ug_daily,
             'driller': dr_daily,

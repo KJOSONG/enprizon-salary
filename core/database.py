@@ -287,6 +287,7 @@ def init_db(data_folder):
             end_time TEXT NOT NULL DEFAULT '',
             hours REAL NOT NULL DEFAULT 0,
             amount REAL NOT NULL DEFAULT 0,
+            ot_type TEXT NOT NULL DEFAULT 'hourly',
             note TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
         );
@@ -414,6 +415,12 @@ def init_db(data_folder):
     try:
         conn.execute("ALTER TABLE attendance_overrides ADD COLUMN source INTEGER DEFAULT 0")
     except: pass
+    # P42: 旧库 overtime_records 补 ot_type 列（'hourly'|'daily2'，存量行全为 hourly，零影响）
+    try:
+        conn.execute("ALTER TABLE overtime_records ADD COLUMN ot_type TEXT NOT NULL DEFAULT 'hourly'")
+        conn.commit()
+    except Exception:
+        pass  # 列已存在则跳过
     # P10: 旧库 scoring_cards 补 month 列
     try:
         conn.execute("ALTER TABLE scoring_cards ADD COLUMN month TEXT DEFAULT ''")
@@ -1118,6 +1125,9 @@ def load_config(data_folder):
         cfg.setdefault('overtime_work_days', 26)           # 月工作天数
         cfg.setdefault('overtime_hours_per_day', 8)        # 日工作小时
         cfg.setdefault('overtime_rate', 1.5)               # 加班倍率
+        # P42: 未调休加班（B 类 daily2）参数兜底
+        cfg.setdefault('ot_daily2_multiplier', 2.0)        # B 类日薪倍数
+        cfg.setdefault('ot_daily2_threshold', 26)          # B 类生效门槛（当月核定出勤天数）
         # V2 凸性计件参数兜底
         cfg.setdefault('accel_target', 40)
         cfg.setdefault('accel_prices', {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000})
@@ -1142,6 +1152,8 @@ def load_config(data_folder):
         'overtime_work_days': 26,      # P23 R2: 月工作天数
         'overtime_hours_per_day': 8,   # P23 R2: 日工作小时
         'overtime_rate': 1.5,          # P23 R2: 加班倍率
+        'ot_daily2_multiplier': 2.0,   # P42: 未调休加班（B 类）日薪倍数
+        'ot_daily2_threshold': 26,     # P42: B 类生效门槛（当月核定出勤天数）
         'accel_target': 40,
         'accel_prices': {'NICKEL（H）': 8000, 'NICKEL（L）': 5000, 'MAWE': 3000},
         'accel_w_a': 0.6,
@@ -1174,6 +1186,15 @@ def save_config(data_folder, config):
         v = config['ug_annual_leave_monthly']
         if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
             raise ValueError(f"ug_annual_leave_monthly must be positive, got {v!r}")
+    # P42: 未调休加班（B 类）参数校验——倍数 float ≥1；门槛 int ≥1
+    if 'ot_daily2_multiplier' in config:
+        v = config['ot_daily2_multiplier']
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v < 1:
+            raise ValueError(f"ot_daily2_multiplier must be a number >= 1, got {v!r}")
+    if 'ot_daily2_threshold' in config:
+        v = config['ot_daily2_threshold']
+        if not isinstance(v, int) or isinstance(v, bool) or v < 1:
+            raise ValueError(f"ot_daily2_threshold must be an integer >= 1, got {v!r}")
     conn = get_conn(data_folder)
     conn.execute(
         "INSERT INTO settings (key, value) VALUES ('config', ?) ON CONFLICT(key) DO UPDATE SET value=?",
@@ -1546,6 +1567,79 @@ def _calc_overtime_hours(start_time, end_time):
     if hours <= 0 or hours > 12:
         return 0.0
     return math.floor(hours * 2) / 2.0
+
+
+# P42: B 类（daily2）出勤强校验白名单——当天 attendance_overrides.status 必须命中其一
+_OT_DAILY2_ATT_STATUSES = ('P', 'D', 'N', 'B', 'R', 'C', 'T', 'Y', 'NU')
+
+
+def _get_eff_salary_type(conn, eid):
+    """P42: 员工有效薪资类型 = override_type or default_type（铁律，P22-FIX）。
+    永久覆盖（overrides 无日期区间且类型有效）优先于主档 default_type，
+    判定规则对齐 get_employee_info / api_employee_profile。查无员工返回 ''。"""
+    emp = conn.execute(
+        "SELECT default_type FROM employees WHERE id=?", (eid,)).fetchone()
+    if not emp:
+        return ''
+    eff_type = emp['default_type'] or ''
+    for o in conn.execute(
+            "SELECT salary_type, start_date, end_date FROM overrides WHERE employee_id=?",
+            (eid,)).fetchall():
+        if (o['salary_type'] in ('day_rate', 'monthly', 'piece_underground',
+                                 'piece_driller', 'piece_crush')
+                and not (o['start_date'] or o['end_date'])):
+            eff_type = o['salary_type']
+    return eff_type
+
+
+def _daily2_premium_amount(conn, eid, cfg):
+    """P42: B 类（未调休加班）预估补差金额 = (倍数−1)×日薪基数。
+
+    倍数 = config ot_daily2_multiplier（默认 2.0）；日薪基数：
+    - monthly 员工 → round(monthly_salary/26)
+    - day_rate 员工 → day_rate
+    ⚠️ amount 仅为展示参考，工资以计算链核定为准（calculator 对 daily2 行按
+    spec 规则 5/6/7 现算补差，不直接累加本值）。
+    QA D1 修复：基数必须走 override 合并口径（与核定端/管线同源，语义对齐
+    app.py 加载管线的 override 叠加段）——永久覆盖（无日期区间、类型有效）的
+    salary_type/day_rate/monthly_salary 覆盖主档：有值用 override、无值回退主档；
+    day_rate 覆盖置 monthly=0，monthly 覆盖置 day_rate=0。
+    （反例：emp62 override monthly 400000、主档 0，直读主档会得 est=0 而核定 15385）
+    返回 (amount, eff_type, base)；员工不存在/类型非 day_rate/monthly/基数为 0
+    抛 RuntimeError。
+    """
+    mult = float(cfg.get('ot_daily2_multiplier', 2.0) or 2.0)
+    emp = conn.execute(
+        "SELECT default_type, day_rate, monthly_salary FROM employees WHERE id=?",
+        (eid,)).fetchone()
+    if not emp:
+        raise RuntimeError('员工不存在，无法核定未调休加班')
+    day_rate = float(emp['day_rate'] or 0)
+    monthly_salary = float(emp['monthly_salary'] or 0)
+    eff_type = emp['default_type'] or ''
+    for o in conn.execute(
+            "SELECT salary_type, day_rate, monthly_salary, start_date, end_date"
+            " FROM overrides WHERE employee_id=?", (eid,)).fetchall():
+        if (o['salary_type'] not in ('day_rate', 'monthly', 'piece_underground',
+                                     'piece_driller', 'piece_crush')
+                or (o['start_date'] or o['end_date'])):
+            continue
+        eff_type = o['salary_type']
+        if eff_type == 'day_rate' and (o['day_rate'] or 0) > 0:
+            day_rate = float(o['day_rate'])
+        elif eff_type == 'monthly' and (o['monthly_salary'] or 0) > 0:
+            monthly_salary = float(o['monthly_salary'])
+    if eff_type == 'monthly':
+        day_rate = 0
+        base = round(monthly_salary / 26.0)
+    elif eff_type == 'day_rate':
+        monthly_salary = 0
+        base = day_rate
+    else:
+        raise RuntimeError('未调休加班仅限日薪/月薪员工')
+    if base <= 0:
+        raise RuntimeError('员工薪资基数为 0，无法核定未调休加班')
+    return (mult - 1.0) * base, eff_type, base
 
 def _resolve_driller_captain_name(conn, val):
     """调岗 payload.captain 统一解析为队长名字。
@@ -1921,18 +2015,34 @@ def apply_approved_event(data_folder, event):
             _et = str(payload.get('end_time') or '')
             if not _date:
                 raise RuntimeError('加班事件缺少日期')
-            _hours = _calc_overtime_hours(_st, _et)
-            if _hours <= 0:
-                raise RuntimeError('加班起止时间无效或超出 12 小时上限')
+            # P42: 加班两类型——hourly 延时加班（现行公式）/ daily2 未调休加班（B 类，整日补差）
+            _ot_type = payload.get('ot_type') \
+                if payload.get('ot_type') in ('hourly', 'daily2') else 'hourly'
             _cfg = load_config(data_folder)
-            _amt = _hours * (_cfg.get('overtime_base', 400000)
-                             / _cfg.get('overtime_work_days', 26)
-                             / _cfg.get('overtime_hours_per_day', 8)
-                             * _cfg.get('overtime_rate', 1.5))
+            if _ot_type == 'daily2':
+                # B 类硬校验：当天必须有出勤记录（status ∈ 白名单），否则回滚审批
+                _att = conn.execute(
+                    "SELECT status FROM attendance_overrides WHERE employee_id=? AND date=?",
+                    (eid, _date)).fetchone()
+                _att_status = (_att['status'] or '') if _att else ''
+                if _att_status not in _OT_DAILY2_ATT_STATUSES:
+                    raise RuntimeError('未调休加班要求当天已提交出勤记录')
+                # 落库 amount = 预估补差 (倍数−1)×日薪基数，仅展示参考；
+                # 工资以计算链核定为准（calculator 按 spec 规则 5/6/7 现算）
+                _amt, _, _ = _daily2_premium_amount(conn, eid, _cfg)
+                _hours = 0.0  # daily2 整日制，hours 无意义，恒 0
+            else:
+                _hours = _calc_overtime_hours(_st, _et)
+                if _hours <= 0:
+                    raise RuntimeError('加班起止时间无效或超出 12 小时上限')
+                _amt = _hours * (_cfg.get('overtime_base', 400000)
+                                 / _cfg.get('overtime_work_days', 26)
+                                 / _cfg.get('overtime_hours_per_day', 8)
+                                 * _cfg.get('overtime_rate', 1.5))
             conn.execute(
-                "INSERT INTO overtime_records (event_id, employee_id, date, start_time, end_time, hours, amount, note)"
-                " VALUES (?,?,?,?,?,?,?,?)",
-                (event['id'], eid, _date, _st, _et, _hours, round(_amt),
+                "INSERT INTO overtime_records (event_id, employee_id, date, start_time, end_time, hours, amount, ot_type, note)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (event['id'], eid, _date, _st, _et, _hours, round(_amt), _ot_type,
                  str(payload.get('note') or '')))
         conn.commit()
     finally:
@@ -2873,9 +2983,40 @@ def edit_approved_event(data_folder, event_id, new_date, new_days, operator,
                 old_payload = {}
             new_payload = dict(old_payload)
             new_payload['date'] = new_date
+            # P42: ot_type 固定于提交时，编辑不可改类型；hourly 走 P41 行为，
+            # daily2 日期/起止时间仅记录 + amount 重算为新预估补差（不走 hours 公式）
+            _ot_type = old_payload.get('ot_type') \
+                if old_payload.get('ot_type') in ('hourly', 'daily2') else 'hourly'
+            _cfg = load_config(data_folder)
+            if _ot_type == 'daily2':
+                # 审查修复：改到的新日期同样必须满足出勤白名单（与审批强校验同口径），
+                # 堵住"改到无出勤日照拿补差"的洞；不满足返回拒绝（不落任何修改）
+                _att2 = conn.execute(
+                    "SELECT status FROM attendance_overrides WHERE employee_id=? AND date=?",
+                    (eid, new_date)).fetchone()
+                _att2_status = (_att2['status'] or '') if _att2 else ''
+                if _att2_status not in _OT_DAILY2_ATT_STATUSES:
+                    return False, '未调休加班要求当天已提交出勤记录'
+                if new_start_time is not None or new_end_time is not None:
+                    _st = str(new_start_time or '').strip()
+                    _et = str(new_end_time or '').strip()
+                    try:
+                        _dt.strptime(_st, '%H:%M')
+                        _dt.strptime(_et, '%H:%M')
+                    except (TypeError, ValueError):
+                        return False, '加班起止时间格式应为 HH:MM'
+                    new_payload['start_time'] = _st
+                    new_payload['end_time'] = _et
+                _amt2, _, _ = _daily2_premium_amount(conn, eid, _cfg)
+                payload_json = json.dumps(new_payload, ensure_ascii=False)
+                conn.execute(
+                    "UPDATE overtime_records SET date=?, start_time=?, end_time=?,"
+                    " amount=? WHERE event_id=?",
+                    (new_date, str(new_payload.get('start_time') or ''),
+                     str(new_payload.get('end_time') or ''), round(_amt2), event_id))
             # P41 需求3: 可选修改起止时间 → 重算 hours + 按 config 公式重算 amount
             # （后端权威兜底防伪造；参数缺省保持旧行为，只改日期）
-            if new_start_time is not None or new_end_time is not None:
+            elif new_start_time is not None or new_end_time is not None:
                 _st = str(new_start_time or '').strip()
                 _et = str(new_end_time or '').strip()
                 try:
@@ -2886,7 +3027,6 @@ def edit_approved_event(data_folder, event_id, new_date, new_days, operator,
                 _hours = _calc_overtime_hours(_st, _et)
                 if not _hours or _hours <= 0:
                     return False, '加班起止时间无效或超出 12 小时上限'
-                _cfg = load_config(data_folder)
                 _amt = _hours * (_cfg.get('overtime_base', 400000)
                                  / _cfg.get('overtime_work_days', 26)
                                  / _cfg.get('overtime_hours_per_day', 8)
