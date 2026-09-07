@@ -589,7 +589,7 @@
       <div id="transferPick" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);grid-column:1 / -1;"></div>
       <div class="form-row"><label data-i18n="emp_new_dept">新部门</label><select id="transferDept" onchange="onTransferDeptChange()" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
       <div class="form-row" id="transferTeamRow" style="display:none;"><label data-i18n="emp_team">班组</label><select id="transferTeam" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></select></div>
-      <div class="form-row" style="grid-column:1 / -1;"><div style="font-size:11px;color:var(--text-muted);" data-i18n="transfer_piece_hint">调入钻工/井下部门后，将按生效日期自动转为对应计件薪资</div></div>
+      <div class="form-row" style="grid-column:1 / -1;"><div style="font-size:11px;color:var(--text-muted);" data-i18n="transfer_piece_hint">调入钻工/井下/破碎（Sort Crush/Crush Piece Rate）部门后，将按生效日期自动转为对应计件薪资</div></div>
       <div class="form-row"><label data-i18n="emp_new_position">新岗位</label><input type="text" id="transferPosition" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
       <div class="form-row"><label data-i18n="emp_effective_date">生效日期</label><input type="date" id="transferDate" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
     </div>
@@ -817,6 +817,13 @@
     <div id="oaEditDaysRow" style="margin-top:12px;display:none;">
       <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;" id="oaEditDaysLabel"></label>
       <input type="number" id="oaEditDays" min="1" value="1" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;">
+    </div>
+    <div id="oaEditOtTimeRow" style="margin-top:12px;display:none;">
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;"><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;" id="oaEditOtStartLabel"></label><input type="time" id="oaEditOtStart" oninput="updateOaEditHours()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+        <div style="flex:1;"><label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;" id="oaEditOtEndLabel"></label><input type="time" id="oaEditOtEnd" oninput="updateOaEditHours()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;box-sizing:border-box;"></div>
+      </div>
+      <div id="oaEditHoursPreview" style="margin-top:6px;font-size:12px;color:var(--text);"></div>
     </div>
     <div id="oaEditHint" style="margin-top:8px;font-size:11px;color:var(--text-muted);"></div>
     <div style="display:flex;gap:8px;margin-top:16px;">
@@ -7066,7 +7073,7 @@ async function loadOAPending() {
       const box = document.getElementById('oaDetail' + ev.id);
       if (box) _oaDetailHtml(ev).then(h => { box.innerHTML = h; });
     });
-  } catch (e) { container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>'; }
+  } catch (e) { container.innerHTML = '<div style="color:var(--danger);padding:20px;">' + t('load_fail') + '</div>'; showToast(t('load_fail_prefix') + e.message, 'error'); }
 }
 
 function toggleOaDetail(eventId) {
@@ -7084,6 +7091,7 @@ async function _transferNeedsConfirm(ev) {
   try { p = JSON.parse(ev.payload || '{}'); } catch (e) { p = {}; }
   const nd = (p.new_department || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase();
   if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') return false;  // 井下内部调动，计件自动保持
+  if (nd === 'SORTCRUSH/CRUSHPIECERATE') return false;     // P41: 转入破碎自动映射破碎计件，无需弹窗
   if (p.new_type) return false;                            // 已带显式类型
   let oldType = p.old_type || '';
   if (!oldType) {
@@ -7099,8 +7107,14 @@ async function _transferNeedsConfirm(ev) {
 
 function _pickTransferType(ev) {
   return new Promise(resolve => {
+    // P41: 目标为非计件部门（井下/钻工/破碎之外）时只给日薪/月薪选项，默认日薪
+    let p0 = {};
+    try { p0 = JSON.parse(ev.payload || '{}'); } catch (e) { p0 = {}; }
+    const nd0 = (p0.new_department || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase();
+    const isPieceTarget = ['PRODUCTIONTEAM(UNDERGROUND)', 'DRILLERTEAM', 'SORTCRUSH/CRUSHPIECERATE'].includes(nd0);
     const labels = _SALARY_TYPE_LABELS();
-    const opts = Object.entries(labels).map(([v, l]) => `<option value="${v}">${escHtml(l)}</option>`).join('');
+    const entries = isPieceTarget ? Object.entries(labels) : Object.entries(labels).filter(([v]) => v === 'day_rate' || v === 'monthly');
+    const opts = entries.map(([v, l]) => `<option value="${v}">${escHtml(l)}</option>`).join('');
     const overlay = document.createElement('div');
     overlay.id = 'ttConfirmOverlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
@@ -7116,7 +7130,9 @@ function _pickTransferType(ev) {
     document.body.appendChild(overlay);
     const typeSel = overlay.querySelector('#ttTypeSel');
     const baseRow = overlay.querySelector('#ttBaseRow');
+    if (!isPieceTarget) typeSel.value = 'day_rate';  // P41: 转出计件默认日薪
     typeSel.addEventListener('change', () => { baseRow.style.display = (typeSel.value === 'day_rate' || typeSel.value === 'monthly') ? 'block' : 'none'; });
+    baseRow.style.display = (typeSel.value === 'day_rate' || typeSel.value === 'monthly') ? 'block' : 'none';
     const close = v => { overlay.remove(); resolve(v); };
     overlay.querySelector('#ttCancel').addEventListener('click', () => close(null));
     overlay.querySelector('#ttOk').addEventListener('click', () => {
@@ -7132,7 +7148,22 @@ function _pickTransferType(ev) {
   });
 }
 
+/* P41: OA 卡片按钮 loading 态（busy=true 禁用整卡按钮并改指定按钮文案，false 恢复；卡片已移除时安全空操作） */
+function _oaCardBusy(eventId, busy, btnSel, busyKey) {
+  const card = document.getElementById('oaCard' + eventId);
+  if (!card) return;
+  const btn = card.querySelector(btnSel);
+  if (busy) {
+    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    if (btn) { btn.dataset.origHtml = btn.innerHTML; btn.innerHTML = escHtml(t(busyKey)); }
+  } else {
+    card.querySelectorAll('button').forEach(b => { b.disabled = false; });
+    if (btn && btn.dataset.origHtml) { btn.innerHTML = btn.dataset.origHtml; delete btn.dataset.origHtml; }
+  }
+}
+
 async function oaApprove(eventId) {
+  const card = document.getElementById('oaCard' + eventId);
   // P35-B5: 跨计件/非计件调岗先弹确认层，再携带确认结果批准
   let confirmBody = {};
   try {
@@ -7144,21 +7175,30 @@ async function oaApprove(eventId) {
       if (!picked) return;  // 用户取消
       confirmBody = picked;
     }
-  } catch (e) {}
-  const res = await authFetch(api(`/api/oa/events/${eventId}/approve`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(confirmBody),
-  });
-  const data = await res.json();
-  if (data.ok) {
-    showToast(t('approved_label'));
-    loadOAPending();
-    loadNotifCount();
-    invalidateAfterOaWrite();  // P34: 出勤网格/花名册等即时失效，无需 F5
-    recalculate();  // P23 R2: 加班/入职等批准后薪资即时生效（请假撤销 recalc 已有先例）
-  } else {
-    showToast(data.error || t('op_fail'), 'error');
+  } catch (e) { showToast(t('load_fail_prefix') + e.message, 'error'); return; }  // P41: 预取失败不再静默，避免绕过确认层直接批准
+  _oaCardBusy(eventId, true, '.oa-btn-approve', 'oa_processing');
+  try {
+    const res = await authFetch(api(`/api/oa/events/${eventId}/approve`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(confirmBody),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }  // P41: 非 JSON 响应（504/502 HTML）不再抛未捕获异常
+    if (res.ok && data && data.ok) {
+      if (card) card.remove();  // P41: 乐观移除卡片，响应慢时不残留
+      showToast(t('approved_label'));
+      loadOAPending();
+      loadNotifCount();
+      invalidateAfterOaWrite();  // P34: 出勤网格/花名册等即时失效，无需 F5
+      recalculate();  // P23 R2: 加班/入职等批准后薪资即时生效（请假撤销 recalc 已有先例）
+    } else {
+      showToast((data && data.error) || (res.ok ? t('op_fail') : t('load_fail_prefix') + res.status), 'error');
+    }
+  } catch (e) {
+    showToast(t('err_network_prefix') + e.message, 'error');
+  } finally {
+    _oaCardBusy(eventId, false, '.oa-btn-approve', 'oa_processing');
   }
 }
 
@@ -7176,18 +7216,28 @@ function oaShowReject(eventId) {
 async function oaReject(eventId) {
   const reason = document.getElementById('oaRejectReason' + eventId).value;
   if (!reason) { showToast(t('reject_reason_required'), 'error'); return; }
-  const res = await authFetch(api(`/api/oa/events/${eventId}/reject`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reject_reason: reason }),
-  });
-  const data = await res.json();
-  if (data.ok) {
-    showToast(t('rejected_label'));
-    loadOAPending();
-    loadNotifCount();
-  } else {
-    showToast(data.error || t('op_fail'), 'error');
+  _oaCardBusy(eventId, true, '.oa-reject-form .oa-btn-reject', 'oa_processing');
+  try {
+    const res = await authFetch(api(`/api/oa/events/${eventId}/reject`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reject_reason: reason }),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }  // P41: 非 JSON 响应容错
+    if (res.ok && data && data.ok) {
+      const card = document.getElementById('oaCard' + eventId);
+      if (card) card.remove();  // P41: 乐观移除卡片
+      showToast(t('rejected_label'));
+      loadOAPending();
+      loadNotifCount();
+    } else {
+      showToast((data && data.error) || (res.ok ? t('op_fail') : t('load_fail_prefix') + res.status), 'error');
+    }
+  } catch (e) {
+    showToast(t('err_network_prefix') + e.message, 'error');
+  } finally {
+    _oaCardBusy(eventId, false, '.oa-reject-form .oa-btn-reject', 'oa_processing');
   }
 }
 
@@ -7208,6 +7258,10 @@ async function editOaEvent(eventId) {
   _currentEditEventType = ev.event_type;
   const isLeave = LEAVE_TYPES.includes(ev.event_type);
   const isOvertime = ev.event_type === 'overtime';
+  const otRow = document.getElementById('oaEditOtTimeRow');
+  const otPrev = document.getElementById('oaEditHoursPreview');
+  if (otRow) otRow.style.display = 'none';
+  if (otPrev) otPrev.textContent = '';
   // 填充模态框
   document.getElementById('oaEditModalTitle').textContent = t('oa_edit_title');
   document.getElementById('oaEditDateLabel').textContent = t('leave_edit_date');
@@ -7223,6 +7277,15 @@ async function editOaEvent(eventId) {
     hint.textContent = '';
   } else if (isOvertime) {
     daysRow.style.display = 'none';
+    // P41: 加班支持修改起止时间，实时重算时长
+    let otp = {};
+    try { otp = JSON.parse(ev.payload || '{}'); } catch (e) { otp = {}; }
+    document.getElementById('oaEditOtStart').value = otp.start_time || '';
+    document.getElementById('oaEditOtEnd').value = otp.end_time || '';
+    document.getElementById('oaEditOtStartLabel').textContent = t('oa_field_start_time');
+    document.getElementById('oaEditOtEndLabel').textContent = t('oa_field_end_time');
+    if (otRow) otRow.style.display = '';
+    updateOaEditHours();
     hint.textContent = t('oa_edit_ot_hint');
   } else {
     daysRow.style.display = 'none';
@@ -7241,6 +7304,15 @@ async function saveOaEdit() {
     const days = parseInt(document.getElementById('oaEditDays').value) || 1;
     if (days < 1) { showToast(t('leave_edit_days'), 'error'); return; }
     body.days = days;
+  }
+  if (_currentEditEventType === 'overtime') {
+    // P41: 起止时间必填且合法（与后端 _calc_overtime_hours 同规则），后端重算 hours/金额
+    const st = document.getElementById('oaEditOtStart').value;
+    const et = document.getElementById('oaEditOtEnd').value;
+    const h = _calcOtHoursFromTimes(st, et);
+    if (h == null) { showToast(t('oa_ot_hours_invalid'), 'error'); return; }
+    body.start_time = st;
+    body.end_time = et;
   }
   try {
     const res = await authFetch(api('/api/oa/events/' + _currentEditEventId + '/edit'), {
@@ -7323,7 +7395,7 @@ async function loadOAHistory() {
       apSel.value = Array.from(known).includes(cur) ? cur : '';
     }
     _renderOAHistoryCards(events, container, 'oaHistCard', 'oaHistDetail', false);
-  } catch (e) { container.innerHTML = t('load_fail'); }
+  } catch (e) { container.innerHTML = t('load_fail'); showToast(t('load_fail_prefix') + e.message, 'error'); }
 }
 
 /* OA 重设计 R1: 历史卡片渲染公共函数（history 与 mine 页签共用）
@@ -7615,6 +7687,28 @@ async function submitLeave() {
 }
 
 /* ── P23 R2: 加班申请 ── */
+/* P41: 纯函数版工时计算（与后端 _calc_overtime_hours 同规则：0.5h 向下取整、end<start 跨天、上限 12h），供 OA 编辑弹窗复用 */
+function _calcOtHoursFromTimes(st, et) {
+  if (!st || !et) return null;
+  const [sh, sm] = st.split(':').map(Number);
+  const [eh, em] = et.split(':').map(Number);
+  let diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff < 0) diff += 24 * 60;  // 跨天
+  const h = diff / 60;
+  if (h <= 0 || h > 12) return null;
+  return Math.floor(h * 2) / 2;
+}
+
+/* P41: OA 编辑弹窗加班时长实时预览 */
+function updateOaEditHours() {
+  const out = document.getElementById('oaEditHoursPreview');
+  if (!out) return;
+  const st = document.getElementById('oaEditOtStart').value;
+  const et = document.getElementById('oaEditOtEnd').value;
+  const h = _calcOtHoursFromTimes(st, et);
+  out.textContent = h == null ? t('oa_ot_hours_invalid') : t('oa_edit_hours_prefix') + ': ' + h.toFixed(1) + ' h';
+}
+
 function calcOtHours() {
   // 与后端 _calc_overtime_hours 同一套规则：0.5h 向下取整、end<start 跨天、上限 12h
   const st = document.getElementById('otStart').value;
