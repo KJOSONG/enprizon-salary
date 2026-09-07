@@ -2729,8 +2729,10 @@ def oa_approve_event(event_id):
                 _changed = True
         _nt = _pl.get('new_type') or ''
         _nd = (_pl.get('new_department') or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
+        # P41 需求2: 调入破碎（SORTCRUSH/CRUSHPIECERATE）自动映射 piece_crush，无需确认；转出仍须确认
         if _old_type in ('piece_underground', 'piece_driller', 'piece_crush') \
-                and _nt not in _valid5 and _nd != 'PRODUCTIONTEAM(UNDERGROUND)':
+                and _nt not in _valid5 \
+                and _nd not in ('PRODUCTIONTEAM(UNDERGROUND)', 'SORTCRUSH/CRUSHPIECERATE'):
             return jsonify({'ok': False, 'error': 'transfer_salary_type_required'}), 400
         if _nt in ('day_rate', 'monthly'):
             try:
@@ -2942,6 +2944,25 @@ def oa_edit_event(event_id):
         if event['event_type'] == 'overtime':
             # 待审加班：同步更新 payload.date
             payload['date'] = new_date
+            # P41 需求3: 可选修改起止时间（HH:MM，两者须成对提供）→ 同步 payload
+            # 并用 _calc_overtime_hours 后端重算 hours 兜底（防伪造）
+            _ot_st = data.get('start_time')
+            _ot_et = data.get('end_time')
+            if _ot_st is not None or _ot_et is not None:
+                _ot_st = str(_ot_st or '').strip()
+                _ot_et = str(_ot_et or '').strip()
+                try:
+                    datetime.strptime(_ot_st, '%H:%M')
+                    datetime.strptime(_ot_et, '%H:%M')
+                except (TypeError, ValueError):
+                    return jsonify({'ok': False, 'error': '加班起止时间格式应为 HH:MM'}), 400
+                from core.database import _calc_overtime_hours as _coh
+                _ot_hours = _coh(_ot_st, _ot_et)
+                if not _ot_hours or _ot_hours <= 0:
+                    return jsonify({'ok': False, 'error': '加班起止时间无效或超出 12 小时上限'}), 400
+                payload['start_time'] = _ot_st
+                payload['end_time'] = _ot_et
+                payload['hours'] = _ot_hours
             # R2 防绕过：非 super_admin 编辑待审加班也受 ±2 天窗口约束
             if session.get('role') != 'super_admin':
                 try:
@@ -2978,7 +2999,11 @@ def oa_edit_event(event_id):
             new_days = int(json.loads(event['payload'] or '{}').get('days', 1) or 1)
         except (TypeError, ValueError):
             new_days = 1
-    ok, msg = edit_approved_event(app.config['DATA_FOLDER'], event_id, new_date, new_days, username)
+    # P41 需求3: 已批加班可带可选起止时间（重算 hours/amount）；请假族忽略该参数
+    _new_st = data.get('start_time') if event['event_type'] == 'overtime' else None
+    _new_et = data.get('end_time') if event['event_type'] == 'overtime' else None
+    ok, msg = edit_approved_event(app.config['DATA_FOLDER'], event_id, new_date, new_days, username,
+                                  new_start_time=_new_st, new_end_time=_new_et)
     if not ok:
         return jsonify({'ok': False, 'error': str(msg)}), 400
     # R1: 审计动作用 'oa_edit_date'（区分普通 oa_edit）

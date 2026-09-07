@@ -1405,7 +1405,7 @@
       + '<div class="oa-card__date">'+t('oa_submitter')+': '+esc(ev.operator_id||'—')+'</div>';
     if(mode==='pending'){
       if(hasPermission('oa','approve')){
-        html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="event.stopPropagation();approveOA('+ev.id+')">'+t('approve')+'</button><button class="btn" onclick="event.stopPropagation();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
+        html += '<div class="oa-card__actions"><button class="btn btn-primary" onclick="event.stopPropagation();approveOA('+ev.id+',this)">'+t('approve')+'</button><button class="btn" onclick="event.stopPropagation();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
       } else {
         html += '<div class="oa-card__desc" style="margin-top:6px;color:var(--muted-foreground);font-size:12px;">'+t('oa_pending_own_hint')+'</div>';
       }
@@ -1426,8 +1426,9 @@
   async function _mobTransferNeedsConfirm(ev){
     let p={};
     try{ p=JSON.parse(ev.payload||'{}'); }catch(e){ p={}; }
-    const nd=(p.new_department||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase();
+    const nd=_mobNormDept(p.new_department);
     if(nd==='PRODUCTIONTEAM(UNDERGROUND)') return false;
+    if(nd==='SORTCRUSH/CRUSHPIECERATE') return false;  // P41: 转入破碎自动映射 piece_crush，无需确认
     if(p.new_type) return false;
     let oldType=p.old_type||'';
     if(!oldType){
@@ -1440,14 +1441,21 @@
   }
   function _mobPickTransferType(ev){
     return new Promise(resolve=>{
-      const labels={ piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
+      let p0={};
+      try{ p0=JSON.parse(ev.payload||'{}'); }catch(e){ p0={}; }
+      const nd=_mobNormDept(p0.new_department);
+      const allLabels={ piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
+      // P41: 目标为非计件部门（无自动映射）时只保留 day_rate/monthly，默认 day_rate
+      const labels=(nd==='DRILLERTEAM')?allLabels:{ day_rate:allLabels.day_rate, monthly:allLabels.monthly };
       const opts=Object.keys(labels).map(v=>'<option value="'+v+'">'+esc(labels[v])+'</option>').join('');
       const body='<div class="field"><label class="field__label">'+esc(t('transfer_type_confirm_hint'))+'</label>'
         +'<select id="mobTtType">'+opts+'</select></div>'
         +'<div class="field" id="mobTtBaseRow" style="display:none;"><label class="field__label">'+esc(t('transfer_base_placeholder'))+'</label><input id="mobTtBase" type="number" min="0" step="100"></div>';
       showModal(t('oa_transfer'), body, '<button class="btn btn-block" onclick="closeModal();window.__mobTtResolve(null)">'+t('cancel')+'</button><button class="btn btn-primary btn-block" onclick="window.__mobTtOk()">'+t('approve')+'</button>');
       const sel=document.getElementById('mobTtType');
-      sel.addEventListener('change',()=>{ document.getElementById('mobTtBaseRow').style.display=(sel.value==='day_rate'||sel.value==='monthly')?'block':'none'; });
+      const syncBase=()=>{ document.getElementById('mobTtBaseRow').style.display=(sel.value==='day_rate'||sel.value==='monthly')?'block':'none'; };
+      sel.addEventListener('change',syncBase);
+      syncBase();
       window.__mobTtResolve=resolve;
       window.__mobTtOk=function(){
         const nt=sel.value;
@@ -1461,7 +1469,7 @@
       };
     });
   }
-  async function approveOA(id){
+  async function approveOA(id, btn){
     let body='{}';
     try{
       const r0=await api('/api/oa/events/'+id);
@@ -1472,19 +1480,42 @@
         body=JSON.stringify(picked);
       }
     }catch(e){}
-    api('/api/oa/events/'+id+'/approve', { method:'POST', body }).then(r=>{ if(r.ok){ toast(t('approved')); STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */ loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error'); }); }
+    const setLoad=(on)=>{ if(btn){ btn.disabled=on; if(on){ btn.dataset._t=btn.textContent; btn.textContent=t('submitting'); } else if(btn.dataset._t){ btn.textContent=btn.dataset._t; } } };
+    setLoad(true);
+    try{
+      // P41: 显式 fetch + json 容错（504/HTML 响应不再静默），await + try/catch/finally
+      const r=await fetch(API_BASE+'/api/oa/events/'+id+'/approve', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body }).then(x=>x.json()).catch(()=>null);
+      if(r && r.ok){
+        toast(t('approved'));
+        STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */
+        if(btn){ const card=btn.closest('.oa-card'); if(card) card.remove(); }  // 乐观移除卡片
+        loadOA('pending'); loadOAPendingCount();
+      } else {
+        toast((r&&r.error)||t('fail'),'error');
+      }
+    }catch(e){
+      toast(t('fail'),'error');
+    }finally{
+      setLoad(false);
+    }
+  }
   // 拒绝原因 Modal（非 prompt）
   function openRejectModal(id, empName){
     const body = '<div class="oa-card" style="margin-bottom:12px;"><div class="oa-card__head"><span class="oa-card__type">'+t('reject')+'</span><span class="oa-card__emp">'+esc(empName||'')+'</span></div></div>'
       + '<div class="field"><label class="field__label">'+t('reject_reason')+'</label><textarea id="rj-reason" rows="3" placeholder="'+t('reject_hint')+'"></textarea></div>';
-    showModal(t('confirm_reject'), body, '<button class="btn btn-block" onclick="closeModal()">'+t('cancel')+'</button><button class="btn btn-primary btn-block" onclick="submitRejectOA('+id+')">'+t('confirm_reject')+'</button>');
+    showModal(t('confirm_reject'), body, '<button class="btn btn-block" onclick="closeModal()">'+t('cancel')+'</button><button class="btn btn-primary btn-block" onclick="submitRejectOA('+id+',this)">'+t('confirm_reject')+'</button>');
   }
-  function submitRejectOA(id){
+  async function submitRejectOA(id, btn){
     const reason = document.getElementById('rj-reason').value.trim();
     if(!reason){ toast(t('reject_hint'),'warning'); return; }
-    api('/api/oa/events/'+id+'/reject', { method:'POST', body: JSON.stringify({reject_reason:reason}) }).then(r=>{
-      if(r.ok){ toast(t('rejected')); STATE.attendance=null; STATE.employees=[]; /* P34 */ closeModal(); loadOA('pending'); loadOAPendingCount(); } else toast(r.error||t('fail'),'error');
-    }).catch(()=>toast(t('fail'),'error'));
+    if(btn){ btn.disabled=true; btn.dataset._t=btn.textContent; btn.textContent=t('submitting'); }
+    try{
+      // P41: json 容错 + try/catch/finally，失败必出 toast
+      const r=await fetch(API_BASE+'/api/oa/events/'+id+'/reject', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reject_reason:reason}) }).then(x=>x.json()).catch(()=>null);
+      if(r && r.ok){ toast(t('rejected')); STATE.attendance=null; STATE.employees=[]; /* P34 */ closeModal(); loadOA('pending'); loadOAPendingCount(); }
+      else toast((r&&r.error)||t('fail'),'error');
+    }catch(e){ toast(t('fail'),'error'); }
+    finally{ if(btn){ btn.disabled=false; btn.textContent=btn.dataset._t||t('confirm_reject'); } }
   }
 
   // C3/C4: OA 条目详情预览（pending 可批准/驳回；history 只读）
@@ -1528,7 +1559,7 @@
     }
     // 操作区（已处理列表只读）
     if(!isProcessed){
-      html += '<div style="display:flex;gap:8px;margin-top:14px;"><button class="btn btn-primary" style="flex:1;" onclick="closeSheet();approveOA('+ev.id+')">'+t('approve')+'</button>'
+      html += '<div style="display:flex;gap:8px;margin-top:14px;"><button class="btn btn-primary" style="flex:1;" onclick="closeSheet();approveOA('+ev.id+',this)">'+t('approve')+'</button>'
         + '<button class="btn" style="flex:1;" onclick="closeSheet();openRejectModal('+ev.id+',\''+esc(ev.employee_name||'')+'\')">'+t('reject')+'</button></div>';
     }
     const body = document.getElementById('sheet-body');

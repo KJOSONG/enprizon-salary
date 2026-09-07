@@ -1730,12 +1730,16 @@ def apply_approved_event(data_folder, event):
             _nd = _norm(new_dept)
             is_driller = _nd == 'DRILLERTEAM'
             is_ug = _nd == 'PRODUCTIONTEAM(UNDERGROUND)'
-            # 自动目标薪资类型：仅调入钻工/井下自动切计件，其余部门保持原薪资
-            new_type = 'piece_driller' if is_driller else ('piece_underground' if is_ug else '')
+            # P41 需求2: 调入破碎部门（生产库准确名 Sort Crush/Crush Piece Rate）自动切计件；
+            # 注意 'Sort Crush'（无 /Crush Piece Rate 后缀）不匹配，维持原类型
+            is_crush = _nd == 'SORTCRUSH/CRUSHPIECERATE'
+            # 自动目标薪资类型：调入钻工/井下/破碎自动切计件，其余部门保持原薪资
+            new_type = ('piece_driller' if is_driller else
+                        ('piece_underground' if is_ug else ('piece_crush' if is_crush else '')))
             # P35-B5: 审批人显式确认的新薪资类型（跨计件/非计件调岗），优先于自动推断
             _explicit_type = payload.get('new_type') if payload.get('new_type') in (
                 'day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush') else ''
-            if not (is_driller or is_ug) and _explicit_type:
+            if not (is_driller or is_ug or is_crush) and _explicit_type:
                 new_type = _explicit_type
             # 班组校验：钻工/井下必须选择班组，否则拒绝审批
             team_id_val = 0
@@ -1781,7 +1785,7 @@ def apply_approved_event(data_folder, event):
             # P35-B5: 显式确认类型的调岗，当月台账条目直接落新类型与新基数
             _entry_type = old_type
             _entry_day, _entry_month_sal = old_day, old_month
-            if not (is_driller or is_ug) and _explicit_type:
+            if not (is_driller or is_ug or is_crush) and _explicit_type:
                 _entry_type = _explicit_type
                 _entry_day = float(payload.get('day_rate') or 0) if _explicit_type == 'day_rate' else old_day
                 _entry_month_sal = float(payload.get('monthly_salary') or 0) if _explicit_type == 'monthly' else old_month
@@ -1791,10 +1795,10 @@ def apply_approved_event(data_folder, event):
                 (eid, _eff_month, new_dept, _entry_type, _entry_day, _entry_month_sal, team_id_val,
                  f'OA调岗 #{event.get("id")}', 'system'))
 
-            # 更新主档（部门/岗位；钻工/井下同步切薪资类型与班组）
+            # 更新主档（部门/岗位；钻工/井下/破碎同步切薪资类型与班组）
             conn.execute("UPDATE employees SET department=?, position=COALESCE(NULLIF(?,''),position) WHERE id=?",
                          (new_dept, new_pos, eid))
-            if is_driller or is_ug:
+            if is_driller or is_ug or is_crush:
                 conn.execute(
                     "UPDATE employees SET default_type=?, day_rate=0, monthly_salary=0, team_id=? WHERE id=?",
                     (new_type, team_id_val, eid))
@@ -1834,6 +1838,13 @@ def apply_approved_event(data_folder, event):
                     " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (eid, 'piece_underground', 0, 0, eff, '9999-12-31',
                      f'OA调岗转井下 #{event.get("id")}', '', '', '', ''))
+            elif is_crush:
+                # P41 需求2: 破碎无队长/班组概念，哨兵 override 同款语义（eff→9999-12-31）
+                conn.execute(
+                    "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (eid, 'piece_crush', 0, 0, eff, '9999-12-31',
+                     f'OA调岗转破碎计件 #{event.get("id")}', '', '', '', ''))
             # 事件 payload 补充追溯信息
             _p2 = dict(payload)
             _p2.update({'new_type': new_type, 'old_type': old_type,
@@ -2815,7 +2826,8 @@ def revoke_event(data_folder, event_id, revoked_by):
     finally:
         conn.close()
 
-def edit_approved_event(data_folder, event_id, new_date, new_days, operator):
+def edit_approved_event(data_folder, event_id, new_date, new_days, operator,
+                        new_start_time=None, new_end_time=None):
     """R1: 已批准事件修改（年假/调休/病假/普通请假/加班），支持跨月跨年。
 
     分两支处理：
@@ -2823,7 +2835,8 @@ def edit_approved_event(data_folder, event_id, new_date, new_days, operator):
        单事务内「撤销旧单 → 回滚旧余额 → 删旧出勤 → 建新 pending 单 → 扣新余额 → 写新出勤 → 自动批准」。
        旧/新年份可能不同，余额扣减前会懒初始化新年 leave_balances 行（与 apply_approved_event 同机制）。
     b) 加班（overtime）：
-       原地修改：仅更新 overtime_records.date + employee_events.effective_date/payload/updated_at，
+       原地修改：更新 overtime_records.date（P41 需求3: 传入起止时间时同步更新
+       start_time/end_time/hours/amount 并重算）+ employee_events.effective_date/payload/updated_at，
        不创建新事件，不改变状态，不回滚任何余额。
 
     返回 (ok, msg)：
@@ -2860,10 +2873,37 @@ def edit_approved_event(data_folder, event_id, new_date, new_days, operator):
                 old_payload = {}
             new_payload = dict(old_payload)
             new_payload['date'] = new_date
-            payload_json = json.dumps(new_payload, ensure_ascii=False)
-            conn.execute(
-                "UPDATE overtime_records SET date=? WHERE event_id=?",
-                (new_date, event_id))
+            # P41 需求3: 可选修改起止时间 → 重算 hours + 按 config 公式重算 amount
+            # （后端权威兜底防伪造；参数缺省保持旧行为，只改日期）
+            if new_start_time is not None or new_end_time is not None:
+                _st = str(new_start_time or '').strip()
+                _et = str(new_end_time or '').strip()
+                try:
+                    _dt.strptime(_st, '%H:%M')
+                    _dt.strptime(_et, '%H:%M')
+                except (TypeError, ValueError):
+                    return False, '加班起止时间格式应为 HH:MM'
+                _hours = _calc_overtime_hours(_st, _et)
+                if not _hours or _hours <= 0:
+                    return False, '加班起止时间无效或超出 12 小时上限'
+                _cfg = load_config(data_folder)
+                _amt = _hours * (_cfg.get('overtime_base', 400000)
+                                 / _cfg.get('overtime_work_days', 26)
+                                 / _cfg.get('overtime_hours_per_day', 8)
+                                 * _cfg.get('overtime_rate', 1.5))
+                new_payload['start_time'] = _st
+                new_payload['end_time'] = _et
+                new_payload['hours'] = _hours
+                payload_json = json.dumps(new_payload, ensure_ascii=False)
+                conn.execute(
+                    "UPDATE overtime_records SET date=?, start_time=?, end_time=?,"
+                    " hours=?, amount=? WHERE event_id=?",
+                    (new_date, _st, _et, _hours, round(_amt), event_id))
+            else:
+                payload_json = json.dumps(new_payload, ensure_ascii=False)
+                conn.execute(
+                    "UPDATE overtime_records SET date=? WHERE event_id=?",
+                    (new_date, event_id))
             conn.execute(
                 "UPDATE employee_events SET effective_date=?, payload=?,"
                 " updated_at=datetime('now','+3 hours') WHERE id=?",
