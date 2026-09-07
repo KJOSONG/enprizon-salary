@@ -1253,7 +1253,10 @@ const I18N_DICT = {
     col_team_conflict: '该日期「{team}」（已由 {operator} 提交）的采集数据已存在，如需修改请联系管理员',
     col_already_submitted: '该日期/部门的采集数据已由 {operator} 提交，如需修改请联系管理员',
     col_edit_owner_only: '只能编辑本人提交或管理员可改',
-    col_legacy_overwrite_blocked: '目标日期已存在新版班组数据，不支持旧格式覆盖',
+    col_legacy_overwrite_blocked: '目标日期已存在旧版白夜班数据，不支持新版班组覆盖，请先删除旧提交再按班组制重新提交',
+    col_teams_overwrite_blocked: '目标日期已存在新版班组数据，旧格式提交不能覆盖，请删除旧提交后按班组制重新提交正确日期',
+    col_legacy_date_blocked: '该日期已存在旧版白夜班数据，不支持新版班组混提，请先删除或修改旧提交',
+    col_teams_date_blocked: '该日期已存在新版班组数据，不支持旧版白夜班提交，请按班组制重新提交',
     /* V2: 配置页 */
     settings_ug_mode_v2: '⚡ 凸性计件 V2',
     settings_ug_mode_v2_desc: 'V2模式: 班组日池凸性加速 + 月末出勤/行为系数零和再分配',
@@ -2522,7 +2525,10 @@ const I18N_DICT = {
     col_team_conflict: 'Collection data for "{team}" on this date (submitted by {operator}) already exists. Contact an admin to modify',
     col_already_submitted: 'Collection data for this date/department was already submitted by {operator}. Contact an admin to modify',
     col_edit_owner_only: 'You can only edit your own submissions, or ask an admin',
-    col_legacy_overwrite_blocked: 'The target date already contains new-format team data; legacy-format overwrite is not supported',
+    col_legacy_overwrite_blocked: 'The target date already contains legacy day/night data. Team data cannot overwrite it — delete the legacy submission first, then re-submit in team format',
+    col_teams_overwrite_blocked: 'The target date already contains new-format team data; legacy submissions cannot overwrite it — delete the legacy submission and re-submit the correct date in team format',
+    col_legacy_date_blocked: 'This date already contains legacy day/night data; team-format submissions are not allowed — resolve the legacy submission first',
+    col_teams_date_blocked: 'This date already contains new-format team data; legacy day/night submissions are not allowed — please re-submit in team format',
     /* V2: Config page */
     settings_ug_mode_v2: '⚡ Convex Piecework V2',
     settings_ug_mode_v2_desc: 'V2: Team daily pool convex acceleration + month-end attendance/behavior coefficient zero-sum redistribution',

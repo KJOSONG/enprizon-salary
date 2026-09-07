@@ -4018,6 +4018,18 @@ def collection_submit():
         if not teams:
             return jsonify({'ok': False, 'error': '班组数据为空，至少填写一个班组',
                             'error_key': 'col_ug_team_required'}), 400
+        # P39-b: 混合格式守卫（submit 侧）——同日禁止新旧格式混存（rebuild 同日替换/合并会静默丢数）
+        for _r in get_collection_submissions(app.config['DATA_FOLDER'], form_type='underground'):
+            if _r.get('submission_date') != date:
+                continue
+            try:
+                _rpl = json.loads(_r.get('payload') or '{}')
+            except (TypeError, ValueError):
+                continue
+            if 'teams' not in _rpl and ('day' in _rpl or 'night' in _rpl):
+                return jsonify({'ok': False,
+                                'error': '该日期已存在旧版白夜班数据，不支持新版班组混提，请先删除或修改旧提交',
+                                'error_key': 'col_legacy_date_blocked'}), 400
         _ug_is_admin = session.get('role') in ('admin', 'super_admin')
         _ok, _err, _eparams, _sids, _tids = _ug_team_upsert(app.config['DATA_FOLDER'], date, teams, username,
                                                             _ug_is_admin, patch_existing=True)
@@ -4047,6 +4059,16 @@ def collection_submit():
                        and (e.get('department') or '') == dept), None)
     else:
         ex = next((e for e in existing if e['submission_date'] == date), None)
+    # P39-b: 混合格式守卫（submit 侧对称）——旧格式 underground 提交命中同日新版班组行时拒绝
+    if form_type == 'underground' and ex is not None:
+        try:
+            _expl = json.loads(ex.get('payload') or '{}')
+        except (TypeError, ValueError):
+            _expl = {}
+        if 'teams' in _expl:
+            return jsonify({'ok': False,
+                            'error': '该日期已存在新版班组数据，不支持旧版白夜班提交，请按班组制重新提交',
+                            'error_key': 'col_teams_date_blocked'}), 400
     if ex:
         # 归属保护：非管理员不得覆盖他人提交（同键 upsert 会改写 operator_id，等价于编辑他人数据）
         if ex['operator_id'] != username and session.get('role') not in ('admin', 'super_admin'):
@@ -4428,8 +4450,8 @@ def collection_edit(submission_id):
                 _is_legacy_edit = True
             if _is_legacy_edit and _teams_row_exists:
                 return jsonify({'ok': False,
-                                'error': '目标日期已存在新版班组数据，不支持旧格式覆盖',
-                                'error_key': 'col_legacy_overwrite_blocked'}), 400
+                                'error': '目标日期已存在新版班组数据，旧格式提交不能覆盖，请删除旧提交后按班组制重新提交正确日期',
+                                'error_key': 'col_teams_overwrite_blocked'}), 400
             if not _is_legacy_edit and _legacy_row_exists:
                 return jsonify({'ok': False,
                                 'error': '目标日期已存在旧版白夜班数据，不支持新版班组覆盖',
