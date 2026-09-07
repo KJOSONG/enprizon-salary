@@ -4372,7 +4372,12 @@ function renderProfileTimeline() {
       // R40-R2 Minor: 未知状态不误显「待生效」——显示原始状态值 + 中性灰色徽标（var(--text-muted)）
       const stKnown = !!EV_STATUS[ev.status];
       const stCls = stKnown ? ev.status : '';
-      const stLabel = stKnown ? EV_STATUS[ev.status] : (ev.status || '—');
+      // P40-e2: 未来生效的 approved 事件显示「已批准 · 日期生效」，避免误导为立即生效（日期基准=坦桑 EAT）
+      const _eatToday = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+      const _isFutureApproved = ev.status === 'approved' && (ev.effective_date || '').slice(0, 10) > _eatToday;
+      const stLabel = !stKnown ? (ev.status || '—')
+        : _isFutureApproved ? t('ev_approved_future').replace('{date}', (ev.effective_date || '').slice(0, 10))
+        : EV_STATUS[ev.status];
       const itemCls = stCls === 'pending' ? 'timeline-item pending-ev' : stCls === 'revoked' ? 'timeline-item revoked' : 'timeline-item';
       return `
       <div class="${itemCls}">
@@ -8403,6 +8408,11 @@ async function filterEmpPickerPool(kw, teamId) {
 async function openEmpPicker(kw, hiddenId, displayId, opts) {
   opts = opts || {};
   _drPickerIndex = null;
+  // P40-e2: 采集类人员弹层必须先选表单日期——日期为空时池按"当前归属"取，调岗生效日未到的员工会漏
+  if (['crush', 'attendance', 'underground', 'driller'].indexOf(kw) !== -1 && !colFormDate()) {
+    showToast(t('col_need_date_first'), 'error');
+    return;
+  }
   const teamId = opts.teamId || '';
   const list = await filterEmpPickerPool(kw, teamId);
   const cur = (document.getElementById(hiddenId).value || '').split(',').filter(Boolean);
