@@ -1390,6 +1390,24 @@ def _run_pipeline(month_filter=None):
                 else:
                     main_data[key] = [d for d in main_data[key] if d.get('date', '').startswith(month_filter)]
 
+    # P44: headless 预览月日期生成前置到 calculate_all 之前——无采集数据月若不预生成自然日期，
+    # calculate_all 的 month_prefix 推导为 ''，导致 manual_p/NU 载入全部历史标记无月过滤、
+    # ENPRIZON 1-26 补齐被跳过，薪资总表按历史散落标记计出跨月垃圾值（如 emp1 8 个历史 P 标记
+    # 计出 184,615），且与日明细分叉。前置后 month_prefix=month_filter，总表与日明细口径一致。
+    headless = False
+    if month_filter and not main_data.get('dates'):
+        import calendar as _cal
+        try:
+            y, m = int(month_filter[:4]), int(month_filter[5:7])
+            _, last_day = _cal.monthrange(y, m)
+            main_data['dates'] = [f'{month_filter}-{d:02d}' for d in range(1, last_day + 1)]
+            main_data['shift_production'] = []
+            main_data['driller_production'] = []
+            main_data['attendance'] = []
+            headless = True
+        except Exception:
+            headless = False
+
     cfg = APP_STATE.get('config')
     if not cfg:
         from core.pricing import load_config
@@ -1416,22 +1434,8 @@ def _run_pipeline(month_filter=None):
     # P38: 输出层过滤——离职且当月无任何工资/记录的员工行剔除（有出勤/计薪的离职者保留）
     _filter_dismissed_empty_salary(result, employees, month_filter, app.config.get('DATA_FOLDER'))
 
-    headless = not bool(main_data.get('dates'))
-    if month_filter and headless and employees:
-        import calendar as _cal
-        try:
-            y, m = int(month_filter[:4]), int(month_filter[5:7])
-            _, last_day = _cal.monthrange(y, m)
-            generated = [f'{month_filter}-{d:02d}' for d in range(1, last_day + 1)]
-            main_data['dates'] = generated
-            main_data['shift_production'] = []
-            main_data['driller_production'] = []
-            main_data['attendance'] = []
-            headless = True
-        except Exception:
-            pass
-    else:
-        headless = not bool(main_data.get('dates')) if month_filter else False
+    # P44: headless 判定与日期生成已前置到 calculate_all 之前（保证 month_prefix 正确），
+    # 此处不再重复处理。
 
     built_at = time.time()
     month_key = (month_filter or '')[:7] if month_filter else '__all__'
