@@ -4242,8 +4242,27 @@ def collection_submit():
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
     # P40-c C2: 已离职员工硬校验——dismissed 且标记日期 >= 离职生效日 → 拒绝（离职前日期补录放行）
-    _att_mark_eids = [m.get('employee_id') for m in (payload.get('marks') or [])] \
-        if form_type == 'attendance' else None
+    # P40-HOTFIX 加固：marks 含非 dict 条目（脏客户端 payload）时清洗剔除并审计，
+    # 不再 'str' has no .get 500（下游 _filter_marks_by_department 等同样逐条 m.get）
+    if form_type == 'attendance':
+        _raw_marks = payload.get('marks') or []
+        _clean_marks = []
+        _att_mark_eids = []
+        for m in _raw_marks:
+            if isinstance(m, dict):
+                _clean_marks.append(m)
+                _att_mark_eids.append(m.get('employee_id'))
+            else:
+                try:
+                    log_audit(app.config['DATA_FOLDER'], 'col_marks_malformed', '',
+                              json.dumps({'form_type': form_type, 'date': date,
+                                          'entry': str(m)[:64]}), operator='system')
+                except Exception:
+                    pass
+        if len(_clean_marks) != len(_raw_marks):
+            payload['marks'] = _clean_marks
+    else:
+        _att_mark_eids = None
     _dis_err = _dismissed_submission_error(payload, form_type, date, app.config['DATA_FOLDER'],
                                            extra_eids=_att_mark_eids)
     if _dis_err:
