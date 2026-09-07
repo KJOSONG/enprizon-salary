@@ -2825,7 +2825,7 @@
     const eid=document.getElementById('oaDmEid').value, date=document.getElementById('oaDmDate').value;
     if(!eid||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
     api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'dismiss', employee_id:eid, effective_date:date, payload:{ reason:document.getElementById('oaDmReason').value.trim() } }) }).then(r=>{
-      if(r.ok){ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, r.error||t('fail'));
+      if(r.ok){ STATE.attendance=null; STATE.employees=[]; /* P40/P34: 提交后失效花名册缓存，下拉即时刷新 */ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, colApiErrMsg(r));
     }).catch(()=>oaFormMsg(false, t('fail')));
   }
 

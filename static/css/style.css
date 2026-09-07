@@ -1887,6 +1887,7 @@ body {
 .timeline-dot.approved { background: var(--success); }
 .timeline-dot.rejected { background: var(--danger); }
 .timeline-dot.pending { background: var(--warning); }
+.timeline-dot.revoked { background: var(--text-muted); }
 .timeline-content { flex: 1; min-width: 0; }
 .timeline-header { display: flex; gap: 8px; align-items: center; font-size: 12px; }
 .timeline-type { font-weight: 600; color: var(--text); }
@@ -1894,6 +1895,13 @@ body {
 .timeline-status { font-size: 11px; }
 .timeline-status.approved { color: var(--success); }
 .timeline-status.rejected { color: var(--danger); }
+.timeline-status.pending { color: var(--warning); }
+.timeline-status.revoked { color: var(--text-muted); }
+/* P40-b 状态徽标：文字胶囊 + pending 显著标识 */
+.timeline-status-badge { font-size: 10px; padding: 1px 6px; border: 1px solid currentColor; border-radius: 8px; white-space: nowrap; }
+.timeline-status-badge.pending { font-weight: 600; background: var(--warning); color: #fff; border-color: var(--warning); }
+.timeline-item.revoked { opacity: 0.55; }
+.timeline-item.pending-ev .timeline-content { border-left: 2px dashed var(--warning); padding-left: 6px; }
 
 /* ── P1 OA 审批 ── */
 .oa-event-card {

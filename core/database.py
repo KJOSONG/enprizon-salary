@@ -1571,6 +1571,46 @@ def _resolve_driller_captain_name(conn, val):
     return r['name'] if r else ''
 
 
+def _resolve_captain_numeric_id(conn, val, name_val=''):
+    """P40-HOTFIX: 钻工调岗 team_id 统一落"数字队长 id"。
+
+    消费方调查结论（落库形态=消费方期望铁律）：employees.team_id 与
+    employee_base_history.team_id 的全部消费方均按 int() 消费——
+    app.py 员工缓存合并(基线 merge)/员工档案基线/调岗日粒度 _build_transfer_day_map/
+    出勤静默部门过滤/时效校验 roster_stale，以及 calculator._team_at/_team_roster_at；
+    钻工池分钱走 overrides.captain（姓名）与本字段无关。
+    解析顺序：纯数字原样 int → driller_captains(name/employee_id) → employees 姓名反查；
+    全部失败返回 0（不阻塞审批，print warning 留痕），绝不落姓名。"""
+    v = (val or '').strip()
+    if not v:
+        return 0
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        pass
+    r = conn.execute(
+        "SELECT id, employee_id FROM driller_captains WHERE name=? LIMIT 1", (v,)).fetchone()
+    if not r:
+        r = conn.execute(
+            "SELECT id, employee_id FROM driller_captains WHERE employee_id=? LIMIT 1", (v,)).fetchone()
+    if r:
+        for cand in (r['employee_id'], r['id']):
+            try:
+                return int(cand)
+            except (TypeError, ValueError):
+                continue
+    r = conn.execute(
+        "SELECT id FROM employees WHERE REPLACE(UPPER(name),' ','')=? LIMIT 1",
+        (v.replace(' ', '').upper(),)).fetchone()
+    if r:
+        try:
+            return int(r['id'])
+        except (TypeError, ValueError):
+            pass
+    print(f"[warn] P40-HOTFIX: captain '{v}' 无法解析为数字 id（driller_captains/employees 均未命中），team_id 落 0")
+    return 0
+
+
 def apply_approved_event(data_folder, event):
     """P8: OA 事件审批通过后落员工主档（PRD §5.2 效果列，与 overrides 推导叠加）
 
@@ -1678,7 +1718,12 @@ def apply_approved_event(data_folder, event):
             old_type = old.get('default_type') or ''
             old_day = old.get('day_rate') or 0
             old_month = old.get('monthly_salary') or 0
-            old_team = int(old.get('team_id') or 0)
+            # P40-HOTFIX: 旧主档 team_id 可能已是历史脏值（姓名），容错为 0 防审批崩
+            try:
+                old_team = int(old.get('team_id') or 0)
+            except (TypeError, ValueError):
+                old_team = 0
+                print(f"[warn] P40-HOTFIX: employees.team_id 脏值 {old.get('team_id')!r}（employee {eid}），按 0 处理")
 
             def _norm(s):
                 return (s or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
@@ -1705,7 +1750,9 @@ def apply_approved_event(data_folder, event):
                     captain_name_val = captain_val  # 不阻塞审批主流程，按原值落库
                     print(f"[warn] OA transfer #{event.get('id')}: captain '{captain_val}' "
                           '无法解析为队长名单/员工姓名，overrides.captain 按原值落库，钻工池可能匹配不上')
-                team_id_val = captain_val  # 钻工 team_id 存队长 employee_id（保持原语义）
+                # P40-HOTFIX: team_id 落数字队长 id（原实现直接落 payload.captain 原值，
+                # 生产 #258 把姓名 'FREDYSONGOROLAIZ' 写进 INTEGER 列 → 消费端 int() 崩管线）
+                team_id_val = _resolve_captain_numeric_id(conn, captain_val, captain_name_val)
             elif is_ug:
                 try:
                     team_id_val = int(payload.get('team_id') or 0)

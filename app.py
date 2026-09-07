@@ -1169,7 +1169,7 @@ def _resolve_base_from_history(employees, month):
         if base.get('monthly_salary') is not None:
             emp['monthly_salary'] = base['monthly_salary'] or 0
         if base.get('team_id') is not None:
-            emp['team_id'] = int(base['team_id'] or 0)
+            emp['team_id'] = _safe_team_id(base['team_id'], 'base_history_merge')  # P40-HOTFIX
     return employees
 
 
@@ -1258,12 +1258,38 @@ def _active_attendance_ids(data_folder, month):
     return out
 
 
+def _dismissed_keep_ids(employees, month, data_folder=None, salary_rows=None):
+    """P38-1/P40-c 共享口径（防薪资总表与出勤网格两页过滤漂移）：
+    返回离职员工中当月应保留的 employee_id 集合。
+
+    保留（任一命中即保留）：① salary_rows 中任一金额字段非 0（离职生效日前照常计薪）；
+    ② 有临时例外/覆盖记录；③ 当月有 attendance_overrides 出勤记录。
+    未列入返回集合的 dismissed 员工应从输出（薪资行/出勤网格行）排除。
+    month=None 时 attendance 口径为全时期（与 P38-1 __all__ 基线行为一致）。
+    异常时 fail-open 返回全部 dismissed（不排除任何离职者，保持原行为）。
+    """
+    dismissed = {str(e.get('id')) for e in (employees or []) if (e.get('status') or '') == 'dismissed'}
+    if not dismissed:
+        return set()
+    try:
+        keep = dismissed & _active_attendance_ids(data_folder or app.config.get('DATA_FOLDER'), month)
+        for row in (salary_rows or []):
+            eid = str(row.get('employee_id') or row.get('id') or '')
+            if eid in dismissed:
+                has_money = any(row.get(f) for f in _SALARY_MONEY_FIELDS)
+                has_temp = bool(row.get('temp_overrides')) or bool(row.get('temp_exception'))
+                if has_money or has_temp:
+                    keep.add(eid)
+        return keep
+    except Exception:
+        return dismissed
+
+
 def _filter_dismissed_empty_salary(result, employees, month, data_folder=None):
     """P38: 薪资结果输出层过滤——离职（status='dismissed'）且当月无任何工资/记录的
     员工行从 result['employees'] 剔除。
 
-    保留（任一命中即保留）：① 任一金额字段非 0（离职生效日前照常计薪）；
-    ② 当月有 attendance_overrides 出勤记录；③ 有临时例外/覆盖记录。
+    保留口径统一走 _dismissed_keep_ids 共享 helper（P40-c：出勤网格过滤同口径，防漂移）。
     剔除行金额全为 0，故 total_* 汇总不变；仅离职者被过滤，active 零薪行不受影响。
     load_employees_from_db 的"离职保留在管线"设计不动，本函数只在输出层收口。
     异常时回退为不过滤（fail-open，保持原行为）。
@@ -1274,18 +1300,11 @@ def _filter_dismissed_empty_salary(result, employees, month, data_folder=None):
         dismissed = {str(e.get('id')) for e in employees if (e.get('status') or '') == 'dismissed'}
         if not dismissed:
             return result
-        att_ids = _active_attendance_ids(data_folder or app.config.get('DATA_FOLDER'), month)
-        kept = []
-        for row in result['employees']:
-            eid = str(row.get('employee_id') or row.get('id') or '')
-            if eid not in dismissed:
-                kept.append(row)
-                continue
-            has_money = any(row.get(f) for f in _SALARY_MONEY_FIELDS)
-            has_temp = bool(row.get('temp_overrides')) or bool(row.get('temp_exception'))
-            if has_money or has_temp or eid in att_ids:
-                kept.append(row)
-        result['employees'] = kept
+        keep = _dismissed_keep_ids(employees, month, data_folder, result.get('employees'))
+        result['employees'] = [
+            row for row in result['employees']
+            if str(row.get('employee_id') or row.get('id') or '') not in dismissed
+            or str(row.get('employee_id') or row.get('id') or '') in keep]
         return result
     except Exception:
         return result
@@ -2045,6 +2064,11 @@ def api_employees():
         bp = bonus_penalties.get(eid, {})
         emp['bonus'] = bp.get('bonus', 0)
         emp['penalty'] = bp.get('penalty', 0)
+    # P40-d: 可选 ?as_of=YYYY-MM-DD——按日归属覆盖 department/team_id（调岗生效日
+    # 未到仍按旧部门展示，桌面采集表单池 getEmpPool(date) 用）；不传行为完全不变
+    as_of = (request.args.get('as_of') or '').strip()
+    if as_of:
+        employees = _apply_transfer_day_view(app.config['DATA_FOLDER'], employees, as_of)
     return jsonify({'employees': employees})
 
 @app.route('/api/employees/<employee_id>', methods=['GET'])
@@ -2130,6 +2154,22 @@ def api_create_employee_event(employee_id):
 # 旷工=A，请假=NU(年假)/T(调休)/SK(病假)/L+S(事假普通假)；E 为豁免缺勤，不归入三类
 # （状态语义见 docs/P28_LEAVE_RULES_SPEC.md §2）
 _ATT_PRESENT_CODES = ('P', 'D', 'N', 'B', 'R', 'C')
+
+def _safe_team_id(v, ctx=''):
+    """P40-HOTFIX: team_id 容错解析——生产 #258 曾把队长姓名写进 employees.team_id /
+    employee_base_history.team_id（INTEGER 列），消费端 int() 直接 ValueError 崩管线
+    （2026-09 重启炸弹）。任何脏值解析失败 → warning 留痕并返回 0，确保管线不崩。"""
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        try:
+            from core.database import log_audit  # 局部导入（app.py 无顶层 core 导入）
+            log_audit(app.config['DATA_FOLDER'], 'team_id_dirty_value', '',
+                      json.dumps({'value': str(v)[:64], 'ctx': str(ctx)[:64]}),
+                      operator='system')
+        except Exception:
+            pass
+        return 0
 
 def _summarize_attendance_days(days: dict) -> dict:
     """按天状态字典 → 出勤概览计数（天数为 int，落库口径全为整天）"""
@@ -2463,6 +2503,41 @@ def oa_create_event():
             return jsonify({'ok': False, 'error': '无法生成员工ID（请检查姓名）'}), 400
     if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
+    # P40: 离职类事件（dismiss/resign）权威防护——
+    # ① 员工已离职（employees.status='dismissed'）→ 拒绝；
+    # ② 同员工已有 pending/approved 的 dismiss/resign 事件 → 拒绝重复提交。
+    # 跨用户已打开页面的花名册缓存滞后（表单里仍看到已离职员工）由本后端校验兜底；
+    # 服务端花名册端点（/api/employees?status=active、/api/collection/roster）本就只返回
+    # status='active'（list_employees_extended SQL 层过滤），已离职者不会新出现在任何人的表单里。
+    if data.get('event_type') in ('dismiss', 'resign'):
+        from core.database import get_conn
+        _eid = data['employee_id']
+        _conn = get_conn(app.config['DATA_FOLDER'])
+        try:
+            _row = _conn.execute("SELECT name, status FROM employees WHERE id=?",
+                                 (_eid,)).fetchone()
+            if not _row:
+                return jsonify({'ok': False, 'error': '员工不存在'}), 400
+            if (_row['status'] or '') == 'dismissed':
+                return jsonify({'ok': False,
+                                'error': f'员工 {_row["name"]} 已离职，无法重复提交离职申请',
+                                'error_key': 'dismiss_already_dismissed',
+                                'error_params': {'name': _row['name'] or _eid}}), 400
+            _dup = _conn.execute("""
+                SELECT id, operator_id, effective_date FROM employee_events
+                WHERE employee_id=? AND event_type IN ('dismiss','resign')
+                  AND status IN ('pending','approved')
+                ORDER BY id DESC LIMIT 1
+            """, (_eid,)).fetchone()
+            if _dup:
+                return jsonify({'ok': False,
+                                'error': '该员工已有待审或已生效的离职申请（提交人 %s，生效日 %s），请勿重复提交'
+                                         % (_dup['operator_id'], _dup['effective_date']),
+                                'error_key': 'dismiss_duplicate_pending',
+                                'error_params': {'operator': _dup['operator_id'],
+                                                 'date': _dup['effective_date']}}), 400
+        finally:
+            _conn.close()
     data['operator_id'] = session.get('username', 'unknown')
     # P23 R2: 加班事件校验——必填 date/start_time/end_time，起止时间后端重算合法
     if data.get('event_type') == 'overtime':
@@ -3090,6 +3165,65 @@ def attendance_roster():
     emps = list_employees_extended(app.config['DATA_FOLDER'], status_filter='active', department=dept)
     return jsonify({'employees': emps})
 
+def _leave_overlap_conflict(data_folder, eid, eff_date, days, event_type=None):
+    """P40-b: 请假日期范围重叠校验——新申请区间 [eff, eff+days-1] 与该员工任一
+    pending/approved 请假类事件（annual_leave/comp_leave/sick/casual，跨类型同样拦截，
+    一人一天只能一种假期）的区间重叠时返回冲突参数 dict（type/start/end/operator，
+    供 error_key=leave_date_overlap 的 i18n 插值）；无重叠返回 None。
+    相邻区间（前段结束日+1=后段开始日）不算重叠，放行。
+    Reviewer 修正（Critical）：「同员工 + 生效日==本次提交日 + 同 event_type + pending」
+    的事件不算重叠（event_type 参数传入时）——这正是采集路由写循环 _oa_skipped
+    幂等跳过要处理的场景（用户原样保留某人 L 再重新提交/编辑同批其他人），
+    短路成 400 会阻断合法的重提交；不同日期的重叠仍拦截。
+    日期解析失败时跳过校验（fail-open，保持既有行为）。"""
+    from datetime import datetime, timedelta
+    from core.database import get_conn
+    try:
+        start = datetime.strptime(str(eff_date or ''), '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return None
+    try:
+        n = max(int(days or 1), 1)
+    except (TypeError, ValueError):
+        n = 1
+    end = start + timedelta(days=n - 1)
+    conn = get_conn(data_folder)
+    rows = conn.execute("""
+        SELECT event_type, effective_date, payload, operator_id, status FROM employee_events
+        WHERE employee_id=? AND event_type IN ('annual_leave','comp_leave','sick','casual')
+          AND status IN ('pending','approved')
+        ORDER BY id DESC
+    """, (eid,)).fetchall()
+    conn.close()
+    for r in rows:
+        try:
+            rs = datetime.strptime(str(r['effective_date'] or ''), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            continue
+        # 幂等跳过场景让路：同员工+同日+同类型+pending → 写循环 _oa_skipped 处理，不算重叠
+        if (event_type and r['status'] == 'pending'
+                and r['event_type'] == event_type and rs == start):
+            continue
+        try:
+            pn = int((json.loads(r['payload'] or '{}').get('days')) or 1)
+        except (ValueError, TypeError):
+            pn = 1
+        pn = max(pn, 1)
+        re_ = rs + timedelta(days=pn - 1)
+        if start <= re_ and rs <= end:  # 闭区间相交；相邻（end<rs 或 re_<start）自然放行
+            return {'type': r['event_type'], 'start': rs.isoformat(),
+                    'end': re_.isoformat(), 'operator': r['operator_id'] or ''}
+    return None
+
+def _leave_overlap_400(conflict, employee_label=''):
+    """P40-b: 重叠冲突统一 400 响应（error_key=leave_date_overlap + 中文 fallback）"""
+    return jsonify({'ok': False,
+                    'error': '%s请假日期与已有申请重叠（%s，%s ~ %s，提交人 %s），请勿重复申请'
+                             % (employee_label, conflict['type'], conflict['start'],
+                                conflict['end'], conflict['operator']),
+                    'error_key': 'leave_date_overlap',
+                    'error_params': conflict}), 400
+
 @app.route('/api/oa/leave', methods=['POST'])
 @login_required
 @require_permission('oa', 'apply')  # P29 T4 A3（editor 角色地板移除，同上）
@@ -3132,6 +3266,14 @@ def oa_submit_leave():
             return jsonify({'ok': False,
                             'error': f'调休余额不足：当月可用 {_remain} 天（每月 4 天，不跨月累计），本次申请 {_days} 天'}), 400
     # P21 R1: comp_leave 由「提交即生效」改为「创建 pending 事件」，审批通过才扣余额+落 T
+    # P40-b: 请假日期范围重叠校验（四类请假互斥、跨类型同拦；与余额校验相互独立）
+    # P40-d R2 复核窄修复：OA 入口无 _oa_skipped 幂等兜底，同日同型 pending 重提必须
+    # 全拦截（否则重复事件 → 双重审批 → 年假/病假余额重复扣减），故不传 event_type 让路
+    if event_type in ('annual_leave', 'comp_leave', 'sick', 'casual'):
+        _ov = _leave_overlap_conflict(app.config['DATA_FOLDER'], eid,
+                                      data.get('effective_date', ''), data.get('days', 1))
+        if _ov:
+            return _leave_overlap_400(_ov)
     data['operator_id'] = session.get('username', 'unknown')
     data['payload'] = json.dumps({
         'days': data.get('days', 1),
@@ -3189,6 +3331,11 @@ def leave_sick():
     except (TypeError, ValueError):
         return jsonify({'ok': False, 'error': '无效的日期或天数'}), 400
     # P13/P28: 按事件类型取指定审批人写入（未设定为 ''，与年假/调休提交同款）
+    # P40-b: 病假走独立端点（移动端/桌面病假主入口），与 /api/oa/leave 同防线
+    # P40-d R2 复核窄修复：同 /api/oa/leave——无幂等兜底，同日同型重提全拦截
+    _ov = _leave_overlap_conflict(app.config['DATA_FOLDER'], eid, date, days)
+    if _ov:
+        return _leave_overlap_400(_ov)
     event_id = create_event(app.config['DATA_FOLDER'], {
         'employee_id': eid,
         'event_type': 'sick',
@@ -3304,8 +3451,8 @@ def _build_ug_team_members(data_folder, month=None):
         for r in conn.execute("SELECT id, department, team_id FROM employees").fetchall():
             base = resolve_base_for_month(data_folder, str(r['id']), month) if month else None
             dept = (base['department'] if base and base.get('department') is not None else r['department'])
-            tid = (int(base['team_id'] or 0) if base and base.get('team_id') is not None
-                   else int(r['team_id'] or 0))
+            tid = (_safe_team_id(base['team_id'], 'ug_team_members_base') if base and base.get('team_id') is not None
+                   else _safe_team_id(r['team_id'], 'ug_team_members_employees'))  # P40-HOTFIX
             if _norm_ug_dept(dept) == _UG_NORM_TARGET:
                 if tid:
                     team_map.setdefault(tid, []).append(str(r['id']))
@@ -3389,11 +3536,100 @@ def _build_transfer_day_map(data_folder, month=None):
         main_row = main_rows.get(eid, {})
         day_map[eid] = {
             'start_dept': (base or {}).get('department') if base and base.get('department') is not None else (main_row.get('department') or ''),
-            'start_team': int((base or {}).get('team_id') or 0) if base and base.get('team_id') is not None else int(main_row.get('team_id') or 0),
+            'start_team': _safe_team_id((base or {}).get('team_id'), 'transfer_day_map_base') if base and base.get('team_id') is not None else _safe_team_id(main_row.get('team_id'), 'transfer_day_map_employees'),  # P40-HOTFIX
             'start_type': (base or {}).get('default_type') if base and base.get('default_type') else (main_row.get('default_type') or ''),
             'transitions': transitions,
         }
     return day_map
+
+def _apply_transfer_day_view(data_folder, employees, date):
+    """P40-d: 调岗生效日未到时采集花名册按日归属视图——
+    对有已批准 transfer 事件的员工，按请求日期返回其当日归属的 department/team_id；
+    无事件的员工原样返回（employees 表值），date 为空/无效时原样返回。
+    供 /api/collection/roster?date= 与 /api/employees?as_of= 及 _roster_stale_error 共用。
+    背景：OA 调岗批准即更新 employees.department（当前部门），生效日在未来的员工
+    会被采集花名册按新部门归边 → 生效日前的旧部门产量无法补提（DASTANI 案例）。
+
+    生效前基线注意：不用 _build_transfer_day_map 的 start_dept——其回退到 employees
+    表当前值，而当前值已被调岗批准即时改写为新部门（正是本场景）；改用首个调岗事件
+    payload.old_department（approve 时写入，见 transfer 审批分支）作生效前基线，
+    缺失时回退 employees 表值（fail-open）。"""
+    if not date:
+        return employees
+    try:
+        from datetime import datetime as _dt3
+        dt = _dt3.strptime(str(date), '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return employees
+    try:
+        eids = [str(e.get('id') or '') for e in employees if e.get('id')]
+        if not eids:
+            return employees
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        qmarks = ','.join('?' * len(eids))
+        rows = conn.execute(
+            "SELECT employee_id, effective_date, payload FROM employee_events"
+            f" WHERE status='approved' AND event_type='transfer' AND employee_id IN ({qmarks})"
+            " ORDER BY employee_id, effective_date, id", eids).fetchall()
+        conn.close()
+    except Exception:
+        return employees
+    tl = {}
+    for r in rows:
+        eid = str(r['employee_id'])
+        try:
+            payload = json.loads(r['payload'] or '{}')
+        except Exception:
+            payload = {}
+        eff = (r['effective_date'] or '')[:10]
+        if not eff:
+            continue
+        try:
+            nteam = int(payload.get('team_id') or 0)
+        except (TypeError, ValueError):
+            nteam = 0
+        tl.setdefault(eid, []).append({
+            'eff': eff,
+            'dept': (payload.get('new_department') or '').strip(),
+            'team': nteam if nteam > 0 else None,
+            'old_dept': (payload.get('old_department') or '').strip(),
+        })
+    if not tl:
+        return employees
+    out = []
+    for e in employees:
+        eid = str(e.get('id') or '')
+        trans = tl.get(eid)
+        if not trans:
+            out.append(e)
+            continue
+        e2 = dict(e)
+        first = trans[0]
+        if dt.isoformat() < first['eff']:
+            # 生效日前：基线 = 首个调岗事件的 old_department（旧部门），缺失回退 employees 表值；
+            # 班组：旧部门非 UG 归 0，UG 无法从 payload 还原旧班组 → 回退 employees 表值
+            base_dept = first['old_dept'] or (e.get('department') or '')
+            if base_dept and _norm_ug_dept(base_dept) != _UG_NORM_TARGET:
+                e2['department'] = base_dept
+                e2['team_id'] = 0
+            else:
+                e2['department'] = base_dept or e.get('department')
+                e2['team_id'] = e.get('team_id')
+        else:
+            # 生效日及以后：按事件链走到 dt 为止
+            dept = e.get('department')
+            team = e.get('team_id')
+            for t in trans:
+                if dt.isoformat() >= t['eff']:
+                    if t['dept']:
+                        dept = t['dept']
+                    if t['team'] is not None:
+                        team = t['team']
+            e2['department'] = dept
+            e2['team_id'] = team
+        out.append(e2)
+    return out
 
 def _merge_collection_to_main_data(main_data, form_type, date, payload):
     """P9: 单条采集提交合并进 main_data（Web 采集覆盖 Excel 同日期）"""
@@ -3556,8 +3792,10 @@ def _reapply_driver_flags():
     for _dt in all_dates:
         _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], _dt)
 
-def _filter_marks_by_department(marks, dept, team_id=None):
-    """A5: 出勤收集兜底校验 — 非 UG 按 department 过滤；UG 时按 team_id 过滤（C3）"""
+def _filter_marks_by_department(marks, dept, team_id=None, date=None):
+    """A5: 出勤收集兜底校验 — 非 UG 按 department 过滤；UG 时按 team_id 过滤（C3）
+    P40-d: 传 date 时按日归属口径过滤（调岗生效日前按旧部门/旧班组归边，
+    补提生效日前数据不再被静默丢弃）；不传 date 维持 DB 当前值口径。"""
     if not dept:
         return marks or [], 0
     is_ug = _is_ug_dept(dept)
@@ -3568,8 +3806,11 @@ def _filter_marks_by_department(marks, dept, team_id=None):
         conn = None
         try:
             conn = get_conn(app.config['DATA_FOLDER'])
-            team_map = {str(r['id']): int(r['team_id'] or 0) for r in conn.execute(
-                "SELECT id, team_id FROM employees").fetchall()}
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, team_id FROM employees").fetchall()]
+            if date:
+                rows = _apply_transfer_day_view(app.config['DATA_FOLDER'], rows, date)
+            team_map = {str(r['id']): _safe_team_id(r['team_id'], 'filter_marks_ug') for r in rows}  # P40-HOTFIX
         except Exception:
             pass
         finally:
@@ -3590,17 +3831,21 @@ def _filter_marks_by_department(marks, dept, team_id=None):
         return kept, discarded
     # 非 UG：原 department 过滤
     dept_map = {}
-    try:
-        dept_map = {str(e.get('id')): (e.get('department') or '') for e in (APP_STATE.get('employees') or [])}
-    except Exception:
-        pass
+    if not date:
+        try:
+            dept_map = {str(e.get('id')): (e.get('department') or '') for e in (APP_STATE.get('employees') or [])}
+        except Exception:
+            pass
     if not dept_map:
         from core.database import get_conn
         conn = None
         try:
             conn = get_conn(app.config['DATA_FOLDER'])
-            dept_map = {str(r['id']): (r['department'] or '') for r in conn.execute(
-                "SELECT id, department FROM employees").fetchall()}
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, department FROM employees").fetchall()]
+            if date:
+                rows = _apply_transfer_day_view(app.config['DATA_FOLDER'], rows, date)
+            dept_map = {str(r['id']): (r['department'] or '') for r in rows}
         except Exception:
             pass
         finally:
@@ -3615,6 +3860,169 @@ def _filter_marks_by_department(marks, dept, team_id=None):
             continue
         kept.append(m)
     return kept, discarded
+
+
+def _dismissed_effective_map(data_folder):
+    """P40-c C2: 离职员工 {employee_id: effective_date}（取最新 approved dismiss/resign 的
+    effective_date；仅含 employees.status='dismissed' 者）。异常 fail-open 返回空。"""
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        rows = conn.execute(
+            "SELECT e.employee_id AS eid, MAX(e.effective_date) AS eff"
+            " FROM employee_events e JOIN employees emp ON emp.id = e.employee_id"
+            " WHERE e.event_type IN ('dismiss','resign') AND e.status='approved'"
+            "   AND emp.status='dismissed'"
+            " GROUP BY e.employee_id").fetchall()
+        conn.close()
+        return {str(r['eid']): (r['eff'] or '')[:10] for r in rows if r['eid'] and r['eff']}
+    except Exception:
+        return {}
+
+
+def _payload_employee_ids(payload, form_type):
+    """P40-c C2: 从采集 payload 抽取关联员工 eid 列表（payload 各表单员工引用均为 eid）。
+    underground 新格式 teams（班组产量制）不含员工 → 空；旧格式含 day/night.emps/drivers。"""
+    eids = []
+    if not isinstance(payload, dict):
+        return eids
+    if form_type == 'underground':
+        if 'teams' in payload:
+            return eids
+        for _shift in ('day', 'night'):
+            _sh = payload.get(_shift) or {}
+            if isinstance(_sh, dict):
+                eids += [e for e in (_sh.get('emps') or []) if e]
+                eids += [e for e in (_sh.get('drivers') or []) if e]
+    elif form_type == 'driller':
+        for t in (payload.get('teams') or []):
+            if isinstance(t, dict):
+                if t.get('captain'):
+                    eids.append(t['captain'])
+                eids += [e for e in (t.get('members') or []) if e]
+    elif form_type == 'crush':
+        eids += [e for e in (payload.get('emps') or []) if e]
+    return [str(e) for e in eids]
+
+
+def _dismissed_submission_error(payload, form_type, date, data_folder, extra_eids=None):
+    """P40-c C2: 采集提交硬校验——员工 status='dismissed' 且标记日期 >= 其最新 approved
+    dismiss/resign 的 effective_date → 拒绝（error文案, error_params{names}）。
+    标记日期早于离职生效日的补录放行（历史补录合法）。异常 fail-open 放行。"""
+    try:
+        eff_map = _dismissed_effective_map(data_folder)
+        if not eff_map or not date:
+            return None
+        eids = [str(e) for e in (extra_eids or []) if e] + _payload_employee_ids(payload, form_type)
+        hit, seen = [], set()
+        for eid in eids:
+            eff = eff_map.get(eid)
+            if not eff or eid in seen:
+                continue
+            if date >= eff:
+                seen.add(eid)
+                hit.append(eid)
+        if not hit:
+            return None
+        # R40-R2 Minor: 一次查询批量取名（替代逐员工 _emp_name 单连接）
+        name_map = {}
+        try:
+            from core.database import get_conn as _gc2
+            _c2 = _gc2(data_folder)
+            _qs = ','.join('?' * len(hit))
+            name_map = {str(r['id']): r['name'] for r in _c2.execute(
+                "SELECT id, name FROM employees WHERE id IN (%s)" % _qs, hit).fetchall()}
+            _c2.close()
+        except Exception:
+            pass
+        names = [name_map.get(eid) or eid for eid in hit]
+        if names:
+            _joined = '、'.join(names)
+            return ('以下员工已离职，不能再提交其出勤/产量数据：%s' % _joined, {'names': _joined})
+    except Exception:
+        return None
+    return None
+
+
+def _roster_stale_error(marks, dept, team_id, data_folder, date=None):
+    """P40-c C3: 提交时效校验——出勤采集逐 marks 校验员工当前部门/班组（DB 实时为权威）
+    与提交 payload 的 department/team_id 一致；不一致返回 (error文案, error_params{name,current})，
+    提示刷新页面按最新名单提交（调岗/离职/入职后旧页面提交均被拦截）。
+    R40-R2 Major 修复：UG 部门但 DB 无班组归属（team_id 0/NULL）的员工不判时效错——回退放行
+    交给原静默部门/班组过滤；只有明确班组归属且与 payload 不符才 400。
+    P40-d: 传 date 时按日归属口径判定（调岗生效日未到 → 按旧部门/班组比对），
+    否则未来生效调岗会把生效日前的合法补提误判 stale。不传 date 维持 DB 当前值口径。
+    eid 查不到 / 员工无归属信息 / dept 为空时放行（fail-open，不误伤正常提交）。"""
+    if not dept:
+        return None
+    is_ug = _is_ug_dept(dept)
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, name, department, team_id FROM employees").fetchall()]
+        conn.close()
+    except Exception:
+        return None
+    # P40-d: 按日归属视图（复用采集花名册同款助手，与计算链 P35 时间线同口径）
+    if date:
+        try:
+            rows = _apply_transfer_day_view(data_folder, rows, date)
+        except Exception:
+            pass
+    emp_map = {}
+    for r in rows:
+        try:
+            _tid = _safe_team_id(r['team_id'], 'roster_stale')  # P40-HOTFIX
+        except Exception:
+            _tid = 0
+        emp_map[str(r['id'])] = {'name': r['name'] or str(r['id']),
+                                 'dept': (r['department'] or '').strip(),
+                                 'team': _tid}
+    try:
+        tid_payload = int(team_id) if team_id is not None else None
+    except Exception:
+        tid_payload = None
+    team_names = _ug_team_names_map(data_folder) if is_ug else {}
+    _dept_payload = dept.strip()
+    for m in (marks or []):
+        eid = str(m.get('employee_id') or '')
+        emp = emp_map.get(eid)
+        if not emp:
+            continue
+        if is_ug:
+            if tid_payload is not None:
+                # R40-R2 Major 修复：DB 无班组归属（team_id 0/NULL）的 UG 员工不判时效错——
+                # 回退放行交给原静默部门/班组过滤，只有明确班组归属且与 payload 不符才 400
+                mismatch = bool(emp['team']) and emp['team'] != tid_payload
+            else:
+                mismatch = _norm_ug_dept(emp['dept']) != _UG_NORM_TARGET
+        else:
+            mismatch = bool(emp['dept']) and emp['dept'] != _dept_payload
+        if not mismatch:
+            continue
+        if is_ug and emp['team'] and emp['team'] in team_names:
+            current = '%s / %s' % (emp['dept'], team_names[emp['team']])
+        else:
+            current = emp['dept'] or '未知部门'
+        return ('该员工最新归属为 %s（%s），请刷新页面后按最新名单提交' % (current, emp['name']),
+                {'name': emp['name'], 'current': current})
+    return None
+
+
+def _ug_team_exists_error(teams, data_folder):
+    """P40-c C3: UG 出渣新格式班组存在性校验——team_id 必须存在于 employee_groups
+    （陈旧页面可能提交已删班组）。返回 (error文案, error_params{teams}) 或 None。"""
+    try:
+        known = _ug_team_names_map(data_folder)
+        bad = sorted({_ug_team_tid(t) for t in (teams or [])
+                      if _ug_team_tid(t) and _ug_team_tid(t) not in known})
+        if bad:
+            _joined = '、'.join('#%d' % k for k in bad)
+            return ('班组不存在或已被删除（%s），请刷新页面后重新选择班组' % _joined, {'teams': _joined})
+    except Exception:
+        return None
+    return None
 
 def _ug_exempt_remark_error(payload):
     """P38: 井下出渣新格式 teams 中任一 exempt=true 的班组必须带非空 remark。
@@ -3833,6 +4241,14 @@ def collection_submit():
         if _exempt_err:
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
+    # P40-c C2: 已离职员工硬校验——dismissed 且标记日期 >= 离职生效日 → 拒绝（离职前日期补录放行）
+    _att_mark_eids = [m.get('employee_id') for m in (payload.get('marks') or [])] \
+        if form_type == 'attendance' else None
+    _dis_err = _dismissed_submission_error(payload, form_type, date, app.config['DATA_FOLDER'],
+                                           extra_eids=_att_mark_eids)
+    if _dis_err:
+        return jsonify({'ok': False, 'error': _dis_err[0], 'error_key': 'col_dismissed_employee',
+                        'error_params': _dis_err[1]}), 400
     username = session.get('username', 'unknown')
     dept = (payload.get('department') or '').strip()
 
@@ -3849,12 +4265,17 @@ def collection_submit():
                 att_team_id = int(att_team_id) if att_team_id is not None else None
             except Exception:
                 att_team_id = None
+        # P40-c C3: 提交时效校验（先于部门过滤——陈旧页面提交直接 400 提示刷新，而非静默丢弃）
+        _stale_err = _roster_stale_error(marks, dept, att_team_id, app.config['DATA_FOLDER'], date=date)
+        if _stale_err:
+            return jsonify({'ok': False, 'error': _stale_err[0], 'error_key': 'col_roster_stale',
+                            'error_params': _stale_err[1]}), 400
         # A5 + C3: 非 UG 按 department 过滤；UG 按 team_id 过滤
         if dept:
             if is_ug_att:
-                marks, discarded = _filter_marks_by_department(marks, dept, team_id=att_team_id)
+                marks, discarded = _filter_marks_by_department(marks, dept, team_id=att_team_id, date=date)
             else:
-                marks, discarded = _filter_marks_by_department(marks, dept)
+                marks, discarded = _filter_marks_by_department(marks, dept, date=date)  # P40-d
             payload['marks'] = marks
         # B→P 遗留映射
         for m in marks:
@@ -3878,6 +4299,12 @@ def collection_submit():
                 return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止采集提交（员工 {eid} · {date}）',
                                 'error_key': 'col_att_nu_locked',
                                 'error_params': {'employee': eid, 'date': date}}), 403
+            # P40-b: L/SK 路由请假重叠预检前移至此（任何写入之前，失败整批 400 无孤儿数据）
+            if st in ('L', 'SK') and eid:
+                _ov = _leave_overlap_conflict(app.config['DATA_FOLDER'], eid, date, 1,
+                                              event_type={'L': 'casual', 'SK': 'sick'}[st])
+                if _ov:
+                    return _leave_overlap_400(_ov, '(%s) ' % (_emp_name(app.config['DATA_FOLDER'], eid) or eid))
         # 采集分流：P/A/T 直写，L/SK 转 OA pending
         _OA_MAP = {'L': 'casual', 'SK': 'sick'}
         _oa_created = []
@@ -3903,6 +4330,7 @@ def collection_submit():
                         continue
                 except Exception:
                     pass
+                # P40-b: 重叠校验已前移至 NU 预检循环（此处不重复校验）
                 try:
                     from core.database import create_event, get_approver_for_event, log_audit as _log
                     _approver = get_approver_for_event(app.config['DATA_FOLDER'], etype) or 'maua'
@@ -4018,6 +4446,11 @@ def collection_submit():
         if not teams:
             return jsonify({'ok': False, 'error': '班组数据为空，至少填写一个班组',
                             'error_key': 'col_ug_team_required'}), 400
+        # P40-c C3: UG 出渣班组存在性校验——team_id 必须存在于 employee_groups（陈旧页面拦截）
+        _team_err = _ug_team_exists_error(teams, app.config['DATA_FOLDER'])
+        if _team_err:
+            return jsonify({'ok': False, 'error': _team_err[0], 'error_key': 'col_ug_team_not_found',
+                            'error_params': _team_err[1]}), 400
         # P39-b: 混合格式守卫（submit 侧）——同日禁止新旧格式混存（rebuild 同日替换/合并会静默丢数）
         for _r in get_collection_submissions(app.config['DATA_FOLDER'], form_type='underground'):
             if _r.get('submission_date') != date:
@@ -4247,6 +4680,14 @@ def collection_edit(submission_id):
         if _exempt_err:
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
+    # P40-c C2: 已离职员工硬校验（编辑同 submit；new_date 为标记日期，离职前日期补录放行）
+    _att_mark_eids = [m.get('employee_id') for m in (payload.get('marks') or [])] \
+        if form_type == 'attendance' else None
+    _dis_err = _dismissed_submission_error(payload, form_type, new_date, app.config['DATA_FOLDER'],
+                                           extra_eids=_att_mark_eids)
+    if _dis_err:
+        return jsonify({'ok': False, 'error': _dis_err[0], 'error_key': 'col_dismissed_employee',
+                        'error_params': _dis_err[1]}), 400
 
     # P39: 新格式 UG（payload 含 teams）编辑 —— 按班组逐行拆分 upsert：
     # home 班组（新班组清单中第一个存在于原行者）整行替换进本行（update 自动版本归档，
@@ -4261,6 +4702,11 @@ def collection_edit(submission_id):
         if not teams:
             return jsonify({'ok': False, 'error': '班组数据为空，至少保留一个班组',
                             'error_key': 'col_ug_team_required'}), 400
+        # P40-c C3: UG 出渣班组存在性校验（编辑同 submit）
+        _team_err = _ug_team_exists_error(teams, app.config['DATA_FOLDER'])
+        if _team_err:
+            return jsonify({'ok': False, 'error': _team_err[0], 'error_key': 'col_ug_team_not_found',
+                            'error_params': _team_err[1]}), 400
         orig_tids = [k for k, _t in _ug_row_teams(sub['payload'])]
         new_tids = [_ug_team_tid(t) for t in teams]
         home_tid = next((k for k in new_tids if k in orig_tids), None)
@@ -4356,13 +4802,19 @@ def collection_edit(submission_id):
                 edit_att_team_id = int(payload.get('team_id')) if payload.get('team_id') is not None else None
             except Exception:
                 edit_att_team_id = None
+        # P40-c C3: 提交时效校验（先于兜底过滤——陈旧页面提交直接 400 提示刷新，而非静默丢弃）
+        _stale_err = _roster_stale_error(payload.get('marks') or [], dept_check, edit_att_team_id,
+                                         app.config['DATA_FOLDER'], date=new_date)
+        if _stale_err:
+            return jsonify({'ok': False, 'error': _stale_err[0], 'error_key': 'col_roster_stale',
+                            'error_params': _stale_err[1]}), 400
         # 兜底过滤（与 submit 一致）
         marks_tmp = payload.get('marks') or []
         if dept_check:
             if is_ug_edit:
-                marks_tmp, _ = _filter_marks_by_department(marks_tmp, dept_check, team_id=edit_att_team_id)
+                marks_tmp, _ = _filter_marks_by_department(marks_tmp, dept_check, team_id=edit_att_team_id, date=new_date)
             else:
-                marks_tmp, _ = _filter_marks_by_department(marks_tmp, dept_check)
+                marks_tmp, _ = _filter_marks_by_department(marks_tmp, dept_check, date=new_date)  # P40-d
             payload['marks'] = marks_tmp
         for m in payload.get('marks') or []:
             if m.get('status') == 'B':
@@ -4492,6 +4944,11 @@ def collection_edit(submission_id):
             if not eid or not status:
                 continue
             if status in _OA_MAP_EDIT:
+                # P40-b: 编辑路由重叠校验前移至只读预检（校验失败不动旧 override，P37 教训）
+                _ov_pre = _leave_overlap_conflict(app.config['DATA_FOLDER'], str(eid), new_date, 1,
+                                                  event_type=_OA_MAP_EDIT[status])
+                if _ov_pre:
+                    return _leave_overlap_400(_ov_pre, '(%s) ' % (_emp_name(app.config['DATA_FOLDER'], str(eid)) or str(eid)))
                 continue  # L/SK 走 routing，由下方写循环处理
             if status not in ('P', 'A', 'T'):
                 return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持',
@@ -4582,6 +5039,7 @@ def collection_edit(submission_id):
                         continue
                 except Exception:
                     pass
+                # P40-b: 重叠校验已前移至只读预检循环（此处不重复校验）
                 try:
                     from core.database import create_event as _ce2, get_approver_for_event as _g2, log_audit as _lg2
                     _ap2 = _g2(app.config['DATA_FOLDER'], etype) or 'maua'
@@ -4707,6 +5165,10 @@ def api_collection_roster():
     # （附带 approved_leave_status=假期状态字符，供前端灰显标注；不回传薪酬字段；
     #   不传 date 行为完全不变）
     date = (request.args.get('date') or '').strip()
+    # P40-d: 传 date 时按日归属返回 department/team_id（调岗生效日未到仍按旧部门展示，
+    # 允许补提生效日前数据）；不传 date 行为完全不变（employees 表值）
+    if date:
+        slim = _apply_transfer_day_view(app.config['DATA_FOLDER'], slim, date)
     if date:
         from core.database import get_approved_leave_statuses, get_oa_comp_leave_dates
         approved = {str(k): v for k, v in get_approved_leave_statuses(app.config['DATA_FOLDER'], date).items()}
@@ -5819,7 +6281,7 @@ def get_driller_captains():
 #  API: 出勤网格
 # ═══════════════════════════════════════════════════════════
 
-def _build_attendance_grid(md=None, employees=None):
+def _build_attendance_grid(md=None, employees=None, salary_rows=None):
     if md is None:
         try:
             cur = g.view_month
@@ -5832,12 +6294,16 @@ def _build_attendance_grid(md=None, employees=None):
         md = md_data.get('main_data') if md_data else APP_STATE.get('main_data', {})
         if employees is None and md_data:
             employees = md_data.get('employees')
+        if salary_rows is None and md_data:
+            salary_rows = (md_data.get('salary_result') or {}).get('employees') or []
     if employees is None:
         try:
             _cur2 = g.view_month
             _md2 = _get_month_data(_cur2)
             if _md2 and _md2.get('employees'):
                 employees = _md2.get('employees')
+                if salary_rows is None:
+                    salary_rows = (_md2.get('salary_result') or {}).get('employees') or []
             else:
                 employees = APP_STATE.get('employees', [])
         except Exception:
@@ -5926,8 +6392,28 @@ def _build_attendance_grid(md=None, employees=None):
     type_labels = {'piece_crush': '破碎计件','piece_underground':'生产薪资','piece_driller':'钻工计件','day_rate':'日薪','monthly':'月薪','advance_only':'仅预支','address_book':'通讯录'}
     rows = []
 
+    # P40-c C1: 出勤网格月份化离职过滤——与 P38-1 薪资总表同口径（共享 _dismissed_keep_ids 防漂移）：
+    # dismissed 且当月无 attendance_overrides 且无当月工资行 → 从网格排除；
+    # 当月有出勤/计薪的离职者保留（历史月份同理，8 月有出勤的离职者不丢）。
+    # 两页人数口径必须一致：salary_rows 优先取当月 pipeline（已过 P38-1 过滤）的薪资行。
+    _excluded_dismissed = set()
+    if employees and all_dates:
+        try:
+            _grid_month = all_dates[0][:7]
+            if salary_rows is None and _grid_month and len(_grid_month) == 7:
+                _md_s = _get_month_data(_grid_month)
+                if _md_s:
+                    salary_rows = (_md_s.get('salary_result') or {}).get('employees') or []
+            _keep = _dismissed_keep_ids(employees, _grid_month, app.config.get('DATA_FOLDER'), salary_rows)
+            _excluded_dismissed = {str(e.get('id')) for e in employees
+                                   if (e.get('status') or '') == 'dismissed'} - _keep
+        except Exception:
+            _excluded_dismissed = set()
+
     for emp in employees:
         eid = emp['id']
+        if str(eid) in _excluded_dismissed:
+            continue
         status_row = {}
         origin_row = {}
         auto_row = {}

@@ -2445,7 +2445,7 @@ function showTargetPage(module, subPage) {
   // P9: 数据采集子页
   // P34: 进采集子页强制重拉花名册/班组 —— 调岗/入职审批后名单即时生效，无需 F5（与移动端 P33 对齐）
   if (targetId === 'collection-underground' || targetId === 'collection-driller' || targetId === 'collection-crush' || targetId === 'collection-attendance') {
-    _colEmpPool = null; _ugGroupsCache = null;
+    clearColEmpPoolCache(); _ugGroupsCache = null;  // P40-d: 连同按日期分桶缓存一并清
   }
   if (targetId === 'collection-underground') { renderUgCollectionForm(); loadColHistory('underground', 'colUgHistory'); }
   if (targetId === 'collection-driller') { renderDrCollectionForm(); loadColHistory('driller', 'colDrHistory'); }
@@ -4075,7 +4075,8 @@ async function loadEmployeeProfilePage(eid) {
         effective_date: m.start_date, created_at: m.start_date,
         payload: JSON.stringify({ status: m.status, days: m.days, start_date: m.start_date, end_date: m.end_date, source: m.source, operator: m.operator }) });
     });
-    events.sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || ''));
+    // P40-b 排序基准 = 生效时间 effective_date 降序；同日多事件按 created_at 降序二级排序（提交时间仅作 tie-break）
+    events.sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || '') || (b.created_at || '').localeCompare(a.created_at || ''));
     if (!emp) { document.getElementById('profileName').textContent = t('emp_not_found'); return; }
     _profileEvents = events;
     loadProfileAttendance();
@@ -4289,15 +4290,18 @@ function renderProfileTimeline() {
     piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
   const EVENT_LABELS = { hire: t('event_hire'), transfer: t('event_transfer'), dismiss: t('event_dismiss'),
     salary_change: t('event_salary_change'), skill_change: t('event_skill_change'), reinstatement: t('event_reinstatement'),
-    annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), overtime: t('event_overtime'), note: t('event_note'),
-    attendance_mark: t('emp_att_mark') };
+    annual_leave: t('event_annual_leave'), comp_leave: t('event_comp_leave'), sick: t('event_sick'), casual: t('event_casual'),
+    overtime: t('event_overtime'), note: t('event_note'), attendance_mark: t('emp_att_mark') };
+  // P40-b 状态徽标 i18n（pending/approved/rejected/revoked 四态）
+  const EV_STATUS = { pending: t('ev_status_pending'), approved: t('ev_status_approved'),
+    rejected: t('ev_status_rejected'), revoked: t('ev_status_revoked') };
   const eid = _profileEid;
   const tl = document.getElementById('profileTimeline');
   if (!tl) return;
   const sel = document.getElementById('pfMonthSelect');
   const month = sel ? sel.value : 'all';
   const activeEvents = _profileEvents.filter(ev => {
-    if (ev.status === 'revoked') return false;
+    // P40-b revoked 事件保留展示（灰色徽标 + 整条淡显），不再过滤
     if (month === 'all') return true;
     if (ev.event_type === 'attendance_mark') {
       let p = {}; try { p = JSON.parse(ev.payload || '{}'); } catch(e) {}
@@ -4337,7 +4341,8 @@ function renderProfileTimeline() {
         details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(ri)}</div>`;
       } else if (ev.event_type === 'dismiss') {
         details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.reason||'')}</div>`;
-      } else if (ev.event_type === 'annual_leave' || ev.event_type === 'comp_leave') {
+      } else if (['annual_leave','comp_leave','sick','casual'].includes(ev.event_type)) {
+        // P40-b 请假四类统一概览：起 ~ 止 + 天数（payload 缺 end_date 时按 days 推算）
         const startDate = payload.start_date || ev.effective_date;
         const days = payload.days || 1;
         let endDate = payload.end_date;
@@ -4346,7 +4351,7 @@ function renderProfileTimeline() {
           d.setDate(d.getDate() + days - 1);
           endDate = d.toISOString().split('T')[0];
         }
-        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(startDate)} ~ ${escHtml(endDate||'?')} (${days}天)</div>`;
+        details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(startDate)} ~ ${escHtml(endDate||'?')} (${days}${t('d_unit')})</div>`;
       } else if (ev.event_type === 'overtime') {
         details = `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escHtml(payload.date||'?')} ${escHtml(payload.start_time||'')}-${escHtml(payload.end_time||'')} (${payload.hours||0}h)</div>`;
       } else if (ev.event_type === 'attendance_mark') {
@@ -4363,14 +4368,20 @@ function renderProfileTimeline() {
       const isNote = ev.event_type === 'note';
       const canEdit = isNote || (ev.status === 'approved' && ['annual_leave','comp_leave','overtime'].includes(ev.event_type));
       const canDelete = isNote;
+      // P40-b 概览条：类型 i18n + 生效日期（一律 effective_date，禁用 created_at）+ 状态徽标（pending 显著标识）
+      // R40-R2 Minor: 未知状态不误显「待生效」——显示原始状态值 + 中性灰色徽标（var(--text-muted)）
+      const stKnown = !!EV_STATUS[ev.status];
+      const stCls = stKnown ? ev.status : '';
+      const stLabel = stKnown ? EV_STATUS[ev.status] : (ev.status || '—');
+      const itemCls = stCls === 'pending' ? 'timeline-item pending-ev' : stCls === 'revoked' ? 'timeline-item revoked' : 'timeline-item';
       return `
-      <div class="timeline-item">
-        <div class="timeline-dot ${ev.status}"></div>
+      <div class="${itemCls}">
+        <div class="timeline-dot ${stCls}"></div>
         <div class="timeline-content">
           <div class="timeline-header">
             <span class="timeline-type">${EVENT_LABELS[ev.event_type] || ev.event_type}</span>
-            <span class="timeline-date">${ev.event_type === 'salary_change' ? (ev.created_at || ev.effective_date).slice(0,16) : ev.effective_date}</span>
-            <span class="timeline-status ${ev.status}" title="${ev.status === 'revoked' ? t('event_revoked') : ''}">${ev.status === 'approved' ? '✓' : ev.status === 'rejected' ? '✗' : ev.status === 'revoked' ? '⊘' : '…'}</span>
+            <span class="timeline-date">${ev.effective_date || ''}</span>
+            <span class="timeline-status ${stCls} timeline-status-badge" ${stKnown ? '' : 'style="color:var(--text-muted);"'} title="${stCls === 'pending' ? t('ev_pending_hint') : stLabel}">${stLabel}</span>
             ${canEdit ? `<button onclick="editEvent(${ev.id}, '${ev.event_type}', '${ev.effective_date}', '${btoa(encodeURIComponent(ev.payload||'{}'))}')" style="font-size:10px;padding:1px 6px;margin-left:auto;">✎</button>` : ''}
             ${canDelete ? `<button onclick="deleteEvent(${ev.id}, '${eid}')" style="font-size:10px;padding:1px 6px;color:var(--danger);">🗑</button>` : ''}
           </div>
@@ -5577,7 +5588,7 @@ function invalidateAfterOaWrite() {
   STATE.attendanceData = null;
   STATE._dailyWages = null;
   _attLeaveByDate = {};
-  _colEmpPool = null;
+  clearColEmpPoolCache();  // P40-d: 含按日期分桶缓存一并失效
   _empPool = null;
   _ugGroupsCache = null;
 }
@@ -7825,6 +7836,7 @@ async function submitApply(type) {
     });
     const data = await res.json();
     if (data.ok) {
+      invalidateAfterOaWrite(); // P40: OA 申请提交后失效花名册/出勤缓存（P34 对齐，本会话下拉即时刷新）
       setApplyMsg(msgId, t('apply_submitted'), true);
       // 清空表单
       if (type === 'hire') {
@@ -7852,7 +7864,7 @@ async function submitApply(type) {
         document.getElementById('dismissDate').value = '';
       }
     } else {
-      setApplyMsg(msgId, data.error || t('submit_fail'), false);
+      setApplyMsg(msgId, colApiErrMsg(data), false); // P40: error_key 双语插值（dismiss_already_dismissed/dismiss_duplicate_pending）
     }
   } catch (e) { setApplyMsg(msgId, t('err_network_prefix') + e.message, false); }
 }
@@ -7949,23 +7961,39 @@ function toggleHireBaseFields() {
 
 /* ── P9 数据采集 ── */
 let _colEmpPool = null;
-async function getEmpPool() {
-  if (_colEmpPool && _colEmpPool.length) return _colEmpPool;
-  if (STATE._empAll && STATE._empAll.length) { _colEmpPool = STATE._empAll; return _colEmpPool; }
+/* P40-d: 按日期分桶的花名册缓存——采集表单传日期时走 /api/employees?as_of=（调岗
+   生效日未到按旧部门归属展示，可补提生效日前数据）；不传日期走旧口径（employees 表值） */
+let _colEmpPoolCache = {};
+function clearColEmpPoolCache() { _colEmpPoolCache = {}; _colEmpPool = null; }
+/* P40-d: 读取当前采集表单日期（四个采集子页的 date input 同页仅一个可见） */
+function colFormDate() {
+  for (const id of ['attDate', 'crDate', 'drDate', 'ugDate']) {
+    const el = document.getElementById(id);
+    if (el && el.value && el.offsetParent !== null) return el.value;
+  }
+  return '';
+}
+async function getEmpPool(date) {
+  date = date || '';
+  const cached = _colEmpPoolCache[date];
+  if (cached && cached.length) { _colEmpPool = cached; STATE._empAll = cached; return cached; }
+  if (!date && _colEmpPool && _colEmpPool.length) return _colEmpPool;
+  if (!date && STATE._empAll && STATE._empAll.length) { _colEmpPool = STATE._empAll; return _colEmpPool; }
   try {
     let data = {};
-    const res = await fetch(api('/api/employees?status=active'));
+    const res = await fetch(api('/api/employees?status=active' + (date ? '&as_of=' + encodeURIComponent(date) : '')));
     if (res.ok) data = await res.json();
     // P29-b: 无 employees:view 的采集角色回退轻量花名册(仅 id/name/dept 等必要字段)
     if (!data.employees || !data.employees.length) {
       try {
-        const r2 = await fetch(api('/api/collection/roster'));
+        const r2 = await fetch(api('/api/collection/roster' + (date ? '?date=' + encodeURIComponent(date) : '')));
         if (r2.ok) { const d2 = await r2.json(); data = { employees: d2.employees || [] }; }
       } catch(e2) {}
     }
-    _colEmpPool = data.employees || [];
+    _colEmpPoolCache[date] = data.employees || [];
+    _colEmpPool = _colEmpPoolCache[date];
     STATE._empAll = _colEmpPool;
-  } catch(e) { _colEmpPool = []; }
+  } catch(e) { _colEmpPool = _colEmpPoolCache[date] = []; }
   return _colEmpPool;
 }
 
@@ -8354,7 +8382,7 @@ let _pickerTeamId = '';
 
 /* 通用人员池过滤：部门 → 班组（可选） */
 async function filterEmpPickerPool(kw, teamId) {
-  const pool = await getEmpPool();
+  const pool = await getEmpPool(colFormDate());  // P40-d: 按表单日期取按日归属花名池
   let list = filterEmpByDept(pool, kw);
   if (teamId) {
     const tid = String(teamId);
@@ -8764,7 +8792,7 @@ async function ensureDrCaptains() {
 }
 
 async function renderDrSlots() {
-  const pool = await getEmpPool();
+  const pool = await getEmpPool(colFormDate());  // P40-d: 钻工表单按日期归属取池（队长名单映射用）
   const caps = await ensureDrCaptains();
   const container = document.getElementById('drSlots');
   if (!container) return;
@@ -8853,7 +8881,7 @@ function onDrCapChange(i) {
 
 let _drPickerIndex = null;
 async function openDrMemberPicker(i) {
-  const pool = await getEmpPool();
+  const pool = await getEmpPool(colFormDate());  // P40-d: 成员选择按日期归属取池
   const driller = filterEmpByDept(pool, 'driller');
   const capId = document.getElementById('drCap' + i).value;
   const cur = (document.getElementById('drMemVal' + i).value || '').split(',').filter(Boolean);
@@ -9011,6 +9039,7 @@ function attLeaveLocked(dateStr, eid) {
 async function onAttDateChange() {
   const dt = ((document.getElementById('attDate') || {}).value || '').trim();
   if (dt) await refreshAttLeaveGuard(dt);
+  if (dt) await getEmpPool(dt);  // P40-d: 日期变化后重拉按日归属花名池（调岗生效日前后名单切换）
   filterAttRoster();
 }
 
@@ -9018,7 +9047,7 @@ async function renderAttCollectionForm(payload) {
   payload = payload || {};
   const date = payload.submission_date || '';
   if (date) await refreshAttLeaveGuard(date);
-  const pool = await getEmpPool();
+  const pool = await getEmpPool(date);  // P40-d: 出勤采集按表单日期归属取池
   await _ensureUgGroups();
   const rosterOther = filterEmpByDept(pool, 'other');
   const ugDeptExact = 'Production TEAM （underground）';
@@ -9192,7 +9221,7 @@ async function submitAttCollection() {
     if (!tsel || !tsel.value) { showToast(t('col_ug_team_required'), 'error'); return; }
     teamId = parseInt(tsel.value,10);
   }
-  const pool = await getEmpPool();
+  const pool = await getEmpPool(date);  // P40-d: 提交收集按表单日期归属取池
   let roster;
   if (isUg) {
     roster = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)' && String(e.team_id||'') === String(teamId));
