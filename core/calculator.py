@@ -1814,7 +1814,13 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for d in attendance_data:
                 dt = d.get('date', '')
                 for e in d.get('normal', []):
-                    if make_employee_id(e) != eid: continue
+                    # P43-O2: attendance 条目可能是 dict（与上方 all_attendance_pairs/present 构建同范式），
+                    # 直接 make_employee_id(dict) 得 str(dict) 永不匹配 → 日薪员工日明细缺日薪
+                    if isinstance(e, dict):
+                        _ae = e.get('employee_id')
+                    else:
+                        _ae = make_employee_id(e)
+                    if _ae != eid: continue
                     if (eid, dt) in counted: continue
                     if att_all.get((eid, dt)) in ('A', 'L', 'E'): continue
                     counted.add((eid, dt))
@@ -1847,6 +1853,11 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 if _dd: _p_month.add(_dd[:7])
             for (peid, pdt), st in att_all.items():
                 # P21 R2: NU 年假天计入日薪（与 calc_day_salary 来源3 一致）
+                # P43-O1c: NU 天总表口径为 ug_al_per_day（calculate_all NU 重定向），不再按日薪基数计
+                if peid == eid and st == 'NU' and (eid, pdt) not in counted:
+                    if _p_month and pdt[:7] not in _p_month: continue
+                    ds_daily[eid][pdt] += ug_al_per_day_br
+                    continue
                 if peid == eid and st in ('P', 'NU') and (eid, pdt) not in counted:
                     if _p_month and pdt[:7] not in _p_month: continue
                     date_counts[pdt] += 1
@@ -1862,13 +1873,27 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             _dd = _d.get('date', '')
             if _dd: _p_month.add(_dd[:7])
         for (peid, pdt), st in att_all.items():
-            # P21 R2: NU 年假天同样补充进日薪明细
+            # P21 R2: NU 年假天同样补充进日薪明细；P43-O1c: NU 按 ug_al_per_day 口径
             if st not in ('P', 'NU') or peid in ds_daily: continue
             if _ym and pdt[:7] != _ym: continue
             if _p_month and pdt[:7] not in _p_month: continue
+            if st == 'NU':
+                ds_daily[peid][pdt] += ug_al_per_day_br
+                continue
             # R3: 逐日取基数（临时例外按日期区间生效）
             dr = get_day_rate_for_date(overrides, emp_map, peid, pdt)
             if dr > 0: ds_daily[peid][pdt] += dr
+
+        # P43-O1c: 日薪日明细累计取整锚定——Σ日明细 == round(Σ逐日原始值)（与总表 round 一次口径
+        # 一致），逐日显示值与原始值偏差 <1，消除 Σ逐日 round 与月度 round 的舍入残差
+        for _de in list(ds_daily.keys()):
+            _ds_cum_v = 0.0
+            _ds_rcum_prev = 0
+            for _d in sorted(ds_daily[_de]):
+                _ds_cum_v += ds_daily[_de][_d]
+                _ds_rcum = round(_ds_cum_v)
+                ds_daily[_de][_d] = _ds_rcum - _ds_rcum_prev
+                _ds_rcum_prev = _ds_rcum
 
         # 月薪逐日分摊
         ms_daily = defaultdict(lambda: defaultdict(float))
@@ -1937,19 +1962,51 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         present[eid].add(f"{_y}-{_m:02d}-{d_day:02d}")
 
 
+        # P43-O1b: 月薪覆盖日迭代域与 calculate_all 对齐——ENPRIZON 月薪员工遍历自身 present
+        # （含 1-26 补齐），其余员工遍历"数据日 + 当月 NU 日"（calculate_all final_dates 口径，
+        # 原实现遍历整月 ms_dates_set，残缺/未来月会多计天数）。
+        _ms_scope = set(
+            d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date')
+        ) | set(dt for (_e, dt), st in att_all.items() if st == 'NU' and dt[:7] == _ym)
         for eid, base in month_sal.items():
             if not _ym or base <= 0: continue
+            _emp_rec = emp_map.get(eid, {})
+            _dept_rec = _emp_rec.get('department', '')
+            if _dept_rec == 'ENPRIZON LINDI PROJECT' and (
+                    _emp_rec.get('override_type') == 'monthly' or _emp_rec.get('default_type') == 'monthly'):
+                _ms_iter = sorted(present.get(eid) or set())
+            else:
+                _ms_iter = sorted(_ms_scope)
             monthly_present_dates = []
-            for dt in sorted(ms_dates_set):
-                dtype = per_date_type.get(eid, {}).get(dt, emp_map.get(eid, {}).get('override_type') or emp_map.get(eid, {}).get('default_type', ''))
+            for dt in _ms_iter:
+                dtype = per_date_type.get(eid, {}).get(dt, _emp_rec.get('override_type') or _emp_rec.get('default_type', ''))
+                if dtype != 'monthly':
+                    continue
                 # A/L/E 排除与 calculate_all 对齐（原实现漏排除，日明细与薪资总表月薪不一致）
-                if dtype == 'monthly' and dt in present[eid] \
-                        and att_all.get((eid, dt)) not in ('A', 'L', 'E'):
+                if att_all.get((eid, dt)) in ('A', 'L', 'E'):
+                    continue
+                # P43-O1b: 复制 calculate_all 的 NU 重定向——月薪≥40万的非 ENPRIZON 员工
+                # NU 天不计月薪（走显示层 ug_al_per_day 分支），否则该日钱款被 NU 显示顶掉丢失
+                _nu_mark = att_all.get((eid, dt)) == 'NU'
+                if _nu_mark and _dept_rec != 'ENPRIZON LINDI PROJECT' \
+                        and not (0 < _emp_rec.get('monthly_salary', 0) < 400000):
+                    continue
+                if dt in present.get(eid, set()) or _nu_mark:
                     monthly_present_dates.append(dt)
             effective_days = min(len(monthly_present_dates), 26)
-            per_day = base / 26
-            for dt in monthly_present_dates[:effective_days]:
-                ms_daily[eid][dt] += per_day
+            if effective_days <= 0:
+                continue
+            # P43-O1: 与 calculate_all 月度取整口径一致（effective_days × base/26 整体一次 round，
+            # calculate_all :1441），逐日用累计取整差分分摊，保证 Σ该员工该月日明细 == 总表月薪。
+            # 原实现逐日累加 base/26 后逐日 round，舍入残差累积导致日明细 Σ ≠ 总表（14/126 行）。
+            ms_total_month = round(effective_days * (base / 26))
+            _ms_days = monthly_present_dates[:effective_days]
+            _ms_n = len(_ms_days)
+            _ms_cum_prev = 0
+            for _ms_i, dt in enumerate(_ms_days):
+                _ms_cum = round(ms_total_month * (_ms_i + 1) / _ms_n)
+                ms_daily[eid][dt] += (_ms_cum - _ms_cum_prev)
+                _ms_cum_prev = _ms_cum
 
         # 最终逐日结果
         final_dates = sorted(ms_dates_set | set(
@@ -2036,6 +2093,24 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     amt = ms_daily.get(eid, {}).get(dt, 0)
                     if amt > 0: daily[dt] = round(amt)
 
+            # P43-O1e: 计件轨道残差锚定——Σ日明细 == round(Σ逐日原始值)（总表轨道 round 一次口径，
+            # calculate_all :1441），消除逐日取整残差（破碎池分摊/月中转轨员工 ±1 类），尾差归该轨道最后一日
+            for _tk_name, _tk_src in (('piece_underground', ug_daily),
+                                      ('piece_driller', dr_daily),
+                                      ('piece_crush', crush_daily)):
+                _tk_raw = {}
+                for _tk_dt, _tk_amt in _tk_src.get(eid, {}).items():
+                    if _tk_amt <= 0:
+                        continue
+                    if per_date_type.get(eid, {}).get(_tk_dt, pdt.get(_tk_dt, eff)) != _tk_name:
+                        continue
+                    _tk_raw[_tk_dt] = _tk_amt
+                if not _tk_raw:
+                    continue
+                _tk_diff = round(sum(_tk_raw.values())) - sum(daily.get(_tk_dt, 0) for _tk_dt in _tk_raw)
+                if _tk_diff:
+                    daily[max(_tk_raw)] += _tk_diff
+
             # P23 R2: 加班额叠加到对应日（不进入单轨选型，只加层；ot_daily_br 已按当月过滤）
             for _odt, _oamt in ot_daily_br.get(eid, {}).items():
                 daily[_odt] = round(daily.get(_odt, 0) + _oamt)
@@ -2060,18 +2135,33 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         for eid, rec in result.items():
             if rec.get('salary_type') == 'piece_underground':
                 # P28 R4: NU（年假）日条目是折算保障金，不属于 ug_base（与 calculate_all 一致）
-                ug_base_br[eid] = sum(rec['daily'].get(dt, 0) for dt in rec['daily']
-                                       if per_date_type.get(eid, {}).get(dt, '') == 'piece_underground'
-                                       and att_all.get((eid, dt)) != 'NU')
+                # P43-O1d: 基数改用原始 ug_daily 累加（与 calculate_all ug_base_raw 同口径，
+                # 含 A/L/E 排除），不再用逐日取整后的日明细求和——快照差曾使 f_w 与总表不一致
+                ug_base_br[eid] = sum(ug_daily.get(eid, {}).get(dt, 0)
+                                       for dt in ug_daily.get(eid, {})
+                                       if per_date_type.get(eid, {}).get(dt, rec.get('salary_type', '')) == 'piece_underground'
+                                       and att_all.get((eid, dt)) not in ('A', 'L', 'E', 'NU'))
         if ug_base_br:
             f_w_br = apply_v2_month_end(ug_base_br, employees, data_folder, _ym, pricing)
             for eid, rec in result.items():
                 if eid in f_w_br and rec.get('salary_type') == 'piece_underground':
+                    _last_ug_dt = None
                     for dt in list(rec['daily'].keys()):
-                        dt_eff = per_date_type.get(eid, {}).get(dt, '')
+                        dt_eff = per_date_type.get(eid, {}).get(dt, rec.get('salary_type', ''))
                         # P28 R4: NU（年假）日条目不参与零和系数缩放
                         if dt_eff == 'piece_underground' and att_all.get((eid, dt)) != 'NU':
                             rec['daily'][dt] = round(rec['daily'][dt] * f_w_br[eid])
+                            _last_ug_dt = dt
+                    # P43-O1d: 残差锚定——Σ缩放后日明细 == round(原始基数×f_w)（calculate_all
+                    # pu_final = round(ug_base_raw × v2_f_w) 口径），尾差归最后一个井下日
+                    if _last_ug_dt is not None:
+                        _pu_target = round(ug_base_br[eid] * f_w_br[eid])
+                        _pu_sum = sum(rec['daily'][dt] for dt in rec['daily']
+                                      if per_date_type.get(eid, {}).get(dt, rec.get('salary_type', '')) == 'piece_underground'
+                                      and att_all.get((eid, dt)) != 'NU')
+                        _pu_diff = _pu_target - _pu_sum
+                        if _pu_diff:
+                            rec['daily'][_last_ug_dt] += _pu_diff
                     rec['total'] = round(sum(rec['daily'].values()))
 
     return result

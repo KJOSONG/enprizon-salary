@@ -199,7 +199,7 @@ bash restore.sh [备份路径]         # 停服 → 恢复 → 重启
        ├── rebuild_main_data_from_collections()：采集记录重建 shift/driller/crush 产量 + 出勤
        └── build_attendance_from_overrides()：出勤标记重建
   → employees 从 DB 读取（load_employees_from_db，替代通讯录 Excel 索引）
-  → calculator.calculate_all() → verification.verify_salary() → APP_STATE 缓存 → API
+  → calculator.calculate_all() → APP_STATE 缓存 → API（P43：verify_salary 死代码已删除）
 ```
 
 月份范围由采集数据中的日期生成（不再扫描 `data/source/`，该目录已清空）。`scan_source_files()` 与 `parser.parse_all()`（Excel 解析）已在纯采集改造中移除；Excel 仅保留于历史归档（`data/archived_*`）。
