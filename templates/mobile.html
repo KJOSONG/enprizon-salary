@@ -566,6 +566,7 @@
     api('/api/logout', { method:'POST', body:'{}' }).then(()=>{
       // P18F: 先清空 STATE 数据缓存,避免下个用户看到上个用户的敏感数据
       STATE.dashboard=null; STATE.employees=[]; STATE.attendance=null;
+      STATE._dateViewPools={}; /* P40-g: 按日归属池缓存同步失效 */
       STATE.currentMonth=''; STATE._groups=[]; STATE._drCaps=[]; STATE._drSlots=[];
       STATE.colType=''; STATE.empSeg='list';
       document.getElementById('user-menu').style.display='none';
@@ -1487,7 +1488,7 @@
       const r=await fetch(API_BASE+'/api/oa/events/'+id+'/approve', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body }).then(x=>x.json()).catch(()=>null);
       if(r && r.ok){
         toast(t('approved'));
-        STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */
+        STATE.attendance=null; STATE.employees=[]; /* P34: 出勤/花名册缓存失效，切 tab 自动重拉 */ STATE._dateViewPools={}; /* P40-g */
         if(btn){ const card=btn.closest('.oa-card'); if(card) card.remove(); }  // 乐观移除卡片
         loadOA('pending'); loadOAPendingCount();
       } else {
@@ -1512,7 +1513,7 @@
     try{
       // P41: json 容错 + try/catch/finally，失败必出 toast
       const r=await fetch(API_BASE+'/api/oa/events/'+id+'/reject', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reject_reason:reason}) }).then(x=>x.json()).catch(()=>null);
-      if(r && r.ok){ toast(t('rejected')); STATE.attendance=null; STATE.employees=[]; /* P34 */ closeModal(); loadOA('pending'); loadOAPendingCount(); }
+      if(r && r.ok){ toast(t('rejected')); STATE.attendance=null; STATE.employees=[]; STATE._dateViewPools={}; /* P34+P40-g */ closeModal(); loadOA('pending'); loadOAPendingCount(); }
       else toast((r&&r.error)||t('fail'),'error');
     }catch(e){ toast(t('fail'),'error'); }
     finally{ if(btn){ btn.disabled=false; btn.textContent=btn.dataset._t||t('confirm_reject'); } }
@@ -1617,8 +1618,8 @@
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
   // 部门池工具(部门名已 EN 化,用英文关键字 contains)
   function deptHas(e,k){ return (e.department||'').toUpperCase().includes(k); }
-  function deptPool(kind, teamId){
-    return STATE.employees.filter(e=>{
+  function deptPool(kind, teamId, src){
+    return (src||STATE.employees).filter(e=>{
       const d=(e.department||'').toUpperCase();
       if(kind==='underground'){
         if(!d.includes('UNDERGROUND')) return false;
@@ -1631,6 +1632,20 @@
       if(kind==='other') return !(d.includes('UNDERGROUND')||d.includes('DRILLER')||d.includes('CRUSH PIECE RATE'));
       return true;
     });
+  }
+  // P40-g: 按日期归属的员工池（后端 roster?date= 已含调岗归边 + 排除 hire_date>date 未来入职者）。
+  // date 空 → 返回 STATE.employees（现状不变）；按日期分桶缓存；接口失败/空回退 STATE.employees（fail-open）
+  async function mobDateViewPool(date){
+    if(!date) return STATE.employees;
+    STATE._dateViewPools = STATE._dateViewPools || {};
+    const key = String(date);
+    if(STATE._dateViewPools[key]) return STATE._dateViewPools[key];
+    try{
+      const r = await api('/api/collection/roster?date='+encodeURIComponent(date));
+      const emps = (r && r.employees) || [];
+      if(emps.length){ STATE._dateViewPools[key] = emps; return emps; }
+    }catch(e){}
+    return STATE.employees;
   }
   // 人员多选行（worker-item：checkbox + 姓名 + 工号）。pool 限定可选员工，缺省为全部
   function empChecklistHTML(hid, selected, prefix, pool){
@@ -1988,6 +2003,9 @@
 
   // 井下出渣(C1): 新格式 teams[]，旧格式 day/night 兼容保留
   async function renderUgForm(init){
+    // P40-g: 成员池按提交日期归属（调岗归边 + 排除未来入职者）
+    const _d0 = (init && init.submission_date) || '';
+    STATE._ugDatePool = await mobDateViewPool(_d0);
     const isOld = !!(init && (init.day || init.night) && !init.teams);
     if(isOld){
       const d = (init && init.submission_date) || '';
@@ -2040,9 +2058,9 @@
         + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark" value="'+esc(init&&init.remark||'')+'"></div>'
         + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2" value="'+esc(init&&init.remark2||'')+'"></div>'
         + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
-      document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',(day.emps||[]),'ugDay', deptPool('underground'));
+      document.getElementById('ugDayEmpsBox').innerHTML=empChecklistHTML('ugDayEmps',(day.emps||[]),'ugDay', deptPool('underground', null, STATE._ugDatePool));
       document.getElementById('ugDayDriversBox').innerHTML=(day.emps||[]).length ? empChecklistHTML('ugDayDrivers',(day.drivers||[]),'ugDayDrv', STATE.employees.filter(e=>(day.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
-      document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',(night.emps||[]),'ugNight', deptPool('underground'));
+      document.getElementById('ugNightEmpsBox').innerHTML=empChecklistHTML('ugNightEmps',(night.emps||[]),'ugNight', deptPool('underground', null, STATE._ugDatePool));
       document.getElementById('ugNightDriversBox').innerHTML=(night.emps||[]).length ? empChecklistHTML('ugNightDrivers',(night.drivers||[]),'ugNightDrv', STATE.employees.filter(e=>(night.emps||[]).includes(e.id))) : '<div class="worker-item" style="justify-content:center;color:var(--muted-foreground);">'+t('col_pick_att_first')+'</div>';
       document.getElementById('ugDayEmps').value=(day.emps||[]).join(',');
       document.getElementById('ugDayDrivers').value=(day.drivers||[]).join(',');
@@ -2197,7 +2215,7 @@
     if(!tid){
       // 未选班组 → 显示全部 UG 部门，不清除已选
       const box=document.getElementById(seg+'EmpsBox');
-      if(box) box.innerHTML=empChecklistHTML(seg+'Emps',cur,seg,deptPool('underground'));
+      if(box) box.innerHTML=empChecklistHTML(seg+'Emps',cur,seg,deptPool('underground', null, STATE._ugDatePool));
       return;
     }
     // 过滤: 保留仍属于新班组的已选成员
@@ -2206,7 +2224,7 @@
       return emp&&String(emp.team_id)===String(tid);
     });
     document.getElementById(seg+'Emps').value=keep.join(',');
-    const pool=deptPool('underground',tid);
+    const pool=deptPool('underground',tid,STATE._ugDatePool);
     const box=document.getElementById(seg+'EmpsBox');
     if(box) box.innerHTML=empChecklistHTML(seg+'Emps',keep,seg,pool);
     const cnt=document.getElementById(seg+'-count');
@@ -2265,6 +2283,8 @@
   STATE._drSlots=[];
   async function renderDrForm(init){
     const d = (init && init.submission_date) || '';
+    // P40-g: 成员池按提交日期归属
+    STATE._drDatePool = await mobDateViewPool(d);
     const teams = (init && init.teams && init.teams.length) ? init.teams.map(tm=>({captain:tm.captain||'', nh:tm.nh||0, nl:tm.nl||0, mw:tm.mw||0, members:(tm.members||[])})) : [{captain:'',nh:0,nl:0,mw:0,members:[]}];
     STATE._drSlots = teams;
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
@@ -2284,7 +2304,7 @@
       + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0" step="0.1" inputmode="decimal"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0" step="0.1" inputmode="decimal"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0" step="0.1" inputmode="decimal"></div></div>'
       + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div class="col-count-hint" id="drMem'+i+'-count">'+t('col_selected_count',{n:(s.members||[]).length})+'</div><div id="drMemBox'+i+'"></div></div>'
       + (STATE._drSlots.length>1?'<button class="btn btn-block" onclick="removeDrSlotM('+i+')" style="margin-top:6px;">'+t('remove')+'</button>':'')+'</div>').join('');
-    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[], 'drMem'+i, deptPool('driller')); });
+    STATE._drSlots.forEach((s,i)=>{ const box=document.getElementById('drMemBox'+i); if(box) box.innerHTML=empChecklistHTML('drMem'+i, s.members||[], 'drMem'+i, deptPool('driller', null, STATE._drDatePool)); });
   }
   function syncDrSlotsFromDom(){ STATE._drSlots.forEach((s,i)=>{ const c=document.getElementById('drCap'+i); if(c) s.captain=c.value; const nh=document.getElementById('drNh'+i); if(nh) s.nh=+nh.value||0; const nl=document.getElementById('drNl'+i); if(nl) s.nl=+nl.value||0; const mw=document.getElementById('drMw'+i); if(mw) s.mw=+mw.value||0; s.members=ck('drMem'+i); }); }
   function addDrSlotM(){ syncDrSlotsFromDom(); STATE._drSlots.push({captain:'',nh:0,nl:0,mw:0,members:[]}); renderDrSlotsM(); }
@@ -2295,7 +2315,7 @@
     colSubmit('driller', { submission_date:date, teams }, null); }
 
   // 破碎计件
-  function renderCrForm(init){ const d=(init&&init.submission_date)||'';
+  async function renderCrForm(init){ const d=(init&&init.submission_date)||'';
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_cr')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
@@ -2303,8 +2323,9 @@
       + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:((init&&init.emps)||[]).length})+'</div><div id="crEmpsBox"></div></div>'
       + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="crRemark" value="'+esc((init&&init.remark)||'')+'"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitCr()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
-    // 编辑模式员工池 = 原 emps 员工 ∪ crush 池,避免编辑保存时历史 Sort Crush 父部门员工丢失
-    const pool=deptPool('crush');
+    // P40-g: 池按提交日期归属；编辑模式员工池 = 原 emps 员工 ∪ crush 池,避免编辑保存时历史 Sort Crush 父部门员工丢失
+    const datePool = await mobDateViewPool(d);
+    const pool=deptPool('crush', null, datePool);
     if(init && init.emps && init.emps.length){
       const ids=new Set(init.emps.filter(Boolean));
       (STATE.employees||[]).forEach(e=>{ if(ids.has(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
@@ -2348,13 +2369,20 @@
   }
   function onMobAttDateChange(){
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
-    if(dt) refreshMobAttLeave(dt).then(()=>renderAttRoster());
+    if(!dt) return;
+    // P40-g: 日期变更 → 已批假 + 按日归属池一并刷新后再渲染（编辑保数据员工不受日期影响）
+    Promise.all([
+      refreshMobAttLeave(dt),
+      mobDateViewPool(dt).then(p=>{ STATE._attDatePool = p; })
+    ]).then(()=>renderAttRoster());
   }
   async function renderAttForm(init){ const d=(init&&init.submission_date)||'';
     if(d) await refreshMobAttLeave(d);
-    const otherPool=deptPool('other');
-    const ugPool=deptPool('underground');
-    const pool=[...otherPool];
+    // P40-g: 池按提交日期归属（调岗归边 + 排除 hire_date>date 未来入职者）
+    const datePool = await mobDateViewPool(d);
+    STATE._attDatePool = datePool;
+    const otherPool=deptPool('other', null, datePool);
+    const ugPool=deptPool('underground', null, datePool);
     // C3: 确保 UG 部门出现在下拉中（full-width brackets）
     const UG_DEPT='Production TEAM （underground）';
     // 合并 UG 员工到池但 deptPool 已经独立，此处 pool 用于非UG；UG 花名册另用 deptPool('underground', teamId)
@@ -2368,15 +2396,12 @@
     (init && init.marks || []).forEach(m=>{ if(m.employee_id) STATE._attEditMarks[String(m.employee_id)] = m.status; });
     // 驾驶预填
     STATE._attEditDrivers = new Set((init && init.drivers) || []);
-    // P1 修复: 编辑模式员工池 = 原 marks 员工 ∪ otherPool
+    // P1 修复: 编辑保数据 = 原 marks 员工（跨日期保持，attRosterEmpIds 派生池时并入）
+    STATE._attEditEmps = [];
     if(init && init.marks && init.marks.length){
       const ids=new Set(init.marks.map(m=>m.employee_id).filter(Boolean));
-      const have=ids.has.bind(ids);
-      (STATE.employees||[]).forEach(e=>{ if(have(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
-      ugPool.forEach(e=>{ if(have(String(e.id)) && !pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
+      (STATE.employees||[]).forEach(e=>{ if(ids.has(String(e.id))) STATE._attEditEmps.push(e); });
     }
-    STATE._attPool = pool;
-    STATE._attUgPool = ugPool;
     // 班组下拉
     let ugGroups=[];
     try{ const g=await api('/api/employee_groups'); ugGroups=g.groups||[]; }catch(e){}
@@ -2406,20 +2431,24 @@
     if(sel!==UG_DEPT) STATE._attTeamId='';
     renderAttRoster();
   }
-  function attRosterEmpIds(){
+  async function attRosterEmpIds(){
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
     const sel=document.getElementById('attColDept')?.value || '';
     const UG_DEPT='Production TEAM （underground）';
+    // P40-g: 池按日期归属（renderAttForm/onMobAttDateChange 已按日缓存于 STATE._attDatePool）
+    const datePool = STATE._attDatePool || await mobDateViewPool(dt);
     if(sel===UG_DEPT){
       const tid=document.getElementById('attTeamSel')?.value || '';
       STATE._attTeamId=tid;
       if(!tid) return [];
-      return deptPool('underground', tid);
+      return deptPool('underground', tid, datePool);
     }
-    const pool = STATE._attPool || deptPool('other');
+    // P1: 编辑保数据 = 原 marks 员工并入派生池，避免编辑保存时丢人
+    const pool=[...deptPool('other', null, datePool)];
+    (STATE._attEditEmps||[]).forEach(e=>{ if(!pool.some(p=>String(p.id)===String(e.id))) pool.push(e); });
     return pool.filter(e=>(!sel||e.department===sel));
   }
-  function renderAttRoster(){ const list=attRosterEmpIds();
+  async function renderAttRoster(){ const list=await attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
     const sel=document.getElementById('attColDept')?.value || '';
     const UG_DEPT='Production TEAM （underground）';
@@ -2461,12 +2490,12 @@
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
   }
-  function attBatchAll(status){
+  async function attBatchAll(status){
     const deptSel=document.getElementById('attColDept')?.value || '';
     const UG_DEPT='Production TEAM （underground）';
     if(deptSel===UG_DEPT && !document.getElementById('attTeamSel')?.value) return;
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
-    const list=attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveLocked(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
+    const list=await attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveLocked(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
   }
   async function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ colFailMsg('attendance', t('val_date')); return; }
     const deptEl=document.getElementById('attColDept');
@@ -2474,7 +2503,7 @@
     const UG_DEPT='Production TEAM （underground）';
     const isUg = deptEl.value===UG_DEPT;
     if(isUg && !document.getElementById('attTeamSel').value){ colFailMsg('attendance', t('col_att_ug_pick_team')); return; }
-    const list=attRosterEmpIds();
+    const list=await attRosterEmpIds();
     // B→P 兜底: 若状态为 B 则转 P；当天已批假者无状态选择器，跳过
     const marks=list.filter(e=>!mobAttLeaveLocked(date,String(e.id))).map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
     // 出勤状态不允许留空：每位员工必须手动选择（可先用全P/全A批量）
@@ -2856,7 +2885,7 @@
     const eid=document.getElementById('oaDmEid').value, date=document.getElementById('oaDmDate').value;
     if(!eid||!date){ oaFormMsg(false, t('pick_emp_date')); return; }
     api('/api/oa/events', { method:'POST', body: JSON.stringify({ event_type:'dismiss', employee_id:eid, effective_date:date, payload:{ reason:document.getElementById('oaDmReason').value.trim() } }) }).then(r=>{
-      if(r.ok){ STATE.attendance=null; STATE.employees=[]; /* P40/P34: 提交后失效花名册缓存，下拉即时刷新 */ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, colApiErrMsg(r));
+      if(r.ok){ STATE.attendance=null; STATE.employees=[]; STATE._dateViewPools={}; /* P40/P34+P40-g: 提交后失效花名册缓存，下拉即时刷新 */ toast(t('submitted')); closeSheet(); } else oaFormMsg(false, colApiErrMsg(r));
     }).catch(()=>oaFormMsg(false, t('fail')));
   }
 
