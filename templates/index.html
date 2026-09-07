@@ -9364,6 +9364,17 @@ async function submitUgCollection() {
   await submitColPayload('underground', date, payload, 'colUgHistory');
 }
 
+/* P39: 后端 error_key → i18n 文案（web t() 无插值，手动 {k} 替换）；无 error_key 时回退后端 error */
+function colApiErrMsg(d) {
+  if (d && d.error_key) {
+    let s = t(d.error_key);
+    const p = d.error_params || {};
+    for (const k in p) s = s.split('{' + k + '}').join(String(p[k]));
+    return s;
+  }
+  return (d && d.error) || t('submit_fail');
+}
+
 /* 通用提交（新提交 / 编辑态） */
 async function submitColPayload(formType, date, payload, historyId) {
   let res;
@@ -9405,7 +9416,7 @@ async function submitColPayload(formType, date, payload, historyId) {
       else showToast((wasEditing ? t('col_updated') : t('col_submitted')) + tSkipMsg);
     }
   } else {
-    showToast(data.error || t('submit_fail'), 'error');
+    showToast(colApiErrMsg(data), 'error');
   }
 }
 /* ── P3 评分录入 ── */

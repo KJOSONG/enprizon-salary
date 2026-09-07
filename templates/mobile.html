@@ -1922,9 +1922,13 @@
     el.className = 'form-message visible '+(ok?'success':'error');
   }
   function clearFormMsg(){ const el=document.getElementById('colFormMsg'); if(el){ el.textContent=''; el.className='form-message'; } }
+  // P39: 后端 error_key → i18n 文案（t 支持插值）；无 error_key 时回退后端 error
+  function colApiErrMsg(r){ if(r&&r.error_key) return t(r.error_key, r.error_params||{}); return (r&&r.error)||t('fail'); }
+  // P39: 采集提交失败双保险——form-message 内联 + toast 弹窗（提交按钮在页面底部，内联提示在上方看不到）
+  function colFailMsg(ty,msg){ showFormMsg(ty,msg,false); toast(msg,'error'); }
   function colSubmit(ty, payload, validate){
     const date=document.getElementById('colDate').value;
-    if(!date){ showFormMsg(ty, t('val_date'), false); return; }
+    if(!date){ colFailMsg(ty, t('val_date')); return; }
     if(validate && !validate(payload)) return;
     const btn = document.getElementById('colSubmitBtn');
     if(btn){ btn.disabled=true; btn.textContent=t('submitting'); }
@@ -1947,8 +1951,8 @@
         } else if(r.discarded){ showFormMsg(ty, t('col_discarded_some',{n:r.discarded}), false); setTimeout(()=>{ backColHome(); }, 1600); }
         else { showFormMsg(ty, t(editing?'col_updated':'success')+tSkipMsg, true); setTimeout(()=>{ backColHome(); }, 500); }
       }
-      else { showFormMsg(ty, r.error||t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
-    }).catch(()=>{ showFormMsg(ty, t('fail'), false); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
+      else { colFailMsg(ty, colApiErrMsg(r)); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } }
+    }).catch(()=>{ colFailMsg(ty, t('fail')); if(btn){ btn.disabled=false; btn.textContent=t('submit'); } });
   }
 
   // 井下出渣(C1): 新格式 teams[]，旧格式 day/night 兼容保留
@@ -2188,14 +2192,14 @@
           team_id:+(document.getElementById('ugNightTeam')&&document.getElementById('ugNightTeam').value)||0,
           exempt:document.getElementById('ugNightExempt')&&document.getElementById('ugNightExempt').checked } };
       colSubmit('underground', payload, (p)=>{
-        if(p.day.emps.length===0 && p.night.emps.length===0){ showFormMsg('underground', t('val_workers'), false); return false; }
-        if((p.day.emps.length>0 && !p.day.team_id) || (p.night.emps.length>0 && !p.night.team_id)){ showFormMsg('underground', t('col_ug_team_required'), false); return false; }
+        if(p.day.emps.length===0 && p.night.emps.length===0){ colFailMsg('underground', t('val_workers')); return false; }
+        if((p.day.emps.length>0 && !p.day.team_id) || (p.night.emps.length>0 && !p.night.team_id)){ colFailMsg('underground', t('col_ug_team_required')); return false; }
         const chkTeam=(emps,tid)=>{
           if(!tid) return true;
           return emps.every(id=>{const emp=STATE.employees.find(e=>String(e.id)===String(id));return emp&&String(emp.team_id)===String(tid);});
         };
-        if(!chkTeam(p.day.emps,p.day.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
-        if(!chkTeam(p.night.emps,p.night.team_id)){ showFormMsg('underground', t('col_emp_not_in_team'), false); return false; }
+        if(!chkTeam(p.day.emps,p.day.team_id)){ colFailMsg('underground', t('col_emp_not_in_team')); return false; }
+        if(!chkTeam(p.night.emps,p.night.team_id)){ colFailMsg('underground', t('col_emp_not_in_team')); return false; }
         return true;
       });
       return;
@@ -2206,22 +2210,22 @@
     const payload={ teams };
     colSubmit('underground', payload, (p)=>{
       const ts = p.teams||[];
-      if(!ts.length){ showFormMsg('underground', t('col_ug_team_row'), false); return false; }
+      if(!ts.length){ colFailMsg('underground', t('col_ug_team_row')); return false; }
       const hasProd = ts.some(t=> (t.nh||0)+(t.nl||0)+(t.mw||0) > 0);
-      if(!hasProd){ showFormMsg('underground', t('col_ug_no_attendance_warn'), false); return false; }
+      if(!hasProd){ colFailMsg('underground', t('col_ug_no_attendance_warn')); return false; }
       for(const tt of ts){
         const prod=(tt.nh||0)+(tt.nl||0)+(tt.mw||0);
-        if(prod>0 && !tt.team_id){ showFormMsg('underground', t('col_ug_team_required'), false); return false; }
+        if(prod>0 && !tt.team_id){ colFailMsg('underground', t('col_ug_team_required')); return false; }
       }
       const seen=new Set();
       for(const tt of ts){
         if(tt.team_id){
-          if(seen.has(String(tt.team_id))){ showFormMsg('underground', t('col_ug_team_row')+': duplicate', false); return false; }
+          if(seen.has(String(tt.team_id))){ colFailMsg('underground', t('col_ug_team_row')+': duplicate'); return false; }
           seen.add(String(tt.team_id));
         }
       }
       // P38: 豁免班组必须填写豁免原因（备注）
-      for(const tt of ts){ if(tt.exempt && !String(tt.remark||'').trim()){ showFormMsg('underground', t('col_ug_exempt_remark_required'), false); return false; } }
+      for(const tt of ts){ if(tt.exempt && !String(tt.remark||'').trim()){ colFailMsg('underground', t('col_ug_exempt_remark_required')); return false; } }
       return true;
     });
   }
@@ -2254,9 +2258,9 @@
   function syncDrSlotsFromDom(){ STATE._drSlots.forEach((s,i)=>{ const c=document.getElementById('drCap'+i); if(c) s.captain=c.value; const nh=document.getElementById('drNh'+i); if(nh) s.nh=+nh.value||0; const nl=document.getElementById('drNl'+i); if(nl) s.nl=+nl.value||0; const mw=document.getElementById('drMw'+i); if(mw) s.mw=+mw.value||0; s.members=ck('drMem'+i); }); }
   function addDrSlotM(){ syncDrSlotsFromDom(); STATE._drSlots.push({captain:'',nh:0,nl:0,mw:0,members:[]}); renderDrSlotsM(); }
   function removeDrSlotM(i){ syncDrSlotsFromDom(); STATE._drSlots.splice(i,1); renderDrSlotsM(); }
-  function submitDr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('driller', t('val_date'), false); return; } const teams=[];
+  function submitDr(){ const date=document.getElementById('colDate').value; if(!date){ colFailMsg('driller', t('val_date')); return; } const teams=[];
     for(let i=0;i<STATE._drSlots.length;i++){ const cap=document.getElementById('drCap'+i).value; if(!cap) continue; teams.push({ captain:cap, nh:+document.getElementById('drNh'+i).value||0, nl:+document.getElementById('drNl'+i).value||0, mw:+document.getElementById('drMw'+i).value||0, members:ck('drMem'+i) }); }
-    if(!teams.length){ showFormMsg('driller', t('pick_captain'), false); return; }
+    if(!teams.length){ colFailMsg('driller', t('pick_captain')); return; }
     colSubmit('driller', { submission_date:date, teams }, null); }
 
   // 破碎计件
@@ -2277,10 +2281,10 @@
     document.getElementById('crEmpsBox').innerHTML=empChecklistHTML('crEmps',(init&&init.emps)||[],'crEmps', pool);
     document.getElementById('crEmps').value=((init&&init.emps)||[]).join(',');
   }
-  function submitCr(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('crush', t('val_date'), false); return; }
+  function submitCr(){ const date=document.getElementById('colDate').value; if(!date){ colFailMsg('crush', t('val_date')); return; }
     const bags=+document.getElementById('crBags').value||0;
-    if(bags<=0){ showFormMsg('crush', t('val_bags'), false); return; }
-    if(!ck('crEmps').length){ showFormMsg('crush', t('val_workers'), false); return; }
+    if(bags<=0){ colFailMsg('crush', t('val_bags')); return; }
+    if(!ck('crEmps').length){ colFailMsg('crush', t('val_workers')); return; }
     colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
   // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣; C3: UG属单独分支带 team_id+drivers）
@@ -2433,17 +2437,17 @@
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
     const list=attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveLocked(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
   }
-  async function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ showFormMsg('attendance', t('val_date'), false); return; }
+  async function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ colFailMsg('attendance', t('val_date')); return; }
     const deptEl=document.getElementById('attColDept');
-    if(!deptEl || !deptEl.value){ showFormMsg('attendance', t('col_att_need_dept'), false); return; }
+    if(!deptEl || !deptEl.value){ colFailMsg('attendance', t('col_att_need_dept')); return; }
     const UG_DEPT='Production TEAM （underground）';
     const isUg = deptEl.value===UG_DEPT;
-    if(isUg && !document.getElementById('attTeamSel').value){ showFormMsg('attendance', t('col_att_ug_pick_team'), false); return; }
+    if(isUg && !document.getElementById('attTeamSel').value){ colFailMsg('attendance', t('col_att_ug_pick_team')); return; }
     const list=attRosterEmpIds();
     // B→P 兜底: 若状态为 B 则转 P；当天已批假者无状态选择器，跳过
     const marks=list.filter(e=>!mobAttLeaveLocked(date,String(e.id))).map(e=>{ let st=document.getElementById('attSt'+e.id).value; if(st==='B') st='P'; return {employee_id:e.id, status:st}; });
     // 出勤状态不允许留空：每位员工必须手动选择（可先用全P/全A批量）
-    for(const m of marks){ if(!m.status){ showFormMsg('attendance', t('att_need_status'), false); return; } }
+    for(const m of marks){ if(!m.status){ colFailMsg('attendance', t('att_need_status')); return; } }
     // 编辑保数据: 同 team 的原 marks 保底（UG 仅同 team）
     const submitted=new Set(marks.map(m=>String(m.employee_id)));
     Object.entries(STATE._attEditMarks||{}).forEach(([eid,st])=>{
@@ -2484,7 +2488,7 @@
         }
       }catch(e){ /* 预检异常不阻断，由后端兜底拦截 */ }
     }
-    if(noBal.length){ showFormMsg('attendance', t('col_t_balance_block') + noBal.join('、'), false); return false; }
+    if(noBal.length){ colFailMsg('attendance', t('col_t_balance_block') + noBal.join('、')); return false; }
     return true;
   }
 

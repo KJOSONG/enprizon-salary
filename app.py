@@ -3417,7 +3417,26 @@ def _merge_collection_to_main_data(main_data, form_type, date, payload):
             shift = main_data.setdefault('shift_production', [])
             for i, x in enumerate(shift):
                 if x.get('date') == date:
-                    shift[i] = rec
+                    if 'teams' in x:
+                        # P39: 同日按班组分行的提交（多行）重建时聚合进同一条记录——
+                        # 按 team_id 原位覆盖/追加；rebuild 已按 (date, id) ASC 排序，
+                        # 后处理者=最新提交，即最新提交覆盖同 tid（确定性顺序），保持
+                        # "shift_production 每日期一条记录"的全体消费方不变量；
+                        # 旧格式记录（无 teams 键）仍整条替换，行为不变
+                        merged = [m for m in (x.get('teams') or []) if isinstance(m, dict)]
+                        for t in teams:
+                            _tid = _ug_team_tid(t)
+                            _hit = False
+                            for _j, m in enumerate(merged):
+                                if _ug_team_tid(m) == _tid:
+                                    merged[_j] = t
+                                    _hit = True
+                                    break
+                            if not _hit:
+                                merged.append(t)
+                        x['teams'] = merged
+                    else:
+                        shift[i] = rec
                     return
             shift.append(rec)
             return
@@ -3481,6 +3500,11 @@ def rebuild_main_data_from_collections(main_data):
     main_data['driller_production'] = []
     main_data['crush_production'] = []
     subs = get_collection_submissions(app.config['DATA_FOLDER'])
+    # P39-R2 Major-3: 同日多行（按班组分用户提交）合并顺序确定性——
+    # get_collection_submissions 按 updated_at DESC 返回，直接遍历会让旧行覆盖新行；
+    # 局部重排为 (submission_date, id) ASC：最早提交先合并、最新提交后写覆盖同 tid。
+    # 不改 get_collection_submissions 全局排序（其他消费方依赖原序，影响面大）
+    subs.sort(key=lambda s: (s.get('submission_date') or '', s.get('id') or 0))
     for s in subs:
         try:
             payload = json.loads(s.get('payload', '{}'))
@@ -3606,6 +3630,174 @@ def _ug_exempt_remark_error(payload):
     return None
 
 
+# ── P39: 井下出渣新格式按班组分用户提交（班组级归属保护 + 按班组一行 upsert）──
+
+def _ug_team_tid(team_item):
+    """P39: 班组条目 team_id 安全取整（脏数据兜底返回 0）"""
+    try:
+        return int((team_item or {}).get('team_id', 0) or 0)
+    except Exception:
+        return 0
+
+
+def _ug_team_prod(team_item):
+    """P39: 班组条目产量合计（nh+nl+mw）"""
+    try:
+        return sum(float((team_item or {}).get(k, 0) or 0) for k in ('nh', 'nl', 'mw'))
+    except Exception:
+        return 0.0
+
+
+def _ug_normalize_teams(payload):
+    """P39: 新格式 teams 归一化（提交/编辑共用的脏数据兜底）。
+    - 无 team_id 且无产量且未豁免的空行 → 剔除（移动端残留空行兼容）
+    - 有产量或豁免但缺 team_id → 报错文案（整单拒绝：落库后消费端会按 team_id=0 跳过，静默丢数不可接受）
+    返回 (teams, err)。
+    """
+    teams = []
+    for t in (payload.get('teams') or []):
+        if not isinstance(t, dict):
+            continue
+        tid = _ug_team_tid(t)
+        if tid == 0:
+            if _ug_team_prod(t) > 0 or t.get('exempt'):
+                return None, '班组数据缺少 team_id，请重新选择班组后提交'
+            continue
+        teams.append(t)
+    return teams, None
+
+
+def _ug_row_teams(row_payload):
+    """P39: 解析一条 submission payload 的 teams → [(team_id, team_dict)]（历史合并行含多班组）"""
+    try:
+        pl = json.loads(row_payload or '{}')
+    except (TypeError, ValueError):
+        return []
+    out = []
+    for t in (pl.get('teams') or []):
+        if isinstance(t, dict):
+            out.append((_ug_team_tid(t), t))
+    return out
+
+
+def _ug_team_names_map(data_folder):
+    """P39: 班组 id→名称映射（冲突文案用，取不到时回退 #id）"""
+    try:
+        from core.database import list_employee_groups
+        return {int(g['id']): g['name'] for g in list_employee_groups(data_folder)}
+    except Exception:
+        return {}
+
+
+def _ug_team_conflict_msg(conflicts, names_map):
+    """P39: 班组级归属冲突文案+参数（对齐既有"该日期/部门的采集数据已由 %s 提交"语义，缩到班组级）。
+    返回 (msg, error_params)——error_params 供前端 error_key=col_team_conflict 的 i18n 插值。"""
+    parts, teams, owners = [], [], []
+    for tid, owner in conflicts:
+        nm = names_map.get(tid) or ('#' + str(tid))
+        parts.append('「%s」（已由 %s 提交）' % (nm, owner))
+        teams.append(nm)
+        if owner not in owners:
+            owners.append(owner)
+    msg = '该日期 %s 的采集数据已由其他用户提交，如需修改请联系管理员' % '、'.join(parts)
+    return msg, {'team': '、'.join(teams), 'operator': '、'.join(owners)}
+
+
+def _ug_insert_team_row(data_folder, date, team_item, username):
+    """P39: 新建单班组行（直接 SQL 写 team_id 列对齐 attendance 出勤分行；旧 DB 无列时回退 insert）"""
+    from core.database import get_conn, insert_collection_submission
+    payload = {'teams': [team_item]}
+    try:
+        conn = get_conn(data_folder)
+        try:
+            cur = conn.execute(
+                "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, created_by, month, department, team_id, version) VALUES (?,?,?,?,?,?,?,?,1)",
+                ('underground', date, json.dumps(payload, ensure_ascii=False), username, username,
+                 date[:7], '', _ug_team_tid(team_item)))
+            conn.commit()
+            sid = cur.lastrowid
+        except Exception:
+            sid = insert_collection_submission(data_folder, 'underground', date, payload, username, department='')
+        finally:
+            conn.close()
+    except Exception:
+        sid = insert_collection_submission(data_folder, 'underground', date, payload, username, department='')
+    return sid
+
+
+def _ug_team_upsert(data_folder, date, teams, username, is_admin,
+                    exclude_sid=None, patch_existing=True, home_sid=None, home_tid=None):
+    """P39: 井下出渣新格式 teams 按 (date, team_id) 逐班组 upsert（submit/edit 共用核心）。
+
+    - 目标 (date, tid) 无行（或仅被 exclude_sid 命中）→ 新建单班组行，operator=提交人
+    - 有行且 operator=本人或 admin → 更新（版本++，update_collection_submission 自动归档旧版）：
+        patch_existing=True：行 payload 内原位 patch 该班组条目（历史合并行其他班组零丢失，submit 语义）
+        patch_existing=False：整行替换为 {"teams":[t]}（拆分语义）
+    - 有行且 operator 他人 → 冲突（err 列出班组名+提交人；原 403 整单拒绝收敛为班组级 400 提示）
+    - home_sid+home_tid：编辑拆分时把 home 班组整行替换进原编辑行（保留其版本归档链），
+      home 行日期随 date 参数同步（改日期场景）
+    全程先冲突预检后写入，无部分写入。返回 (ok, err_msg, err_params, sids, written_tids)
+    """
+    from core.database import get_collection_submissions, update_collection_submission
+    # 同 payload 内重复班组去重（后者覆盖前者，防重复建行）
+    _dedup = {}
+    for t in teams:
+        _dedup[_ug_team_tid(t)] = t
+    teams = list(_dedup.values())
+    rows = [r for r in get_collection_submissions(data_folder, form_type='underground')
+            if r.get('submission_date') == date and (exclude_sid is None or r['id'] != exclude_sid)]
+    tid_row = {}  # tid → 归属行（历史合并行多班组逐个登记，一个 tid 命中即归属该行）
+    for r in rows:
+        for k, _t in _ug_row_teams(r.get('payload')):
+            if k and k not in tid_row:
+                tid_row[k] = r
+    # 冲突预检（home 行归属由调用方 owner-or-admin 校验，不在本函数范围）
+    conflicts = []
+    for t in teams:
+        k = _ug_team_tid(t)
+        r = tid_row.get(k)
+        if r is not None and r['operator_id'] != username and not is_admin:
+            conflicts.append((k, r['operator_id']))
+    if conflicts:
+        _cerr, _cparams = _ug_team_conflict_msg(conflicts, _ug_team_names_map(data_folder))
+        return False, _cerr, _cparams, [], []
+    sids, written_tids = [], []
+    for t in teams:
+        k = _ug_team_tid(t)
+        if home_sid is not None and k == home_tid:
+            # home：整行替换进编辑对象行（update 自动版本归档；date 同步改日期场景）
+            update_collection_submission(data_folder, home_sid, {'teams': [t]}, username, date=date)
+            sids.append(home_sid)
+            written_tids.append(k)
+            continue
+        r = tid_row.get(k)
+        if r is not None:
+            if patch_existing:
+                try:
+                    orig_list = [x for x in (json.loads(r['payload'] or '{}').get('teams') or [])
+                                 if isinstance(x, dict)]
+                except Exception:
+                    orig_list = []
+                new_list, replaced = [], False
+                for x in orig_list:
+                    if _ug_team_tid(x) == k:
+                        new_list.append(t)
+                        replaced = True
+                    else:
+                        new_list.append(x)
+                if not replaced:
+                    new_list.append(t)
+                row_payload = {'teams': new_list}
+            else:
+                row_payload = {'teams': [t]}
+            update_collection_submission(data_folder, r['id'], row_payload, username)
+            sids.append(r['id'])
+        else:
+            sids.append(_ug_insert_team_row(data_folder, date, t, username))
+        written_tids.append(k)
+    return True, '', {}, sids, written_tids
+
+
 @app.route('/api/collection/submit', methods=['POST'])
 @login_required
 def collection_submit():
@@ -3632,14 +3824,15 @@ def collection_submit():
         _audit('perm_denied', '', json.dumps({'user': _u, 'module': 'collection', 'action': form_type}))
         return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
     if not date:
-        return jsonify({'ok': False, 'error': '缺少日期'}), 400
+        return jsonify({'ok': False, 'error': '缺少日期', 'error_key': 'val_date'}), 400
     if date > datetime.now(EAT).strftime('%Y-%m-%d'):
-        return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
+        return jsonify({'ok': False, 'error': '不能提交未来日期', 'error_key': 'col_future_date'}), 400
     # P38: 井下出渣新格式 teams 中豁免班组必须带非空备注（旧格式 day/night 历史数据零改动）
     if form_type == 'underground':
         _exempt_err = _ug_exempt_remark_error(payload)
         if _exempt_err:
-            return jsonify({'ok': False, 'error': _exempt_err}), 400
+            return jsonify({'ok': False, 'error': _exempt_err,
+                            'error_key': 'col_ug_exempt_remark_required'}), 400
     username = session.get('username', 'unknown')
     dept = (payload.get('department') or '').strip()
 
@@ -3675,11 +3868,16 @@ def collection_submit():
             st = m.get('status', '')
             if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
                 return jsonify({'ok': False,
-                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {date}）'}), 403
+                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {date}）',
+                                'error_key': 'col_att_nu_locked',
+                                'error_params': {'employee': eid, 'date': date}}), 403
             if st == 'E':
-                return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除：设备豁免请在井下出渣产量中勾选，出勤豁免请走 OA 或由管理员在出勤网格标记'}), 400
+                return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除：设备豁免请在井下出渣产量中勾选，出勤豁免请走 OA 或由管理员在出勤网格标记',
+                                'error_key': 'col_att_e_removed'}), 400
             if st == 'NU':
-                return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止采集提交（员工 {eid} · {date}）'}), 403
+                return jsonify({'ok': False, 'error': f'NU（年假）状态由审批管理，禁止采集提交（员工 {eid} · {date}）',
+                                'error_key': 'col_att_nu_locked',
+                                'error_params': {'employee': eid, 'date': date}}), 403
         # 采集分流：P/A/T 直写，L/SK 转 OA pending
         _OA_MAP = {'L': 'casual', 'SK': 'sick'}
         _oa_created = []
@@ -3739,7 +3937,9 @@ def collection_submit():
             marks_ids = {str(m.get('employee_id') or '') for m in marks}
             for d in drivers:
                 if str(d) not in marks_ids:
-                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中（仅 P/A 人员可标记驾驶，L/SK/T 已转审批）'}), 400
+                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中（仅 P/A 人员可标记驾驶，L/SK/T 已转审批）',
+                                    'error_key': 'col_driver_not_in_marks',
+                                    'error_params': {'driver': d}}), 400
         # 余额预检：任一 T 员工调休余额不足则整体失败，避免部分写入（routing 事件/
         # 前序 override/扣减已落库但提交审计缺失的孤儿数据，见 2026-09-05 petro 案例）
         from core.database import get_leave_balance as _glb
@@ -3751,7 +3951,9 @@ def collection_submit():
                 _bal = _glb(app.config['DATA_FOLDER'], _eid_t, int(date[:4]))
                 if (_bal.get('comp_entitled', 0) or 0) - (_bal.get('comp_used', 0) or 0) < 1:
                     _nm = _emp_name(app.config['DATA_FOLDER'], _eid_t) or _eid_t
-                    return jsonify({'ok': False, 'error': f'{_nm} 本月调休已满 4 天（余额用完），该出勤不能提交调休，请改选其他出勤状态'}), 400
+                    return jsonify({'ok': False, 'error': f'{_nm} 本月调休已满 4 天（余额用完），该出勤不能提交调休，请改选其他出勤状态',
+                                    'error_key': 'col_t_balance_person',
+                                    'error_params': {'name': _nm}}), 400
         # OA 调休集合：T→非T 时判定来源用（一次查询全员）
         from core.database import get_oa_comp_leave_dates as _goacd
         _oa_comp_set = _goacd(app.config['DATA_FOLDER'], date)
@@ -3762,7 +3964,9 @@ def collection_submit():
             if not eid or not status:
                 continue
             if status not in ('P', 'A', 'T'):
-                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持',
+                                'error_key': 'col_att_direct_only',
+                                'error_params': {'status': status}}), 400
             # T 幂等：当日已有 T 则跳过写入与扣减，防同日重复提交重复扣余额
             if status == 'T' and get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'T':
                 t_skipped.append({'employee_id': eid, 'date': date})
@@ -3803,6 +4007,36 @@ def collection_submit():
     # upsert collection_submissions by (form_type, date) [attendance 另加 department+team_id 维度]
     _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
     _ensure_collection_created_by_column(app.config['DATA_FOLDER'])
+
+    # P39: 井下出渣新格式（payload 含 teams）按班组逐行 upsert —— 班组级归属保护：
+    # 同日不同班组可由不同用户分别补充提交；同班组冲突时 400 列出班组名+提交人
+    # （原"整日 403"收敛为班组级提示）；历史合并行其他班组在 patch 中零丢失
+    if form_type == 'underground' and isinstance(payload, dict) and 'teams' in payload:
+        teams, terr = _ug_normalize_teams(payload)
+        if terr:
+            return jsonify({'ok': False, 'error': terr, 'error_key': 'col_ug_team_required'}), 400
+        if not teams:
+            return jsonify({'ok': False, 'error': '班组数据为空，至少填写一个班组',
+                            'error_key': 'col_ug_team_required'}), 400
+        _ug_is_admin = session.get('role') in ('admin', 'super_admin')
+        _ok, _err, _eparams, _sids, _tids = _ug_team_upsert(app.config['DATA_FOLDER'], date, teams, username,
+                                                            _ug_is_admin, patch_existing=True)
+        if not _ok:
+            _audit('perm_denied', '', json.dumps({'user': username, 'module': 'collection',
+                                                  'action': 'submit_override', 'date': date,
+                                                  'conflict': _err}))
+            return jsonify({'ok': False, 'error': _err, 'error_key': 'col_team_conflict',
+                            'error_params': _eparams}), 400
+        _invalidate_month_cache(date[:7])
+        _invalidate_all_cache_base()
+        log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
+                  json.dumps({'form_type': form_type, 'date': date, 'sids': _sids, 'team_ids': _tids,
+                              'department': dept, 'month': date[:7], 'split_rows': len(_sids)},
+                             ensure_ascii=False),
+                  operator=username)
+        return jsonify({'ok': True, 'submission_id': _sids[-1] if _sids else None,
+                        'submission_ids': _sids, 'team_ids': _tids})
+
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
     if form_type == 'attendance' and dept:
         if _is_ug_dept(dept) and att_team_id is not None:
@@ -3820,7 +4054,9 @@ def collection_submit():
                                                   'action': 'submit_override', 'sid': ex['id'],
                                                   'owner': ex['operator_id'], 'date': date, 'dept': dept}))
             return jsonify({'ok': False,
-                            'error': '该日期/部门的采集数据已由 %s 提交，如需修改请联系管理员' % ex['operator_id']}), 403
+                            'error': '该日期/部门的采集数据已由 %s 提交，如需修改请联系管理员' % ex['operator_id'],
+                            'error_key': 'col_already_submitted',
+                            'error_params': {'operator': ex['operator_id']}}), 403
         update_collection_submission(app.config['DATA_FOLDER'], ex['id'], payload, username)
         sid = ex['id']
     else:
@@ -3974,19 +4210,118 @@ def collection_edit(submission_id):
         return jsonify({'ok': False, 'error': 'forbidden', 'need_permission': 'collection'}), 403
     is_admin = (session.get('role') in ('admin', 'super_admin'))
     if sub['operator_id'] != username and not is_admin:
-        return jsonify({'ok': False, 'error': '只能编辑本人提交或管理员可改'}), 403
+        return jsonify({'ok': False, 'error': '只能编辑本人提交或管理员可改',
+                        'error_key': 'col_edit_owner_only'}), 403
     data = request.get_json() or {}
     payload = data.get('payload') or {}
     form_type = sub['form_type']
     old_date = sub['submission_date']
     new_date = data.get('submission_date') or old_date
     if new_date > datetime.now(EAT).strftime('%Y-%m-%d'):
-        return jsonify({'ok': False, 'error': '不能提交未来日期'}), 400
+        return jsonify({'ok': False, 'error': '不能提交未来日期', 'error_key': 'col_future_date'}), 400
     # P38: 井下出渣新格式 teams 中豁免班组必须带非空备注（旧格式 day/night 历史数据零改动）
     if form_type == 'underground':
         _exempt_err = _ug_exempt_remark_error(payload)
         if _exempt_err:
-            return jsonify({'ok': False, 'error': _exempt_err}), 400
+            return jsonify({'ok': False, 'error': _exempt_err,
+                            'error_key': 'col_ug_exempt_remark_required'}), 400
+
+    # P39: 新格式 UG（payload 含 teams）编辑 —— 按班组逐行拆分 upsert：
+    # home 班组（新班组清单中第一个存在于原行者）整行替换进本行（update 自动版本归档，
+    # 历史合并行自然收敛为单班组行）；其余班组逐行 upsert 到各自 (date,team_id) 行；
+    # 冲突判定只针对非本行的 (date,team_id)；原 payload 被移除的班组随拆分消失
+    # （其数据仅存于本行，owner 已过本人/admin 校验）
+    if form_type == 'underground' and isinstance(payload, dict) and 'teams' in payload:
+        _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
+        teams, terr = _ug_normalize_teams(payload)
+        if terr:
+            return jsonify({'ok': False, 'error': terr, 'error_key': 'col_ug_team_required'}), 400
+        if not teams:
+            return jsonify({'ok': False, 'error': '班组数据为空，至少保留一个班组',
+                            'error_key': 'col_ug_team_required'}), 400
+        orig_tids = [k for k, _t in _ug_row_teams(sub['payload'])]
+        new_tids = [_ug_team_tid(t) for t in teams]
+        home_tid = next((k for k in new_tids if k in orig_tids), None)
+        # 冲突预检：非本行的 (new_date, tid) 归属他人 → 400（本行归属已过 owner-or-admin 校验）
+        others = [r for r in get_collection_submissions(app.config['DATA_FOLDER'], form_type='underground')
+                  if r.get('submission_date') == new_date and r['id'] != submission_id]
+        # P39-R2 Major-1 对称防护：改日期到含旧格式（day/night）行的日期时拒绝——
+        # 避免同日混合格式（rebuild 合并时旧格式记录会整条替换 teams 记录，班组数据被遮蔽）
+        if new_date != old_date:
+            for r in others:
+                try:
+                    _rpl = json.loads(r.get('payload') or '{}')
+                except (TypeError, ValueError):
+                    _rpl = {}
+                if 'teams' not in _rpl and ('day' in _rpl or 'night' in _rpl):
+                    return jsonify({'ok': False,
+                                    'error': '目标日期已存在旧版白夜班数据，不支持新版班组覆盖',
+                                    'error_key': 'col_legacy_overwrite_blocked'}), 400
+        _edit_tid_row = {}
+        for r in others:
+            for k, _t in _ug_row_teams(r.get('payload')):
+                if k and k not in _edit_tid_row:
+                    _edit_tid_row[k] = r
+        conflicts = []
+        for k in dict.fromkeys(new_tids):
+            r = _edit_tid_row.get(k)
+            if r is not None and r['operator_id'] != username and not is_admin:
+                conflicts.append((k, r['operator_id']))
+        if conflicts:
+            _cerr, _cparams = _ug_team_conflict_msg(conflicts, _ug_team_names_map(app.config['DATA_FOLDER']))
+            return jsonify({'ok': False, 'error': _cerr, 'error_key': 'col_team_conflict',
+                            'error_params': _cparams}), 400
+        _ok, _err, _eparams, _sids, _tids = _ug_team_upsert(
+            app.config['DATA_FOLDER'], new_date, teams, username, is_admin,
+            exclude_sid=submission_id, patch_existing=True,
+            home_sid=(submission_id if home_tid is not None else None), home_tid=home_tid)
+        if not _ok:
+            return jsonify({'ok': False, 'error': _err, 'error_key': 'col_team_conflict',
+                            'error_params': _eparams}), 400
+        # 被移除班组的防御性清理（正常模型下其数据仅存于被编辑行，随 home 替换消失；
+        # 若同日同班组另有独立行且为本人/admin 所有则删除，他人所有不可触碰）。
+        # P39-R2 Major-2: 删行前逐行走版本归档/审计（对齐 collection_edit_row_archived），
+        # 且仅当行内班组 ⊆ removed 集合时才删——混合状态行（含 removed 之外班组）不连带删
+        from core.database import log_audit as _la_p39
+        _removed_set = set(orig_tids) - set(new_tids)
+        for k in sorted(_removed_set):
+            r = _edit_tid_row.get(k)
+            if r is None or not (r['operator_id'] == username or is_admin):
+                continue
+            _row_tids = {kk for kk, _t in _ug_row_teams(r.get('payload'))}
+            if not _row_tids or not _row_tids.issubset(_removed_set):
+                continue
+            try:
+                _la_p39(app.config['DATA_FOLDER'], 'collection_edit_row_archived', '',
+                        json.dumps({'archived_sid': r['id'], 'date': new_date,
+                                    'payload': r['payload'], 'reason': 'p39_removed_team_cleanup',
+                                    'row_tids': sorted(_row_tids), 'operator': r['operator_id']},
+                                   ensure_ascii=False), operator=username)
+            except Exception:
+                pass
+            delete_collection_submission(app.config['DATA_FOLDER'], r['id'])
+        if home_tid is None:
+            # 新班组与原行无交集 → 原编辑行删除（旧 payload 归档进 audit 可恢复）
+            try:
+                _la_p39(app.config['DATA_FOLDER'], 'collection_edit_row_archived', '',
+                        json.dumps({'archived_sid': submission_id, 'date': old_date, 'new_date': new_date,
+                                    'payload': sub['payload'], 'reason': 'p39_team_split_no_overlap'},
+                                   ensure_ascii=False), operator=username)
+            except Exception:
+                pass
+            delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
+        _invalidate_month_cache(old_date[:7])
+        _invalidate_month_cache(new_date[:7])
+        _invalidate_all_cache_base()
+        log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
+                  json.dumps({'submission_id': (_sids[0] if _sids else submission_id), 'form_type': form_type,
+                              'date': new_date, 'old_date': old_date, 'month': new_date[:7],
+                              'p39_split': {'home_tid': home_tid, 'sids': _sids, 'team_ids': _tids,
+                                            'removed_tids': sorted(set(orig_tids) - set(new_tids))}},
+                             ensure_ascii=False),
+                  operator=username)
+        return jsonify({'ok': True, 'submission_id': (_sids[0] if _sids else submission_id),
+                        'submission_ids': _sids, 'team_ids': _tids})
 
     # P21: NU（年假）由审批管理，编辑出勤收集不得覆盖——在任何 DB 修改之前拦截
     # C3: UG attendance 按 team 过滤 + B→P + drivers 校验
@@ -4016,18 +4351,25 @@ def collection_edit(submission_id):
             marks_ids_edit = {str(m.get('employee_id') or '') for m in (payload.get('marks') or [])}
             for d in drivers_edit:
                 if str(d) not in marks_ids_edit:
-                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中'}), 400
+                    return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中',
+                                    'error_key': 'col_driver_not_in_marks',
+                                    'error_params': {'driver': d}}), 400
         from core.database import get_attendance_status
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')
             st = m.get('status', '')
             if eid and get_attendance_status(app.config['DATA_FOLDER'], eid, new_date) == 'NU':
                 return jsonify({'ok': False,
-                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {new_date}）'}), 403
+                                'error': f'NU（年假）状态由审批管理，禁止覆盖（员工 {eid} · {new_date}）',
+                                'error_key': 'col_att_nu_locked',
+                                'error_params': {'employee': eid, 'date': new_date}}), 403
             if st == 'E':
-                return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除'}), 400
+                return jsonify({'ok': False, 'error': 'E（豁免）已从出勤采集摘除',
+                                'error_key': 'col_att_e_removed'}), 400
             if st == 'NU':
-                return jsonify({'ok': False, 'error': f'NU 禁止采集提交（员工 {eid}）'}), 403
+                return jsonify({'ok': False, 'error': f'NU 禁止采集提交（员工 {eid}）',
+                                'error_key': 'col_att_nu_locked',
+                                'error_params': {'employee': eid, 'date': new_date}}), 403
 
     # B1: 日期变更 → 若目标日期已有同 form_type 提交则覆盖合并（更新目标行、删除被编辑旧行），
     #     否则仅更新本行日期。同步更新 submission_date + month 列（payload 内 date 不再作为唯一来源）
@@ -4063,6 +4405,35 @@ def collection_edit(submission_id):
                            and (e.get('department') or '') == sub_dept), None)
         else:
             ex = next((e for e in existing if e['id'] != submission_id and e['submission_date'] == new_date), None)
+        # P39-R2 Major-1: 混合格式同日覆盖防护——旧格式行改日期到已有新格式（teams）行的日期时，
+        # legacy 整 payload 覆盖会连带毁掉班组行数据；反之新格式（P39 分支）改日到含旧格式行的日期
+        # 也会在同日形成混合格式记录（rebuild 合并时旧格式整条替换 teams 记录）——双向一律 400 拒绝
+        if form_type == 'underground':
+            _teams_row_exists = False
+            _legacy_row_exists = False
+            for e in existing:
+                if e['id'] == submission_id or e['submission_date'] != new_date:
+                    continue
+                try:
+                    _epl = json.loads(e.get('payload') or '{}')
+                except (TypeError, ValueError):
+                    _epl = {}
+                if 'teams' in _epl:
+                    _teams_row_exists = True
+                elif 'day' in _epl or 'night' in _epl:
+                    _legacy_row_exists = True
+            try:
+                _is_legacy_edit = 'teams' not in json.loads(sub.get('payload') or '{}')
+            except (TypeError, ValueError):
+                _is_legacy_edit = True
+            if _is_legacy_edit and _teams_row_exists:
+                return jsonify({'ok': False,
+                                'error': '目标日期已存在新版班组数据，不支持旧格式覆盖',
+                                'error_key': 'col_legacy_overwrite_blocked'}), 400
+            if not _is_legacy_edit and _legacy_row_exists:
+                return jsonify({'ok': False,
+                                'error': '目标日期已存在旧版白夜班数据，不支持新版班组覆盖',
+                                'error_key': 'col_legacy_overwrite_blocked'}), 400
         # 落库动作延后：marks 处理（余额预检/直写/routing）全部通过后才更新提交行，
         # 避免 T 预检失败 return 400 时 payload 已被改写
         _merge_target_id = ex['id'] if ex else None
@@ -4101,7 +4472,9 @@ def collection_edit(submission_id):
             if status in _OA_MAP_EDIT:
                 continue  # L/SK 走 routing，由下方写循环处理
             if status not in ('P', 'A', 'T'):
-                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持',
+                                'error_key': 'col_att_direct_only',
+                                'error_params': {'status': status}}), 400
             if status == 'T':
                 # 净额语义：日期不变且旧 payload 同员工是 T 时，删旧阶段会先 restore 1，
                 # 写循环 deduct 需求净 0（used_effective = used-1）
@@ -4117,7 +4490,9 @@ def collection_edit(submission_id):
                 _used_eff = max((_bal_pre.get('comp_used', 0) or 0) - (1 if _was_t else 0), 0)
                 if (_bal_pre.get('comp_entitled', 0) or 0) - _used_eff < 1:
                     _nm_pre = _emp_name(app.config['DATA_FOLDER'], str(eid)) or str(eid)
-                    return jsonify({'ok': False, 'error': f'{_nm_pre} 本月调休已满 4 天（余额用完），该出勤不能提交调休，请改选其他出勤状态（编辑未保存）'}), 400
+                    return jsonify({'ok': False, 'error': f'{_nm_pre} 本月调休已满 4 天（余额用完），该出勤不能提交调休，请改选其他出勤状态（编辑未保存）',
+                                    'error_key': 'col_t_balance_person',
+                                    'error_params': {'name': _nm_pre}}), 400
         # 出勤收集编辑: 先删旧 marks 覆盖再写新(避免残留),与 submit 语义一致
         # B1: 日期变更时旧日期的 marks 也要清理，新 marks 落到新日期
         # P21: 删除时跳过 NU 天（年假由审批管理，不随采集编辑被清掉）
@@ -4210,7 +4585,9 @@ def collection_edit(submission_id):
                     return jsonify({'ok': False, 'error': f'创建OA事件失败({eid}/{status}): {e}'}), 500
                 continue
             if status not in ('P', 'A', 'T'):
-                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持'}), 400
+                return jsonify({'ok': False, 'error': f'采集仅支持 P/A/T 直写，{status} 已转OA或不支持',
+                                'error_key': 'col_att_direct_only',
+                                'error_params': {'status': status}}), 400
             # 外部 T 保护：预检/删旧已判定保留的员工一律跳过（无论新 marks 标 T 还是 P）
             if str(eid) in t_skip_ids:
                 continue
