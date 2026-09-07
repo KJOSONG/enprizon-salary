@@ -2066,8 +2066,10 @@ def api_employees():
         emp['penalty'] = bp.get('penalty', 0)
     # P40-d: 可选 ?as_of=YYYY-MM-DD——按日归属覆盖 department/team_id（调岗生效日
     # 未到仍按旧部门展示，桌面采集表单池 getEmpPool(date) 用）；不传行为完全不变
+    # P40-f: as_of 传入时先排除 hire_date > as_of 的未来入职者（入职生效日前不在名单）
     as_of = (request.args.get('as_of') or '').strip()
     if as_of:
+        employees = _filter_not_yet_hired(app.config['DATA_FOLDER'], employees, as_of)
         employees = _apply_transfer_day_view(app.config['DATA_FOLDER'], employees, as_of)
     return jsonify({'employees': employees})
 
@@ -3969,6 +3971,112 @@ def _dismissed_submission_error(payload, form_type, date, data_folder, extra_eid
     return None
 
 
+def _hire_date_map(data_folder, eids=None):
+    """P40-f: {employee_id: hire_date(YYYY-MM-DD 前10位)}（仅 hire_date 非空且格式合法者）。
+    eids 传 None 查全表（花名册过滤用），传列表按 id 批量查（提交校验用）。
+    异常/字段缺失 fail-open 返回空 map（不过滤）。"""
+    try:
+        from core.database import get_conn
+        from datetime import datetime as _dt_hd
+        conn = get_conn(data_folder)
+        if eids:
+            _eids = [str(e) for e in eids if e]
+            if not _eids:
+                conn.close()
+                return {}
+            qmarks = ','.join('?' * len(_eids))
+            rows = conn.execute(
+                "SELECT id, hire_date FROM employees WHERE id IN (%s)" % qmarks, _eids).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, hire_date FROM employees"
+                " WHERE hire_date IS NOT NULL AND hire_date != ''").fetchall()
+        conn.close()
+        out = {}
+        for r in rows:
+            hd = (r['hire_date'] or '')[:10]
+            if not hd:
+                continue
+            try:
+                _dt_hd.strptime(hd, '%Y-%m-%d')
+            except ValueError:
+                continue
+            out[str(r['id'])] = hd
+        return out
+    except Exception:
+        return {}
+
+
+def _filter_not_yet_hired(data_folder, employees, date):
+    """P40-f: 花名册按日排除未来入职者——hire_date > date 的员工不返回（入职生效日
+    之前不出现在采集/员工名单）。date 为空/无效、hire_date 缺失/异常 → 不过滤（fail-open）。
+    供 /api/collection/roster?date= 与 /api/employees?as_of= 共用；叠加顺序：
+    离职过滤（list_employees_extended SQL 层）→ 本过滤 → 调岗按日视图（_apply_transfer_day_view）。
+    "hire 9/8 + transfer 9/8 同日"组合：9/8 起通过本过滤并按调岗视图新部门展示。"""
+    if not date:
+        return employees
+    try:
+        from datetime import datetime as _dt_fh
+        ds = _dt_fh.strptime(str(date), '%Y-%m-%d').date().isoformat()
+    except (TypeError, ValueError):
+        return employees
+    try:
+        hd_map = _hire_date_map(data_folder, eids=[str(e.get('id') or '') for e in employees if e.get('id')])
+    except Exception:
+        return employees
+    if not hd_map:
+        return employees
+    out = []
+    for e in employees:
+        hd = hd_map.get(str(e.get('id') or ''))
+        if hd and hd > ds:
+            continue
+        out.append(e)
+    return out
+
+
+def _not_hired_yet_error(payload, form_type, date, data_folder, extra_eids=None):
+    """P40-f: 采集提交硬校验（与 C2 col_dismissed_employee 同模式）——payload 引用的员工
+    hire_date > 标记日期（入职生效日未到）→ (error文案, error_params{names})。
+    标记日期 >= hire_date 放行；date 为空/无效、hire_date 空/异常 fail-open 放行。
+    UG 新格式 teams（班组产量制）不含员工引用 → 自然放行（同 C2 口径）。"""
+    try:
+        if not date:
+            return None
+        try:
+            from datetime import datetime as _dt_nh
+            _dt_nh.strptime(str(date), '%Y-%m-%d')
+        except (TypeError, ValueError):
+            return None
+        eids = [str(e) for e in (extra_eids or []) if e] + _payload_employee_ids(payload, form_type)
+        eids = [e for e in dict.fromkeys(eids) if e]
+        if not eids:
+            return None
+        hd_map = _hire_date_map(data_folder, eids=eids)
+        if not hd_map:
+            return None
+        hit = [eid for eid in eids if (hd_map.get(eid) or '') and hd_map[eid] > date]
+        if not hit:
+            return None
+        name_map = {}
+        try:
+            from core.database import get_conn as _gc3
+            _c3 = _gc3(data_folder)
+            _qs = ','.join('?' * len(hit))
+            name_map = {str(r['id']): r['name'] for r in _c3.execute(
+                "SELECT id, name FROM employees WHERE id IN (%s)" % _qs, hit).fetchall()}
+            _c3.close()
+        except Exception:
+            pass
+        names = [name_map.get(eid) or eid for eid in hit]
+        _joined = '、'.join(names)
+        return ('以下员工尚未入职（入职生效日未到），不能提交其出勤/产量数据：%s' % _joined,
+                {'names': _joined})
+    except Exception:
+        return None
+    return None
+
+
 def _roster_stale_error(marks, dept, team_id, data_folder, date=None):
     """P40-c C3: 提交时效校验——出勤采集逐 marks 校验员工当前部门/班组（DB 实时为权威）
     与提交 payload 的 department/team_id 一致；不一致返回 (error文案, error_params{name,current})，
@@ -4293,6 +4401,12 @@ def collection_submit():
     if _dis_err:
         return jsonify({'ok': False, 'error': _dis_err[0], 'error_key': 'col_dismissed_employee',
                         'error_params': _dis_err[1]}), 400
+    # P40-f: 入职生效日硬校验——hire_date > 标记日期 → 拒绝（入职当天及以后放行）
+    _hire_err = _not_hired_yet_error(payload, form_type, date, app.config['DATA_FOLDER'],
+                                     extra_eids=_att_mark_eids)
+    if _hire_err:
+        return jsonify({'ok': False, 'error': _hire_err[0], 'error_key': 'col_not_hired_yet',
+                        'error_params': _hire_err[1]}), 400
     username = session.get('username', 'unknown')
     dept = (payload.get('department') or '').strip()
 
@@ -4732,6 +4846,12 @@ def collection_edit(submission_id):
     if _dis_err:
         return jsonify({'ok': False, 'error': _dis_err[0], 'error_key': 'col_dismissed_employee',
                         'error_params': _dis_err[1]}), 400
+    # P40-f: 入职生效日硬校验（编辑同 submit；new_date 为标记日期，入职当天及以后放行）
+    _hire_err = _not_hired_yet_error(payload, form_type, new_date, app.config['DATA_FOLDER'],
+                                     extra_eids=_att_mark_eids)
+    if _hire_err:
+        return jsonify({'ok': False, 'error': _hire_err[0], 'error_key': 'col_not_hired_yet',
+                        'error_params': _hire_err[1]}), 400
 
     # P39: 新格式 UG（payload 含 teams）编辑 —— 按班组逐行拆分 upsert：
     # home 班组（新班组清单中第一个存在于原行者）整行替换进本行（update 自动版本归档，
@@ -5211,7 +5331,9 @@ def api_collection_roster():
     date = (request.args.get('date') or '').strip()
     # P40-d: 传 date 时按日归属返回 department/team_id（调岗生效日未到仍按旧部门展示，
     # 允许补提生效日前数据）；不传 date 行为完全不变（employees 表值）
+    # P40-f: 传 date 时先排除 hire_date > date 的未来入职者（入职生效日前不可采集其出勤）
     if date:
+        slim = _filter_not_yet_hired(app.config['DATA_FOLDER'], slim, date)
         slim = _apply_transfer_day_view(app.config['DATA_FOLDER'], slim, date)
     if date:
         from core.database import get_approved_leave_statuses, get_oa_comp_leave_dates

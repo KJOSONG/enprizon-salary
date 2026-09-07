@@ -1278,6 +1278,7 @@ const I18N_DICT = {
     leave_date_overlap: '请假日期与已有申请重叠：{type}（{start} ~ {end}，提交人 {operator}），请勿重复申请',
     /* P40-c: 采集离职校验/提交时效校验 error_key */
     col_dismissed_employee: '以下员工已离职，不能再提交其出勤/产量数据：{names}',
+    col_not_hired_yet: '以下员工尚未入职（入职生效日未到），不能提交其出勤/产量数据：{names}',
     col_roster_stale: '{name} 的最新归属为 {current}，请刷新页面后按最新名单提交',
     col_ug_team_not_found: '班组不存在或已被删除（{teams}），请刷新页面后重新选择班组',
     /* V2: 配置页 */
@@ -2573,6 +2574,7 @@ const I18N_DICT = {
     leave_date_overlap: 'Leave dates overlap an existing request: {type} ({start} ~ {end}, submitted by {operator}). Do not submit again',
     /* P40-c: collection dismissed guard / roster-stale guard error keys */
     col_dismissed_employee: 'The following employees have already been dismissed; new attendance/production data cannot be submitted for them: {names}',
+    col_not_hired_yet: 'The following employees have not been hired yet (hire effective date not reached); attendance/production data cannot be submitted for them: {names}',
     col_roster_stale: '{name} now belongs to {current}. Please refresh the page and submit against the latest roster',
     col_ug_team_not_found: 'Team not found or deleted ({teams}). Please refresh the page and reselect the team',
     /* V2: Config page */
