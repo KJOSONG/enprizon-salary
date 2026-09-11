@@ -1690,6 +1690,18 @@ function _startVersionWatch() {
   _checkAppVersion(false);
 }
 
+/* P45: OA 通知/待审角标轮询——可见/恢复事件驱动为主，60s 兜底（与版本检查同模式）。
+   新审批进入时铃铛摇动 + toast 提醒（仅轮询驱动路径带 notify 标记，自有操作不弹） */
+let _notifTimer = null;
+function _startNotifWatch() {
+  if (_notifTimer) return;
+  _notifTimer = setInterval(() => loadNotifCount(true), 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'hidden') loadNotifCount(true);
+  });
+  window.addEventListener('pageshow', () => loadNotifCount(true));
+}
+
 // ════════════════════════════════════════════════
 //  全局状态
 // ════════════════════════════════════════════════
@@ -2746,6 +2758,8 @@ async function loadDashboard() {
   await checkAuth();
   // P33: 启动版本心跳（轮询+回前台检测部署更新）
   _startVersionWatch();
+  // P45: 启动 OA 通知/待审角标轮询（可见/恢复 + 60s 兜底）
+  _startNotifWatch();
   // P27 预取可用月份边界（周期栏钳制用）
   refreshAvailableMonthsCache();
   // P14.1: 未登录直接弹出登录框，不再空白加载
@@ -7501,7 +7515,7 @@ async function _oaHistDetailHtml(ev) {
 /* ── P13: 通知铃铛 / 红点 / 待审批面板（OA 重设计 R2: 增审批结果通知段） ── */
 let _notifEvents = [];
 let _notifUnread = 0;
-async function loadNotifCount() {
+async function loadNotifCount(notify) {
   const bell = document.getElementById('notifBell');
   const badge = document.getElementById('notifBadge');
   if (!bell || !badge) return;
@@ -7542,6 +7556,8 @@ async function loadNotifCount() {
       if (newCount > prevCount) {
         bell.classList.add('has-notif');
         setTimeout(() => bell.classList.remove('has-notif'), 600);
+        // P45: 轮询驱动路径（非自有操作）时弹 toast 提醒
+        if (notify) showToast(t('notif_new_pending'));
       }
     } else {
       badge.style.display = 'none';

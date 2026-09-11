@@ -382,6 +382,15 @@
     document.addEventListener('resume', ()=>_checkAppVersion(Date.now() - _hiddenAt > 60000));
     _checkAppVersion(false);
   }
+  // P45: OA 通知/待审角标轮询——可见/恢复事件驱动为主，60s 兜底（与版本检查同模式）
+  let _notifTimerM = null;
+  function _startNotifWatchM(){
+    if(_notifTimerM) return;
+    _notifTimerM = setInterval(()=>{ if(STATE.auth && STATE.auth.logged_in) loadOAPendingCount(); }, 60000);
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState!=='hidden' && STATE.auth && STATE.auth.logged_in) loadOAPendingCount();
+    });
+  }
 
   // ── 主题/语言 ──
   function applyTheme(){
@@ -531,6 +540,8 @@
     applyTheme(); applyLang();
     // P33: 登录后启动版本心跳（轮询+回前台检测部署更新）
     _startVersionWatch();
+    // P45: 登录后启动 OA 通知/待审角标轮询
+    _startNotifWatchM();
     // P18F: 登录后重置到默认数据台 tab(内部会设 activeTab/清 _pageStack/切高亮/懒加载 dashboard)
     switchTab('dashboard');
     loadOAPendingCount();

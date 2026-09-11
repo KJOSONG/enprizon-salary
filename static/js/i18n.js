@@ -840,6 +840,7 @@ const I18N_DICT = {
     notif_approved: '已通过',
     notif_rejected: '已驳回',
     notif_mark_all_read: '全部已读',
+    notif_new_pending: '有新的审批待处理',
     /* P1 事件类型 */
     event_hire: '入职',
     /* P40-b 时间线状态徽标与补充请假类型 */
@@ -2142,6 +2143,7 @@ const I18N_DICT = {
     notif_approved: 'Approved',
     notif_rejected: 'Rejected',
     notif_mark_all_read: 'Mark all read',
+    notif_new_pending: 'New approval pending',
     /* P1 Event Types */
     event_hire: 'Hired',
     /* P40-b Timeline status badges & extra leave types */
