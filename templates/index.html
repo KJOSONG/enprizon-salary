@@ -8988,7 +8988,7 @@ async function ensureDrTeamMap() {
 function renderDrCollectionForm(payload) {
   payload = payload || {};
   const date = payload.submission_date || '';
-  let teams = payload.teams && payload.teams.length ? payload.teams : [{}, {}, {}];
+  let teams = payload.teams && payload.teams.length ? payload.teams : [{}];
   _drSlots = teams.map(t => ({
     captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [],
   }));

@@ -4415,6 +4415,144 @@ def _ug_team_upsert(data_folder, date, teams, username, is_admin,
     return True, '', {}, sids, written_tids
 
 
+# ── P46: 钻工采集按队长的分行提交（队级归属保护 + 按队长一行 upsert，镜像 P39 UG 班组制）──
+
+def _dr_team_captain(team_item):
+    """P46: 钻工条目队长 employee_id（字符串；脏数据兜底返回 ''，空队长条目在归一化时剔除）"""
+    try:
+        return str((team_item or {}).get('captain', '') or '').strip()
+    except Exception:
+        return ''
+
+
+def _dr_row_teams(row_payload):
+    """P46: 解析一条 driller submission payload 的 teams → [(captain_id, team_dict)]（历史合并行含多队）"""
+    try:
+        pl = json.loads(row_payload or '{}')
+    except (TypeError, ValueError):
+        return []
+    out = []
+    for t in (pl.get('teams') or []):
+        if isinstance(t, dict) and _dr_team_captain(t):
+            out.append((_dr_team_captain(t), t))
+    return out
+
+
+def _dr_captains_names_map(data_folder):
+    """P46: 队长 employee_id→姓名映射（冲突文案用，取不到时回退 #id）"""
+    try:
+        from core.database import get_driller_captains
+        return {str(c.get('employee_id')): c.get('name') or ('#' + str(c.get('employee_id')))
+                for c in get_driller_captains(data_folder)}
+    except Exception:
+        return {}
+
+
+def _dr_team_conflict_msg(conflicts, names_map):
+    """P46: 队级归属冲突文案+参数（镜像 _ug_team_conflict_msg，error_params 供 i18n 插值）"""
+    parts, teams, owners = [], [], []
+    for cid, owner in conflicts:
+        nm = names_map.get(cid) or ('#' + str(cid))
+        parts.append('「%s」队（已由 %s 提交）' % (nm, owner))
+        teams.append(nm)
+        if owner not in owners:
+            owners.append(owner)
+    msg = '该日期 %s 的钻工采集数据已由其他用户提交，如需修改请联系管理员' % '、'.join(parts)
+    return msg, {'team': '、'.join(teams), 'operator': '、'.join(owners)}
+
+
+def _dr_insert_team_row(data_folder, date, team_item, username, dept=''):
+    """P46: 新建单队行（直接 SQL 写 team_id 列=队长 employee_id；旧 DB 无列/非数字队id时回退 insert）"""
+    from core.database import get_conn, insert_collection_submission
+    payload = {'teams': [team_item]}
+    try:
+        cap_tid = int(_dr_team_captain(team_item))
+    except Exception:
+        cap_tid = 0
+    try:
+        conn = get_conn(data_folder)
+        try:
+            cur = conn.execute(
+                "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, created_by, month, department, team_id, version) VALUES (?,?,?,?,?,?,?,?,1)",
+                ('driller', date, json.dumps(payload, ensure_ascii=False), username, username,
+                 date[:7], dept or '', cap_tid))
+            conn.commit()
+            sid = cur.lastrowid
+        except Exception:
+            sid = insert_collection_submission(data_folder, 'driller', date, payload, username,
+                                               department=dept or '')
+        finally:
+            conn.close()
+    except Exception:
+        sid = insert_collection_submission(data_folder, 'driller', date, payload, username,
+                                           department=dept or '')
+    return sid
+
+
+def _dr_team_upsert(data_folder, date, teams, username, is_admin, dept='',
+                    exclude_sid=None, home_sid=None, home_captain=None):
+    """P46: 钻工 teams 按 (date, captain) 逐队 upsert（submit/edit 共用核心，镜像 _ug_team_upsert）。
+
+    - 目标 (date, captain) 无行（或仅被 exclude_sid 命中）→ 新建单队行，operator=提交人
+    - 有行且 operator=本人或 admin → 行内 patch 该队条目（历史合并行其他队伍零丢失）
+    - 有行且 operator 他人 → 冲突（列出队长名+提交人）
+    - home_sid+home_captain：编辑时把 home 队整行替换进原编辑行（保留版本归档链，日期随 date 同步）
+    全程先冲突预检后写入，无部分写入。返回 (ok, err_msg, err_params, sids, written_captains)
+    """
+    from core.database import get_collection_submissions, update_collection_submission
+    _dedup = {}
+    for t in teams:
+        _dedup[_dr_team_captain(t)] = t
+    teams = list(_dedup.values())
+    rows = [r for r in get_collection_submissions(data_folder, form_type='driller')
+            if r.get('submission_date') == date and (exclude_sid is None or r['id'] != exclude_sid)]
+    cap_row = {}  # captain_id → 归属行（历史合并行多队逐个登记）
+    for r in rows:
+        for k, _t in _dr_row_teams(r.get('payload')):
+            if k and k not in cap_row:
+                cap_row[k] = r
+    conflicts = []
+    for t in teams:
+        k = _dr_team_captain(t)
+        r = cap_row.get(k)
+        if r is not None and r['operator_id'] != username and not is_admin:
+            conflicts.append((k, r['operator_id']))
+    if conflicts:
+        _cerr, _cparams = _dr_team_conflict_msg(conflicts, _dr_captains_names_map(data_folder))
+        return False, _cerr, _cparams, [], []
+    sids, written_caps = [], []
+    for t in teams:
+        k = _dr_team_captain(t)
+        if home_sid is not None and k == home_captain:
+            update_collection_submission(data_folder, home_sid, {'teams': [t]}, username, date=date)
+            sids.append(home_sid)
+            written_caps.append(k)
+            continue
+        r = cap_row.get(k)
+        if r is not None:
+            try:
+                orig_list = [x for x in (json.loads(r['payload'] or '{}').get('teams') or [])
+                             if isinstance(x, dict)]
+            except Exception:
+                orig_list = []
+            new_list, replaced = [], False
+            for x in orig_list:
+                if _dr_team_captain(x) == k:
+                    new_list.append(t)
+                    replaced = True
+                else:
+                    new_list.append(x)
+            if not replaced:
+                new_list.append(t)
+            update_collection_submission(data_folder, r['id'], {'teams': new_list}, username)
+            sids.append(r['id'])
+        else:
+            sids.append(_dr_insert_team_row(data_folder, date, t, username, dept))
+        written_caps.append(k)
+    return True, '', {}, sids, written_caps
+
+
+
 @app.route('/api/collection/submit', methods=['POST'])
 @login_required
 def collection_submit():
@@ -4715,6 +4853,33 @@ def collection_submit():
                   operator=username)
         return jsonify({'ok': True, 'submission_id': _sids[-1] if _sids else None,
                         'submission_ids': _sids, 'team_ids': _tids})
+
+    # P46: 钻工采集按队长逐行 upsert —— 队级归属保护：同日不同队长可由不同用户分别提交；
+    # 同队长冲突时 400 列出队长名+提交人（镜像 P39 井下班组制）；历史合并行其他队伍 patch 零丢失
+    if form_type == 'driller' and isinstance(payload, dict) and 'teams' in payload:
+        _dteams = [t for t in (payload.get('teams') or [])
+                   if isinstance(t, dict) and _dr_team_captain(t)]
+        if not _dteams:
+            return jsonify({'ok': False, 'error': '钻工队伍数据为空，请选择队长后提交',
+                            'error_key': 'pick_captain'}), 400
+        _dr_ok, _derr, _dparams, _dsids, _dcaps = _dr_team_upsert(
+            app.config['DATA_FOLDER'], date, _dteams, username,
+            session.get('role') in ('admin', 'super_admin'), dept=dept)
+        if not _dr_ok:
+            _audit('perm_denied', '', json.dumps({'user': username, 'module': 'collection',
+                                                  'action': 'submit_override', 'date': date,
+                                                  'conflict': _derr}))
+            return jsonify({'ok': False, 'error': _derr, 'error_key': 'col_team_conflict',
+                            'error_params': _dparams}), 400
+        _invalidate_month_cache(date[:7])
+        _invalidate_all_cache_base()
+        log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
+                  json.dumps({'form_type': form_type, 'date': date, 'sids': _dsids,
+                              'captains': _dcaps, 'department': dept, 'month': date[:7],
+                              'split_rows': len(_dsids)}, ensure_ascii=False),
+                  operator=username)
+        return jsonify({'ok': True, 'submission_id': _dsids[-1] if _dsids else None,
+                        'submission_ids': _dsids, 'team_ids': []})
 
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
     if form_type == 'attendance' and dept:
@@ -5030,6 +5195,87 @@ def collection_edit(submission_id):
                   operator=username)
         return jsonify({'ok': True, 'submission_id': (_sids[0] if _sids else submission_id),
                         'submission_ids': _sids, 'team_ids': _tids})
+
+    # P46: 新格式钻工（payload 含 teams）编辑 —— 按队长逐行拆分 upsert（镜像 P39 UG 编辑语义）：
+    # home 队（新队长清单中第一个存在于原行者）整行替换进本行；其余队伍逐行 upsert；
+    # 冲突只针对非本行的 (date,captain)；被移除队伍随 home 替换消失（防御性清理见下）
+    if form_type == 'driller' and isinstance(payload, dict) and 'teams' in payload:
+        _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
+        _dteams = [t for t in (payload.get('teams') or [])
+                   if isinstance(t, dict) and _dr_team_captain(t)]
+        if not _dteams:
+            return jsonify({'ok': False, 'error': '钻工队伍数据为空，请至少保留一个队伍',
+                            'error_key': 'pick_captain'}), 400
+        orig_caps = [k for k, _t in _dr_row_teams(sub['payload'])]
+        new_caps = [_dr_team_captain(t) for t in _dteams]
+        home_cap = next((k for k in new_caps if k in orig_caps), None)
+        # 冲突预检：非本行的 (new_date, captain) 归属他人 → 400（本行归属已过 owner-or-admin 校验）
+        _d_others = [r for r in get_collection_submissions(app.config['DATA_FOLDER'], form_type='driller')
+                     if r.get('submission_date') == new_date and r['id'] != submission_id]
+        _edit_cap_row = {}
+        for r in _d_others:
+            for k, _t in _dr_row_teams(r.get('payload')):
+                if k and k not in _edit_cap_row:
+                    _edit_cap_row[k] = r
+        _d_conflicts = []
+        for k in dict.fromkeys(new_caps):
+            r = _edit_cap_row.get(k)
+            if r is not None and r['operator_id'] != username and not is_admin:
+                _d_conflicts.append((k, r['operator_id']))
+        if _d_conflicts:
+            _cerr, _cparams = _dr_team_conflict_msg(_d_conflicts, _dr_captains_names_map(app.config['DATA_FOLDER']))
+            return jsonify({'ok': False, 'error': _cerr, 'error_key': 'col_team_conflict',
+                            'error_params': _cparams}), 400
+        _ok, _err, _eparams, _dsids, _dcaps = _dr_team_upsert(
+            app.config['DATA_FOLDER'], new_date, _dteams, username, is_admin,
+            dept=(payload.get('department') or '').strip(),
+            exclude_sid=submission_id, home_sid=(submission_id if home_cap is not None else None),
+            home_captain=home_cap)
+        if not _ok:
+            return jsonify({'ok': False, 'error': _err, 'error_key': 'col_team_conflict',
+                            'error_params': _eparams}), 400
+        # 被移除队伍的防御性清理（数据仅存于被编辑行时随 home 替换消失；
+        # 同日同队长另有独立行且为本人/admin 所有则删除，他人所有不可触碰；行内含 removed 之外队伍的不连带删）
+        from core.database import log_audit as _la_p46
+        _removed_set = set(orig_caps) - set(new_caps)
+        for k in sorted(_removed_set):
+            r = _edit_cap_row.get(k)
+            if r is None or not (r['operator_id'] == username or is_admin):
+                continue
+            _row_caps = {kk for kk, _t in _dr_row_teams(r.get('payload'))}
+            if not _row_caps or not _row_caps.issubset(_removed_set):
+                continue
+            try:
+                _la_p46(app.config['DATA_FOLDER'], 'collection_edit_row_archived', '',
+                        json.dumps({'archived_sid': r['id'], 'date': new_date,
+                                    'payload': r['payload'], 'reason': 'p46_removed_captain_cleanup',
+                                    'row_captains': sorted(_row_caps), 'operator': r['operator_id']},
+                                   ensure_ascii=False), operator=username)
+            except Exception:
+                pass
+            delete_collection_submission(app.config['DATA_FOLDER'], r['id'])
+        if home_cap is None:
+            # 新队伍与原行无交集 → 原编辑行删除（旧 payload 归档进 audit 可恢复）
+            try:
+                _la_p46(app.config['DATA_FOLDER'], 'collection_edit_row_archived', '',
+                        json.dumps({'archived_sid': submission_id, 'date': old_date, 'new_date': new_date,
+                                    'payload': sub['payload'], 'reason': 'p46_captain_split_no_overlap'},
+                                   ensure_ascii=False), operator=username)
+            except Exception:
+                pass
+            delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
+        _invalidate_month_cache(old_date[:7])
+        _invalidate_month_cache(new_date[:7])
+        _invalidate_all_cache_base()
+        log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
+                  json.dumps({'submission_id': (_dsids[0] if _dsids else submission_id), 'form_type': form_type,
+                              'date': new_date, 'old_date': old_date, 'month': new_date[:7],
+                              'p46_split': {'home_captain': home_cap, 'sids': _dsids, 'captains': _dcaps,
+                                            'removed_captains': sorted(set(orig_caps) - set(new_caps))}},
+                             ensure_ascii=False),
+                  operator=username)
+        return jsonify({'ok': True, 'submission_id': (_dsids[0] if _dsids else submission_id),
+                        'submission_ids': _dsids, 'team_ids': []})
 
     # P21: NU（年假）由审批管理，编辑出勤收集不得覆盖——在任何 DB 修改之前拦截
     # C3: UG attendance 按 team 过滤 + B→P + drivers 校验
