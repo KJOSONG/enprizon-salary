@@ -1838,7 +1838,7 @@
           } else if(s.form_type==='underground' && Array.isArray(p.teams) && p.teams.length){
             placeHTML=p.teams.filter(tm=>tm).slice(0,3).map(tm=>{
               const nm=_mobUgTeamName(tm.team_id)||('T'+tm.team_id);
-              const btn=isSuperAdmin()?'<button class="hist-swap'+(tm.exempt?' on':'')+'" onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(tm.exempt?'true':'false')+')" title="'+esc(nm)+'">⇄</button>':'';
+              const btn=isAdminLevel()?'<button class="hist-swap'+(tm.exempt?' on':'')+'" onclick="event.stopPropagation();toggleColExempt(\''+s.id+'\','+tm.team_id+',false,'+(tm.exempt?'true':'false')+')" title="'+esc(nm)+'">⇄</button>':'';
               return '<span class="hist-team'+(tm.exempt?' on':'')+'">'+esc(nm)+'</span>'+btn;
             }).join('<span class="hist-sep">·</span>') + (p.teams.length>3?'…':'');
           } else {
@@ -1875,7 +1875,7 @@
     const ST={D:t('st_d'),N:t('st_n'),P:t('st_p'),A:t('st_a'),L:t('st_l'),C:t('st_c'),R:t('st_r'),B:t('st_b')};
     const _badgeOn='<span style="display:inline-block;font-size:10px;padding:2px 6px;background:var(--warning);color:#fff;border-radius:999px;margin-left:6px;">'+t('col_ug_exempt_badge_on')+'</span>';
     const _badgeOff='<span style="display:inline-block;font-size:10px;padding:2px 6px;background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);border-radius:999px;margin-left:6px;">'+t('col_ug_exempt_badge_off')+'</span>';
-    const _btn=(tid,isOld,cur)=> isSuperAdmin() && sid ? '<button onclick="toggleColExempt(\''+sid+'\','+(isOld?'\''+tid+'\'':tid)+','+(isOld?'true':'false')+','+(cur?'true':'false')+')" style="font-size:11px;padding:4px 10px;margin-left:6px;border:1px solid '+(cur?'var(--border)':'var(--warning)')+';border-radius:var(--radius-sm);background:'+(cur?'var(--card)':'var(--warning)')+';color:'+(cur?'var(--foreground)':'#fff')+';cursor:pointer;font-weight:600;">'+(cur?t('col_ug_exempt_unset'):t('col_ug_exempt_set'))+'</button>' : '';
+    const _btn=(tid,isOld,cur)=> isAdminLevel() && sid ?'<button onclick="toggleColExempt(\''+sid+'\','+(isOld?'\''+tid+'\'':tid)+','+(isOld?'true':'false')+','+(cur?'true':'false')+')" style="font-size:11px;padding:4px 10px;margin-left:6px;border:1px solid '+(cur?'var(--border)':'var(--warning)')+';border-radius:var(--radius-sm);background:'+(cur?'var(--card)':'var(--warning)')+';color:'+(cur?'var(--foreground)':'#fff')+';cursor:pointer;font-weight:600;">'+(cur?t('col_ug_exempt_unset'):t('col_ug_exempt_set'))+'</button>' : '';
     if(ty==='underground'){
       if(Array.isArray(p.teams)){
         if(!p.teams.length) return '<div class="detail-line">'+t('no_history')+'</div>';
@@ -1944,7 +1944,7 @@
     openSheet(typeLabel[s.form_type]||'', body);
   }
   async function toggleColExempt(submissionId, teamOrShift, isOldFormat, currentExempt){
-    if(!isSuperAdmin()){ toast(t('need_super_admin')||'need super admin','error'); return; }
+    if(!isAdminLevel()){ toast(t('col_ug_exempt_admin_only'),'error'); return; }
     const newVal=!currentExempt;
     // P38: 开启豁免改为 prompt 强制填写豁免原因；关闭豁免保持 confirm 不需要备注
     let remark='';
@@ -2044,6 +2044,8 @@
       window.onUgOldExemptToggle = window.onUgOldExemptToggle || function(prefix){
         const cb=document.getElementById(prefix+'Exempt'); if(!cb) return;
         const on=!!cb.checked;
+        // P41: 设备故障豁免仅管理员可设——非管理员点击立即回弹+提示
+        if(!isAdminLevel()){ cb.checked=!on; toast(t('col_ug_exempt_admin_only'),'error'); return; }
         const card=document.getElementById(prefix+'Card'); if(card){ card.style.borderColor=on?'var(--warning)':''; card.style.background=on?'var(--warning-bg)':''; }
         const box=document.getElementById(prefix+'ExemptBox'); if(box){ box.style.borderColor=on?'var(--warning)':'var(--border)'; box.style.background=on?'var(--warning-bg)':'var(--card)'; }
         const chip=document.getElementById(prefix+'Chip'); if(chip){ const lab=on?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off'); chip.textContent=lab; chip.style.background=on?'var(--warning)':'var(--muted)'; chip.style.color=on?'#fff':'var(--muted-foreground)'; chip.style.border=on?'none':'1px solid var(--border)'; }
@@ -2052,6 +2054,7 @@
       };
       const seg=(p, title, dotClass, s)=>{
         const isEx=!!(s&&s.exempt);
+        const _canEx=isAdminLevel();
         return '<div class="seg-card" id="'+p+'Card" style="'+(isEx?'border-color:var(--warning);background:var(--warning-bg);':'')+'"><div class="seg-card__title"><span class="dot '+dotClass+'"></span>'+title+'</div>'
         + '<div style="display:flex;gap:6px;">'
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="'+p+'Nh" value="'+((s&&s.nh)||0)+'" min="0" step="0.1" inputmode="decimal"></div>'
@@ -2060,17 +2063,17 @@
         + '</div>'
         + '<div class="field" style="margin:4px 0 0;"><label class="field__label">'+t('col_ug_team')+'</label><select id="'+p+'Team" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts((s&&s.team_id)||'')+'</select></div>'
         + '<div id="'+p+'ExemptBox" style="display:flex;flex-direction:column;gap:4px;margin:6px 0 8px;padding:8px 10px;border:1px solid '+(isEx?'var(--warning)':'var(--border)')+';border-radius:var(--radius-sm);background:'+(isEx?'var(--warning-bg)':'var(--card)')+';">'
-        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0;">'
+        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:'+(_canEx?'pointer':'not-allowed')+';margin:0;">'
         + '<span style="font-size:12px;font-weight:600;">'+t('col_ug_exempt')+'</span>'
         + '<span style="display:inline-flex;align-items:center;gap:8px;">'
         + '<span id="'+p+'Chip" style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;'+(isEx?'background:var(--warning);color:#fff;':'background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);')+'">'+esc(isEx?t('col_ug_exempt_badge_on'):t('col_ug_exempt_badge_off'))+'</span>'
         + '<span id="'+p+'SwitchTrack" style="position:relative;display:inline-block;width:44px;height:24px;background:'+(isEx?'var(--warning)':'var(--muted)')+';border-radius:12px;transition:background 0.2s;vertical-align:middle;">'
-        + '<input type="checkbox" id="'+p+'Exempt" '+(isEx?'checked':'')+' onchange="onUgOldExemptToggle(\''+p+'\')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:pointer;z-index:1;">'
+        + '<input type="checkbox" id="'+p+'Exempt" '+(isEx?'checked':'')+(!_canEx&&isEx?' disabled':'')+' onchange="onUgOldExemptToggle(\''+p+'\')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:'+(_canEx?'pointer':'not-allowed')+';z-index:1;">'
         + '<span id="'+p+'SwitchKnob" style="position:absolute;top:2px;left:'+(isEx?'22px':'2px')+';width:20px;height:20px;background:#fff;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;"></span>'
         + '</span>'
         + '</span>'
         + '</label>'
-        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+t('col_ug_exempt_hint')+'</div>'
+        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+(_canEx?t('col_ug_exempt_hint'):(isEx?t('col_ug_exempt_readonly_hint'):t('col_ug_exempt_locked_hint')))+'</div>'
         + '</div>'
         + '<div class="field"><label class="field__label">'+t('col_emps')+'</label><input type="hidden" id="'+p+'Emps"><div class="col-count-hint" id="'+p+'-count">'+t('col_selected_count',{n:((s&&s.emps)||[]).length})+'</div><div id="'+p+'EmpsBox"></div></div>'
         + '<div class="field"><label class="field__label">'+t('drivers')+'</label><input type="hidden" id="'+p+'Drivers"><div class="col-count-hint" id="'+p+'Drv-count">'+t('col_selected_count',{n:((s&&s.drivers)||[]).length})+'</div><div id="'+p+'DriversBox"></div></div>'
@@ -2082,8 +2085,8 @@
         + '<div class="form-message" id="colFormMsg"></div>'
         + seg('ugDay', t('day_shift'), 'day', day)
         + seg('ugNight', t('night_shift'), 'night', night)
-        + '<div class="field"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark" value="'+esc(init&&init.remark||'')+'"></div>'
-        + '<div class="field"><label class="field__label">'+t('remark2')+'</label><input type="text" id="ugRemark2" value="'+esc(init&&init.remark2||'')+'"></div>'
+        + '<div class="field"><label class="field__label">'+t('remark')+(!isAdminLevel()&&day.exempt?' · '+t('col_readonly'):'')+'</label><input type="text" id="ugRemark" value="'+esc(day.remark||'')+'"'+(!isAdminLevel()&&day.exempt?' disabled':'')+'></div>'
+        + '<div class="field"><label class="field__label">'+t('remark2')+(!isAdminLevel()&&night.exempt?' · '+t('col_readonly'):'')+'</label><input type="text" id="ugRemark2" value="'+esc(night.remark||'')+'"'+(!isAdminLevel()&&night.exempt?' disabled':'')+'></div>'
         + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitUg()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
       STATE._ugOldDay=day; STATE._ugOldNight=night;
       renderUgOldEmpBoxes();
@@ -2106,7 +2109,7 @@
     STATE._ugIsOld=false;
     let rows;
     if(init && Array.isArray(init.teams) && init.teams.length){
-      rows = init.teams.map(t=>({team_id: t.team_id!=null?String(t.team_id):'', nh:t.nh||0, nl:t.nl||0, mw:t.mw||0, exempt:!!t.exempt, remark:t.remark||''}));
+      rows = init.teams.map(t=>({team_id: t.team_id!=null?String(t.team_id):'', nh:t.nh||0, nl:t.nl||0, mw:t.mw||0, exempt:!!t.exempt, remark:t.remark||'', _lockedExempt: !!t.exempt && !isAdminLevel(), _lockedRemark: t.remark||''}));
     } else {
       rows = [{team_id:'', nh:0, nl:0, mw:0, exempt:false, remark:''}];
     }
@@ -2121,6 +2124,8 @@
     window.onUgExemptToggle = window.onUgExemptToggle || function(idx){
       const cb=document.getElementById('ugExempt'+idx); if(!cb) return;
       const on=!!cb.checked;
+      // P41: 设备故障豁免仅管理员可设——非管理员点击立即回弹+提示，不写入 STATE
+      if(!isAdminLevel()){ cb.checked=!on; toast(t('col_ug_exempt_admin_only'),'error'); return; }
       const row=document.getElementById('ugTeamRow'+idx);
       if(row){ row.style.borderColor = on ? 'var(--warning)' : ''; row.style.background = on ? 'var(--warning-bg)' : ''; }
       const box=document.getElementById('ugExemptBox'+idx);
@@ -2140,6 +2145,7 @@
     }
     function ugRowHtml(idx, r){
       const isEx=!!r.exempt;
+      const _canEx=isAdminLevel();
       return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;'+(isEx?'border-color:var(--warning);background:var(--warning-bg);':'')+'">'
         + '<div class="seg-card__title"><span class="dot day"></span>'+t('col_ug_team_row')+' '+(idx+1)+(rows.length>1?' <button onclick="removeUgTeamRow('+idx+')" style="float:right;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);">✕ '+t('col_ug_remove_team')+'</button>':'')+'</div>'
         + '<div class="field"><label class="field__label">'+t('col_ug_team')+'</label><select id="ugTeamSel'+idx+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts2(r.team_id)+'</select></div>'
@@ -2149,19 +2155,19 @@
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="ugMw'+idx+'" value="'+r.mw+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
         + '</div>'
         + '<div id="ugExemptBox'+idx+'" style="display:flex;flex-direction:column;gap:4px;margin:6px 0 8px;padding:8px 10px;border:1px solid '+(isEx?'var(--warning)':'var(--border)')+';border-radius:var(--radius-sm);background:'+(isEx?'var(--warning-bg)':'var(--card)')+';">'
-        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0;">'
+        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:'+(_canEx?'pointer':'not-allowed')+';margin:0;">'
         + '<span style="font-size:12px;font-weight:600;">'+t('col_ug_exempt')+'</span>'
         + '<span style="display:inline-flex;align-items:center;gap:8px;">'
         + ugExemptChip(idx,isEx)
         + '<span id="ugSwitchTrack'+idx+'" style="position:relative;display:inline-block;width:44px;height:24px;background:'+(isEx?'var(--warning)':'var(--muted)')+';border-radius:12px;transition:background 0.2s;vertical-align:middle;">'
-        + '<input type="checkbox" id="ugExempt'+idx+'" '+(isEx?'checked':'')+' onchange="onUgExemptToggle('+idx+')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:pointer;z-index:1;">'
+        + '<input type="checkbox" id="ugExempt'+idx+'" '+(isEx?'checked':'')+(!_canEx&&isEx?' disabled':'')+' onchange="onUgExemptToggle('+idx+')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:'+(_canEx?'pointer':'not-allowed')+';z-index:1;">'
         + '<span id="ugSwitchKnob'+idx+'" style="position:absolute;top:2px;left:'+(isEx?'22px':'2px')+';width:20px;height:20px;background:#fff;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;"></span>'
         + '</span>'
         + '</span>'
         + '</label>'
-        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+t('col_ug_exempt_hint')+'</div>'
+        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+(_canEx?t('col_ug_exempt_hint'):(isEx?t('col_ug_exempt_readonly_hint'):t('col_ug_exempt_locked_hint')))+'</div>'
         + '</div>'
-        + '<div class="field" style="margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
+        + '<div class="field" style="margin:0;"><label class="field__label">'+t('remark')+(!_canEx&&isEx?' · '+t('col_readonly'):'')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'"'+(!_canEx&&isEx?' disabled':'')+' style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
         + '</div>';
     }
     document.getElementById('col-form').innerHTML =
@@ -2198,6 +2204,7 @@
     const teamOpts2 = (sel) => '<option value="">'+t('col_ug_team_placeholder')+'</option>' + ugGroups.map(g=>'<option value="'+g.id+'" '+(String(sel)===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
     function ugRowHtml(idx, r){
       const isEx=!!r.exempt;
+      const _canEx=isAdminLevel();
       return '<div class="seg-card" id="ugTeamRow'+idx+'" style="position:relative;'+(isEx?'border-color:var(--warning);background:var(--warning-bg);':'')+'">'
         + '<div class="seg-card__title"><span class="dot day"></span>'+t('col_ug_team_row')+' '+(idx+1)+(STATE._ugTeams.length>1?' <button onclick="removeUgTeamRow('+idx+')" style="float:right;font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card);">✕ '+t('col_ug_remove_team')+'</button>':'')+'</div>'
         + '<div class="field"><label class="field__label">'+t('col_ug_team')+'</label><select id="ugTeamSel'+idx+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);">'+teamOpts2(r.team_id)+'</select></div>'
@@ -2207,19 +2214,19 @@
         + '<div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="ugMw'+idx+'" value="'+r.mw+'" min="0" step="0.1" inputmode="decimal" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);"></div>'
         + '</div>'
         + '<div id="ugExemptBox'+idx+'" style="display:flex;flex-direction:column;gap:4px;margin:6px 0 8px;padding:8px 10px;border:1px solid '+(isEx?'var(--warning)':'var(--border)')+';border-radius:var(--radius-sm);background:'+(isEx?'var(--warning-bg)':'var(--card)')+';">'
-        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;margin:0;">'
+        + '<label style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:'+(_canEx?'pointer':'not-allowed')+';margin:0;">'
         + '<span style="font-size:12px;font-weight:600;">'+t('col_ug_exempt')+'</span>'
         + '<span style="display:inline-flex;align-items:center;gap:8px;">'
         + ugExemptChip(idx,isEx)
         + '<span id="ugSwitchTrack'+idx+'" style="position:relative;display:inline-block;width:44px;height:24px;background:'+(isEx?'var(--warning)':'var(--muted)')+';border-radius:12px;transition:background 0.2s;vertical-align:middle;">'
-        + '<input type="checkbox" id="ugExempt'+idx+'" '+(isEx?'checked':'')+' onchange="onUgExemptToggle('+idx+')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:pointer;z-index:1;">'
+        + '<input type="checkbox" id="ugExempt'+idx+'" '+(isEx?'checked':'')+(!_canEx&&isEx?' disabled':'')+' onchange="onUgExemptToggle('+idx+')" style="opacity:0;width:100%;height:100%;position:absolute;left:0;top:0;margin:0;cursor:'+(_canEx?'pointer':'not-allowed')+';z-index:1;">'
         + '<span id="ugSwitchKnob'+idx+'" style="position:absolute;top:2px;left:'+(isEx?'22px':'2px')+';width:20px;height:20px;background:#fff;border-radius:50%;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);pointer-events:none;"></span>'
         + '</span>'
         + '</span>'
         + '</label>'
-        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+t('col_ug_exempt_hint')+'</div>'
+        + '<div style="font-size:11px;color:var(--muted-foreground);line-height:1.3;">'+(_canEx?t('col_ug_exempt_hint'):(isEx?t('col_ug_exempt_readonly_hint'):t('col_ug_exempt_locked_hint')))+'</div>'
         + '</div>'
-        + '<div class="field" style="margin:0;"><label class="field__label">'+t('remark')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
+        + '<div class="field" style="margin:0;"><label class="field__label">'+t('remark')+(!_canEx&&isEx?' · '+t('col_readonly'):'')+'</label><input type="text" id="ugRemark'+idx+'" value="'+esc(r.remark)+'" placeholder="'+t('ph_optional')+'"'+(!_canEx&&isEx?' disabled':'')+' style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"></div>'
         + '</div>';
     }
     const box=document.getElementById('ugTeamsBox'); if(box) box.innerHTML = STATE._ugTeams.map((r,i)=>ugRowHtml(i,r)).join('');
@@ -2280,13 +2287,23 @@
       const payload={ submission_date:document.getElementById('colDate').value,
         day:{ nh:+document.getElementById('ugDayNh').value||0, nl:+document.getElementById('ugDayNl').value||0, mw:+document.getElementById('ugDayMw').value||0, emps:ck('ugDayEmps'), drivers:ck('ugDayDrivers'),
           team_id:+(document.getElementById('ugDayTeam')&&document.getElementById('ugDayTeam').value)||0,
-          exempt:document.getElementById('ugDayExempt')&&document.getElementById('ugDayExempt').checked },
+          exempt:document.getElementById('ugDayExempt')&&document.getElementById('ugDayExempt').checked,
+          remark:((document.getElementById('ugRemark')||{}).value||'').trim() },
         night:{ nh:+document.getElementById('ugNightNh').value||0, nl:+document.getElementById('ugNightNl').value||0, mw:+document.getElementById('ugNightMw').value||0, emps:ck('ugNightEmps'), drivers:ck('ugNightDrivers'),
           team_id:+(document.getElementById('ugNightTeam')&&document.getElementById('ugNightTeam').value)||0,
-          exempt:document.getElementById('ugNightExempt')&&document.getElementById('ugNightExempt').checked } };
+          exempt:document.getElementById('ugNightExempt')&&document.getElementById('ugNightExempt').checked,
+          remark:((document.getElementById('ugRemark2')||{}).value||'').trim() } };
       colSubmit('underground', payload, (p)=>{
         if(p.day.emps.length===0 && p.night.emps.length===0){ colFailMsg('underground', t('val_workers')); return false; }
         if((p.day.emps.length>0 && !p.day.team_id) || (p.night.emps.length>0 && !p.night.team_id)){ colFailMsg('underground', t('col_ug_team_required')); return false; }
+        // P41: 设备故障豁免仅管理员可改——非管理员相对原记录有任何豁免变更即拦截（存量未变放行）
+        if(!isAdminLevel()){
+          const _oldD=!!((STATE._ugOldDay||{}).exempt), _oldN=!!((STATE._ugOldNight||{}).exempt);
+          if((!!p.day.exempt)!==_oldD || (!!p.night.exempt)!==_oldN){ colFailMsg('underground', t('col_ug_exempt_admin_only')); return false; }
+          // 存量豁免班次的豁免原因备注同样锁定（白班=ugRemark / 夜班=ugRemark2）
+          if(_oldD){ const _rd=((document.getElementById('ugRemark')||{}).value||''); if(_rd.trim()!==((STATE._ugOldDay||{}).remark||'').trim()){ colFailMsg('underground', t('col_ug_exempt_admin_only')); return false; } }
+          if(_oldN){ const _rn=((document.getElementById('ugRemark2')||{}).value||''); if(_rn.trim()!==((STATE._ugOldNight||{}).remark||'').trim()){ colFailMsg('underground', t('col_ug_exempt_admin_only')); return false; } }
+        }
         const chkTeam=(emps,tid)=>{
           if(!tid) return true;
           return emps.every(id=>{const emp=STATE.employees.find(e=>String(e.id)===String(id));return emp&&String(emp.team_id)===String(tid);});
@@ -2319,6 +2336,13 @@
       }
       // P38: 豁免班组必须填写豁免原因（备注）
       for(const tt of ts){ if(tt.exempt && !String(tt.remark||'').trim()){ colFailMsg('underground', t('col_ug_exempt_remark_required')); return false; } }
+      // P41: 设备故障豁免仅管理员可设——非管理员拦截（存量豁免继承行的勾选与原因备注均须保持原值；后端另有硬校验）
+      if(!isAdminLevel()){
+        for(const r of (STATE._ugTeams||[])){
+          if(r._lockedExempt){ if(String(r.remark||'').trim()!==String(r._lockedRemark||'').trim()){ colFailMsg('underground', t('col_ug_exempt_admin_only')); return false; } }
+          else if(r.exempt){ colFailMsg('underground', t('col_ug_exempt_admin_only')); return false; }
+        }
+      }
       return true;
     });
   }

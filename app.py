@@ -4265,6 +4265,60 @@ def _ug_team_prod(team_item):
         return 0.0
 
 
+def _ug_exempt_map(pl):
+    """P41: 井下出渣 payload → 豁免设置映射 {team_id | 'day'/'night': (exempt, remark)}。
+
+    exempt=true 时 remark 即豁免原因（P38 强校验非空），随豁免记录一起归属管理员。
+    新旧格式兼容；旧格式 day/night 的 remark 为对应班次的豁免原因备注。
+    """
+    m = {}
+    if not isinstance(pl, dict):
+        return m
+    if 'teams' in pl:
+        for t in (pl.get('teams') or []):
+            if isinstance(t, dict):
+                tid = _ug_team_tid(t)
+                if tid:
+                    m[tid] = (bool(t.get('exempt', False)), str(t.get('remark') or '').strip())
+    else:
+        for k in ('day', 'night'):
+            if isinstance(pl.get(k), dict):
+                m[k] = (bool(pl[k].get('exempt', False)), str(pl[k].get('remark') or '').strip())
+    return m
+
+
+def _ug_exempt_role_error(payload, is_admin, old_payload=None):
+    """P41: 设备故障豁免仅管理员可设（治理采集提交人滥用）。
+
+    非管理员（admin/super_admin 之外）：
+    - 新提交（old_payload=None）：任一班组/班次 exempt=true → 拒绝，提示联系管理员
+    - 编辑（old_payload 传入）：新旧豁免设置有任何变化 → 拒绝，含：
+        ① exempt 布尔翻转（含删除已豁免班组行，等同变相取消豁免）
+        ② 存量已豁免行的豁免原因备注被改写（防直连 API 篡改留痕）
+      存量已豁免记录原样保留 → 放行（保证历史行日常补录不被挡）
+    返回错误文案或 None。
+    """
+    if is_admin:
+        return None
+    new_map = _ug_exempt_map(payload)
+    if not new_map:
+        return None
+    if old_payload is None:
+        if any(v[0] for v in new_map.values()):
+            return '设备故障豁免仅管理员可设置，请保持默认（正常）后提交，如需豁免请联系管理员'
+    else:
+        old_map = _ug_exempt_map(old_payload)
+        for k in set(new_map) | set(old_map):
+            old_v = old_map.get(k, (False, ''))
+            new_v = new_map.get(k, (False, ''))
+            if old_v[0] != new_v[0]:
+                return '设备故障豁免仅管理员可设置，如需变更豁免请联系管理员'
+            # 存量已豁免行：豁免原因备注同属豁免记录，非管理员不得改写
+            if old_v[0] and new_v[0] and old_v[1] != new_v[1]:
+                return '设备故障豁免仅管理员可设置，如需变更豁免请联系管理员'
+    return None
+
+
 def _ug_normalize_teams(payload):
     """P39: 新格式 teams 归一化（提交/编辑共用的脏数据兜底）。
     - 无 team_id 且无产量且未豁免的空行 → 剔除（移动端残留空行兼容）
@@ -4588,6 +4642,12 @@ def collection_submit():
         if _exempt_err:
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
+        # P41: 设备故障豁免仅管理员可设——非管理员新提交任何豁免勾选 → 整单拒绝（治理采集人滥用）
+        _ex41_err = _ug_exempt_role_error(payload, session.get('role') in ('admin', 'super_admin'))
+        if _ex41_err:
+            _audit('perm_denied', '', json.dumps({'user': _u, 'module': 'collection', 'action': 'exempt'}))
+            return jsonify({'ok': False, 'error': _ex41_err,
+                            'error_key': 'col_ug_exempt_admin_only'}), 400
     # P40-c C2: 已离职员工硬校验——dismissed 且标记日期 >= 离职生效日 → 拒绝（离职前日期补录放行）
     # P40-HOTFIX 加固：marks 含非 dict 条目（脏客户端 payload）时清洗剔除并审计，
     # 不再 'str' has no .get 500（下游 _filter_marks_by_department 等同样逐条 m.get）
@@ -5079,6 +5139,17 @@ def collection_edit(submission_id):
         if _exempt_err:
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
+        # P41: 设备故障豁免仅管理员可改——非管理员相对原记录的任何豁免变更 → 拒绝；
+        # 存量已豁免记录原样保留放行，保证历史行日常补录不被挡
+        try:
+            _old_pl = json.loads(sub['payload'] or '{}')
+        except (TypeError, ValueError):
+            _old_pl = {}
+        _ex41_err = _ug_exempt_role_error(payload, is_admin, old_payload=_old_pl)
+        if _ex41_err:
+            _audit('perm_denied', '', json.dumps({'user': username, 'module': 'collection', 'action': 'exempt'}))
+            return jsonify({'ok': False, 'error': _ex41_err,
+                            'error_key': 'col_ug_exempt_admin_only'}), 400
     # P40-c C2: 已离职员工硬校验（编辑同 submit；new_date 为标记日期，离职前日期补录放行）
     _att_mark_eids = [m.get('employee_id') for m in (payload.get('marks') or [])] \
         if form_type == 'attendance' else None
@@ -5707,10 +5778,10 @@ def api_collection_cleanup_routed_leave():
 
 @app.route('/api/collection/exempt/<int:submission_id>', methods=['POST'])
 def api_collection_exempt(submission_id):
-    _block = _require_super_admin()
-    if _block:
-        _audit('perm_denied', '', json.dumps({'user': session.get('username',''), 'module': 'collection', 'action': 'exempt'}))
-        return _block
+    # P41: 豁免能力口径统一为管理员级（admin/super_admin），与提交期校验、编辑校验一致
+    if session.get('role') not in ('admin', 'super_admin'):
+        _audit('perm_denied', '', json.dumps({'user': session.get('username', ''), 'module': 'collection', 'action': 'exempt'}))
+        return jsonify({'ok': False, 'error': 'forbidden', 'need_admin': True}), 403
     from core.database import get_collection_submission, update_collection_submission
     sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     if not sub:

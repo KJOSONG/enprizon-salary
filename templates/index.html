@@ -8387,7 +8387,7 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
     ? '<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;margin-left:6px;">' + t('col_ug_exempt_badge_on') + '</span>'
     : '<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--text-muted);border:1px solid var(--border);margin-left:6px;">' + t('col_ug_exempt_badge_off') + '</span>';
   const _toggleBtn = (sid, tid, isOld, cur, cid) => {
-    if (!isSuperAdmin() || !sid) return '';
+    if (!canUgExempt() || !sid) return '';
     const label = cur ? t('col_ug_exempt_unset') : t('col_ug_exempt_set');
     const btnStyle = cur ? 'background:var(--bg-secondary);color:var(--text);border:1px solid var(--border);' : 'background:#fef3c7;color:#92400e;border:1px solid #f59e0b;';
     return '<button onclick="toggleColExempt(\'' + sid + '\',' + (isOld ? '\'' + tid + '\'' : tid) + ',' + (isOld ? 'true' : 'false') + ',' + (cur ? 'true' : 'false') + ',\'' + cid + '\')" style="font-size:11px;padding:3px 10px;margin-left:6px;border-radius:4px;cursor:pointer;' + btnStyle + '">' + escHtml(label) + '</button>';
@@ -8763,6 +8763,8 @@ function _ugTeamOpts(sel) {
   const groups = _ugGroupsCache || [];
   return '<option value="">' + t('col_ug_team_placeholder') + '</option>' + groups.map(g => '<option value="' + g.id + '" ' + (String(sel)===String(g.id)?'selected':'') + '>' + escHtml(g.name) + '</option>').join('');
 }
+// P41: 设备故障豁免仅管理员可设（admin/super_admin）——其他角色只读锁定
+function canUgExempt() { return !!_authState && (_authState.role === 'super_admin' || _authState.role === 'admin'); }
 function renderUgTeamRows() {
   const container = document.getElementById('ugTeamContainer');
   if (!container) return;
@@ -8787,13 +8789,17 @@ function renderUgTeamRows() {
         <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" data-idx="${idx}" class="ugTeamNl" value="${+row.nl || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].nl=parseFloat(this.value)||0"></div>
         <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" data-idx="${idx}" class="ugTeamMw" value="${+row.mw || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].mw=parseFloat(this.value)||0"></div>
       </div>
-      <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:50px;">${t('remark')}</label><input data-idx="${idx}" class="ugTeamRemark" value="${escHtml(row.remark||'')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}" oninput="_ugTeamRows[${idx}].remark=this.value"></div>
-      <div style="margin-top:8px;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;">
-        <label style="font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;">
-          <input type="checkbox" data-idx="${idx}" class="ugTeamExempt" ${row.exempt ? 'checked' : ''} onchange="_ugTeamRows[${idx}].exempt=this.checked;renderUgTeamRows();" style="accent-color:#f59e0b;width:15px;height:15px;"> ${t('col_ug_exempt')}
-        </label>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${t('col_ug_exempt_hint')}</div>
-      </div>
+      <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:50px;">${t('remark')}${_exOn && !canUgExempt() ? ' · ' + t('col_readonly') : ''}</label><input data-idx="${idx}" class="ugTeamRemark" value="${escHtml(row.remark||'')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"${_exOn && !canUgExempt() ? ' disabled title="' + t('col_ug_exempt_readonly_hint') + '"' : ''} oninput="_ugTeamRows[${idx}].remark=this.value"></div>
+      ${(() => {
+        const _bx = 'margin-top:8px;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;';
+        if (!canUgExempt()) {
+          // P41: 非管理员——存量豁免行只读锁定；其余行可点但立即回弹+提示
+          return _exOn
+            ? `<div style="${_bx}border-color:#f59e0b;"><label style="font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:not-allowed;color:var(--text-muted);"><input type="checkbox" data-idx="${idx}" class="ugTeamExempt" checked disabled style="accent-color:#f59e0b;width:15px;height:15px;"> ${t('col_ug_exempt')}</label><div style="font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${t('col_ug_exempt_readonly_hint')}</div></div>`
+            : `<div style="${_bx}"><label style="font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;"><input type="checkbox" data-idx="${idx}" class="ugTeamExempt" onclick='if(!canUgExempt()){this.checked=false;showToast(t("col_ug_exempt_admin_only"),"error");return;}_ugTeamRows[${idx}].exempt=this.checked;renderUgTeamRows();' style="accent-color:#f59e0b;width:15px;height:15px;"> ${t('col_ug_exempt')}</label><div style="font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${t('col_ug_exempt_locked_hint')}</div></div>`;
+        }
+        return `<div style="${_bx}"><label style="font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;"><input type="checkbox" data-idx="${idx}" class="ugTeamExempt" ${_exOn ? 'checked' : ''} onchange="_ugTeamRows[${idx}].exempt=this.checked;renderUgTeamRows();" style="accent-color:#f59e0b;width:15px;height:15px;"> ${t('col_ug_exempt')}</label><div style="font-size:10px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${t('col_ug_exempt_hint')}</div></div>`;
+      })()}
       ${(() => { const _pool=_colEmpPool||STATE._empAll||[]; const _cnt=_pool.filter(e=>String(e.team_id||'')===String(row.team_id)).length; return row.team_id && _cnt===0 ? '<div style="font-size:11px;color:var(--warning);margin-top:4px;">'+t('col_ug_no_attendance_warn')+'</div>' : ''; })()}
     </div>`; }).join('');
 }
@@ -8823,8 +8829,8 @@ async function _renderUgLegacyForm(payload) {
       <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" id="${prefix}Nl" value="${+data.nl || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
       <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+data.mw || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
     </div>`;
-  const remarkRow = (prefix, label) => `
-    <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"></div>`;
+  const remarkRow = (prefix, label, locked) => `
+    <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}${locked ? ' · ' + t('col_readonly') : ''}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"${locked ? ' disabled' : ''}></div>`;
   const attRow = (prefix, label, kw, dataKey) => `
     <div class="form-row" style="margin-top:6px;align-items:flex-start;">
       <label style="font-size:12px;min-width:70px;padding-top:4px;">${label} ${t('col_attendance')}</label>
@@ -8849,12 +8855,12 @@ async function _renderUgLegacyForm(payload) {
         <select id="ugDayTeam" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
           ${_ugTeamOpts(day.team_id)}
         </select>
-        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
-          <input type="checkbox" id="ugDayExempt" ${day.exempt ? 'checked' : ''}> ${t('col_ug_exempt')}
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;${canUgExempt() ? '' : 'cursor:not-allowed;'}"${canUgExempt() ? '' : ` title="${t('col_ug_exempt_locked_hint')}"`}>
+          <input type="checkbox" id="ugDayExempt" ${day.exempt ? 'checked disabled' : ''}${(day.exempt || canUgExempt()) ? '' : ` onclick='if(!canUgExempt()){this.checked=false;showToast(t("col_ug_exempt_admin_only"),"error");return;}'`}> ${t('col_ug_exempt')}
         </label>
       </div>
       ${prodRow('ugDay', day)}
-      ${remarkRow('ugDay', t('remark_day'))}
+      ${remarkRow('ugDay', t('remark_day'), !!(day.exempt && !canUgExempt()))}
       ${attRow('ugDay', 'Day', 'underground', 'day')}
     </div>
     <div style="margin-top:10px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);">
@@ -8864,12 +8870,12 @@ async function _renderUgLegacyForm(payload) {
         <select id="ugNightTeam" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">
           ${_ugTeamOpts(night.team_id)}
         </select>
-        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;">
-          <input type="checkbox" id="ugNightExempt" ${night.exempt ? 'checked' : ''}> ${t('col_ug_exempt')}
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;${canUgExempt() ? '' : 'cursor:not-allowed;'}"${canUgExempt() ? '' : ` title="${t('col_ug_exempt_locked_hint')}"`}>
+          <input type="checkbox" id="ugNightExempt" ${night.exempt ? 'checked disabled' : ''}${(night.exempt || canUgExempt()) ? '' : ` onclick='if(!canUgExempt()){this.checked=false;showToast(t("col_ug_exempt_admin_only"),"error");return;}'`}> ${t('col_ug_exempt')}
         </label>
       </div>
       ${prodRow('ugNight', night)}
-      ${remarkRow('ugNight', t('remark_night'))}
+      ${remarkRow('ugNight', t('remark_night'), !!(night.exempt && !canUgExempt()))}
       ${attRow('ugNight', 'Night', 'underground', 'night')}
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
@@ -8944,7 +8950,7 @@ async function renderUgCollectionForm(payload) {
   await _ensureUgGroups();
   const date = payload.submission_date || '';
   if (Array.isArray(payload.teams) && payload.teams.length) {
-    _ugTeamRows = payload.teams.map(tm => ({ team_id: String(tm.team_id || ''), nh: tm.nh || 0, nl: tm.nl || 0, mw: tm.mw || 0, exempt: !!tm.exempt, remark: tm.remark || '' }));
+    _ugTeamRows = payload.teams.map(tm => ({ team_id: String(tm.team_id || ''), nh: tm.nh || 0, nl: tm.nl || 0, mw: tm.mw || 0, exempt: !!tm.exempt, remark: tm.remark || '', _lockedExempt: !!tm.exempt && !canUgExempt(), _lockedRemark: tm.remark || '' }));
   } else if (!_ugTeamRows.length) {
     _ugTeamRows = [{ team_id: '', nh: 0, nl: 0, mw: 0, exempt: false, remark: '' }];
   } else {
@@ -9565,6 +9571,16 @@ async function submitUgCollection() {
     if (!payloadTeams.some(x=> (x.nh+x.nl+x.mw)>0 )) { showToast(t('pick_date'), 'error'); return; }
     // P38: 豁免班组必须填写豁免原因（备注）
     for (const tm of payloadTeams) { if (tm.exempt && !String(tm.remark||'').trim()) { showToast(t('col_ug_exempt_remark_required'), 'error'); return; } }
+    // P41: 设备故障豁免仅管理员可设——非管理员拦截（存量豁免继承行 _lockedExempt 的勾选与原因备注均须保持原值；后端另有硬校验）
+    if (!canUgExempt()) {
+      for (const r of _ugTeamRows) {
+        if (r._lockedExempt) {
+          if (String(r.remark || '') !== String(r._lockedRemark || '')) { showToast(t('col_ug_exempt_admin_only'), 'error'); return; }
+        } else if (r.exempt) {
+          showToast(t('col_ug_exempt_admin_only'), 'error'); return;
+        }
+      }
+    }
     const payload = { teams: payloadTeams };
     await submitColPayload('underground', date, payload, 'colUgHistory');
     return;
@@ -9598,6 +9614,18 @@ async function submitUgCollection() {
       exempt: nightExempt,
     },
   };
+  // P41: 旧格式豁免同样仅管理员可设——非管理员提交/编辑时豁免勾选与豁免原因备注相对原记录不得变化
+  if (!canUgExempt()) {
+    let _oldPl = {};
+    try { if (_colEditing) _oldPl = JSON.parse(_colEditing.payload || '{}'); } catch(e) {}
+    for (const _k of ['day', 'night']) {
+      const _o = _oldPl[_k] || {};
+      if (!!payload[_k].exempt !== !!_o.exempt
+        || (!!_o.exempt && String(payload[_k].remark || '').trim() !== String(_o.remark || '').trim())) {
+        showToast(t('col_ug_exempt_admin_only'), 'error'); return;
+      }
+    }
+  }
   const pool = _colEmpPool || STATE._empAll || [];
   for (const shift of [{ label: 'DAY', data: payload.day }, { label: 'NIGHT', data: payload.night }]) {
     if (shift.data.emps.length && !shift.data.team_id) {
