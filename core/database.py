@@ -2876,6 +2876,61 @@ def reject_event(data_folder, event_id, rejected_by, reason):
     conn.close()
     return affected > 0
 
+def _delete_leave_override_span(conn, employee_id, eff_date, days, exclude_event_id=None):
+    """P47: 撤销/改期删除请假族出勤覆盖的统一入口。
+
+    2026-09-30 DAMAS 事故教训：旧实现按 effective_date+days 区间无差别 DELETE，
+    把同区间内其他已批请假事件的覆盖与管理员手动补标（source=1）一并误删
+    （撤销一条 14 天病假事件连带抹掉区间内 5 天已批 SK + 9 天手动补标）。
+
+    规则：
+      1. 展开天数 clamp 到 _OVERRIDE_EXPAND_MAX_DAYS（与 calculator 同一常量）；
+      2. 保护集 = 该员工其他 pending/approved 请假事件（四类）覆盖的日期；
+      3. 只删 source=0（采集/审批落库）且不在保护集内的行，手动标记永不触碰。
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        from core.calculator import _OVERRIDE_EXPAND_MAX_DAYS as _MAX_DAYS
+    except Exception:
+        _MAX_DAYS = 800
+    try:
+        days = int(days or 1)
+    except (TypeError, ValueError):
+        days = 1
+    days = max(min(days, _MAX_DAYS), 1)
+    try:
+        d0 = _dt.strptime(eff_date or '', '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return
+    protected = set()
+    rows = conn.execute(
+        "SELECT id, effective_date, payload FROM employee_events "
+        "WHERE employee_id=? AND status IN ('pending','approved') "
+        "AND event_type IN ('annual_leave','comp_leave','sick','casual')",
+        (employee_id,)).fetchall()
+    for r in rows:
+        if exclude_event_id is not None and r['id'] == exclude_event_id:
+            continue
+        try:
+            d = int(json.loads(r['payload'] or '{}').get('days', 1) or 1)
+        except (TypeError, ValueError):
+            d = 1
+        d = max(min(d, _MAX_DAYS), 1)
+        try:
+            od0 = _dt.strptime(r['effective_date'] or '', '%Y-%m-%d')
+        except (TypeError, ValueError):
+            continue
+        for i in range(d):
+            protected.add((od0 + _td(days=i)).strftime('%Y-%m-%d'))
+    for i in range(days):
+        ds = (d0 + _td(days=i)).strftime('%Y-%m-%d')
+        if ds in protected:
+            continue
+        conn.execute(
+            "DELETE FROM attendance_overrides WHERE employee_id=? AND date=? AND source=0",
+            (employee_id, ds))
+
+
 def revoke_event(data_folder, event_id, revoked_by):
     """P21 M4: 撤销事件（approved 或 pending → revoked，保留原审计轨迹）
 
@@ -2917,17 +2972,10 @@ def revoke_event(data_folder, event_id, revoked_by):
                     restore_comp_leave(data_folder, ev['employee_id'], year, days, conn=conn)
                 elif ev['event_type'] == 'sick':
                     restore_sick_leave(data_folder, ev['employee_id'], year, days, conn=conn)
-            from datetime import datetime as _dt, timedelta as _td
-            try:
-                d0 = _dt.strptime(eff, '%Y-%m-%d')
-            except (TypeError, ValueError):
-                d0 = None
-            if d0:
-                for _i in range(days):
-                    _ds = (d0 + _td(days=_i)).strftime('%Y-%m-%d')
-                    conn.execute(
-                        "DELETE FROM attendance_overrides WHERE employee_id=? AND date=?",
-                        (ev['employee_id'], _ds))
+            # P47: 经 _delete_leave_override_span 删除——保护其他在批假期日期
+            # 与 source=1 手动标记，展开天数 clamp（DAMAS 2026-09-30 事故修复）
+            _delete_leave_override_span(conn, ev['employee_id'], eff, days,
+                                        exclude_event_id=event_id)
         elif ev['event_type'] == 'overtime':
             # P23 R2: 撤销加班 → 删除对应 overtime_records（同事务内，薪资即时回退）
             conn.execute("DELETE FROM overtime_records WHERE event_id=?", (event_id,))
@@ -3081,16 +3129,9 @@ def edit_approved_event(data_folder, event_id, new_date, new_days, operator,
             restore_sick_leave(data_folder, eid, old_year, old_days, conn=conn)
         # casual：无余额，无需回滚
 
-        try:
-            d0 = _dt.strptime(ev['effective_date'], '%Y-%m-%d')
-        except (TypeError, ValueError):
-            d0 = None
-        if d0:
-            for _i in range(old_days):
-                _ds = (d0 + _td(days=_i)).strftime('%Y-%m-%d')
-                conn.execute(
-                    "DELETE FROM attendance_overrides WHERE employee_id=? AND date=?",
-                    (eid, _ds))
+        # P47: 经 _delete_leave_override_span 删除旧区间（同 revoke_event 防护）
+        _delete_leave_override_span(conn, eid, ev['effective_date'], old_days,
+                                    exclude_event_id=event_id)
 
         # 2) 创建新 pending 单（approver/operator/snapshot 保留原值）
         new_payload = json.dumps({
