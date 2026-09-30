@@ -875,6 +875,7 @@
             <th data-i18n="th_dayrate">日薪</th>
             <th data-i18n="th_monthly">月薪</th>
             <th data-i18n="th_overtime">加班费</th>
+            <th data-i18n="th_sick_subsidy">病假补贴</th>
             <th data-i18n="th_bonus">奖金</th>
             <th data-i18n="th_driver">司机津贴</th>
             <th style="display:none;" data-i18n="th_ug_base">井下基础</th>
@@ -5658,6 +5659,10 @@ async function renderSalaryTable(result) {
       <div class="value" style="color:var(--success)">${fmtNum(result.total_overtime||0)}</div>
       <div class="label">${t('salary_stats_overtime')}</div>
     </div>
+    <div class="stat-glass">
+      <div class="value" style="color:var(--success)">${fmtNum(result.total_sick_subsidy||0)}</div>
+      <div class="label">${t('salary_stats_sick')}</div>
+    </div>
     <div class="stat-glass"><div class="value">${fmtNum(result.total_gross)}</div><div class="label">${t('salary_stats_gross')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_nssf||0)}</div><div class="label">${t('salary_stats_nssf')}</div></div>
     <div class="stat-glass"><div class="value" style="color:var(--warning)">${fmtNum(result.total_paye||0)}</div><div class="label">${t('salary_stats_paye')}</div></div>
@@ -5743,6 +5748,7 @@ function filterSalaryTable() {
     : `<td class="num" style="color:${colorVar}">${disp}</td>`;
   tbody.innerHTML = filtered.map(emp => {
     const ot = emp.overtime || 0;
+    const sk = emp.sick_subsidy || 0;  // P48: 病假补贴（后端下发）
     const bonus = emp.bonus || 0;
     const penalty = emp.penalty || 0;
     const g = emp.gross || 0;
@@ -5761,6 +5767,7 @@ function filterSalaryTable() {
       <td class="num">${fmtNum(emp.day_rate||0)}</td>
       <td class="num">${fmtNum(emp.monthly||0)}</td>
       <td class="num" style="color:var(--success)">${ot ? fmtNum(ot) : '—'}</td>
+      <td class="num" style="color:var(--success)">${sk ? fmtNum(sk) : '—'}</td>
       ${inlineTd(eid, 'bonus', bonus, bonus ? '+' + fmtNum(bonus) : '—', 'var(--success)')}
       <td class="num" style="color:var(--success)">${(emp.driver_allowance||0) ? fmtNum(emp.driver_allowance) : '—'}</td>
       ${ugBaseTd}

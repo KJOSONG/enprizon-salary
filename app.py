@@ -1230,7 +1230,7 @@ def build_attendance_from_overrides(main_data, data_folder):
 
 # P38: 薪资行金额字段全集（任一非 0 即视为"有工资"）
 _SALARY_MONEY_FIELDS = ('piece_underground', 'piece_driller', 'piece_crush', 'day_rate',
-                        'monthly', 'overtime', 'bonus', 'driver_allowance', 'gross',
+                        'monthly', 'overtime', 'sick_subsidy', 'bonus', 'driver_allowance', 'gross',
                         'advance', 'penalty', 'nssf', 'paye', 'paye_half', 'net', 'ug_base')
 
 

@@ -62,6 +62,61 @@ def ug_annual_leave_per_day(monthly):
     except (TypeError, ValueError):
         return 0
 
+
+# ── P48: 病假补贴（SK Subsidy）────────────────────────────────
+# 金额对齐年假：复用 ug_al_per_day（ug_annual_leave_monthly/26，不新建常量）；
+# 资格 = 正式员工（三证齐全）；双份防护 = 该日其他轨道收入 > 0 则不发。
+# calculate_all 与 compute_daily_breakdown 共用本区函数（日明细 = 薪资总表铁律）。
+_SICK_CERT_KEYS = ('nida_number', 'nssf_number', 'tin_number')
+
+
+def sick_subsidy_eligible(emp, data_folder=None):
+    """P48: 正式员工判定 = nida/nssf/tin 三证 strip() 后均非空（2026-09-30 用户确认）。
+    员工入参缺三证列时回退从 employees 表补查；仍拿不到视为不合格（发 0）。"""
+    if any(k in emp for k in _SICK_CERT_KEYS):
+        return all((emp.get(k) or '').strip() for k in _SICK_CERT_KEYS)
+    if data_folder:
+        try:
+            import sqlite3
+            _dbp = os.path.join(data_folder, 'kilwa.db')
+            if os.path.exists(_dbp):
+                _conn = sqlite3.connect(_dbp)
+                _row = _conn.execute(
+                    "SELECT nida_number, nssf_number, tin_number FROM employees WHERE id=?",
+                    (emp.get('id'),)).fetchone()
+                _conn.close()
+                if _row is not None:
+                    return all((v or '').strip() for v in _row)
+        except Exception:
+            pass
+    return False
+
+
+def sick_subsidy_days(eid, emp, sk_dates, att_overrides, per_date_type, present_dates,
+                      ug_daily, driller_daily, crush_daily, amount_per_day, data_folder=None):
+    """P48: 返回该员工获发补贴的 SK 日 {date: amount}（amount_per_day = ug_al_per_day）。
+    双份防护：该日其他轨道（井下/钻工/破碎计件日额、day_rate/monthly 出勤计数）任一有收入则跳过。
+    present_dates 语义与 NU 计薪一致（含手动 P / ENPRIZON 1-26 补齐）；
+    SK 日本身不进 present_dates（非 P/NU），故 day_rate/monthly 命中 present 即视为该日已有收入。"""
+    if not amount_per_day or not sk_dates.get(eid):
+        return {}
+    if not sick_subsidy_eligible(emp, data_folder):
+        return {}
+    granted = {}
+    for dt in sorted(sk_dates[eid]):
+        if att_overrides.get((eid, dt)) != 'SK':
+            continue
+        if (ug_daily.get(eid, {}).get(dt, 0) > 0
+                or driller_daily.get(eid, {}).get(dt, 0) > 0
+                or crush_daily.get(eid, {}).get(dt, 0) > 0):
+            continue
+        dtype = per_date_type.get(eid, {}).get(dt,
+                 emp.get('override_type') or emp.get('default_type', ''))
+        if dtype in ('day_rate', 'monthly') and dt in (present_dates.get(eid) or set()):
+            continue
+        granted[dt] = amount_per_day
+    return granted
+
 def is_ug_production_emp(emp):
     """P28 R4: 井下生产工判定 = 部门匹配目标井下部门（规范化比较）"""
     return _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT)
@@ -1309,6 +1364,12 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 if r[2] == 'P': manual_p[r[0]].add(r[1])
             conn.close()
 
+    # P48: SK 病假天集合（补贴发放与 final_dates 迭代合并共用；照 NU 同款月份过滤）
+    sk_dates = defaultdict(set)
+    for (_se, _sdt), _sst in att_overrides.items():
+        if _sst == 'SK' and (not month_prefix or _sdt[:7] == month_prefix):
+            sk_dates[_se].add(_sdt)
+
     emp_map = {e['id']: e for e in employees}
 
     present_dates = defaultdict(set)
@@ -1373,7 +1434,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     final_dates = sorted(set(
         list(d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date')) +
         # P21 R2: 当月 NU 年假天并入迭代范围——保证日明细与薪资页对 day_rate/monthly 员工逐日一致
-        [dt for (_e, dt), st in att_overrides.items() if st == 'NU' and (not month_prefix or dt[:7] == month_prefix)]
+        [dt for (_e, dt), st in att_overrides.items() if st == 'NU' and (not month_prefix or dt[:7] == month_prefix)] +
+        # P48: 当月 SK 病假天并入迭代范围——纯 SK 日（无任何采集数据的日期）不漏补贴
+        [dt for (_e, dt), st in att_overrides.items() if st == 'SK' and (not month_prefix or dt[:7] == month_prefix)]
     ))
 
     bonus_penalties = bonus_penalties or {}
@@ -1442,6 +1505,12 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         # P42: hourly 照旧累加 amount；daily2 累加核定 premium（resolve_daily2_ot 单一来源）
         ot = round(ot_total.get(eid, 0) + daily2_total.get(eid, 0))
 
+        # P48: 病假补贴（SK 天 × ug_al_per_day，三证齐全正式员工，双份防护防双发；
+        # 与 compute_daily_breakdown 共用 sick_subsidy_days 单一来源）
+        sick_subsidy = sum(sick_subsidy_days(
+            eid, emp, sk_dates, att_overrides, per_date_type, present_dates,
+            ug_daily, driller_daily, crush_daily, ug_al_per_day, data_folder).values())
+
         bp = bonus_penalties.get(eid, {})
         advance = int(bp.get('advance', 0) or 0) or int(emp.get('advance_total', 0) or 0)
         bonus = int(bp.get('bonus', 0) or 0)
@@ -1468,7 +1537,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 driver_days = 0
         driver_allowance = driver_days * 5000
 
-        gross = pu + pd_val + dr_total + ms_total + cr_total + ot + bonus + driver_allowance
+        gross = pu + pd_val + dr_total + ms_total + cr_total + ot + bonus + driver_allowance + sick_subsidy
         nssf = round(gross * nssf_rate) if emp.get('nssf_enrolled', False) else 0
         taxable_income = gross - nssf
         tin_number = (emp.get('tin_number') or '').strip()
@@ -1503,6 +1572,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             'piece_underground': pu, 'piece_driller': pd_val,
             'piece_crush': cr_total, 'day_rate': dr_total, 'monthly': ms_total,
             'overtime': ot, 'bonus': bonus, 'driver_allowance': driver_allowance,
+            'sick_subsidy': sick_subsidy,
             'gross': gross,
             'advance': round(advance), 'penalty': penalty,
             'nssf': nssf, 'paye': paye, 'paye_half': paye_half, 'net': net,
@@ -1522,7 +1592,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 _emp = emp_lookup.get(eid, {})
                 e['piece_underground'] = pu_final
                 # Gross = 全部加项（V2 重新计算井下计件部分）
-                gross = pu_final + e['piece_driller'] + e['piece_crush'] + e['day_rate'] + e['monthly'] + e['overtime'] + e['bonus'] + e['driver_allowance']
+                gross = pu_final + e['piece_driller'] + e['piece_crush'] + e['day_rate'] + e['monthly'] + e['overtime'] + e['bonus'] + e['driver_allowance'] + e['sick_subsidy']
                 nssf = round(gross * nssf_rate) if _emp.get('nssf_enrolled', False) else 0
                 taxable = gross - nssf
                 tin = (_emp.get('tin_number') or '').strip()
@@ -1541,6 +1611,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         'employees': result_employees,
         'total_gross': sum(e['gross'] for e in result_employees),
         'total_overtime': sum(e['overtime'] for e in result_employees),  # P23 R2
+        'total_sick_subsidy': sum(e.get('sick_subsidy', 0) for e in result_employees),  # P48
         'total_bonus': sum(e['bonus'] for e in result_employees),
         'total_penalty': sum(e['penalty'] for e in result_employees),
         'total_advance': sum(e['advance'] for e in result_employees),
@@ -2009,10 +2080,12 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 _ms_cum_prev = _ms_cum
 
         # 最终逐日结果
+        # P48: SK 日期并入迭代域（照 NU 2041 行同款，纯病假日无采集数据也要进日明细）
         final_dates = sorted(ms_dates_set | set(
             d['date'] for d in shift_data + attendance_data + driller_data + crush_data if d.get('date')
-        ))
+        ) | set(dt for (_e, dt), st in att_all.items() if st == 'SK' and dt[:7] == _ym))
         result = {}
+        sick_grant_by_eid = {}  # P48: 补贴发放集（V2 缩放后统一叠加）
         for emp in employees:
             eid = emp['id']
             eff = emp.get('override_type') or emp['default_type']
@@ -2053,6 +2126,19 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
 
             daily = defaultdict(float)
             shifts_info = {}
+            # P48: 病假补贴逐日（与 calculate_all 共用 sick_subsidy_days 单一来源：
+            # 同一资格判定/同一金额/同一双份防护，保证日明细与薪资总表逐分一致）
+            _sk_dates_br = defaultdict(set)
+            for (_se, _sdt), _sst in att_all.items():
+                if _sst == 'SK' and (not _ym or _sdt[:7] == _ym):
+                    _sk_dates_br[_se].add(_sdt)
+            sk_subsidy_daily = sick_subsidy_days(
+                eid, emp, _sk_dates_br, att_all, per_date_type, present,
+                ug_daily, dr_daily, crush_daily, ug_al_per_day_br, data_folder)
+            if sk_subsidy_daily:
+                # P48: 不在此处并入 daily——V2 零和系数会把 piece_underground 轨道日期上的
+                # 补贴一并缩放/锚定（固定津贴不得参与），统一延迟到 V2 块结束后叠加
+                sick_grant_by_eid[eid] = sk_subsidy_daily
             for dt in final_dates:
                 dt_eff = per_date_type.get(eid, {}).get(dt, pdt.get(dt, eff))
                 # 年假 NU 统一：其他部门按 15384（月薪<40k 除外），ENPRIZON 保持原逻辑
@@ -2115,7 +2201,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             for _odt, _oamt in ot_daily_br.get(eid, {}).items():
                 daily[_odt] = round(daily.get(_odt, 0) + _oamt)
 
-            if daily:
+            if daily or eid in sick_grant_by_eid:  # P48: 纯补贴员工也要出行
                 result[eid] = {
                     'name': emp['name'], 'department': emp.get('department', ''),
                     'salary_type': eff, 'effective_type': eff,
@@ -2163,6 +2249,16 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         if _pu_diff:
                             rec['daily'][_last_ug_dt] += _pu_diff
                     rec['total'] = round(sum(rec['daily'].values()))
+
+    # P48: V2 缩放/零和锚定结束后统一叠加病假补贴（固定津贴 = ug_al_per_day/天，
+    # 与 calculate_all 的 sick_subsidy 总额同源同值，保证日明细与薪资总表逐分一致）
+    for _gid, _grant in sick_grant_by_eid.items():
+        _rec = result.get(_gid)
+        if _rec is None:
+            continue
+        for _gdt, _gamt in _grant.items():
+            _rec['daily'][_gdt] = round(_rec['daily'].get(_gdt, 0) + _gamt)
+        _rec['total'] = round(sum(_rec['daily'].values()))
 
     return result
 
