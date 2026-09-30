@@ -1883,6 +1883,14 @@ def apply_approved_event(data_folder, event):
                 _entry_type = _explicit_type
                 _entry_day = float(payload.get('day_rate') or 0) if _explicit_type == 'day_rate' else old_day
                 _entry_month_sal = float(payload.get('monthly_salary') or 0) if _explicit_type == 'monthly' else old_month
+            # P50 修复(2026-09-30): 调入钻工/井下/破碎的调岗，当月基线类型应落自动切换的
+            # 计件新类型而非旧轨——旧实现保留 old_type，导致管线按月解析时把调岗月当成
+            # 旧类型：出勤网格显示"日薪"、薪资总表类型/班组筛选漏人（81/93/GILBERT 案例）。
+            # 生效日之前仍按旧薪资计由 P35 dept_day_map 日粒度时间线保证（与基线无关）；
+            # 基数清零与下方主档 UPDATE(1897 行) 同口径。
+            if is_driller or is_ug or is_crush:
+                _entry_type = new_type
+                _entry_day, _entry_month_sal = 0, 0
             conn.execute(
                 "INSERT INTO employee_base_history (employee_id,from_month,department,default_type,day_rate,monthly_salary,team_id,note,operator_id)"
                 " VALUES (?,?,?,?,?,?,?,?,?)",
