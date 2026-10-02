@@ -1462,13 +1462,17 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
             absent = att_overrides.get((eid, dt)) in ('A', 'L', 'E')   # P21 R2: absent 含 E（豁免不出勤）
             nu = att_overrides.get((eid, dt)) == 'NU'             # P21 R2: 年假（计薪）
 
-            # 年假 NU 跨模式计薪（ENPRIZON 除外；月薪<40万按原月薪逐日，其余一律 400k/26）
+            # 年假 NU 跨模式计薪（ENPRIZON 除外）。P51(2026-10-02): 月薪工（任意基数）年假
+            # 并入月薪出勤计数（26 天封顶、按本人日薪计），不再额外发 ug_al_per_day——
+            # 旧实现月薪≥40万者 NU 额外发 15,385 且不占 26 天上限，"满勤月薪+年假补贴"
+            # 可叠加超过整月月薪（ADAM 450k 457k/Omary 700k 762k 案例）。
+            # 计件/日薪工无月薪兜底，仍按 15,385/天。
             if nu:
                 _dept = emp.get('department','')
                 if _dept == 'ENPRIZON LINDI PROJECT':
                     pass  # ENPRIZON 走下方月薪 present 计数，不额外 per_day
-                elif dtype == 'monthly' and 0 < emp.get('monthly_salary',0) < 400000:
-                    pass  # 月薪<40万按原月薪逐日，已在下方 monthly 分支计入
+                elif dtype == 'monthly':
+                    pass  # P51: 月薪工年假并入月薪出勤计数，已在下方 monthly 分支计入
                 else:
                     dr_total += ug_al_per_day
                     continue
@@ -1486,9 +1490,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                     continue
                 dr_total += get_day_rate_for_date(overrides, emp_map, eid, dt)
             elif dtype == 'monthly' and not absent and (dt in present_dates[eid] or nu):
-                # 其他部门月薪>=40万的 NU 已按 15384 处理，不计入月薪天数
-                if nu and emp.get('department') != 'ENPRIZON LINDI PROJECT' and not (0 < emp.get('monthly_salary',0) < 400000):
-                    continue
+                # P51: NU（年假）天计入月薪出勤天数（26 天封顶内按本人日薪），所有月薪工统一
                 monthly_present_count += 1
 
         # 月薪：实际出勤 >= 26天封顶为满勤基薪
@@ -2056,12 +2058,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 # A/L/E 排除与 calculate_all 对齐（原实现漏排除，日明细与薪资总表月薪不一致）
                 if att_all.get((eid, dt)) in ('A', 'L', 'E'):
                     continue
-                # P43-O1b: 复制 calculate_all 的 NU 重定向——月薪≥40万的非 ENPRIZON 员工
-                # NU 天不计月薪（走显示层 ug_al_per_day 分支），否则该日钱款被 NU 显示顶掉丢失
+                # P51: NU 天计入月薪出勤天数（与 calculate_all 镜像），所有月薪工统一——
+                # 旧实现月薪≥40万者 NU 不计月薪（走显示层 15,385 分支），产生双重计薪
                 _nu_mark = att_all.get((eid, dt)) == 'NU'
-                if _nu_mark and _dept_rec != 'ENPRIZON LINDI PROJECT' \
-                        and not (0 < _emp_rec.get('monthly_salary', 0) < 400000):
-                    continue
                 if dt in present.get(eid, set()) or _nu_mark:
                     monthly_present_dates.append(dt)
             effective_days = min(len(monthly_present_dates), 26)
@@ -2141,8 +2140,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 sick_grant_by_eid[eid] = sk_subsidy_daily
             for dt in final_dates:
                 dt_eff = per_date_type.get(eid, {}).get(dt, pdt.get(dt, eff))
-                # 年假 NU 统一：其他部门按 15384（月薪<40k 除外），ENPRIZON 保持原逻辑
-                if att_all.get((eid, dt)) == 'NU' and emp.get('department') != 'ENPRIZON LINDI PROJECT' and not (dt_eff == 'monthly' and 0 < emp.get('monthly_salary',0) < 400000):
+                # 年假 NU 统一：其他部门按 15384（P51: 月薪工并入月薪计数、不在此显示），ENPRIZON 保持原逻辑
+                if att_all.get((eid, dt)) == 'NU' and emp.get('department') != 'ENPRIZON LINDI PROJECT' and dt_eff != 'monthly':
                     if dt_eff != 'piece_underground':
                         daily[dt] = round(ug_al_per_day_br)
                         continue
@@ -2154,12 +2153,12 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         daily[dt] = round(amt)
                         s = ug_shifts.get(eid, {}).get(dt, '')
                         if s: shifts_info[dt] = s
-                    # 年假 NU 跨模式：ENPRIZON 除外；月薪<40万按原月薪，其余 15384
+                    # 年假 NU 跨模式：ENPRIZON 除外；P51: 月薪工并入月薪计数，其余 15384
                     if att_all.get((eid, dt)) == 'NU':
                         _dept_br2 = emp.get('department','')
                         if _dept_br2 == 'ENPRIZON LINDI PROJECT':
                             pass
-                        elif dt_eff == 'monthly' and 0 < emp.get('monthly_salary',0) < 400000:
+                        elif dt_eff == 'monthly':
                             pass
                         elif ug_al_per_day_br:
                             daily[dt] = round(daily.get(dt, 0) + ug_al_per_day_br)
