@@ -114,6 +114,15 @@ def sick_subsidy_days(eid, emp, sk_dates, att_overrides, per_date_type, present_
                  emp.get('override_type') or emp.get('default_type', ''))
         if dtype in ('day_rate', 'monthly') and dt in (present_dates.get(eid) or set()):
             continue
+        if dtype == 'monthly':
+            # P51-b(2026-10-02): 月薪满勤月不发病假补贴——present_dates 已含 NU/ENPRIZON
+            # 1-26 补齐，当月有薪天（出勤+年假）达 26 天上限时，SK 天落在月薪计薪之外，
+            # 月薪已覆盖整月，再发补贴即双重计薪（用户确认口径）。ENPRIZON 月薪工
+            # 因 1-26 补齐恒满勤，同样不发（顺带收敛 P48 审查遗留的口径疑问）。
+            _m = dt[:7]
+            _paid = sum(1 for x in (present_dates.get(eid) or set()) if x[:7] == _m)
+            if _paid >= 26:
+                continue
         granted[dt] = amount_per_day
     return granted
 
