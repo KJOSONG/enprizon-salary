@@ -1749,6 +1749,9 @@ function api(path) { return API_BASE + path; }
 
 function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// 内联 onclick 属性注入专用：浏览器先解码 HTML 实体再解析 JS，' 必须转义为 \' 才能防串闭合
+// （2026-10 SANING'O 教训：escHtml 不转义引号，员工 id/姓名含 ' 时 onclick 语法错误 → 按钮/选人失效）
+function escJsAttr(s) { return escHtml(String(s||'')).replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
 
 // P13: 动态注入的 data-i18n / data-i18n-placeholder 节点自动翻译（修复 JS 渲染后英文模式残留）
 if (window.MutationObserver) {
@@ -4747,7 +4750,7 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_bank_account">账号</label><input id="pfEdit_bank_account" value="${g(emp.bank_account)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_owner">户名</label><input id="pfEdit_bank_owner" value="${g(emp.bank_owner)}" style="${inStyle}"></div>`;
   form += '<div style="display:flex;gap:8px;margin-top:12px;">';
-  form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + eid + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
+  form += '<button class="btn-primary" onclick="saveEmployeeProfile(\'' + escJsAttr(eid) + '\')" style="padding:6px 16px;">' + t('btn_save') + '</button>';
   form += '<button class="btn-cancel" onclick="document.getElementById(\'pfEditModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button>';
   form += '</div><div id="pfEditMsg" style="margin-top:8px;font-size:12px;"></div></div>';
   const modal = document.createElement('div');
@@ -5744,7 +5747,7 @@ function filterSalaryTable() {
   // P29-c Req②: 行内编辑门控（奖金/罚款/预支三列，需 employees:edit）
   const canInlineEdit = hasPermission('employees', 'edit');
   const inlineTd = (rowEid, field, raw, disp, colorVar) => canInlineEdit
-    ? `<td class="num cell-edit" onclick="startSalaryInlineEdit(this,'${escHtml(rowEid)}','${field}',${raw})" style="color:${colorVar}">${disp}</td>`
+    ? `<td class="num cell-edit" onclick="startSalaryInlineEdit(this,'${escJsAttr(rowEid)}','${field}',${raw})" style="color:${colorVar}">${disp}</td>`
     : `<td class="num" style="color:${colorVar}">${disp}</td>`;
   tbody.innerHTML = filtered.map(emp => {
     const ot = emp.overtime || 0;
@@ -6906,7 +6909,7 @@ async function loadCaptainsAdmin() {
     return `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
       <span style="flex:1;">${escHtml(display)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml((e && (e.custom_number || e.id)) || c.employee_id)}</span></span>
-      <button class="nav-btn" onclick="deleteDrillerCaptain('${escHtml(c.id)}')" style="font-size:11px;padding:3px 8px;color:var(--danger);" data-i18n="captains_delete">🗑 删除</button>
+      <button class="nav-btn" onclick="deleteDrillerCaptain('${escJsAttr(c.id)}')" style="font-size:11px;padding:3px 8px;color:var(--danger);" data-i18n="captains_delete">🗑 删除</button>
     </div>`;
   }).join('');
 }
@@ -7071,7 +7074,7 @@ async function _oaDetailHtml(ev) {
     ? `${escHtml(info.name || '-')} · ${escHtml(info.department || '-')} · ${escHtml(typeLbl || '-')}`
     : '-'}</span></div>`;
   const profileBtn = info && hasPermission('employees', 'view')
-    ? `<div style="margin:6px 0 2px;"><button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="navigate('employees','profile',{id:'${escHtml(ev.employee_id)}'})">${t('oa_goto_profile')}</button></div>`
+    ? `<div style="margin:6px 0 2px;"><button class="oa-btn" style="background:var(--bg-secondary);color:var(--text-muted);" onclick="navigate('employees','profile',{id:'${escJsAttr(ev.employee_id)}'})">${t('oa_goto_profile')}</button></div>`
     : '';
   return submitterRow + infoRow + profileBtn + avatarHtml + rows.join('');
 }
@@ -7954,7 +7957,7 @@ function initEmpTypeahead(inputId, hiddenId, pickId) {
         pick.style.display = 'block';
         return;
       }
-      pick.innerHTML = hits.map(e => `<div onclick="pickEmp('${inputId}','${hiddenId}','${pickId}','${escHtml(String(e.id))}','${escHtml(e.name)}')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></div>`).join('');
+      pick.innerHTML = hits.map(e => `<div onclick="pickEmp('${inputId}','${hiddenId}','${pickId}','${escJsAttr(String(e.id))}','${escJsAttr(e.name)}')" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></div>`).join('');
       pick.style.display = 'block';
     }, 300);
   });

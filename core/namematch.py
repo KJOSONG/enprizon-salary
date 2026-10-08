@@ -244,9 +244,12 @@ def make_employee_id(name):
     # 遗留 CANONICAL → 转换为旧格式 ID
     if full_name:
         return re.sub(r'\s+', '', full_name).upper()
-    # 最终回退
+    # 最终回退（剔除引号类字符：员工ID会进入前端内联 onclick/URL，'
+    # 会截断 JS 字符串导致保存/选人失效——2026-10 SANING'O 事故教训）
     c = strip_alias(name)
-    return re.sub(r'\s+', '', c).upper() if c else None
+    if not c:
+        return None
+    return re.sub(r"[\s'\"`]+", "", c).upper()
 
 
 def display_name(name):
