@@ -708,6 +708,14 @@
         </div>
       </div>
     </div>
+    <!-- P52: 合同管理（通栏区块，位于双列 grid 下方） -->
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h3 style="margin:0;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);" data-i18n="contract_section_title">合同管理</h3>
+        <button class="nav-btn" id="pfContractAddBtn" onclick="openContractModal()" style="font-size:11px;" data-perm="employees:edit" data-i18n="contract_add">＋ 上传合同</button>
+      </div>
+      <div id="profileContracts" style="font-size:12px;color:var(--text-muted);" data-i18n="loading">加载中...</div>
+    </div>
   </div>
 </div>
 
@@ -4109,6 +4117,7 @@ async function loadEmployeeProfilePage(eid) {
     if (!emp) { document.getElementById('profileName').textContent = t('emp_not_found'); return; }
     _profileEvents = events;
     loadProfileAttendance();
+    loadProfileContracts();  // P52: 合同管理区块
 
     document.getElementById('profileName').textContent = emp.name;
     document.getElementById('profileStatus').innerHTML = emp.status === 'active'
@@ -4539,6 +4548,150 @@ async function deleteEmployeeAvatar() {
     });
     const data = await res.json();
     if (data.ok) { showToast(t('avatar_deleted')); showEmployeeProfile(eid); }
+    else showToast(data.error || t('delete_fail'), 'error');
+  } catch(e) { showToast(t('delete_fail'), 'error'); }
+}
+
+/* ── P52: 合同管理 ── */
+let _profileContracts = [];
+/* 业务时区 EAT(UTC+3) 的今天（YYYY-MM-DD）——状态徽章按此计算 */
+function _eatToday() {
+  const n = new Date();
+  return new Date(n.getTime() + (n.getTimezoneOffset() + 180) * 60000).toISOString().slice(0, 10);
+}
+function _contractStatus(c) {
+  const today = _eatToday();
+  if (c.expiry_date < today) return { key: 'expired', color: 'var(--danger)', days: null };
+  const days = Math.round((new Date(c.expiry_date + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+  if (days <= 30) return { key: 'expiring', color: 'var(--warning, #d97706)', days };
+  return { key: 'active', color: 'var(--success)', days };
+}
+async function loadProfileContracts() {
+  const box = document.getElementById('profileContracts');
+  if (!box || !_profileEid) return;
+  try {
+    const res = await fetch(api('/api/employees/' + _profileEid + '/contracts'));
+    const data = await res.json();
+    _profileContracts = data.contracts || [];
+  } catch(e) { _profileContracts = []; }
+  renderProfileContracts();
+}
+function _contractRowHtml(c, canEdit) {
+  const st = _contractStatus(c);
+  const sizeTxt = c.file_size ? (c.file_size >= 1048576 ? (c.file_size / 1048576).toFixed(1) + 'MB' : Math.round(c.file_size / 1024) + 'KB') : '';
+  const daysTxt = st.days !== null ? ' · ' + t('contract_days_left').replace('{n}', st.days) : '';
+  let btns = '<button class="nav-btn" style="font-size:10px;padding:2px 8px;" onclick="previewContract(' + c.id + ')">' + t('contract_preview') + '</button>'
+    + '<button class="nav-btn" style="font-size:10px;padding:2px 8px;" onclick="downloadContract(' + c.id + ')">' + t('contract_download') + '</button>';
+  if (canEdit) {
+    btns += '<button class="nav-btn" style="font-size:10px;padding:2px 8px;" onclick="openContractModal(' + c.id + ')">' + t('btn_edit') + '</button>'
+      + '<button class="nav-btn" style="font-size:10px;padding:2px 8px;" onclick="deleteContract(' + c.id + ')">' + t('btn_delete') + '</button>';
+  }
+  return '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-bottom:6px;background:var(--bg-secondary);">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+    + '<span style="font-size:12px;color:var(--text);">' + escHtml(c.sign_date) + ' → ' + escHtml(c.expiry_date) + '</span>'
+    + '<span style="font-size:10px;padding:1px 8px;border-radius:10px;color:#fff;background:' + st.color + ';">' + t('contract_status_' + st.key) + daysTxt + '</span>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px;">📄 ' + escHtml(c.file_name || '') + (sizeTxt ? ' (' + sizeTxt + ')' : '')
+    + (c.uploaded_by ? ' · ' + t('contract_uploaded_by') + ' ' + escHtml(c.uploaded_by) : '')
+    + (c.created_at ? ' · ' + escHtml(String(c.created_at).slice(0, 10)) : '') + '</div>'
+    + (c.remark ? '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + escHtml(c.remark) + '</div>' : '')
+    + '<div style="display:flex;gap:6px;margin-top:6px;">' + btns + '</div>'
+    + '</div>';
+}
+function renderProfileContracts() {
+  const box = document.getElementById('profileContracts');
+  if (!box) return;
+  const canEdit = hasPermission('employees', 'edit');
+  const list = _profileContracts;
+  if (!list.length) { box.innerHTML = '<span>' + t('contract_none') + '</span>'; return; }
+  // 当前合同 = 未过期中到期日最大（列表已按到期日降序，第一个未过期即当前）；其余入历史折叠区
+  const today = _eatToday();
+  const current = list.find(c => c.expiry_date >= today) || null;
+  const history = list.filter(c => c !== current);
+  let html = '';
+  if (current) {
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">' + t('contract_current') + '</div>'
+      + _contractRowHtml(current, canEdit);
+  }
+  if (history.length) {
+    html += '<div style="margin-top:8px;">'
+      + '<div onclick="toggleContractHistory()" style="cursor:pointer;font-size:11px;color:var(--text-muted);user-select:none;">'
+      + '<span id="contractHistoryArrow">▸</span> ' + t('contract_history') + ' (' + history.length + ')</div>'
+      + '<div id="contractHistoryList" style="display:none;margin-top:6px;">'
+      + history.map(c => _contractRowHtml(c, canEdit)).join('')
+      + '</div></div>';
+  }
+  box.innerHTML = html;
+}
+function toggleContractHistory() {
+  const el = document.getElementById('contractHistoryList');
+  const arrow = document.getElementById('contractHistoryArrow');
+  if (!el) return;
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  if (arrow) arrow.textContent = show ? '▾' : '▸';
+}
+function previewContract(cid) { window.open(api('/api/contracts/' + cid + '/download?inline=1'), '_blank'); }
+function downloadContract(cid) { window.open(api('/api/contracts/' + cid + '/download'), '_blank'); }
+/* 上传/编辑共用 modal（editId 为空=上传新合同，否则编辑该合同并可替换文件） */
+function openContractModal(editId) {
+  const c = editId ? _profileContracts.find(x => x.id === editId) : null;
+  const inStyle = 'width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;';
+  // 容器用标准 .modal 类（实色背景 var(--bg-primary)，style.css:2908）——勿用未定义的 var(--bg)，否则背景透明
+  let form = '<div class="modal" style="min-width:0;max-width:420px;width:92vw;">';
+  form += '<h3 style="margin:0 0 12px;font-size:14px;">' + t(c ? 'contract_edit_title' : 'contract_upload_title') + '</h3>';
+  form += '<div class="form-row"><label>' + t('contract_sign_date') + '</label><input type="date" id="ctForm_sign" value="' + (c ? escHtml(c.sign_date) : '') + '" style="' + inStyle + '"></div>';
+  form += '<div class="form-row"><label>' + t('contract_expiry_date') + '</label><input type="date" id="ctForm_expiry" value="' + (c ? escHtml(c.expiry_date) : '') + '" style="' + inStyle + '"></div>';
+  form += '<div class="form-row"><label>' + t(c ? 'contract_replace_file' : 'contract_file') + '</label><input type="file" id="ctForm_file" accept="application/pdf,.pdf" style="font-size:12px;color:var(--text);"></div>';
+  form += '<div class="form-row"><label>' + t('contract_remark') + '</label><input id="ctForm_remark" value="' + (c ? escHtml(c.remark || '') : '') + '" maxlength="200" style="' + inStyle + '"></div>';
+  form += '<div style="display:flex;gap:8px;margin-top:12px;">'
+    + '<button class="btn-primary" onclick="submitContractForm(' + (c ? c.id : 'null') + ')" style="padding:6px 16px;">' + t('btn_save') + '</button>'
+    + '<button class="btn-cancel" onclick="document.getElementById(\'contractModal\').remove()" style="padding:6px 16px;">' + t('btn_cancel') + '</button></div>';
+  form += '<div id="ctFormMsg" style="margin-top:8px;font-size:12px;color:var(--danger);"></div></div>';
+  const old = document.getElementById('contractModal');
+  if (old) old.remove();
+  const modal = document.createElement('div');
+  modal.id = 'contractModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:499;';
+  modal.onclick = function(ev) { if (ev.target === modal) modal.remove(); };
+  modal.innerHTML = form;
+  document.body.appendChild(modal);
+}
+async function submitContractForm(editId) {
+  const sign = (document.getElementById('ctForm_sign') || {}).value || '';
+  const expiry = (document.getElementById('ctForm_expiry') || {}).value || '';
+  const remark = (document.getElementById('ctForm_remark') || {}).value || '';
+  const file = ((document.getElementById('ctForm_file') || {}).files || [])[0];
+  const msg = document.getElementById('ctFormMsg');
+  if (!sign || !expiry || expiry <= sign) { msg.textContent = t('contract_err_dates'); return; }
+  if (!editId && !file) { msg.textContent = t('contract_err_file_required'); return; }
+  if (file) {
+    if (!/\.pdf$/i.test(file.name)) { msg.textContent = t('contract_err_file_type'); return; }
+    if (file.size > 10 * 1024 * 1024) { msg.textContent = t('contract_err_file_size'); return; }
+  }
+  const fd = new FormData();
+  fd.append('sign_date', sign);
+  fd.append('expiry_date', expiry);
+  fd.append('remark', remark);
+  if (file) fd.append('file', file);
+  const url = editId ? '/api/contracts/' + editId : '/api/employees/' + _profileEid + '/contracts';
+  try {
+    const res = await authFetch(api(url), { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(t(editId ? 'contract_updated' : 'contract_uploaded'));
+      const m = document.getElementById('contractModal');
+      if (m) m.remove();
+      loadProfileContracts();
+    } else { msg.textContent = data.error || t('save_fail'); }
+  } catch(e) { msg.textContent = t('save_fail'); }
+}
+async function deleteContract(cid) {
+  if (!confirm(t('contract_delete_confirm'))) return;
+  try {
+    const res = await authFetch(api('/api/contracts/' + cid + '/delete'), { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) { showToast(t('contract_deleted')); loadProfileContracts(); }
     else showToast(data.error || t('delete_fail'), 'error');
   } catch(e) { showToast(t('delete_fail'), 'error'); }
 }

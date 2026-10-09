@@ -378,6 +378,20 @@ def init_db(data_folder):
             default_value TEXT DEFAULT '',
             FOREIGN KEY (schema_id) REFERENCES form_schemas(id) ON DELETE CASCADE
         );
+        -- P52: 员工合同管理（PDF 扫描件存 data/contracts/，本表存元数据 + 签订/到期日期，多份历史保留）
+        CREATE TABLE IF NOT EXISTS employee_contracts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id TEXT NOT NULL,
+            sign_date TEXT NOT NULL,
+            expiry_date TEXT NOT NULL,
+            file_path TEXT NOT NULL DEFAULT '',
+            file_name TEXT NOT NULL DEFAULT '',
+            file_size INTEGER DEFAULT 0,
+            remark TEXT DEFAULT '',
+            uploaded_by TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','+3 hours'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_contracts_emp ON employee_contracts(employee_id);
     """)
     conn.commit()
 
@@ -3328,6 +3342,57 @@ def get_approved_events_for_month(data_folder, month):
 
 
 # ── P1: 员工档案扩展查询 ───────────────────
+
+# ── P52: 员工合同管理 ─────────────────────────────
+def list_contracts(data_folder, employee_id):
+    """员工合同列表（按到期日降序，新的在前）"""
+    conn = get_conn(data_folder)
+    rows = conn.execute(
+        "SELECT * FROM employee_contracts WHERE employee_id=? ORDER BY expiry_date DESC, id DESC",
+        (employee_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_contract(data_folder, contract_id):
+    """单条合同记录"""
+    conn = get_conn(data_folder)
+    row = conn.execute("SELECT * FROM employee_contracts WHERE id=?", (contract_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def add_contract(data_folder, employee_id, sign_date, expiry_date,
+                 file_path, file_name, file_size, remark='', uploaded_by=''):
+    """新增合同记录，返回 id"""
+    conn = get_conn(data_folder)
+    cur = conn.execute(
+        "INSERT INTO employee_contracts (employee_id, sign_date, expiry_date, file_path, file_name, file_size, remark, uploaded_by)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        (employee_id, sign_date, expiry_date, file_path, file_name, file_size, remark, uploaded_by))
+    cid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return cid
+
+def update_contract(data_folder, contract_id, fields):
+    """更新合同元数据（签订/到期日期、备注、文件字段——替换文件时）"""
+    allowed = {'sign_date', 'expiry_date', 'remark', 'file_path', 'file_name', 'file_size'}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return False
+    conn = get_conn(data_folder)
+    sets = ', '.join(f"{k}=?" for k in updates)
+    vals = list(updates.values()) + [contract_id]
+    conn.execute(f"UPDATE employee_contracts SET {sets} WHERE id=?", vals)
+    conn.commit()
+    conn.close()
+    return True
+
+def delete_contract(data_folder, contract_id):
+    """删除合同记录（文件由 app.py 删除）"""
+    conn = get_conn(data_folder)
+    conn.execute("DELETE FROM employee_contracts WHERE id=?", (contract_id,))
+    conn.commit()
+    conn.close()
 
 def get_employee_profile(data_folder, employee_id):
     """获取员工完整档案：基本信息 + 事件数 + 请假数"""

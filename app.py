@@ -2487,6 +2487,177 @@ def api_employee_avatar_delete():
     return jsonify({'ok': True})
 
 
+# ── P52: 员工合同管理（PDF 扫描件 + 签订/到期日期，多份历史保留） ─────────────
+CONTRACT_MAX_SIZE = 10 * 1024 * 1024  # 10MB
+
+def _contract_dir():
+    """合同文件存储目录（data/contracts/，gitignored，不经 /static 无鉴权直出）"""
+    d = os.path.join(app.config['DATA_FOLDER'], 'contracts')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+def _contract_safe_path(file_path):
+    """存储的相对路径 → 绝对路径，防路径穿越（必须落在 contracts 目录内）"""
+    base = os.path.realpath(_contract_dir())
+    abs_path = os.path.realpath(os.path.join(base, file_path))
+    return abs_path if abs_path.startswith(base + os.sep) else None
+
+def _valid_contract_date(s):
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', s or ''):
+        return False
+    try:
+        datetime.strptime(s, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
+def _validate_contract_pdf(file):
+    """PDF 扩展名 + 大小 + 魔数校验，返回错误消息或 None"""
+    if not file or not file.filename:
+        return '缺少合同文件'
+    if not file.filename.lower().endswith('.pdf'):
+        return '仅支持 PDF 文件'
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > CONTRACT_MAX_SIZE:
+        return 'PDF 超过 10MB 限制'
+    if size == 0:
+        return '文件为空'
+    head = file.read(5)
+    file.seek(0)
+    if head != b'%PDF-':
+        return '文件内容不是有效的 PDF'
+    return None
+
+@app.route('/api/employees/<employee_id>/contracts', methods=['GET'])
+@login_required
+@require_permission('employees', 'view')
+def api_contract_list(employee_id):
+    """P52: 员工合同列表（按到期日降序）"""
+    from core.database import list_contracts
+    return jsonify({'ok': True, 'contracts': list_contracts(app.config['DATA_FOLDER'], employee_id)})
+
+@app.route('/api/employees/<employee_id>/contracts', methods=['POST'])
+@login_required
+@require_permission('employees', 'edit')
+def api_contract_upload(employee_id):
+    """P52: 上传合同（multipart：file + sign_date + expiry_date + remark?）"""
+    from core.database import add_contract, update_contract, delete_contract, log_audit
+    eid = employee_id.strip()
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+', eid):
+        return jsonify({'ok': False, 'error': '无效的员工ID'}), 400
+    sign_date = (request.form.get('sign_date') or '').strip()
+    expiry_date = (request.form.get('expiry_date') or '').strip()
+    remark = (request.form.get('remark') or '').strip()[:200]
+    if not (_valid_contract_date(sign_date) and _valid_contract_date(expiry_date)):
+        return jsonify({'ok': False, 'error': '签订/到期日期格式无效'}), 400
+    if expiry_date <= sign_date:
+        return jsonify({'ok': False, 'error': '到期日期须晚于签订日期'}), 400
+    file = request.files.get('file')
+    err = _validate_contract_pdf(file)
+    if err:
+        return jsonify({'ok': False, 'error': err}), 400
+    # 先插行拿 id → 以 "<id>_<安全文件名>" 落盘（天然防重名）→ 回填文件字段
+    cid = add_contract(app.config['DATA_FOLDER'], eid, sign_date, expiry_date,
+                       '', secure_filename(file.filename) or 'contract.pdf', 0,
+                       remark, session.get('username', ''))
+    fname = f'{cid}_{secure_filename(file.filename) or "contract.pdf"}'
+    try:
+        file.save(os.path.join(_contract_dir(), fname))
+    except Exception:
+        delete_contract(app.config['DATA_FOLDER'], cid)
+        return jsonify({'ok': False, 'error': '文件保存失败'}), 500
+    size = os.path.getsize(os.path.join(_contract_dir(), fname))
+    update_contract(app.config['DATA_FOLDER'], cid, {'file_path': fname, 'file_size': size})
+    log_audit(app.config['DATA_FOLDER'], 'contract_upload', eid,
+              json.dumps({'contract_id': cid, 'sign_date': sign_date, 'expiry_date': expiry_date,
+                          'file_name': fname, 'file_size': size}),
+              operator=session.get('username',''))
+    return jsonify({'ok': True, 'contract_id': cid})
+
+@app.route('/api/contracts/<int:cid>', methods=['POST'])
+@login_required
+@require_permission('employees', 'edit')
+def api_contract_update(cid):
+    """P52: 编辑合同（JSON 改日期/备注；multipart 可额外替换 PDF 文件）"""
+    from core.database import get_contract, update_contract, log_audit
+    rec = get_contract(app.config['DATA_FOLDER'], cid)
+    if not rec:
+        return jsonify({'ok': False, 'error': '合同不存在'}), 404
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        data = request.form
+        file = request.files.get('file')
+    else:
+        data = request.get_json() or {}
+        file = None
+    fields = {}
+    sign_date = (data.get('sign_date') or rec['sign_date']).strip()
+    expiry_date = (data.get('expiry_date') or rec['expiry_date']).strip()
+    if not (_valid_contract_date(sign_date) and _valid_contract_date(expiry_date)):
+        return jsonify({'ok': False, 'error': '签订/到期日期格式无效'}), 400
+    if expiry_date <= sign_date:
+        return jsonify({'ok': False, 'error': '到期日期须晚于签订日期'}), 400
+    fields['sign_date'] = sign_date
+    fields['expiry_date'] = expiry_date
+    if 'remark' in data:
+        fields['remark'] = (data.get('remark') or '').strip()[:200]
+    if file and file.filename:
+        err = _validate_contract_pdf(file)
+        if err:
+            return jsonify({'ok': False, 'error': err}), 400
+        fname = f'{cid}_{secure_filename(file.filename) or "contract.pdf"}'
+        file.save(os.path.join(_contract_dir(), fname))
+        # 删除旧文件（文件名不同才删，防同名替换时误删新文件）
+        old_path = _contract_safe_path(rec['file_path'])
+        if old_path and rec['file_path'] != fname and os.path.exists(old_path):
+            os.remove(old_path)
+        fields['file_path'] = fname
+        fields['file_name'] = secure_filename(file.filename) or 'contract.pdf'
+        fields['file_size'] = os.path.getsize(os.path.join(_contract_dir(), fname))
+    update_contract(app.config['DATA_FOLDER'], cid, fields)
+    log_audit(app.config['DATA_FOLDER'], 'contract_update', rec['employee_id'],
+              json.dumps({'contract_id': cid, **fields}),
+              operator=session.get('username',''))
+    return jsonify({'ok': True})
+
+@app.route('/api/contracts/<int:cid>/delete', methods=['POST'])
+@login_required
+@require_permission('employees', 'edit')
+def api_contract_delete(cid):
+    """P52: 删除合同（删记录 + 删文件）"""
+    from core.database import get_contract, delete_contract, log_audit
+    rec = get_contract(app.config['DATA_FOLDER'], cid)
+    if not rec:
+        return jsonify({'ok': False, 'error': '合同不存在'}), 404
+    abs_path = _contract_safe_path(rec['file_path'])
+    if abs_path and os.path.exists(abs_path):
+        os.remove(abs_path)
+    delete_contract(app.config['DATA_FOLDER'], cid)
+    log_audit(app.config['DATA_FOLDER'], 'contract_delete', rec['employee_id'],
+              json.dumps({'contract_id': cid, 'file_name': rec['file_name'],
+                          'sign_date': rec['sign_date'], 'expiry_date': rec['expiry_date']}),
+              operator=session.get('username',''))
+    return jsonify({'ok': True})
+
+@app.route('/api/contracts/<int:cid>/download')
+@login_required
+@require_permission('employees', 'view')
+def api_contract_download(cid):
+    """P52: 合同 PDF 查看/下载（?inline=1 浏览器内预览，默认附件下载）"""
+    from core.database import get_contract
+    rec = get_contract(app.config['DATA_FOLDER'], cid)
+    if not rec:
+        return jsonify({'ok': False, 'error': '合同不存在'}), 404
+    abs_path = _contract_safe_path(rec['file_path'])
+    if not abs_path or not os.path.exists(abs_path):
+        return jsonify({'ok': False, 'error': '合同文件缺失'}), 404
+    inline = request.args.get('inline') == '1'
+    return send_file(abs_path, mimetype='application/pdf',
+                     as_attachment=not inline,
+                     download_name=rec['file_name'] or f'contract_{cid}.pdf')
+
+
 # ═══════════════════════════════════════════════════════════
 #  P1 API: OA 审批
 # ═══════════════════════════════════════════════════════════
