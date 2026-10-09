@@ -2803,6 +2803,16 @@ def oa_approve_event(event_id):
         accrue_comp_leave_monthly(app.config['DATA_FOLDER'])
     except Exception as e:
         return jsonify({'ok': False, 'error': f'调休入账失败，请稍后重试: {e}'}), 500
+    # 2026-10-09 加固: 批准年假时后端重新校验资格——提交时的校验可被"事后改档案"绕过
+    # (HAMADI RUYALA 事故: 三证填 'A' 通过提交端检查, 幸被审批人驳回)。不合规直接 403。
+    if event.get('event_type') == 'annual_leave':
+        from core.database import check_annual_leave_eligible as _chk_al
+        _al = _chk_al(app.config['DATA_FOLDER'], event['employee_id'])
+        if not _al['eligible']:
+            lang = (_confirm.get('lang') or 'zh')
+            return jsonify({'ok': False,
+                            'error': _leave_err_msg(_al.get('codes', []), _al.get('reasons', []), lang),
+                            'codes': _al.get('codes', [])}), 403
     # 并发安全：先用 approve_event 原子抢占（pending→approved，WHERE status='pending'），
     # 抢到的请求才执行副作用；失败回滚状态。防同一事件并发双审批/双扣。
     ok = approve_event(app.config['DATA_FOLDER'], event_id, username)

@@ -3786,16 +3786,26 @@ def check_annual_leave_eligible(data_folder, employee_id):
             reasons.append(reason)
         return {'eligible': len(codes) == 0, 'reasons': reasons, 'codes': codes}
 
+    # 2026-10-09 加固: 三证须"纯数字且达最少位数"——防止填占位符(如 'A')绕过非空校验
+    # (HAMADI RUYALA 事故: 三证填 'A' 后年假申请通过提交端检查)。
+    # 阈值取自生产数据分布: NIDA 19~21位(标准20,存量最低19), NSSF 8位, TIN 9位。
+    # 先去除连字符/空格再校验, 与 update_employee_fields 的 NSSF/TIN 归一化口径一致。
+    import re as _re
+
+    def _cert_ok(val, min_len):
+        v = str(val if val is not None else '').strip().replace('-', '').replace(' ', '')
+        return bool(_re.fullmatch(r'\d{%d,}' % min_len, v))
+
     # P21 R3: NSSF 以 nssf_number 有值为准（nssf_enrolled 布尔可能滞后）
-    if not (emp['nssf_number'] or '').strip():
+    if not _cert_ok(emp['nssf_number'], 8):
         codes.append('no_nssf')
-        reasons.append('未参加NSSF')
-    if not (emp['nida_number'] or '').strip():
+        reasons.append('NSSF号无效(须至少8位纯数字)')
+    if not _cert_ok(emp['nida_number'], 19):
         codes.append('no_nida')
-        reasons.append('NIDA证件号为空')
-    if not (emp['tin_number'] or '').strip():
+        reasons.append('NIDA证件号无效(须至少19位纯数字)')
+    if not _cert_ok(emp['tin_number'], 9):
         codes.append('no_tin')
-        reasons.append('TIN号码为空')
+        reasons.append('TIN号码无效(须至少9位纯数字)')
     code, reason = _check_hire_date()
     if code:
         codes.append(code)
