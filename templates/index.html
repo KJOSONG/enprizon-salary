@@ -4637,7 +4637,8 @@ function downloadContract(cid) { window.open(api('/api/contracts/' + cid + '/dow
 function openContractModal(editId) {
   const c = editId ? _profileContracts.find(x => x.id === editId) : null;
   const inStyle = 'width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;';
-  let form = '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:20px;max-width:420px;width:92vw;max-height:88vh;overflow-y:auto;">';
+  // 容器用标准 .modal 类（实色背景 var(--bg-primary)，style.css:2908）——勿用未定义的 var(--bg)，否则背景透明
+  let form = '<div class="modal" style="min-width:0;max-width:420px;width:92vw;">';
   form += '<h3 style="margin:0 0 12px;font-size:14px;">' + t(c ? 'contract_edit_title' : 'contract_upload_title') + '</h3>';
   form += '<div class="form-row"><label>' + t('contract_sign_date') + '</label><input type="date" id="ctForm_sign" value="' + (c ? escHtml(c.sign_date) : '') + '" style="' + inStyle + '"></div>';
   form += '<div class="form-row"><label>' + t('contract_expiry_date') + '</label><input type="date" id="ctForm_expiry" value="' + (c ? escHtml(c.expiry_date) : '') + '" style="' + inStyle + '"></div>';
