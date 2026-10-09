@@ -3815,9 +3815,10 @@ def accrue_comp_leave_monthly(data_folder):
 def check_annual_leave_eligible(data_folder, employee_id):
     """P21 R3: 年假资格检查（NSSF 改为查 nssf_number 有值；新增 TIN 检查）
 
-    返回结构化 reason codes（no_nssf/no_nida/no_tin/no_hire_date/invalid_hire_date/under_1year）
+    返回结构化 reason codes（no_nssf/no_nida/no_tin/no_contract/no_hire_date/invalid_hire_date/under_1year）
     + 保留中文 reasons 供旧调用方展示。
-    豁免开关（annual_leave_override）跳过 NSSF + NIDA + TIN，但入职日期仍必须。
+    豁免开关（annual_leave_override）跳过 NSSF + NIDA + TIN + 合同检查，但入职日期仍必须。
+    P52-c: 合同检查——须有合同且未过期超 30 天（EAT；过期 30 天内为宽限期不阻断）。
     """
     conn = get_conn(data_folder)
     emp = conn.execute(
@@ -3871,6 +3872,22 @@ def check_annual_leave_eligible(data_folder, employee_id):
     if not _cert_ok(emp['tin_number'], 9):
         codes.append('no_tin')
         reasons.append('TIN号码无效(须至少9位纯数字)')
+    # P52-c: 合同检查（豁免开关跳过，与三证同级）——须有合同且未过期超 30 天(EAT)：
+    # 无合同 → 阻断；合同已过期但 ≤30 天(EAT) → 宽限期不阻断；过期 >30 天 → 阻断
+    import datetime as _dtc
+    _cutoff = (_dtc.datetime.now(_dtc.timezone(_dtc.timedelta(hours=3))).date()
+               - _dtc.timedelta(days=30)).isoformat()
+    conn = get_conn(data_folder)
+    if _table_exists(conn, 'employee_contracts'):
+        _has_contract = conn.execute(
+            "SELECT 1 FROM employee_contracts WHERE employee_id=? AND expiry_date>=? LIMIT 1",
+            (employee_id, _cutoff)).fetchone()
+    else:
+        _has_contract = True  # 表不存在（陈旧库）时跳过合同检查，不误伤
+    conn.close()
+    if not _has_contract:
+        codes.append('no_contract')
+        reasons.append('无有效合同(未上传或合同过期超30天)')
     code, reason = _check_hire_date()
     if code:
         codes.append(code)

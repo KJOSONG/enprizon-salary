@@ -794,6 +794,9 @@ const I18N_DICT = {
     /* ── P52-m 移动端档案增补 ── */
     leave_balance_title: '假期余额',
     sick_balance: '病假余额',
+    leave_not_eligible: '不符合资格',
+    leave_cert_invalid: '无效',
+    leave_no_contract: '无有效合同',
     contract_status_title: '合同状态',
     emp_contract: '合同',
     contract_signed: '已签订',
@@ -2135,6 +2138,9 @@ const I18N_DICT = {
     /* ── P52-m Mobile Profile ── */
     leave_balance_title: 'Leave Balance',
     sick_balance: 'Sick Leave Balance',
+    leave_not_eligible: 'Not Eligible',
+    leave_cert_invalid: 'invalid',
+    leave_no_contract: 'No valid contract',
     contract_status_title: 'Contract Status',
     emp_contract: 'Contract',
     contract_signed: 'Signed',

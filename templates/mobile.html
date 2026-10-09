@@ -1220,6 +1220,17 @@
   }
   // EAT(UTC+3) 今天——合同状态徽章按此计算（与桌面端 _eatToday 同逻辑）
   function _mobEatToday(){ const n=new Date(); return new Date(n.getTime()+(n.getTimezoneOffset()+180)*60000).toISOString().slice(0,10); }
+  // P52-c: 年假"不符合资格"明细括注（与桌面端 annualIneligDetail 同构）
+  function _mobAnnualIneligDetail(codes){
+    const certs=[];
+    if(codes.includes('no_nssf')) certs.push('NSSF');
+    if(codes.includes('no_nida')) certs.push('NIDA');
+    if(codes.includes('no_tin')) certs.push('TIN');
+    const parts=[];
+    if(certs.length) parts.push(certs.join('/')+' '+t('leave_cert_invalid'));
+    if(codes.includes('no_contract')) parts.push(t('leave_no_contract'));
+    return parts.length?'（'+parts.join('，')+'）':'';
+  }
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
   function renderEmpProfile(e, att, sal, balData, contractData, teamName){
     // P22 R6/R7: 移动端员工详情不显示薪资内容（全员隐藏，不再依赖部门判断）
@@ -1256,13 +1267,26 @@
     if(!bal || bal.exists===false){
       html += kv(t('emp_annual_balance'),'—') + kv(t('emp_comp_balance'),'—') + kv(t('sick_balance'),'—');
     } else {
-      const hd = e.hire_date ? new Date(e.hire_date) : null;
-      const hdValid = hd && !isNaN(hd.getTime());
+      // P52-c: 后端 annual_eligible/annual_codes 优先（含三证/合同检查，与 OA 同一判定）；字段缺失回退前端 365 天判定
       let annualTxt;
-      if(hdValid && (Date.now()-hd.getTime()) < 365*86400000){
-        annualTxt = t('leave_under_1year')+' ('+new Date(hd.getTime()+365*86400000).toISOString().slice(0,10)+')';
-      } else {
+      if(bal.annual_eligible === false){
+        const codes = bal.annual_codes || [];
+        if(codes.includes('under_1year')){
+          const hd0 = e.hire_date ? new Date(e.hire_date) : null;
+          annualTxt = t('leave_under_1year') + ((hd0 && !isNaN(hd0.getTime())) ? ' ('+new Date(hd0.getTime()+365*86400000).toISOString().slice(0,10)+')' : '');
+        } else {
+          annualTxt = t('leave_not_eligible') + _mobAnnualIneligDetail(codes);
+        }
+      } else if(bal.annual_eligible === true){
         annualTxt = ((bal.annual_entitled||0)-(bal.annual_used||0)) + ' / ' + (bal.annual_entitled||0) + ' ' + t('unit_day');
+      } else {
+        const hd = e.hire_date ? new Date(e.hire_date) : null;
+        const hdValid = hd && !isNaN(hd.getTime());
+        if(hdValid && (Date.now()-hd.getTime()) < 365*86400000){
+          annualTxt = t('leave_under_1year')+' ('+new Date(hd.getTime()+365*86400000).toISOString().slice(0,10)+')';
+        } else {
+          annualTxt = ((bal.annual_entitled||0)-(bal.annual_used||0)) + ' / ' + (bal.annual_entitled||0) + ' ' + t('unit_day');
+        }
       }
       html += kv(t('emp_annual_balance'), annualTxt);
       html += kv(t('emp_comp_balance'), ((bal.comp_entitled||0)-(bal.comp_used||0)) + ' / ' + (bal.comp_entitled||0) + ' ' + t('unit_day'));

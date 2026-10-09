@@ -2251,10 +2251,9 @@ def api_employee_attendance_summary(employee_id):
     return jsonify({'ok': True, 'months': out})
 
 @app.route('/api/employees/<employee_id>/annual-leave-override', methods=['POST'])
-@editor_required
-@require_permission('oa', 'approve')
+@super_admin_required
 def api_employee_annual_leave_override(employee_id):
-    """P20: 切换员工年假资格豁免（仅 OA 审批人）——开启后跳过 NSSF + NIDA 检查"""
+    """P20: 切换员工年假资格豁免（P52-c 起仅 super_admin 可见可改）——开启后跳过 NSSF + NIDA + TIN + 合同检查"""
     from core.database import get_conn, log_audit
     data = request.get_json() or {}
     v = data.get('override')
@@ -3318,6 +3317,7 @@ _LEAVE_ERR_MSG = {
         'no_nssf': '未参加NSSF',
         'no_nida': 'NIDA证件号为空',
         'no_tin': 'TIN号码为空',
+        'no_contract': '无有效合同(未上传或合同过期超30天)',
         'no_hire_date': '入职日期为空',
         'invalid_hire_date': '入职日期格式无效',
         'no_employee': '员工不存在',
@@ -3328,6 +3328,7 @@ _LEAVE_ERR_MSG = {
         'no_nssf': 'NSSF not enrolled',
         'no_nida': 'NIDA number is empty',
         'no_tin': 'TIN number is empty',
+        'no_contract': 'No valid contract (not uploaded or expired >30 days)',
         'no_hire_date': 'Hire date is empty',
         'invalid_hire_date': 'Invalid hire date format',
         'no_employee': 'Employee not found',
@@ -3602,6 +3603,11 @@ def leave_balance(employee_id):
                   operator=session.get('username',''))
     # include_defaults=False：无余额行返回 exists:false + 全 0，档案页显示「—」而非虚构的 28/14
     balance = get_leave_balance(app.config['DATA_FOLDER'], employee_id, year, include_defaults=False)
+    # P52-c: 附年假资格判定（与 OA 提交/批准端同一 check_annual_leave_eligible，前端只消费不复制规则）
+    from core.database import check_annual_leave_eligible
+    chk = check_annual_leave_eligible(app.config['DATA_FOLDER'], employee_id)
+    balance['annual_eligible'] = chk['eligible']
+    balance['annual_codes'] = chk.get('codes', [])
     return jsonify({'balance': balance})
 
 @app.route('/api/leave/sick', methods=['POST'])

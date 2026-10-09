@@ -4162,7 +4162,8 @@ async function loadEmployeeProfilePage(eid) {
       : '<span style="color:var(--text-muted);">○ 未豁免</span>';
     const overrideBtn = document.getElementById('pfAnnualOverrideToggleBtn');
     if (overrideBtn) {
-      overrideBtn.style.display = hasPermission('oa', 'approve') ? '' : 'none';
+      // P52-c: 豁免切换按钮仅 super_admin 可见（原为 oa:approve）
+      overrideBtn.style.display = isSuperAdmin() ? '' : 'none';
       overrideBtn.dataset.emp = eid;
       overrideBtn.dataset.val = emp.annual_leave_override ? '1' : '0';
     }
@@ -4199,15 +4200,32 @@ async function loadEmployeeProfilePage(eid) {
       } else {
         // exists undefined（旧缓存/旧后端）或 true：保持原渲染
         // C1: 年假资格规则 —— 入职未满 365 天不可用，不显示余额数字，改为生效日期提示
+        // P52-c: 后端 annual_eligible/annual_codes 优先（含三证/合同检查，与 OA 同一判定）；
+        //        字段缺失（旧后端/异常）才回退前端 365 天判定
         const _pfAnnualEl = document.getElementById('pfAnnual');
-        const _hd = emp.hire_date ? new Date(emp.hire_date) : null;
-        const _hdValid = _hd && !isNaN(_hd.getTime());
-        if (_hdValid && (Date.now() - _hd.getTime()) < 365 * 86400000) {
-          const _alDate = new Date(_hd.getTime() + 365 * 86400000).toISOString().slice(0, 10);
-          const _alText = t('leave_under_1year') + ' (' + _alDate + ')';
-          if (_pfAnnualEl) { _pfAnnualEl.textContent = _alText; _pfAnnualEl.title = _alText; }
+        if (b.annual_eligible === false) {
+          const _codes = b.annual_codes || [];
+          if (_codes.includes('under_1year')) {
+            const _hd0 = emp.hire_date ? new Date(emp.hire_date) : null;
+            const _alDate = (_hd0 && !isNaN(_hd0.getTime())) ? new Date(_hd0.getTime() + 365 * 86400000).toISOString().slice(0, 10) : '';
+            const _alText = t('leave_under_1year') + (_alDate ? ' (' + _alDate + ')' : '');
+            if (_pfAnnualEl) { _pfAnnualEl.textContent = _alText; _pfAnnualEl.title = _alText; }
+          } else {
+            const _neText = t('leave_not_eligible') + annualIneligDetail(_codes);
+            if (_pfAnnualEl) { _pfAnnualEl.textContent = _neText; _pfAnnualEl.title = _neText; }
+          }
+        } else if (b.annual_eligible === true) {
+          if (_pfAnnualEl) { _pfAnnualEl.textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day'); _pfAnnualEl.title = ''; }
         } else {
-          if (_pfAnnualEl) _pfAnnualEl.textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
+          const _hd = emp.hire_date ? new Date(emp.hire_date) : null;
+          const _hdValid = _hd && !isNaN(_hd.getTime());
+          if (_hdValid && (Date.now() - _hd.getTime()) < 365 * 86400000) {
+            const _alDate = new Date(_hd.getTime() + 365 * 86400000).toISOString().slice(0, 10);
+            const _alText = t('leave_under_1year') + ' (' + _alDate + ')';
+            if (_pfAnnualEl) { _pfAnnualEl.textContent = _alText; _pfAnnualEl.title = _alText; }
+          } else {
+            if (_pfAnnualEl) _pfAnnualEl.textContent = (b.annual_entitled||0) - (b.annual_used||0) + ' / ' + (b.annual_entitled||0) + ' ' + t('unit_day');
+          }
         }
         document.getElementById('pfComp').textContent = (b.comp_entitled||0) - (b.comp_used||0) + ' / ' + (b.comp_entitled||0) + ' ' + t('unit_day');
         document.getElementById('pfSick').textContent = ((b.sick_entitled||0) - (b.sick_used||0)) + ' / ' + (b.sick_entitled||0) + ' ' + t('unit_day');
@@ -4553,6 +4571,17 @@ async function deleteEmployeeAvatar() {
 }
 
 /* ── P52: 合同管理 ── */
+/* P52-c: 年假"不符合资格"明细括注，如（NIDA/TIN 无效，无有效合同）——桌面/移动逻辑同构 */
+function annualIneligDetail(codes) {
+  const certs = [];
+  if (codes.includes('no_nssf')) certs.push('NSSF');
+  if (codes.includes('no_nida')) certs.push('NIDA');
+  if (codes.includes('no_tin')) certs.push('TIN');
+  const parts = [];
+  if (certs.length) parts.push(certs.join('/') + ' ' + t('leave_cert_invalid'));
+  if (codes.includes('no_contract')) parts.push(t('leave_no_contract'));
+  return parts.length ? '（' + parts.join('，') + '）' : '';
+}
 let _profileContracts = [];
 /* 业务时区 EAT(UTC+3) 的今天（YYYY-MM-DD）——状态徽章按此计算 */
 function _eatToday() {
@@ -4890,14 +4919,14 @@ async function editEmployeeProfile() {
   form += `<div class="form-row"><label data-i18n="emp_nida">NIDA</label><input id="pfEdit_nida_number" value="${g(emp.nida_number)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_nssf_number">NSSF</label><input id="pfEdit_nssf_number" value="${g(emp.nssf_number)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_tin_number">TIN 号码</label><input id="pfEdit_tin_number" value="${g(emp.tin_number)}" style="${inStyle}"></div>`;
-  // P20: 年假资格豁免（仅 OA 审批人可切换）
-  const canOAApprove = hasPermission('oa', 'approve');
-  const overrideDescKey = canOAApprove ? 'emp_annual_leave_override_can_edit' : 'emp_annual_leave_override_no_perm';
-  form += `<div class="form-row"><label data-i18n="emp_annual_leave_override">年假资格豁免</label>`
-       + `<label style="display:flex;align-items:center;gap:6px;font-size:13px;">`
-       + `<input type="checkbox" id="pfEdit_annual_leave_override" data-old-val="${emp.annual_leave_override ? '1' : '0'}" ${emp.annual_leave_override ? 'checked' : ''} ${canOAApprove ? '' : 'disabled'}>`
-       + `<span style="color:var(--text-muted);font-size:11px;" data-i18n="${overrideDescKey}">${t(overrideDescKey)}</span>`
-       + `</label></div>`;
+  // P20: 年假资格豁免（P52-c 起仅 super_admin 可见可改，非超管整行不渲染）
+  if (_authState.role === 'super_admin') {
+    form += `<div class="form-row"><label data-i18n="emp_annual_leave_override">年假资格豁免</label>`
+         + `<label style="display:flex;align-items:center;gap:6px;font-size:13px;">`
+         + `<input type="checkbox" id="pfEdit_annual_leave_override" data-old-val="${emp.annual_leave_override ? '1' : '0'}" ${emp.annual_leave_override ? 'checked' : ''}>`
+         + `<span style="color:var(--text-muted);font-size:11px;" data-i18n="emp_annual_leave_override_can_edit">${t('emp_annual_leave_override_can_edit')}</span>`
+         + `</label></div>`;
+  }
   form += `<div class="form-row"><label data-i18n="emp_phone">电话</label><div style="display:flex;align-items:center;"><span style="padding:6px 8px;border:1px solid var(--border);border-right:none;border-radius:var(--radius) 0 0 var(--radius);background:var(--bg);color:var(--text-muted);font-size:13px;">+255</span><input type="tel" id="pfEdit_phone" value="${g(phoneNum)}" placeholder="7xxxxxxxxx" style="${inStyle}border-radius:0 var(--radius) var(--radius) 0;"></div></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_name">银行</label><input id="pfEdit_bank_name" value="${g(emp.bank_name)}" style="${inStyle}"></div>`;
   form += `<div class="form-row"><label data-i18n="emp_bank_account">账号</label><input id="pfEdit_bank_account" value="${g(emp.bank_account)}" style="${inStyle}"></div>`;
@@ -5152,9 +5181,8 @@ async function saveEmployeeProfile(eid) {
   const r = await res.json();
   if (!r.ok) { setMsg(t('save_failed'), false); return; }
 
-  // P20: 年假资格豁免（独立端点，仅 OA 审批人可改）
-  // 注意: canOAApprove/emp 是 editEmployeeProfile 的局部变量,此处须重新计算/读取
-  if (hasPermission('oa', 'approve')) {
+  // P20: 年假资格豁免（独立端点，P52-c 起仅 super_admin 可改）
+  if (isSuperAdmin()) {
     const overrideChk = document.getElementById('pfEdit_annual_leave_override');
     if (overrideChk) {
       const newVal = overrideChk.checked ? 1 : 0;
