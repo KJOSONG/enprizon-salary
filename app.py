@@ -2500,13 +2500,24 @@ def oa_create_event():
     data = request.get_json()
     if not data or not data.get('event_type'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
-    # P8: 入职申请无 employee_id 时，用姓名经 namematch 生成
+    # P8: 入职申请无 employee_id 时生成——2026-10-09 起直接分配下一可用数字工号
+    # （旧行为 make_employee_id 姓名回退：新员工必然不在索引 → 100% 产生姓名格式 id，
+    #   系统性造成"姓名id+数字工号"分裂——38 人存量迁移专项的根因，账号=ID 原则归一）
     if not data.get('employee_id') and data.get('event_type') == 'hire':
-        from core.namematch import make_employee_id
-        name = (data.get('payload') or {}).get('name', '') or ''
-        data['employee_id'] = make_employee_id(name) or name
-        if not data['employee_id']:
-            return jsonify({'ok': False, 'error': '无法生成员工ID（请检查姓名）'}), 400
+        from core.database import get_conn
+        _conn = get_conn(app.config['DATA_FOLDER'])
+        _nums = []
+        for _r in _conn.execute("SELECT id, custom_number FROM employees").fetchall():
+            for _v in (_r['id'], _r['custom_number']):
+                if _v is not None and str(_v).strip().isdigit():
+                    _nums.append(int(str(_v).strip()))
+        _conn.close()
+        _next = (max(_nums) + 1) if _nums else 1
+        data['employee_id'] = str(_next)
+        _pl = data.get('payload') or {}
+        if not _pl.get('custom_number'):
+            _pl['custom_number'] = str(_next)
+            data['payload'] = _pl
     if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
     # P40: 离职类事件（dismiss/resign）权威防护——
