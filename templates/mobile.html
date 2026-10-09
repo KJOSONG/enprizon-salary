@@ -1192,17 +1192,36 @@
     document.getElementById('emp-detail').style.display='block';
     document.getElementById('emp-detail').innerHTML='<div class="skeleton-card kpi"></div><div class="skeleton-card chart"></div>';
     // 并行聚合：档案 + 出勤统计 + 薪资概览(P29-c Req①: 硬角色门控——仅 super_admin/admin/viewer 拉取薪资)
+    // P52-m: + 假期余额 + 合同状态（均只读元数据，无文件内容）
     Promise.all([
       api('/api/employees/'+encodeURIComponent(id)).catch(()=>({employee:null})),
       api('/attendance').catch(()=>null),
       ['super_admin','admin','viewer'].includes((STATE.auth||{}).role) ? api('/salary').catch(()=>null) : Promise.resolve(null),
-    ]).then(([d, att, sal])=>{
+      api('/api/leave/balance/'+encodeURIComponent(id)+'?year='+new Date().getFullYear()).catch(()=>null),
+      api('/api/employees/'+encodeURIComponent(id)+'/contracts').catch(()=>null),
+    ]).then(async ([d, att, sal, bal, ct])=>{
       if(!d.employee){ document.getElementById('emp-detail').innerHTML='<div class="state-box"><div class="state-box__icon">⚠️</div><div class="state-box__title">'+t('emp_load_err')+'</div><button class="state-box__action" onclick="openEmpProfile(\''+esc(id)+'\')">'+t('retry')+'</button></div>'; return; }
-      renderEmpProfile(d.employee, att, sal);
+      const teamName = await _mobResolveTeamName(d.employee);
+      renderEmpProfile(d.employee, att, sal, bal, ct, teamName);
     });
   }
+  // P52-m: 班组名解析（对齐桌面端）——井下→team_id 查班组名；钻工→team_id 匹配队长(employee_id 或行 id)；其他部门不显示班组行
+  async function _mobResolveTeamName(e){
+    const tid = e && e.team_id;
+    if(tid==null || tid==='' || String(tid)==='0') return '';
+    const nd = _mobNormDept(e.department);
+    if(nd==='PRODUCTIONTEAM(UNDERGROUND)'){ await _mobUgGroups(); return _mobUgTeamName(tid); }
+    if(nd==='DRILLERTEAM'){
+      if(!STATE._drCaps){ try{ STATE._drCaps=(await api('/api/driller-captains')).captains||[]; }catch(err){ STATE._drCaps=[]; } }
+      const c=(STATE._drCaps||[]).find(x=>String(x.employee_id)===String(tid)||String(x.id)===String(tid));
+      return c?c.name:'';
+    }
+    return '';
+  }
+  // EAT(UTC+3) 今天——合同状态徽章按此计算（与桌面端 _eatToday 同逻辑）
+  function _mobEatToday(){ const n=new Date(); return new Date(n.getTime()+(n.getTimezoneOffset()+180)*60000).toISOString().slice(0,10); }
   function kv(k,v){ return '<div class="info-row"><span class="info-row__label">'+k+'</span><span class="info-row__value">'+esc(v)+'</span></div>'; }
-  function renderEmpProfile(e, att, sal){
+  function renderEmpProfile(e, att, sal, balData, contractData, teamName){
     // P22 R6/R7: 移动端员工详情不显示薪资内容（全员隐藏，不再依赖部门判断）
     // P18 阶段3: 档案编辑入口统一走 employees:edit
     const canEdit = hasPermission('employees','edit');
@@ -1219,18 +1238,55 @@
       + '<div class="profile-name">'+esc(e.name||'')+'</div>'
       + (idTags.length?'<div class="profile-id-tags">'+idTags.join('')+'</div>':'')
       + '</div>';
-    // 基本信息
-    html += '<div class="info-section"><div class="info-section__title">'+t('basic_info')+'</div>';
-    const info = [['dept',e.department],['team',base.team||e.team||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['bank',e.bank_name||'']];
-    info.forEach(r=>{ if(r[1]!=null&&r[1]!=='') html+=kv(t(r[0]), r[1]); });
-    html += '</div>';
-    // 出勤统计 mini 卡
+    // 出勤统计 mini 卡（P52-m: 上移至 header 下方）
     html += '<div class="info-section"><div class="info-section__title">'+t('att_stats')+'</div>'
       + '<div class="mini-card-row">'
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+attDays+'</span><span class="mini-stat-card__label">'+t('att_days')+'</span></div>'
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+leaveDays+'</span><span class="mini-stat-card__label">'+t('leave_days')+'</span></div>'
       + '<div class="mini-stat-card"><span class="mini-stat-card__value">'+absentDays+'</span><span class="mini-stat-card__label">'+t('absent_days')+'</span></div>'
       + '</div></div>';
+    // 基本信息（P52-m: 移除银行行 + 班组改 team_id 解析 + 新增 TIN）
+    html += '<div class="info-section"><div class="info-section__title">'+t('basic_info')+'</div>';
+    const info = [['dept',e.department],['team',teamName||''],['position',base.position||''],['gender',e.gender],['dob',e.date_of_birth||''],['phone',e.phone],['nida',e.nida_number],['nssf',e.nssf_number],['tin',e.tin_number||'']];
+    info.forEach(r=>{ if(r[1]!=null&&r[1]!=='') html+=kv(t(r[0]), r[1]); });
+    html += '</div>';
+    // P52-m: 假期余额（入职未满一年时年假行显示生效日期，对齐桌面端）
+    html += '<div class="info-section"><div class="info-section__title">'+t('leave_balance_title')+'</div>';
+    const bal = balData && balData.balance;
+    if(!bal || bal.exists===false){
+      html += kv(t('emp_annual_balance'),'—') + kv(t('emp_comp_balance'),'—') + kv(t('sick_balance'),'—');
+    } else {
+      const hd = e.hire_date ? new Date(e.hire_date) : null;
+      const hdValid = hd && !isNaN(hd.getTime());
+      let annualTxt;
+      if(hdValid && (Date.now()-hd.getTime()) < 365*86400000){
+        annualTxt = t('leave_under_1year')+' ('+new Date(hd.getTime()+365*86400000).toISOString().slice(0,10)+')';
+      } else {
+        annualTxt = ((bal.annual_entitled||0)-(bal.annual_used||0)) + ' / ' + (bal.annual_entitled||0) + ' ' + t('unit_day');
+      }
+      html += kv(t('emp_annual_balance'), annualTxt);
+      html += kv(t('emp_comp_balance'), ((bal.comp_entitled||0)-(bal.comp_used||0)) + ' / ' + (bal.comp_entitled||0) + ' ' + t('unit_day'));
+      html += kv(t('sick_balance'), ((bal.sick_entitled||0)-(bal.sick_used||0)) + ' / ' + (bal.sick_entitled||0) + ' ' + t('unit_day'));
+    }
+    html += '</div>';
+    // P52-m: 合同状态（仅 已签订+到期日期/即将到期/已过期/未签订，无文件操作）
+    html += '<div class="info-section"><div class="info-section__title">'+t('contract_status_title')+'</div>';
+    const ctList = contractData && contractData.contracts;
+    let ctHtml;
+    if(!ctList){ ctHtml = '—'; }
+    else if(!ctList.length){ ctHtml = '<span style="color:var(--text-muted)">○ '+esc(t('contract_none'))+'</span>'; }
+    else {
+      const today = _mobEatToday();
+      const cur = ctList.find(c=>c.expiry_date>=today);
+      if(!cur){ ctHtml = '<span style="color:var(--danger)">● '+esc(t('contract_status_expired'))+'</span>'; }
+      else {
+        const days = Math.round((new Date(cur.expiry_date+'T00:00:00')-new Date(today+'T00:00:00'))/86400000);
+        if(days<=30) ctHtml = '<span style="color:var(--warning)">● '+esc(t('contract_status_expiring'))+' · '+esc(t('contract_days_left',{n:days}))+' · '+esc(cur.expiry_date)+'</span>';
+        else ctHtml = '<span style="color:var(--success)">● '+esc(t('contract_signed'))+' · '+esc(t('contract_expiry_date'))+' '+esc(cur.expiry_date)+'</span>';
+      }
+    }
+    html += '<div class="info-row"><span class="info-row__label">'+esc(t('emp_contract'))+'</span><span class="info-row__value">'+ctHtml+'</span></div>';
+    html += '</div>';
     // 操作
     // P29 V2.1: 请假/加班申请按钮挂 oa:apply(与采集页快捷入口一致,修复无门槛不一致)
     const canApply = hasPermission('oa','apply');
