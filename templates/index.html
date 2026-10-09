@@ -4133,7 +4133,7 @@ async function loadEmployeeProfilePage(eid) {
     } else if (deptNorm === 'DRILLERTEAM') {
       try {
         const caps = await ensureDrCaptains();
-        const cap = caps.find(c => String(c.employee_id) === String(emp.team_id));
+        const cap = caps.find(c => String(c.employee_id) === String(emp.team_id) || String(c.id) === String(emp.team_id));
         if (pfTeamEl) pfTeamEl.textContent = cap ? cap.name : '—';
       } catch(e) { if (pfTeamEl) pfTeamEl.textContent = '—'; }
     }
@@ -4693,7 +4693,7 @@ async function editEmployeeProfile() {
   } else if (deptNormEdit === 'DRILLERTEAM') {
     const caps = await ensureDrCaptains();
     teamOpts = caps.map(c =>
-      `<option value="${escHtml(c.employee_id)}" ${String(emp.team_id) === String(c.employee_id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+      `<option value="${escHtml(c.employee_id)}" ${String(emp.team_id) === String(c.employee_id) || String(emp.team_id) === String(c.id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
   }
 
   let form = '<div class="card" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:500;max-width:440px;width:95vw;max-height:85vh;overflow-y:auto;padding:20px;">';
@@ -4791,7 +4791,7 @@ async function onPfDeptChange() {
       const caps = await ensureDrCaptains();
       if (normDept((document.getElementById('pfEdit_department') || {}).value || '') === 'DRILLERTEAM') {
         teamEl.innerHTML = ph + caps.map(c =>
-          `<option value="${escHtml(c.employee_id)}" ${sameDept && String(emp.team_id) === String(c.employee_id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+          `<option value="${escHtml(c.employee_id)}" ${sameDept && (String(emp.team_id) === String(c.employee_id) || String(emp.team_id) === String(c.id)) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
       }
     } catch(e) {}
   } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
