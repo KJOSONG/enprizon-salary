@@ -1607,11 +1607,15 @@ def _get_eff_salary_type(conn, eid):
 
 
 def _daily2_premium_amount(conn, eid, cfg):
-    """P42: B 类（未调休加班）预估补差金额 = (倍数−1)×日薪基数。
+    """P42: B 类（未调休加班）预估补差金额；P53 起按薪资类型分口径。
 
     倍数 = config ot_daily2_multiplier（默认 2.0）；日薪基数：
-    - monthly 员工 → round(monthly_salary/26)
-    - day_rate 员工 → day_rate
+    - monthly 员工 → round(monthly_salary/26)，补差 = **倍数 × 基数**
+      （P53: B 类加班日不占月薪 26 天配额，当月 26 天正常出勤仍发满月薪，
+        加班日为配额外劳动，故补满 倍数×基数）
+    - day_rate 员工 → day_rate，补差 = **(倍数−1) × 基数**
+      （日薪轨道当日已按 day_rate 付 1×，仅补差额）
+    ⚠️ 两处口径必须与 calculator.resolve_daily2_ot 核定端一致（P53 同步修改）。
     ⚠️ amount 仅为展示参考，工资以计算链核定为准（calculator 对 daily2 行按
     spec 规则 5/6/7 现算补差，不直接累加本值）。
     QA D1 修复：基数必须走 override 合并口径（与核定端/管线同源，语义对齐
@@ -1646,14 +1650,16 @@ def _daily2_premium_amount(conn, eid, cfg):
     if eff_type == 'monthly':
         day_rate = 0
         base = round(monthly_salary / 26.0)
+        _amount = mult * base          # P53: 加班日不占月薪配额 → 补满 倍数×基数
     elif eff_type == 'day_rate':
         monthly_salary = 0
         base = day_rate
+        _amount = (mult - 1.0) * base  # 日薪轨道当日已付 1× → 只补差额
     else:
         raise RuntimeError('未调休加班仅限日薪/月薪员工')
     if base <= 0:
         raise RuntimeError('员工薪资基数为 0，无法核定未调休加班')
-    return (mult - 1.0) * base, eff_type, base
+    return _amount, eff_type, base
 
 def _resolve_driller_captain_name(conn, val):
     """调岗 payload.captain 统一解析为队长名字。
@@ -2712,6 +2718,30 @@ def update_pending_event(data_folder, event_id, fields):
     conn.close()
     return affected > 0
 
+def _fill_event_employee_name(rows):
+    """P53-b: 事件显示名兜底。
+
+    入职申请在审批通过前员工尚未写入 employees 表 → JOIN 不到姓名；2026-10-09 ID 归一化后
+    employee_id 变为自动分配的数字工号，前端 `employee_name || employee_id` 会显示"180"这类工号。
+    故 employee_name 为空时回退 payload.name（提交人填写），仍无则回退 employee_id。
+    仅改动 employee_name 为空的场景，其余行原样返回。
+    """
+    out = []
+    for r in rows:
+        d = dict(r)
+        if not str(d.get('employee_name') or '').strip():
+            _nm = ''
+            try:
+                _pl = json.loads(d.get('payload') or '{}')
+                if isinstance(_pl, dict):
+                    _nm = str(_pl.get('name') or '').strip()
+            except Exception:
+                _nm = ''
+            d['employee_name'] = _nm or str(d.get('employee_id') or '')
+        out.append(d)
+    return out
+
+
 def get_pending_events(data_folder, approver='', is_super_admin=False, operator_filter=None):
     """获取待审批事件；approver 指定时仅返回该审批人或 super_admin 可见的事件，
     未指定审批人（''）的事件所有人可见
@@ -2727,7 +2757,7 @@ def get_pending_events(data_folder, approver='', is_super_admin=False, operator_
             ORDER BY e.created_at DESC
         """, (operator_filter,)).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return _fill_event_employee_name(rows)
     rows = conn.execute("""
         SELECT e.*, em.name as employee_name
         FROM employee_events e
@@ -2737,7 +2767,7 @@ def get_pending_events(data_folder, approver='', is_super_admin=False, operator_
         ORDER BY e.created_at DESC
     """, (approver, approver, 1 if is_super_admin else 0)).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return _fill_event_employee_name(rows)
 
 def get_processed_events(data_folder, event_type=None, operator_filter=None, approver=None):
     """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked
@@ -2765,7 +2795,7 @@ def get_processed_events(data_folder, event_type=None, operator_filter=None, app
     sql += " ORDER BY e.updated_at DESC, e.created_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return _fill_event_employee_name(rows)
 
 def get_employee_events(data_folder, employee_id):
     """获取某员工的所有生命周期事件（按时间倒序）"""

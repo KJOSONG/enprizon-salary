@@ -844,15 +844,25 @@ def _daily2_params(pricing):
     return threshold, multiplier
 
 
-def _monthly_covered_dates(eid, per_date_type, present_set, att_overrides, month_prefix):
+def _monthly_covered_dates(eid, per_date_type, present_set, att_overrides, month_prefix,
+                           exclude=None):
     """P42 规则5: 月薪分摊覆盖日 = dtype 为 monthly ∧ 在场 ∧ 非 A/L/E，升序前 26 天。
     与 compute_daily_breakdown 的 ms_daily 分摊、calculate_all 的 monthly_present_count 同口径。
-    per_date_type 缺项时按员工自身 monthly 类型计（与消费点 fallback 一致）。"""
+    per_date_type 缺项时按员工自身 monthly 类型计（与消费点 fallback 一致）。
+
+    P53 口径修正: exclude = 当月【实际生效】的 B 类（daily2）加班日集合。
+    加班日是月薪 26 天配额之外的额外劳动，不得占用配额——否则加班日会把月末真实出勤日
+    挤出覆盖集，出现"加班日当天 2× 达成、月末出勤日 0 元"、当月总额少发的情况
+    （典型案例 126 RAMAZANI 9 月：28 天出勤，9-29/9-30 出勤却因配额被加班日挤占而 0 元）。
+    """
     covered = []
+    _excl = exclude or ()
     for dt in sorted(present_set):
         if month_prefix and not str(dt).startswith(month_prefix):
             continue
         if att_overrides.get((eid, dt)) in ('A', 'L', 'E'):
+            continue
+        if dt in _excl:
             continue
         dtype = per_date_type.get(eid, {}).get(dt)
         if dtype is not None and dtype != 'monthly':
@@ -926,9 +936,11 @@ def resolve_daily2_ot(ot_rows, emp_map, att_overrides, present_dates, overrides,
             base26 = round(float(emp.get('monthly_salary', 0) or 0) / 26)
             if base26 <= 0:
                 continue
+            # P53: 生效 B 日不占月薪 26 天配额，排除后再取前 26 天
             covered = _monthly_covered_dates(eid, per_date_type or {},
                                              present_dates.get(eid) or set(),
-                                             att_overrides, month_prefix)
+                                             att_overrides, month_prefix,
+                                             exclude=set(effective))
             for dt in effective:
                 # 规则5: 当日合计恰为 倍数×日薪基数；月薪覆盖日已付 1× → 补差
                 result[eid][dt] = max(0, round(multiplier * base26) - (base26 if dt in covered else 0))
@@ -1353,7 +1365,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         ot_daily2_rows.append(tuple(_r))
                         continue
                     ot_total[_r[0]] += _r[2]
-                    ot_daily[_r[0]][_r[1]] = _r[2]
+                    # P53: 同日多条 hourly 必须累加（原按日期覆盖 → 日明细少算，
+                    # 总额累加口径与此处保持一致）
+                    ot_daily[_r[0]][_r[1]] = ot_daily[_r[0]].get(_r[1], 0) + _r[2]
             except Exception:
                 ot_total, ot_daily = defaultdict(float), defaultdict(dict)
 
@@ -1869,7 +1883,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         if (_r3[3] if len(_r3) > 3 else 'hourly') == 'daily2':
                             ot_daily2_rows_br.append(tuple(_r3))
                             continue
-                        ot_daily_br[_r3[0]][_r3[1]] = _r3[2]
+                        # P53: 同日多条 hourly 累加（原覆盖 → 日明细比总表少算；
+                        # 实证 62 ELISON 2026-09-08 两条记录只剩一条）
+                        ot_daily_br[_r3[0]][_r3[1]] = ot_daily_br[_r3[0]].get(_r3[1], 0) + _r3[2]
                 except Exception:
                     ot_daily_br = defaultdict(dict)
 
@@ -2054,6 +2070,9 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
             if not _ym or base <= 0: continue
             _emp_rec = emp_map.get(eid, {})
             _dept_rec = _emp_rec.get('department', '')
+            # P53: 当月实际生效的 B 类加班日——不占月薪 26 天配额（与 resolve_daily2_ot 同口径，
+            # 否则加班日挤占配额 → 月末真实出勤日分摊为 0，日明细 Σ 与薪资总表分叉）
+            _b_ot_days = set((daily2_premiums_br.get(eid) or {}).keys())
             if _dept_rec == 'ENPRIZON LINDI PROJECT' and (
                     _emp_rec.get('override_type') == 'monthly' or _emp_rec.get('default_type') == 'monthly'):
                 _ms_iter = sorted(present.get(eid) or set())
@@ -2066,6 +2085,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     continue
                 # A/L/E 排除与 calculate_all 对齐（原实现漏排除，日明细与薪资总表月薪不一致）
                 if att_all.get((eid, dt)) in ('A', 'L', 'E'):
+                    continue
+                if dt in _b_ot_days:
                     continue
                 # P51: NU 天计入月薪出勤天数（与 calculate_all 镜像），所有月薪工统一——
                 # 旧实现月薪≥40万者 NU 不计月薪（走显示层 15,385 分支），产生双重计薪

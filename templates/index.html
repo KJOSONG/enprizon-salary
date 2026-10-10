@@ -6103,7 +6103,9 @@ async function loadDailyWages() {
     const salaryMap = {};
     if (STATE._salaryResult && STATE._salaryResult.employees) {
       STATE._salaryResult.employees.forEach(emp => {
-        salaryMap[emp.employee_id] = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0)+(emp.overtime||0);
+        // P53: 基准口径与 compute_daily_breakdown 输出保持一致——日明细含病假补贴（P48），
+        // 基准漏加会导致含病补员工在"核对"列被误报不匹配
+        salaryMap[emp.employee_id] = (emp.piece_underground||0)+(emp.piece_driller||0)+(emp.piece_crush||0)+(emp.day_rate||0)+(emp.monthly||0)+(emp.overtime||0)+(emp.sick_subsidy||0);
       });
     }
     STATE._salaryMap = salaryMap;

@@ -2681,6 +2681,14 @@ def oa_create_event():
             for _v in (_r['id'], _r['custom_number']):
                 if _v is not None and str(_v).strip().isdigit():
                     _nums.append(int(str(_v).strip()))
+        # P53-b: 未终结（pending）的入职申请已占用的号同样排除——否则同一批多次提交
+        # 或多人同时申请会分到同一个工号（现场 2026-10-10 四条 hire 事件同为 180）。
+        for _r in _conn.execute(
+                "SELECT employee_id FROM employee_events"
+                " WHERE event_type='hire' AND status='pending'"):
+            _v = _r['employee_id']
+            if _v is not None and str(_v).strip().isdigit():
+                _nums.append(int(str(_v).strip()))
         _conn.close()
         _next = (max(_nums) + 1) if _nums else 1
         data['employee_id'] = str(_next)

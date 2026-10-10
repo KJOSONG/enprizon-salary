@@ -1276,9 +1276,9 @@ const I18N_DICT = {
     ot_window_hint: '仅可申请今日前后2天内的加班',
     /* P42: 未调休加班（B 类 daily2） */
     ot_type_label: '加班类型', ot_type_hourly: 'A 延时加班', ot_type_daily2: 'B 未调休加班（整日）', ot_type_required: '请选择加班类型',
-    ot_daily2_preview_hint: '预估补差 =(倍数−1)×日薪基数，月末按当月出勤核定生效（出勤超过 26 天的部分），并要求当天已提交出勤记录',
+    ot_daily2_preview_hint: '预估补差：日薪员工 =(倍数−1)×日薪基数，月薪员工 = 倍数×(月薪÷26)（加班日不占月薪 26 天配额）；月末按当月出勤核定生效（出勤需超过 26 天），并要求当天已提交出勤记录',
     ot_daily2_time_optional: '起止时间可选，仅记录',
-    ot_daily2_pending_note: '金额为预估补差，月末按当月出勤核定生效（出勤需超过 26 天）',
+    ot_daily2_pending_note: '金额为预估补差（日薪补差额、月薪补满倍数），月末按当月出勤核定生效（出勤需超过 26 天）',
     cfg_ot_daily2_multiplier: '未调休加班倍数', cfg_ot_daily2_threshold: '核定出勤门槛',
     err_ot_daily2_type: '计件员工不可申请未调休加班（B 类）',
     oa_edit_title: '修改生效日期',
@@ -2621,9 +2621,9 @@ const I18N_DICT = {
     ot_window_hint: 'Overtime allowed only within ±2 days of today',
     /* P42: Daily2 overtime (Type B) */
     ot_type_label: 'Overtime Type', ot_type_hourly: 'A Hourly Overtime', ot_type_daily2: 'B Daily Overtime (full-day)', ot_type_required: 'Select overtime type',
-    ot_daily2_preview_hint: 'Estimated top-up =(multiplier−1)×daily base, finalized at month end per attendance (days beyond 26); attendance record required for that day',
+    ot_daily2_preview_hint: 'Estimated top-up: day-rate =(multiplier−1)×daily base, monthly = multiplier×(monthly÷26) (OT days do not consume the 26-day quota); finalized at month end per attendance (must exceed 26 days); attendance record required for that day',
     ot_daily2_time_optional: 'Start/end times optional, record only',
-    ot_daily2_pending_note: 'Amount is an estimated top-up, finalized at month end per attendance (must exceed 26 days)',
+    ot_daily2_pending_note: 'Estimated top-up (day-rate: difference only; monthly: full multiplier), finalized at month end per attendance (must exceed 26 days)',
     cfg_ot_daily2_multiplier: 'Daily OT Multiplier', cfg_ot_daily2_threshold: 'Attendance Threshold',
     err_ot_daily2_type: 'Piece-rate employees cannot apply for daily overtime (Type B)',
     oa_edit_title: 'Edit Effective Date',
