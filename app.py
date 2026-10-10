@@ -979,7 +979,8 @@ def _resolve_export_month_data(requested_month):
     overrides = load_overrides(app.config['DATA_FOLDER'], month=requested_month)
     exclusions = load_daily_exclusions(app.config['DATA_FOLDER'])
     bonus_penalties = _load_bp(app.config['DATA_FOLDER'], requested_month)
-    ug_team_members = _build_ug_team_members(app.config['DATA_FOLDER'])
+    # P53-c: 补 month（历史废弃路径，保持与 _run_pipeline 同口径）
+    ug_team_members = _build_ug_team_members(app.config['DATA_FOLDER'], month=requested_month)
     dept_day_map = _build_transfer_day_map(app.config['DATA_FOLDER'], requested_month)  # P35
     try:
         result = calculate_all(md, emps, overrides=overrides, exclusions=exclusions,
@@ -7023,7 +7024,9 @@ def get_daily_wages():
         return jsonify({})
     _emps_dw = (_md.get('employees') if _md else []) if _md is not None else []
     _cfg_dw = (_md.get('config_snapshot') if _md else {}) if _md is not None else {}
-    _ug_dw = _build_ug_team_members(app.config.get('DATA_FOLDER'))
+    # P53-c: 必须带 month —— 不带时按员工当前归属分组，与 calculate_all 的当月台账口径
+    # （P35 调岗日粒度）不一致，导致调岗过的井下计件工日明细 ≠ 薪资总表（核对列假红）
+    _ug_dw = _build_ug_team_members(app.config.get('DATA_FOLDER'), month=month)
     _ddm_dw = _build_transfer_day_map(app.config.get('DATA_FOLDER'), month)  # P35
     try:
         result = compute_daily_breakdown(
@@ -7941,7 +7944,8 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
     if _eff_md and employees:
         from core.calculator import compute_daily_breakdown
         from core.exceptions import load_overrides as _ld_ov, load_daily_exclusions
-        _ug_exp = _build_ug_team_members(app.config['DATA_FOLDER'])
+        # P53-c: 同上——日工资分布 sheet 须与薪资总表同口径（按导出月台账）
+        _ug_exp = _build_ug_team_members(app.config['DATA_FOLDER'], month=_eff_month)
         _ddm_exp = _build_transfer_day_map(app.config['DATA_FOLDER'], _eff_month)  # P35
         try:
             dw_result = compute_daily_breakdown(

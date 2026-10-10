@@ -2910,21 +2910,12 @@ function initDashControls(data) {
     if (oreTab) oreTab.style.display = '';
   }
 
-  // 事件绑定
+  // 事件绑定：月份下拉统一走 changeMonth（P53-c）
+  // 原实现只改 currentMonth + 拉产量数据，既不重拉 /salary 也不失效月份缓存，
+  // 导致日工资页"薪资应发/核对"列拿旧月薪资当基准（跨月假不匹配）、薪资总表停留在旧月。
   sel.addEventListener('change', () => {
     const m = sel.value;
-    if (m) {
-      STATE.currentMonth = m;
-      updatePeriodBar();
-      fetch(api('/set-month'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month: m }) })
-        .then(() => fetch(api('/api/production/dashboard?month=' + encodeURIComponent(STATE.currentMonth))))
-        .then(r => r.json())
-        .then(d => {
-          STATE._dashData = d;
-          initDashControls(d);
-          renderDashboard();
-        });
-    }
+    if (m) changeMonth(m);
   });
 
   document.getElementById('dashDateFrom').addEventListener('change', applyDashFilters);
@@ -3888,12 +3879,12 @@ async function changeMonth(month) {
         STATE._empAll = STATE.employees;
         STATE._headless = d2.headless || STATE._headless;
         renderEmployeeTable();
-        loadProductionData();
         // 成功后再更新全局月份，避免显示与数据错位
         STATE.currentMonth = month;
         STATE._monthStamp = month;
         _invalidateMonthCaches(month);
         updatePeriodBar();
+        loadProductionData();   // P53-c: 须在 currentMonth 更新之后（原顺序会拉到旧月的产量数据）
         await _refreshCurrentPageAfterMonthSwitch();
         showToast(data.message || t('toast_month_switched'));
         return;
@@ -3912,11 +3903,11 @@ async function changeMonth(month) {
       STATE.employees = d3.employees;
       STATE._empAll = STATE.employees;
       renderEmployeeTable();
-      loadProductionData();
       STATE.currentMonth = month;
       STATE._monthStamp = month;
       _invalidateMonthCaches(month);
       updatePeriodBar();
+      loadProductionData();   // P53-c: 须在 currentMonth 更新之后（原顺序会拉到旧月的产量数据）
       await _refreshCurrentPageAfterMonthSwitch();
       showToast(t('toast_month_switched'));
     }
@@ -5240,12 +5231,12 @@ async function toggleAnnualLeaveOverride() {
 function editProfileSalaryType() {
   const eid = _profileEid;
   if (!eid) return;
-  const emp = (STATE._empAll || []).find(e => String(e.id) === String(eid));
-  const cur = (emp && (emp.override_type || emp.default_type)) || 'day_rate';
+  // P53-d: 操作型弹窗一律【不预选、不预填】（用户多次强调）——
+  // 预填当前类型/基数极易被连带提交（SAITOTI 案例：日薪框残留 10000 被写进日薪基数）
   const typeLabels = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
     piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
-  const options = Object.keys(typeLabels).map(k =>
-    `<option value="${k}" ${k===cur?'selected':''}>${escHtml(typeLabels[k])}</option>`).join('');
+  const options = `<option value="" selected>${escHtml(t('sel_placeholder'))}</option>` +
+    Object.keys(typeLabels).map(k => `<option value="${k}">${escHtml(typeLabels[k])}</option>`).join('');
   const modal = document.createElement('div');
   modal.id = 'pfSalTypeModal';
   modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:500;';
@@ -5254,9 +5245,9 @@ function editProfileSalaryType() {
       <h3 style="margin-bottom:12px;" data-i18n="emp_salary_type">薪资类别</h3>
       <div class="form-row"><label data-i18n="emp_salary_type">薪资类别</label>
         <select id="pfSalTypeSel" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">${options}</select></div>
-      <div class="form-row" id="pfSalTypeRowDay" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfSalTypeDay" value="${emp&&emp.day_rate||0}" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
-      <div class="form-row" id="pfSalTypeRowMon" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfSalTypeMon" value="${emp&&emp.monthly_salary||0}" min="0" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
-      <div class="form-row"><label data-i18n="emp_effective_month">生效月份</label><input type="month" id="pfSalTypeEff" value="${(typeof STATE.currentMonth==='string'&&/^\d{4}-\d{2}$/.test(STATE.currentMonth))?STATE.currentMonth:new Date().toISOString().slice(0,7)}" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
+      <div class="form-row" id="pfSalTypeRowDay" style="display:none;"><label data-i18n="emp_day_rate">日薪基数</label><input type="number" id="pfSalTypeDay" value="" min="0" data-i18n-placeholder="transfer_base_placeholder" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
+      <div class="form-row" id="pfSalTypeRowMon" style="display:none;"><label data-i18n="emp_monthly_salary">月薪基数</label><input type="number" id="pfSalTypeMon" value="" min="0" data-i18n-placeholder="transfer_base_placeholder" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
+      <div class="form-row"><label data-i18n="emp_effective_month">生效月份</label><input type="month" id="pfSalTypeEff" value="" style="padding:6px;width:100%;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;"></div>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button class="btn-primary" onclick="saveProfileSalaryType()" style="padding:6px 16px;" data-i18n="btn_save">保存</button>
         <button class="btn-cancel" onclick="document.getElementById('pfSalTypeModal').remove()" style="padding:6px 16px;" data-i18n="btn_cancel">取消</button>
@@ -5278,11 +5269,19 @@ function toggleSalTypeBase() {
 async function saveProfileSalaryType() {
   const eid = _profileEid;
   const msg = document.getElementById('pfSalTypeMsg');
+  const _fail = (k) => { msg.textContent = t(k); msg.style.color = 'var(--danger)'; };
   const st = document.getElementById('pfSalTypeSel').value;
-  const day = parseInt(document.getElementById('pfSalTypeDay').value) || 0;
-  const mon = parseInt(document.getElementById('pfSalTypeMon').value) || 0;
+  // P53-d: 必填校验——弹窗已不预填，防"空提交把基数写成 0"
+  if (!st) { _fail('sel_type_required'); return; }
+  const _rawDay = (document.getElementById('pfSalTypeDay').value || '').trim();
+  const _rawMon = (document.getElementById('pfSalTypeMon').value || '').trim();
+  if (st === 'day_rate' && !(parseInt(_rawDay) > 0)) { _fail('err_salbase_required'); return; }
+  if (st === 'monthly' && !(parseInt(_rawMon) > 0)) { _fail('err_salbase_required'); return; }
   const effEl = document.getElementById('pfSalTypeEff');
   const eff = (effEl && effEl.value) ? effEl.value : '';
+  if (!eff) { _fail('err_effmonth_required'); return; }
+  const day = parseInt(_rawDay) || 0;
+  const mon = parseInt(_rawMon) || 0;
   const res = await authFetch(api('/api/employees/' + eid + '/salary-type'), {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({salary_type: st, day_rate: day, monthly_salary: mon, effective_month: eff}),

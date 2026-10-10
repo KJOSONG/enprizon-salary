@@ -976,20 +976,59 @@ def resolve_base_for_month(data_folder, employee_id, month):
     conn.close()
     return dict(row) if row else None
 
-def record_base_change(data_folder, employee_id, from_month, new=None, operator_id='', note=''):
+def resolve_effective_base(conn, employee_id):
+    """P53-e: 员工"有效基线" = employees 主档 + 永久（无日期区间）override 叠加后的口径。
+
+    与计薪端 `_get_eff_salary_type` / 档案页显示同源。主档基数常因"用 override 表达薪资"
+    而被清零，若台账/追溯直接读主档，会把 0 写成历史基线 → 该月及之前所有月份按 0 计薪
+    （SAITOTI 2026-10-10 案例：主档 day_rate=0，override 永久 day_rate=10000）。
+    返回 {department, default_type, day_rate, monthly_salary, team_id}；查无员工返回 {}。
+    """
+    row = conn.execute(
+        "SELECT department, default_type, day_rate, monthly_salary, team_id FROM employees WHERE id=?",
+        (employee_id,)).fetchone()
+    if not row:
+        return {}
+    d = dict(row)
+    _eff = d.get('default_type') or ''
+    for o in conn.execute(
+            "SELECT salary_type, day_rate, monthly_salary FROM overrides WHERE employee_id=?"
+            " AND IFNULL(start_date,'')='' AND IFNULL(end_date,'')=''",
+            (employee_id,)).fetchall():
+        st = o['salary_type']
+        if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+            continue
+        _eff = st
+        if st == 'day_rate' and float(o['day_rate'] or 0) > 0:
+            d['day_rate'] = float(o['day_rate'])
+        elif st == 'monthly' and float(o['monthly_salary'] or 0) > 0:
+            d['monthly_salary'] = float(o['monthly_salary'])
+    d['default_type'] = _eff
+    if _eff == 'day_rate':
+        d['monthly_salary'] = 0
+    elif _eff == 'monthly':
+        d['day_rate'] = 0
+    elif _eff in ('piece_underground', 'piece_driller', 'piece_crush'):
+        d['day_rate'] = 0
+        d['monthly_salary'] = 0
+    return d
+
+
+def record_base_change(data_folder, employee_id, from_month, new=None, operator_id='', note='', old=None):
     """按生效月份追加员工基线台账，永不改写旧条目。
 
     - new: 新基线（department/default_type/day_rate/monthly_salary/team_id），缺省取当前 employees 主档。
+    - old: 可选，显式指定"变更前的旧基线"。**未提供时自动取 `resolve_effective_base`
+      （主档 + 永久 override 叠加），绝不直接用裸主档**——否则会把"被 override 表达、
+      主档已清零"的员工记成 0 基数，污染该月及之前所有月份（P53-e；SAITOTI 2026-10-10 案例）。
     - 若该员工尚无任何台账条目，先插入一条旧基线（from_month = hire 生效月或系统最早月份，兜底 '0000-00'），
       从而生效月之前的月份能解析到旧基线（而非被新值污染）。
     """
     ensure_base_history_table(data_folder)
     from_month = (from_month or '')[:7]
     conn = get_conn(data_folder)
-    old = conn.execute(
-        "SELECT department, default_type, day_rate, monthly_salary, team_id FROM employees WHERE id=?",
-        (employee_id,)
-    ).fetchone()
+    if old is None:
+        old = resolve_effective_base(conn, employee_id)
     if not old:
         conn.close()
         return False
@@ -1824,10 +1863,9 @@ def apply_approved_event(data_folder, event):
             if not eff:
                 raise RuntimeError('调岗申请缺少生效日期')
             # 读取旧基线（必须在更新主档之前，供台账/追溯）
-            _row = conn.execute(
-                "SELECT department, default_type, day_rate, monthly_salary, team_id FROM employees WHERE id=?",
-                (eid,)).fetchone()
-            old = dict(_row) if _row else {}
+            # P53-e: 取"有效基线"（主档 + 永久 override 叠加）而非裸主档——主档可能已被
+            # override 表达为零，直接落台账会把 0 写成历史基线（SAITOTI 2026-10-10 案例）
+            old = resolve_effective_base(conn, eid)
             old_dept = old.get('department') or ''
             old_type = old.get('default_type') or ''
             old_day = old.get('day_rate') or 0

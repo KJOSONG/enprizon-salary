@@ -101,3 +101,54 @@ def test_resolve_returns_none_without_any_history(tmp_path):
     data_folder = _seed_emp(tmp_path, eid)
     # 尚无台账 → 返回 None（调用方回退当前 employees 主档）
     assert resolve_base_for_month(data_folder, eid, '2026-08') is None
+
+def test_baseline_uses_effective_override_not_zeroed_main(tmp_path):
+    """P53-e 回归：主档被清零、薪资由永久 override 表达时，台账"旧基线"必须取有效值而非 0。
+
+    事故背景（SAITOTI 2026-10-10）：主档 day_rate=0，薪资靠永久 override(day_rate=10000) 表达；
+    首次"直改薪资"建台账时若读裸主档，旧基线被写成 0 → 7/8/9 月全部按 0 计薪。
+    """
+    from core.database import record_base_change, load_base_history
+
+    eid = '1'
+    data_folder = _seed_emp(tmp_path, eid)
+
+    conn = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
+    # 主档清零（模拟"用 override 表达薪资"的存量状态）
+    conn.execute("UPDATE employees SET day_rate=0, monthly_salary=0 WHERE id=?", (eid,))
+    # 永久 override（无日期区间）：日薪 10000
+    conn.execute(
+        "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary,"
+        " start_date, end_date) VALUES (?,'day_rate',10000,0,'','')", (eid,))
+    conn.commit()
+    conn.close()
+
+    record_base_change(data_folder, eid, '2026-10',
+                       new={'default_type': 'monthly', 'day_rate': 0, 'monthly_salary': 400000},
+                       operator_id='KEJU', note='直改薪资')
+
+    hist = load_base_history(data_folder, eid)
+    old_entry = next(h for h in hist if h['from_month'] != '2026-10')
+    assert old_entry['default_type'] == 'day_rate'
+    assert float(old_entry['day_rate']) == 10000, \
+        '旧基线必须取永久 override 的有效值（10000），不能写主档的 0'
+    assert float(old_entry['monthly_salary']) == 0
+
+
+def test_baseline_still_zero_when_no_effective_value(tmp_path):
+    """反向用例：既无主档基数也无 override 时，基线保持 0（不伪造数据）。"""
+    from core.database import record_base_change, load_base_history
+
+    eid = '1'
+    data_folder = _seed_emp(tmp_path, eid)
+    conn = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
+    conn.execute("UPDATE employees SET day_rate=0, monthly_salary=0 WHERE id=?", (eid,))
+    conn.commit()
+    conn.close()
+
+    record_base_change(data_folder, eid, '2026-10',
+                       new={'default_type': 'monthly', 'day_rate': 0, 'monthly_salary': 400000},
+                       operator_id='KEJU', note='直改薪资')
+    hist = load_base_history(data_folder, eid)
+    old_entry = next(h for h in hist if h['from_month'] != '2026-10')
+    assert float(old_entry['day_rate']) == 0 and float(old_entry['monthly_salary']) == 0
