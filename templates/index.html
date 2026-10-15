@@ -3545,10 +3545,16 @@ function showDrillerDetail(captain, dailyData) {
   let html = '';
   let totalNH = 0, totalNL = 0, totalMW = 0;
   dailyData.sort((a, b) => a.date.localeCompare(b.date));
+  // P54: 同队长同日多队（多条记录）按日期合并求和展示
+  const _byDate = {}, _dates = [];
   dailyData.forEach(d => {
-    const nh = d.nh || 0, nl = d.nl || 0, mw = d.mw || 0;
+    if (!_byDate[d.date]) { _byDate[d.date] = { nh: 0, nl: 0, mw: 0 }; _dates.push(d.date); }
+    _byDate[d.date].nh += d.nh || 0; _byDate[d.date].nl += d.nl || 0; _byDate[d.date].mw += d.mw || 0;
+  });
+  _dates.forEach(dt => {
+    const nh = _byDate[dt].nh, nl = _byDate[dt].nl, mw = _byDate[dt].mw;
     totalNH += nh; totalNL += nl; totalMW += mw;
-    html += `<tr><td>${d.date}</td><td class="num">${fmtNum(nh)}</td><td class="num">${fmtNum(nl)}</td><td class="num">${fmtNum(mw)}</td><td class="num bold">${fmtNum(nh + nl + mw)}</td></tr>`;
+    html += `<tr><td>${dt}</td><td class="num">${fmtNum(nh)}</td><td class="num">${fmtNum(nl)}</td><td class="num">${fmtNum(mw)}</td><td class="num bold">${fmtNum(nh + nl + mw)}</td></tr>`;
   });
   html += `<tr style="border-top:2px solid var(--accent);font-weight:700;"><td class="left">${t('col_total')}</td><td class="num">${fmtNum(totalNH)}</td><td class="num">${fmtNum(totalNL)}</td><td class="num">${fmtNum(totalMW)}</td><td class="num bold">${fmtNum(totalNH + totalNL + totalMW)}</td></tr>`;
   document.getElementById('drillerDetailBody').innerHTML = html;
@@ -8570,6 +8576,28 @@ function colPayloadDismissedCount(p) {
   } catch (e) {}
   return ids.filter(id => dis.has(String(id))).length;
 }
+/* P54: 钻工同队长多队 slot 编号/角标（表单、提交、预览共用） */
+function drDupSeqs(captains) {
+  // 同队长出现 ≥2 次 → 按表单顺序编号 1..N；仅出现 1 次 → 0
+  const counts = {}, seen = {};
+  (captains || []).forEach(c => { if (c) counts[c] = (counts[c] || 0) + 1; });
+  return (captains || []).map(c => {
+    if (!c || counts[c] < 2) return 0;
+    seen[c] = (seen[c] || 0) + 1;
+    return seen[c];
+  });
+}
+function drTeamSlots(teams) {
+  // payload 已带 slot（历史多队提交）→ 直接用；否则按表单顺序重新编号
+  const seqs = drDupSeqs((teams || []).map(x => x && x.captain));
+  return (teams || []).map((tm, i) => {
+    const sv = parseInt((tm && tm.slot) || 0, 10);
+    return sv > 0 ? sv : seqs[i];
+  });
+}
+function drTeamBadge(n) {
+  return ' <span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg-secondary);color:var(--accent);border:1px solid var(--border);margin-left:6px;">' + escHtml(t('dr_team_n').replace('{n}', n)) + '</span>';
+}
 function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   // 离职员工的历史提交记录不再隐藏（离职不回溯清史，已提交出勤照常显示）
   const names = (ids) => (ids || []).map(colEidToName).join(', ') || '—';
@@ -8615,8 +8643,9 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
   }
   if (formType === 'driller') {
     const teams = payload.teams || [];
+    const _slots = drTeamSlots(teams);
     return '<div style="font-size:12px;line-height:1.9;">' + teams.map((tm, i) =>
-      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(colEidToName(tm.captain)) + '</div>'
+      '<div style="font-weight:600;">' + t('col_team') + ' ' + (i + 1) + ': ' + escHtml(colEidToName(tm.captain)) + (_slots[i] > 0 ? drTeamBadge(_slots[i]) : '') + '</div>'
       + '<div>NH ' + fmt(tm.nh) + ' · NL ' + fmt(tm.nl) + ' · MW ' + fmt(tm.mw) + '</div>'
       + '<div>' + t('col_members') + ': ' + names(tm.members) + '</div>'
     ).join('<div style="margin-top:4px;"></div>') + '</div>';
@@ -9188,7 +9217,7 @@ function renderDrCollectionForm(payload) {
   const date = payload.submission_date || '';
   let teams = payload.teams && payload.teams.length ? payload.teams : [{}];
   _drSlots = teams.map(t => ({
-    captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [],
+    captain: t.captain || '', nh: t.nh || 0, nl: t.nl || 0, mw: t.mw || 0, members: t.members || [], slot: t.slot || 0,
   }));
   document.getElementById('colDrForm').innerHTML = `
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="drDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
@@ -9218,7 +9247,8 @@ async function renderDrSlots() {
   const caps = await ensureDrCaptains();
   const container = document.getElementById('drSlots');
   if (!container) return;
-  // P12: 队长仅限名单内人员（value=employee_id, text=name）
+  // P12: 队长仅限名单内人员（value=employee_id, text=name）；P54: 同队长多槽位渲染"队伍 N"角标（允许重复选同一队长）
+  const _seqs = drDupSeqs(_drSlots.map(s => s.captain));
   const capOpts = (sel) => caps.length
     ? caps.map(c => `<option value="${escHtml(c.employee_id)}" ${String(sel)===String(c.employee_id)?'selected':''}>${escHtml(c.name)}</option>`).join('')
     : '<option value="">' + t('captains_empty') + '</option>';
@@ -9226,6 +9256,7 @@ async function renderDrSlots() {
     <div style="padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
         <label style="font-size:12px;min-width:36px;">${t('col_captain')}</label>
+        ${_seqs[i] > 0 ? drTeamBadge(_seqs[i]) : ''}
         <select id="drCap${i}" onchange="onDrCapChange(${i})" style="${colInStyle(true)}">
           <option value="">${t('col_pick_captain')}</option>
           ${capOpts(s.captain)}
@@ -9386,6 +9417,20 @@ async function submitDrCollection() {
     });
   }
   if (!teams.length) { showToast(t('dr_need_captain_slot'), 'error'); return; }
+  // P54: 同队长多队按表单顺序赋 slot 1..N；单队伍不写 slot（旧行为字节兼容）
+  const _seqs = drDupSeqs(teams.map(x => x.captain));
+  teams.forEach((tm, i) => { if (_seqs[i] > 0) tm.slot = _seqs[i]; });
+  // P54: 同一队员出现在同队长多个队伍 → toast 提醒（不阻断，各队独立结算）
+  const _byCap = {};
+  teams.forEach(tm => { (_byCap[tm.captain] = _byCap[tm.captain] || []).push(tm); });
+  const _dupNames = [];
+  Object.values(_byCap).forEach(list => {
+    if (list.length < 2) return;
+    const seen = {}, dup = new Set();
+    list.forEach(tm => (tm.members || []).forEach(m => { const k = String(m); if (seen[k]) dup.add(k); else seen[k] = 1; }));
+    [...dup].forEach(id => { const nm = colEidToName(id); if (nm && !_dupNames.includes(nm)) _dupNames.push(nm); });
+  });
+  if (_dupNames.length) showToast(t('dr_dup_member_warn').replace('{names}', _dupNames.join(', ')), 'warning');
   await submitColPayload('driller', date, { teams }, 'colDrHistory');
 }
 
