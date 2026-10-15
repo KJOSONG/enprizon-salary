@@ -637,13 +637,23 @@ def calc_crush_piece(crush_data, exclusions, override_excludes, data_folder=None
 #  2. 钻工计件计算
 # ═══════════════════════════════════════════════════════════
 
+def _safe_slot(v):
+    """P54: slot 归一为 int（防上游写字符串 '2' 与 int 2 不同分组键；脏值兜底 0）"""
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_exclusions=None, all_attendance_pairs=None):
     """
     计算钻工计件工资
-    - 同队长同天多槽位 → 合并产量，成员合并去重
+    - P54: 按 (date, captain, slot) 分组——同队长同日多队伍各自独立结算；
+      slot 缺省 0（旧格式单队伍）→ 与历史 (date, captain) 合并行为逐字节同路径
     - 队长无条件加入成员列表
     - 空成员名单日 → 仅队长1人
     - 总薪资/(人数+1) × 队长2份/队员1份
+    - driller_adds（override 手动加入）归该队长当日最小 slot 组（主队）
     返回: { employee_id: total_salary }, duplications, { employee_id: { date: amount } }
     """
     import sqlite3, os
@@ -657,7 +667,8 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
     # 合并 A/L 排除 + 外部排除（含日期区间 override）
     combined_exclusions = exclusions | att_exclusions
 
-    # 按 (日期, 队长) 分组合并
+    # P54: 按 (日期, 队长, slot) 分组——同队长同日多队伍各自独立结算；
+    # slot 缺省 0（旧格式/单队伍）→ 分组键退化为 (date, captain)，与历史行为同路径
     groups = defaultdict(lambda: {
         'nh': 0, 'nl': 0, 'mw': 0,
         'futa': 0, 'waya': 0, 'kibiriti': 0,
@@ -665,7 +676,7 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
     })
 
     for d in driller_data:
-        key = (d['date'], d['captain'])
+        key = (d['date'], d['captain'], _safe_slot(d.get('slot', 0)))
         g = groups[key]
         g['nh'] += d['nh']
         g['nl'] += d['nl']
@@ -673,10 +684,18 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
         g['futa'] += d['futa']
         g['waya'] += d['waya']
         g['kibiriti'] += d['kibiriti']
-        g['slots'].append(d['slot'])
+        g['slots'].append(_safe_slot(d.get('slot', 0)))
         if d['members']:
             g['members'].update(d['members'])
             g['has_members'] = True
+
+    # P54: driller_adds（override 手动加入，只有队长维度无位置维度）
+    # 归入该队长当日最小 slot 的队伍（slot 0 优先=主队），保证只注入一次不双份
+    _min_slot = {}
+    for (gdate, gcap, gslot) in groups.keys():
+        _k2 = (gdate, gcap)
+        if _k2 not in _min_slot or gslot < _min_slot[_k2]:
+            _min_slot[_k2] = gslot
 
     # 计算每组薪资
     # 加载手动加入钻工组的人（从 overrides 表读取，展开日期区间）
@@ -727,7 +746,7 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
     if driller_adds:
         driller_attendance = driller_attendance | set(driller_adds.keys())
 
-    for (date_str, captain), g in groups.items():
+    for (date_str, captain, slot), g in groups.items():
         total_salary = g['nh'] * PRICES_DRILLER['NICKEL（H）'] + \
                        g['nl'] * PRICES_DRILLER['NICKEL（L）'] + \
                        g['mw'] * PRICES_DRILLER['MAWE']
@@ -749,8 +768,10 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
             all_members.append(cap_member)
 
         # 统计手动加入钻工组的人数（排除 A/L 缺勤者 + 空出勤者 + 已在产量成员名单的人）
+        # P54: 仅归入该队长当日最小 slot 组（主队），多队天不重复计数
         driller_add_count = sum(1 for (eid, dt), cp in driller_adds.items()
                                 if dt == date_str and cp == captain and eid != cap_norm
+                                and _min_slot.get((date_str, captain)) == slot
                                 and (eid, date_str) not in combined_exclusions
                                 and (eid, date_str) in driller_attendance
                                 and eid not in existing_ids)
@@ -777,6 +798,7 @@ def calc_driller_piece(driller_data, data_folder=None, exclusions=None, att_excl
         # （原实现：产量数据含此人 + overrides 手动名单也含 → 支付两份，分母还虚增）
         for (eid, dt), cp in driller_adds.items():
             if dt == date_str and cp == captain and eid != cap_norm \
+                    and _min_slot.get((date_str, captain)) == slot \
                     and (eid, date_str) not in combined_exclusions \
                     and (eid, date_str) in driller_attendance \
                     and eid not in existing_ids:

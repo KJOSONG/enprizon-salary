@@ -3740,6 +3740,21 @@ def _ensure_collection_team_id_column(data_folder):
         pass
 
 
+def _ensure_collection_slot_column(data_folder):
+    """P54 懒迁移：给 collection_submissions 补 slot 列（钻工同队长同日多队伍序号，缺省 0=旧格式）"""
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder)
+        try:
+            conn.execute("ALTER TABLE collection_submissions ADD COLUMN slot INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass
+        conn.close()
+    except Exception:
+        pass
+
+
 _COL_CREATED_BY_READY = False
 def _ensure_collection_created_by_column(data_folder):
     """懒迁移（进程内一次）：collection_submissions 补 created_by 列 + 旧行从 audit_log 回填首次提交人"""
@@ -4013,18 +4028,22 @@ def _merge_collection_to_main_data(main_data, form_type, date, payload):
             if not cap:
                 continue
             cap_name = _names2([cap])[0]
+            slot = _dr_team_slot(team)
             rec = {
                 'date': date,
                 'captain': cap_name,
-                'slot': 0,
+                'slot': slot,
                 'nh': team.get('nh', 0), 'nl': team.get('nl', 0), 'mw': team.get('mw', 0),
                 'futa': 0, 'waya': 0, 'kibiriti': 0,
                 'members': _names2(team.get('members')),
                 'slots': [],
                 'has_members': bool(team.get('members')),
             }
+            # P54: 同 (date, captain, slot) 才替换（同队长同日多队伍各自独立成池）；
+            # 历史 payload 无 slot → slot=0，替换键退化为 (date, captain, 0) 与旧行为一致
             for i, x in enumerate(driller):
-                if x.get('date') == date and x.get('captain') == cap_name:
+                if x.get('date') == date and x.get('captain') == cap_name \
+                        and int(x.get('slot', 0) or 0) == slot:
                     driller[i] = rec
                     break
             else:
@@ -4686,8 +4705,18 @@ def _dr_team_captain(team_item):
         return ''
 
 
+def _dr_team_slot(team_item):
+    """P54: 钻工条目队伍序号（同队长同日多槽位 1..N；缺失/脏数据/负数兜底 0=旧格式单队伍）"""
+    try:
+        s = int((team_item or {}).get('slot', 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return s if s > 0 else 0
+
+
 def _dr_row_teams(row_payload):
-    """P46: 解析一条 driller submission payload 的 teams → [(captain_id, team_dict)]（历史合并行含多队）"""
+    """P46/P54: 解析一条 driller submission payload 的 teams → [(captain_id, slot, team_dict)]
+    （历史合并行含多队；slot 缺省 0 与旧格式兼容）"""
     try:
         pl = json.loads(row_payload or '{}')
     except (TypeError, ValueError):
@@ -4695,7 +4724,7 @@ def _dr_row_teams(row_payload):
     out = []
     for t in (pl.get('teams') or []):
         if isinstance(t, dict) and _dr_team_captain(t):
-            out.append((_dr_team_captain(t), t))
+            out.append((_dr_team_captain(t), _dr_team_slot(t), t))
     return out
 
 
@@ -4723,20 +4752,22 @@ def _dr_team_conflict_msg(conflicts, names_map):
 
 
 def _dr_insert_team_row(data_folder, date, team_item, username, dept=''):
-    """P46: 新建单队行（直接 SQL 写 team_id 列=队长 employee_id；旧 DB 无列/非数字队id时回退 insert）"""
+    """P46/P54: 新建单队行（直接 SQL 写 team_id=队长 employee_id + slot=队伍序号；
+    旧 DB 无列/非数字队id时回退 insert）"""
     from core.database import get_conn, insert_collection_submission
     payload = {'teams': [team_item]}
     try:
         cap_tid = int(_dr_team_captain(team_item))
     except Exception:
         cap_tid = 0
+    slot_no = _dr_team_slot(team_item)
     try:
         conn = get_conn(data_folder)
         try:
             cur = conn.execute(
-                "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, created_by, month, department, team_id, version) VALUES (?,?,?,?,?,?,?,?,1)",
+                "INSERT INTO collection_submissions (form_type, submission_date, payload, operator_id, created_by, month, department, team_id, slot, version) VALUES (?,?,?,?,?,?,?,?,?,1)",
                 ('driller', date, json.dumps(payload, ensure_ascii=False), username, username,
-                 date[:7], dept or '', cap_tid))
+                 date[:7], dept or '', cap_tid, slot_no))
             conn.commit()
             sid = cur.lastrowid
         except Exception:
@@ -4751,43 +4782,44 @@ def _dr_insert_team_row(data_folder, date, team_item, username, dept=''):
 
 
 def _dr_team_upsert(data_folder, date, teams, username, is_admin, dept='',
-                    exclude_sid=None, home_sid=None, home_captain=None):
-    """P46: 钻工 teams 按 (date, captain) 逐队 upsert（submit/edit 共用核心，镜像 _ug_team_upsert）。
+                    exclude_sid=None, home_sid=None, home_captain=None, home_slot=None):
+    """P46/P54: 钻工 teams 按 (date, captain, slot) 逐队 upsert（submit/edit 共用核心，镜像 _ug_team_upsert）。
 
-    - 目标 (date, captain) 无行（或仅被 exclude_sid 命中）→ 新建单队行，operator=提交人
+    - 目标 (date, captain, slot) 无行（或仅被 exclude_sid 命中）→ 新建单队行，operator=提交人
     - 有行且 operator=本人或 admin → 行内 patch 该队条目（历史合并行其他队伍零丢失）
-    - 有行且 operator 他人 → 冲突（列出队长名+提交人）
-    - home_sid+home_captain：编辑时把 home 队整行替换进原编辑行（保留版本归档链，日期随 date 同步）
+    - 有行且 operator 他人 → 冲突（列出队长名+提交人；同队长不同 slot 不算冲突）
+    - home_sid+home_captain(+home_slot)：编辑时把 home 队整行替换进原编辑行（保留版本归档链，日期随 date 同步）
     全程先冲突预检后写入，无部分写入。返回 (ok, err_msg, err_params, sids, written_captains)
+    slot 缺失一律 0 → 与 P46 历史 (date, captain) 单键行为逐字节同路径
     """
     from core.database import get_collection_submissions, update_collection_submission
     _dedup = {}
     for t in teams:
-        _dedup[_dr_team_captain(t)] = t
+        _dedup[(_dr_team_captain(t), _dr_team_slot(t))] = t
     teams = list(_dedup.values())
     rows = [r for r in get_collection_submissions(data_folder, form_type='driller')
             if r.get('submission_date') == date and (exclude_sid is None or r['id'] != exclude_sid)]
-    cap_row = {}  # captain_id → 归属行（历史合并行多队逐个登记）
+    cap_row = {}  # (captain_id, slot) → 归属行（历史合并行多队逐个登记）
     for r in rows:
-        for k, _t in _dr_row_teams(r.get('payload')):
-            if k and k not in cap_row:
-                cap_row[k] = r
+        for k, s, _t in _dr_row_teams(r.get('payload')):
+            if k and (k, s) not in cap_row:
+                cap_row[(k, s)] = r
     conflicts = []
     for t in teams:
-        k = _dr_team_captain(t)
+        k = (_dr_team_captain(t), _dr_team_slot(t))
         r = cap_row.get(k)
         if r is not None and r['operator_id'] != username and not is_admin:
-            conflicts.append((k, r['operator_id']))
+            conflicts.append((k[0], r['operator_id']))
     if conflicts:
         _cerr, _cparams = _dr_team_conflict_msg(conflicts, _dr_captains_names_map(data_folder))
         return False, _cerr, _cparams, [], []
     sids, written_caps = [], []
     for t in teams:
-        k = _dr_team_captain(t)
-        if home_sid is not None and k == home_captain:
+        k = (_dr_team_captain(t), _dr_team_slot(t))
+        if home_sid is not None and k == (home_captain, home_slot or 0):
             update_collection_submission(data_folder, home_sid, {'teams': [t]}, username, date=date)
             sids.append(home_sid)
-            written_caps.append(k)
+            written_caps.append(k[0])
             continue
         r = cap_row.get(k)
         if r is not None:
@@ -4798,7 +4830,7 @@ def _dr_team_upsert(data_folder, date, teams, username, is_admin, dept='',
                 orig_list = []
             new_list, replaced = [], False
             for x in orig_list:
-                if _dr_team_captain(x) == k:
+                if (_dr_team_captain(x), _dr_team_slot(x)) == k:
                     new_list.append(t)
                     replaced = True
                 else:
@@ -4809,7 +4841,7 @@ def _dr_team_upsert(data_folder, date, teams, username, is_admin, dept='',
             sids.append(r['id'])
         else:
             sids.append(_dr_insert_team_row(data_folder, date, t, username, dept))
-        written_caps.append(k)
+        written_caps.append(k[0])
     return True, '', {}, sids, written_caps
 
 
@@ -5073,6 +5105,7 @@ def collection_submit():
 
     # upsert collection_submissions by (form_type, date) [attendance 另加 department+team_id 维度]
     _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
+    _ensure_collection_slot_column(app.config['DATA_FOLDER'])  # P54: 钻工多队伍 slot 列
     _ensure_collection_created_by_column(app.config['DATA_FOLDER'])
 
     # P39: 井下出渣新格式（payload 含 teams）按班组逐行 upsert —— 班组级归属保护：
@@ -5142,7 +5175,8 @@ def collection_submit():
         _invalidate_all_cache_base()
         log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
                   json.dumps({'form_type': form_type, 'date': date, 'sids': _dsids,
-                              'captains': _dcaps, 'department': dept, 'month': date[:7],
+                              'captains': _dcaps, 'slots': [_dr_team_slot(t) for t in _dteams],
+                              'department': dept, 'month': date[:7],
                               'split_rows': len(_dsids)}, ensure_ascii=False),
                   operator=username)
         return jsonify({'ok': True, 'submission_id': _dsids[-1] if _dsids else None,
@@ -5479,27 +5513,29 @@ def collection_edit(submission_id):
     # 冲突只针对非本行的 (date,captain)；被移除队伍随 home 替换消失（防御性清理见下）
     if form_type == 'driller' and isinstance(payload, dict) and 'teams' in payload:
         _ensure_collection_team_id_column(app.config['DATA_FOLDER'])
+        _ensure_collection_slot_column(app.config['DATA_FOLDER'])  # P54
         _dteams = [t for t in (payload.get('teams') or [])
                    if isinstance(t, dict) and _dr_team_captain(t)]
         if not _dteams:
             return jsonify({'ok': False, 'error': '钻工队伍数据为空，请至少保留一个队伍',
                             'error_key': 'pick_captain'}), 400
-        orig_caps = [k for k, _t in _dr_row_teams(sub['payload'])]
-        new_caps = [_dr_team_captain(t) for t in _dteams]
-        home_cap = next((k for k in new_caps if k in orig_caps), None)
-        # 冲突预检：非本行的 (new_date, captain) 归属他人 → 400（本行归属已过 owner-or-admin 校验）
+        # P54: 队伍键从 captain 扩展为 (captain, slot)；slot 缺省 0 与旧 payload 同路径
+        orig_keys = [(k, s) for k, s, _t in _dr_row_teams(sub['payload'])]
+        new_keys = [(_dr_team_captain(t), _dr_team_slot(t)) for t in _dteams]
+        home_key = next((k for k in new_keys if k in orig_keys), None)
+        # 冲突预检：非本行的 (new_date, captain, slot) 归属他人 → 400（本行归属已过 owner-or-admin 校验）
         _d_others = [r for r in get_collection_submissions(app.config['DATA_FOLDER'], form_type='driller')
                      if r.get('submission_date') == new_date and r['id'] != submission_id]
         _edit_cap_row = {}
         for r in _d_others:
-            for k, _t in _dr_row_teams(r.get('payload')):
-                if k and k not in _edit_cap_row:
-                    _edit_cap_row[k] = r
+            for k, s, _t in _dr_row_teams(r.get('payload')):
+                if k and (k, s) not in _edit_cap_row:
+                    _edit_cap_row[(k, s)] = r
         _d_conflicts = []
-        for k in dict.fromkeys(new_caps):
+        for k in dict.fromkeys(new_keys):
             r = _edit_cap_row.get(k)
             if r is not None and r['operator_id'] != username and not is_admin:
-                _d_conflicts.append((k, r['operator_id']))
+                _d_conflicts.append((k[0], r['operator_id']))
         if _d_conflicts:
             _cerr, _cparams = _dr_team_conflict_msg(_d_conflicts, _dr_captains_names_map(app.config['DATA_FOLDER']))
             return jsonify({'ok': False, 'error': _cerr, 'error_key': 'col_team_conflict',
@@ -5507,32 +5543,34 @@ def collection_edit(submission_id):
         _ok, _err, _eparams, _dsids, _dcaps = _dr_team_upsert(
             app.config['DATA_FOLDER'], new_date, _dteams, username, is_admin,
             dept=(payload.get('department') or '').strip(),
-            exclude_sid=submission_id, home_sid=(submission_id if home_cap is not None else None),
-            home_captain=home_cap)
+            exclude_sid=submission_id,
+            home_sid=(submission_id if home_key is not None else None),
+            home_captain=(home_key[0] if home_key is not None else None),
+            home_slot=(home_key[1] if home_key is not None else None))
         if not _ok:
             return jsonify({'ok': False, 'error': _err, 'error_key': 'col_team_conflict',
                             'error_params': _eparams}), 400
         # 被移除队伍的防御性清理（数据仅存于被编辑行时随 home 替换消失；
-        # 同日同队长另有独立行且为本人/admin 所有则删除，他人所有不可触碰；行内含 removed 之外队伍的不连带删）
+        # 同日同 (captain, slot) 另有独立行且为本人/admin 所有则删除，他人所有不可触碰；行内含 removed 之外队伍的不连带删）
         from core.database import log_audit as _la_p46
-        _removed_set = set(orig_caps) - set(new_caps)
+        _removed_set = set(orig_keys) - set(new_keys)
         for k in sorted(_removed_set):
             r = _edit_cap_row.get(k)
             if r is None or not (r['operator_id'] == username or is_admin):
                 continue
-            _row_caps = {kk for kk, _t in _dr_row_teams(r.get('payload'))}
+            _row_caps = {(kk, ss) for kk, ss, _t in _dr_row_teams(r.get('payload'))}
             if not _row_caps or not _row_caps.issubset(_removed_set):
                 continue
             try:
                 _la_p46(app.config['DATA_FOLDER'], 'collection_edit_row_archived', '',
                         json.dumps({'archived_sid': r['id'], 'date': new_date,
                                     'payload': r['payload'], 'reason': 'p46_removed_captain_cleanup',
-                                    'row_captains': sorted(_row_caps), 'operator': r['operator_id']},
+                                    'row_captain_slots': sorted(_row_caps), 'operator': r['operator_id']},
                                    ensure_ascii=False), operator=username)
             except Exception:
                 pass
             delete_collection_submission(app.config['DATA_FOLDER'], r['id'])
-        if home_cap is None:
+        if home_key is None:
             # 新队伍与原行无交集 → 原编辑行删除（旧 payload 归档进 audit 可恢复）
             try:
                 _la_p46(app.config['DATA_FOLDER'], 'collection_edit_row_archived', '',
@@ -5548,8 +5586,11 @@ def collection_edit(submission_id):
         log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
                   json.dumps({'submission_id': (_dsids[0] if _dsids else submission_id), 'form_type': form_type,
                               'date': new_date, 'old_date': old_date, 'month': new_date[:7],
-                              'p46_split': {'home_captain': home_cap, 'sids': _dsids, 'captains': _dcaps,
-                                            'removed_captains': sorted(set(orig_caps) - set(new_caps))}},
+                              'p46_split': {'home_captain': (home_key[0] if home_key else None),
+                                            'home_slot': (home_key[1] if home_key else None),
+                                            'sids': _dsids, 'captains': _dcaps,
+                                            'slots': [_dr_team_slot(t) for t in _dteams],
+                                            'removed_captain_slots': sorted(set(orig_keys) - set(new_keys))}},
                              ensure_ascii=False),
                   operator=username)
         return jsonify({'ok': True, 'submission_id': (_dsids[0] if _dsids else submission_id),

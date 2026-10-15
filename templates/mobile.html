@@ -1086,7 +1086,10 @@
           const capName = capNames[elements[0].index];
           const cap = captains[capName];
           if(!cap) return;
-          const rows = cap.daily.slice().sort((a,b)=> a.date<b.date ? -1 : a.date>b.date ? 1 : 0);
+          // P54: 同队长同日多队（多条记录）按日期合并求和展示
+          const _byDate={}, _dates=[];
+          cap.daily.forEach(d=>{ if(!_byDate[d.date]){ _byDate[d.date]={nh:0,nl:0,mw:0}; _dates.push(d.date); } _byDate[d.date].nh+=d.nh||0; _byDate[d.date].nl+=d.nl||0; _byDate[d.date].mw+=d.mw||0; });
+          const rows=_dates.sort().map(dt=>({date:dt,nh:_byDate[dt].nh,nl:_byDate[dt].nl,mw:_byDate[dt].mw}));
           let totalNH=0, totalNL=0, totalMW=0;
           const thL='text-align:left;padding:6px 8px;border-bottom:2px solid rgba(0,0,0,0.12);white-space:nowrap;';
           const thR='text-align:right;padding:6px 8px;border-bottom:2px solid rgba(0,0,0,0.12);white-space:nowrap;';
@@ -1981,8 +1984,9 @@
     }
     if(ty==='driller'){
       const teams=p.teams||[];
+      const _slots=drTeamSlotsM(teams);
         return '<div class="detail-line">'+t('add_team')+': '+teams.length+'</div>'
-        + teams.map((tm,i)=>'<div class="detail-line"><b>'+t('col_team')+' '+(i+1)+': '+esc(colMobEidName(tm.captain))+'</b> · NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
+        + teams.map((tm,i)=>'<div class="detail-line"><b>'+t('col_team')+' '+(i+1)+': '+esc(colMobEidName(tm.captain))+(_slots[i]>0?drTeamBadgeM(_slots[i]):'')+'</b> · NH '+esc(tm.nh||0)+' · NL '+esc(tm.nl||0)+' · MW '+esc(tm.mw||0)+'</div>'
           + '<div class="detail-line">'+t('col_members')+': '+esc(names(tm.members))+'</div>').join('');
     }
     if(ty==='crush'){
@@ -2433,7 +2437,7 @@
     const d = (init && init.submission_date) || '';
     // P40-g: 成员池按提交日期归属
     STATE._drDatePool = await mobDateViewPool(d);
-    const teams = (init && init.teams && init.teams.length) ? init.teams.map(tm=>({captain:tm.captain||'', nh:tm.nh||0, nl:tm.nl||0, mw:tm.mw||0, members:(tm.members||[])})) : [{captain:'',nh:0,nl:0,mw:0,members:[]}];
+    const teams = (init && init.teams && init.teams.length) ? init.teams.map(tm=>({captain:tm.captain||'', nh:tm.nh||0, nl:tm.nl||0, mw:tm.mw||0, members:(tm.members||[]), slot:tm.slot||0})) : [{captain:'',nh:0,nl:0,mw:0,members:[],slot:0}];
     STATE._drSlots = teams;
     let caps=[]; try{ caps=(await api('/api/driller-captains')).captains||[]; }catch(e){}
     STATE._drCaps=caps;
@@ -2445,9 +2449,15 @@
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitDr()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
     renderDrSlotsM();
   }
+  /* P54: 钻工同队长多队 slot 编号/角标（表单、提交、详情共用） */
+  function drDupSeqsM(caps){ const counts={},seen={}; (caps||[]).forEach(cp=>{ if(cp) counts[cp]=(counts[cp]||0)+1; }); return (caps||[]).map(cp=>{ if(!cp||counts[cp]<2) return 0; seen[cp]=(seen[cp]||0)+1; return seen[cp]; }); }
+  function drTeamSlotsM(teams){ const seqs=drDupSeqsM((teams||[]).map(x=>x&&x.captain)); return (teams||[]).map((tm,i)=>{ const sv=parseInt((tm&&tm.slot)||0,10); return sv>0?sv:seqs[i]; }); }
+  function drTeamBadgeM(n){ return ' <span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:999px;background:var(--muted);color:var(--muted-foreground);border:1px solid var(--border);margin-left:6px;">'+esc(t('dr_team_n').replace('{n}',n))+'</span>'; }
   function capOpts(sel){ return '<option value="">'+t('pick_captain')+'</option>'+(STATE._drCaps||[]).map(c=>'<option value="'+esc(c.employee_id)+'" '+(String(sel)===String(c.employee_id)?'selected':'')+'>'+esc(c.name)+'</option>').join(''); }
   function renderDrSlotsM(){ const c=document.getElementById('drSlots'); if(!c) return;
-    c.innerHTML=STATE._drSlots.map((s,i)=>'<div class="seg-card"><div class="seg-card__title">'+t('col_dr')+' '+(i+1)+'</div>'
+    // P54: 同队长多槽位渲染"队伍 N"角标（允许重复选同一队长）
+    const _seqs=drDupSeqsM(STATE._drSlots.map(s=>s.captain));
+    c.innerHTML=STATE._drSlots.map((s,i)=>'<div class="seg-card"><div class="seg-card__title">'+t('col_dr')+' '+(i+1)+(_seqs[i]>0?drTeamBadgeM(_seqs[i]):'')+'</div>'
       + '<div class="field"><label class="field__label">'+t('captain')+'</label><select id="drCap'+i+'" onchange="STATE._drSlots['+i+'].captain=this.value">'+capOpts(s.captain)+'</select></div>'
       + '<div style="display:flex;gap:6px;"><div class="field" style="flex:1;"><label class="field__label">'+t('nh')+'</label><input type="number" id="drNh'+i+'" value="'+s.nh+'" min="0" step="0.1" inputmode="decimal"></div><div class="field" style="flex:1;"><label class="field__label">'+t('nl')+'</label><input type="number" id="drNl'+i+'" value="'+s.nl+'" min="0" step="0.1" inputmode="decimal"></div><div class="field" style="flex:1;"><label class="field__label">'+t('mw')+'</label><input type="number" id="drMw'+i+'" value="'+s.mw+'" min="0" step="0.1" inputmode="decimal"></div></div>'
       + '<div class="field"><label class="field__label">'+t('members')+'</label><input type="hidden" id="drMem'+i+'" value="'+(s.members||[]).join(',')+'"><div class="col-count-hint" id="drMem'+i+'-count">'+t('col_selected_count',{n:(s.members||[]).length})+'</div><div id="drMemBox'+i+'"></div></div>'
@@ -2460,6 +2470,14 @@
   function submitDr(){ const date=document.getElementById('colDate').value; if(!date){ colFailMsg('driller', t('val_date')); return; } const teams=[];
     for(let i=0;i<STATE._drSlots.length;i++){ const cap=document.getElementById('drCap'+i).value; if(!cap) continue; teams.push({ captain:cap, nh:+document.getElementById('drNh'+i).value||0, nl:+document.getElementById('drNl'+i).value||0, mw:+document.getElementById('drMw'+i).value||0, members:ck('drMem'+i) }); }
     if(!teams.length){ colFailMsg('driller', t('pick_captain')); return; }
+    // P54: 同队长多队按表单顺序赋 slot 1..N；单队伍不写 slot（旧行为字节兼容）
+    const _seqs=drDupSeqsM(teams.map(x=>x.captain));
+    teams.forEach((tm,i)=>{ if(_seqs[i]>0) tm.slot=_seqs[i]; });
+    // P54: 同一队员出现在同队长多个队伍 → toast 提醒（不阻断，各队独立结算）
+    const _byCap={}; teams.forEach(tm=>{ (_byCap[tm.captain]=_byCap[tm.captain]||[]).push(tm); });
+    const _dupNames=[];
+    Object.values(_byCap).forEach(list=>{ if(list.length<2) return; const seen={},dup={}; list.forEach(tm=>(tm.members||[]).forEach(m=>{ const k=String(m); if(seen[k]) dup[k]=1; else seen[k]=1; })); Object.keys(dup).forEach(id=>{ const nm=colMobEidName(id); if(nm&&_dupNames.indexOf(nm)<0) _dupNames.push(nm); }); });
+    if(_dupNames.length) toast(t('dr_dup_member_warn').replace('{names}',_dupNames.join(', ')),'warning');
     colSubmit('driller', { submission_date:date, teams }, null); }
 
   // 破碎计件
