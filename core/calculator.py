@@ -92,15 +92,57 @@ def sick_subsidy_eligible(emp, data_folder=None):
     return False
 
 
+def sick_subsidy_eligible_batch(employees, data_folder=None):
+    """P1-5(perf): sick_subsidy_eligible 的批量版——一次连接取回全部缺证员工的
+    nida/nssf/tin，构造 {eid: bool} 查找表，供 calculate_all / compute_daily_breakdown
+    逐员工循环查表，消除逐人 sqlite3.connect 的 N+1。
+    语义与逐个调用完全一致：emp 自带任一三证键 → 只看 emp 自身值（不回退 DB）；
+    否则回退 employees 表补查（查不到 / 无库 / 异常 → False）。"""
+    result = {}
+    need_db = []
+    for emp in employees:
+        eid = emp.get('id')
+        if any(k in emp for k in _SICK_CERT_KEYS):
+            result[eid] = all((emp.get(k) or '').strip() for k in _SICK_CERT_KEYS)
+        else:
+            result[eid] = False
+            need_db.append(eid)
+    if need_db and data_folder:
+        try:
+            import sqlite3
+            _dbp = os.path.join(data_folder, 'kilwa.db')
+            if os.path.exists(_dbp):
+                _conn = sqlite3.connect(_dbp)
+                _ph = ','.join('?' * len(need_db))
+                _rows = _conn.execute(
+                    f"SELECT id, nida_number, nssf_number, tin_number FROM employees WHERE id IN ({_ph})",
+                    need_db).fetchall()
+                _conn.close()
+                _certs = {r[0]: r[1:] for r in _rows}
+                for eid in need_db:
+                    if eid in _certs:
+                        result[eid] = all((v or '').strip() for v in _certs[eid])
+        except Exception:
+            pass
+    return result
+
+
 def sick_subsidy_days(eid, emp, sk_dates, att_overrides, per_date_type, present_dates,
-                      ug_daily, driller_daily, crush_daily, amount_per_day, data_folder=None):
+                      ug_daily, driller_daily, crush_daily, amount_per_day, data_folder=None,
+                      eligible_map=None):
     """P48: 返回该员工获发补贴的 SK 日 {date: amount}（amount_per_day = ug_al_per_day）。
     双份防护：该日其他轨道（井下/钻工/破碎计件日额、day_rate/monthly 出勤计数）任一有收入则跳过。
     present_dates 语义与 NU 计薪一致（含手动 P / ENPRIZON 1-26 补齐）；
-    SK 日本身不进 present_dates（非 P/NU），故 day_rate/monthly 命中 present 即视为该日已有收入。"""
+    SK 日本身不进 present_dates（非 P/NU），故 day_rate/monthly 命中 present 即视为该日已有收入。
+    eligible_map: P1-5(perf) 批量资格查找表 {eid: bool}（sick_subsidy_eligible_batch 产出），
+    传入则查表免逐人连接；None 时回退原逐人 sick_subsidy_eligible 路径（语义不变）。"""
     if not amount_per_day or not sk_dates.get(eid):
         return {}
-    if not sick_subsidy_eligible(emp, data_folder):
+    if eligible_map is not None:
+        _eligible = eligible_map.get(eid, False)
+    else:
+        _eligible = sick_subsidy_eligible(emp, data_folder)
+    if not _eligible:
         return {}
     granted = {}
     for dt in sorted(sk_dates[eid]):
@@ -1488,6 +1530,9 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
     result_employees = []
     ug_base_raw = {}  # V2: unscaled base per employee (before rounding/scaling)
 
+    # P1-5(perf): 一次批量取回全员工病假补贴资格，循环内查表（消除 N+1 连接）
+    sick_eligible_map = sick_subsidy_eligible_batch(employees, data_folder)
+
     for emp in employees:
         eid = emp['id']
         eff_type = emp.get('override_type') or emp['default_type']
@@ -1556,7 +1601,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         # 与 compute_daily_breakdown 共用 sick_subsidy_days 单一来源）
         sick_subsidy = sum(sick_subsidy_days(
             eid, emp, sk_dates, att_overrides, per_date_type, present_dates,
-            ug_daily, driller_daily, crush_daily, ug_al_per_day, data_folder).values())
+            ug_daily, driller_daily, crush_daily, ug_al_per_day, data_folder,
+            eligible_map=sick_eligible_map).values())
 
         bp = bonus_penalties.get(eid, {})
         advance = int(bp.get('advance', 0) or 0) or int(emp.get('advance_total', 0) or 0)
@@ -2137,6 +2183,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
         ) | set(dt for (_e, dt), st in att_all.items() if st == 'SK' and dt[:7] == _ym))
         result = {}
         sick_grant_by_eid = {}  # P48: 补贴发放集（V2 缩放后统一叠加）
+        # P1-5(perf): 一次批量取回全员工病假补贴资格，循环内查表（消除 N+1 连接）
+        sick_eligible_map_br = sick_subsidy_eligible_batch(employees, data_folder)
         for emp in employees:
             eid = emp['id']
             eff = emp.get('override_type') or emp['default_type']
@@ -2185,7 +2233,8 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                     _sk_dates_br[_se].add(_sdt)
             sk_subsidy_daily = sick_subsidy_days(
                 eid, emp, _sk_dates_br, att_all, per_date_type, present,
-                ug_daily, dr_daily, crush_daily, ug_al_per_day_br, data_folder)
+                ug_daily, dr_daily, crush_daily, ug_al_per_day_br, data_folder,
+                eligible_map=sick_eligible_map_br)
             if sk_subsidy_daily:
                 # P48: 不在此处并入 daily——V2 零和系数会把 piece_underground 轨道日期上的
                 # 补贴一并缩放/锚定（固定津贴不得参与），统一延迟到 V2 块结束后叠加

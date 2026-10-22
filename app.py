@@ -828,7 +828,9 @@ import copy as _copy
 MONTH_CACHE: dict[str, dict] = {}
 MONTH_CACHE_LOCK = _threading.Lock()
 MONTH_CACHE_LOCKS: dict[str, _threading.Lock] = {}
-MONTH_CACHE_MAX = 3
+# perf-batch1 A2: 3→6（查历史月即驱逐当月，多用户命中率趋近 0）。
+# 内存预估：每 MonthData 约 5-10MB（salary_result 60MB 进程实测占用口径），6 个月 ≈ 60MB 上限，可承受。
+MONTH_CACHE_MAX = 6
 
 def _get_month_lock(month: str) -> _threading.Lock:
     """Per-month lock (double-checked creation under global lock)."""
@@ -840,7 +842,7 @@ def _get_month_lock(month: str) -> _threading.Lock:
         return lk
 
 def _month_cache_evict_if_needed():
-    """LRU cap 3: evict oldest built_at (caller must hold MONTH_CACHE_LOCK)."""
+    """LRU cap MONTH_CACHE_MAX（6，perf-batch1 A2）: evict oldest built_at (caller must hold MONTH_CACHE_LOCK)."""
     while len(MONTH_CACHE) > MONTH_CACHE_MAX:
         oldest = min(MONTH_CACHE.items(), key=lambda kv: kv[1].get('built_at', 0))[0]
         MONTH_CACHE.pop(oldest, None)
@@ -1517,6 +1519,60 @@ def _get_month_data(month: str | None) -> dict | None:
     # if pipeline returned None (empty employees), try to return whatever cache has
     with MONTH_CACHE_LOCK:
         return MONTH_CACHE.get(month)
+
+
+def _get_daily_breakdown(month, main_data, employees, pricing=None):
+    """
+    perf-batch1 A1 (P0-1): 日明细结果缓存。
+
+    /daily-wages 与 /export/all 每次请求都全量跑 compute_daily_breakdown()（实测 1.3~3.2s），
+    是"界面卡顿"主热点。这里把结果懒计算后挂进 MonthData['daily_breakdown']，
+    随月缓存一起失效（写端点失效映射见上方 _invalidate_month_cache 注释块；
+    OA 批准/撤销/修改、采集提交/编辑/豁免、出勤 toggle、overrides/bonus 编辑、
+    recalculate/reload 均会替换或驱逐该月 MonthData，新 md 无此键即自动重算）。
+
+    ⚠️ 调用方会原地追加 att_override_dates（/daily-wages、导出 Sheet4），
+    故命中与未命中一律返回 deepcopy，严禁把共享可变对象交给调用方污染缓存。
+    """
+    from core.calculator import compute_daily_breakdown
+    from core.exceptions import load_overrides, load_daily_exclusions
+
+    # 并发去重：pipeline 只在落 MonthData 的瞬间短暂持 per-month lock，
+    # 这里持锁计算不会与全量重建互锁（本函数内不触发 _run_pipeline，无嵌套取锁）。
+    with _get_month_lock(month):
+        with MONTH_CACHE_LOCK:
+            md = MONTH_CACHE.get(month)
+            cached = md.get('daily_breakdown') if md else None
+        if cached is not None:
+            return _copy.deepcopy(cached)
+
+        _ug = _build_ug_team_members(app.config.get('DATA_FOLDER'), month=month)
+        _ddm = _build_transfer_day_map(app.config.get('DATA_FOLDER'), month)  # P35
+        try:
+            result = compute_daily_breakdown(
+                main_data=main_data,
+                employees=employees,
+                overrides=load_overrides(app.config['DATA_FOLDER'], month=month),
+                exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
+                pricing=pricing or {},
+                data_folder=app.config.get('DATA_FOLDER'),
+                ug_team_members=_ug,
+                dept_day_map=_ddm,
+            )
+        except TypeError:  # 兼容旧签名（无 ug_team_members/dept_day_map）
+            result = compute_daily_breakdown(
+                main_data=main_data,
+                employees=employees,
+                overrides=load_overrides(app.config['DATA_FOLDER'], month=month),
+                exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
+                pricing=pricing or {},
+                data_folder=app.config.get('DATA_FOLDER'),
+            )
+        # 仅在月缓存未被并发重建替换时挂缓存，防旧 main_data 算出的结果毒化新 md
+        with MONTH_CACHE_LOCK:
+            if md is not None and MONTH_CACHE.get(month) is md:
+                md['daily_breakdown'] = result
+        return _copy.deepcopy(result)
 
 
 def _refresh_employees_cache(month: str | None = None):
@@ -6719,6 +6775,8 @@ def save_config():
     with MONTH_CACHE_LOCK:
         for _v in MONTH_CACHE.values():
             _v['config_snapshot'] = _copy.deepcopy(config)
+            # perf-batch1 A1: pricing 参与日明细计算，配置变更后各月 breakdown 缓存一并失效（下次请求重算）
+            _v.pop('daily_breakdown', None)
     _audit('config_update', '', json.dumps({'keys': list(incoming.keys())}))
     return jsonify({'ok': True, 'config': config})
 
@@ -7056,8 +7114,6 @@ def get_production_verify():
 @login_required
 @require_permission('salary', 'view')
 def get_daily_wages():
-    from core.calculator import compute_daily_breakdown
-    from core.exceptions import load_overrides, load_daily_exclusions
     month = resolve_month(request)
     _md = _get_month_data(month)
     cur_md_dw = (_md.get('main_data') if _md else {}) if _md is not None else {}
@@ -7065,31 +7121,9 @@ def get_daily_wages():
         return jsonify({})
     _emps_dw = (_md.get('employees') if _md else []) if _md is not None else []
     _cfg_dw = (_md.get('config_snapshot') if _md else {}) if _md is not None else {}
-    # P53-c: 必须带 month —— 不带时按员工当前归属分组，与 calculate_all 的当月台账口径
-    # （P35 调岗日粒度）不一致，导致调岗过的井下计件工日明细 ≠ 薪资总表（核对列假红）
-    _ug_dw = _build_ug_team_members(app.config.get('DATA_FOLDER'), month=month)
-    _ddm_dw = _build_transfer_day_map(app.config.get('DATA_FOLDER'), month)  # P35
-    try:
-        result = compute_daily_breakdown(
-            main_data=cur_md_dw,
-            employees=_emps_dw,
-            overrides=load_overrides(app.config['DATA_FOLDER'], month=month),
-            exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-            pricing=_cfg_dw,
-            data_folder=app.config.get('DATA_FOLDER'),
-            ug_team_members=_ug_dw,
-            dept_day_map=_ddm_dw,
-        )
-    except TypeError:
-        result = compute_daily_breakdown(
-            main_data=cur_md_dw,
-            employees=_emps_dw,
-            overrides=load_overrides(app.config['DATA_FOLDER'], month=month),
-            exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-            pricing=_cfg_dw,
-            data_folder=app.config.get('DATA_FOLDER'),
-        )
-    # 合并出勤手动覆盖（P/A/L）到逐日工资结果
+    # perf-batch1 A1: 日明细走缓存（内部仍带 month 参数，保持 P53-c 与薪资总表同口径）
+    result = _get_daily_breakdown(month, cur_md_dw, _emps_dw, _cfg_dw)
+    # 合并出勤手动覆盖（P/A/L）到逐日工资结果（result 为深拷贝，原地改不污染缓存）
     import sqlite3, os
     att_ov = {}
     db_path = os.path.join(app.config['DATA_FOLDER'], 'kilwa.db')
@@ -7983,29 +8017,12 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
     #  Sheet 4: 日工资分布
     # ═══════════════════════════════════════════════════════
     if _eff_md and employees:
-        from core.calculator import compute_daily_breakdown
-        from core.exceptions import load_overrides as _ld_ov, load_daily_exclusions
-        # P53-c: 同上——日工资分布 sheet 须与薪资总表同口径（按导出月台账）
-        _ug_exp = _build_ug_team_members(app.config['DATA_FOLDER'], month=_eff_month)
-        _ddm_exp = _build_transfer_day_map(app.config['DATA_FOLDER'], _eff_month)  # P35
-        try:
-            dw_result = compute_daily_breakdown(
-                main_data=_eff_md, employees=employees,
-                overrides=_ld_ov(app.config['DATA_FOLDER'], month=_eff_month),
-                exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-                pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
-                data_folder=app.config['DATA_FOLDER'],
-                ug_team_members=_ug_exp,
-                dept_day_map=_ddm_exp,
-            )
-        except TypeError:
-            dw_result = compute_daily_breakdown(
-                main_data=_eff_md, employees=employees,
-                overrides=_ld_ov(app.config['DATA_FOLDER'], month=_eff_month),
-                exclusions=load_daily_exclusions(app.config['DATA_FOLDER']),
-                pricing=(_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
-                data_folder=app.config['DATA_FOLDER'],
-            )
+        # perf-batch1 A1: 日工资分布 sheet 与 /daily-wages 共用同一份缓存结果
+        # （唯一调用方 export_all 传入的 eff_md/employees 即 _get_month_data(_eff_month) 的内容）
+        dw_result = _get_daily_breakdown(
+            _eff_month, _eff_md, employees,
+            (_md_all.get('config_snapshot', {}) if _md_all else {}) if _md_all is not None else {},
+        )
         # 合并 att_override_dates
         import sqlite3 as _sq, os as _os
         att_ov_map = {}
