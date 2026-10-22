@@ -3782,11 +3782,12 @@ function populateMonthSelect() {
     if (!Array.isArray(months)) months = [];
     CACHED_AVAILABLE_MONTHS = months;
     const prevVal = sel.value;
-    // 重建选项（去重）
-    sel.innerHTML = '<option value="all">' + t('month_all') + '</option>';
+    // 重建选项（去重）—— 循环内拼接改 join 一次性写入（P2-7 渲染性能）
+    const monthParts = ['<option value="all">' + t('month_all') + '</option>'];
     months.forEach(m => {
-      sel.innerHTML += `<option value="${m}">${m}</option>`;
+      monthParts.push(`<option value="${m}">${m}</option>`);
     });
+    sel.innerHTML = monthParts.join('');
     // 选中逻辑：优先保留已有 STATE.currentMonth；否则用服务端首月作为默认，不使用客户端时钟
     let toSelect = '';
     if (STATE.currentMonth && [...sel.options].some(o => o.value === STATE.currentMonth)) {
@@ -3985,7 +3986,9 @@ function populateTeamFilterSelect(selEl, placeholderKey) {
   const td = STATE._teamData || {};
   const groups = td.groups || [];
   selEl.innerHTML = '<option value="">' + t(placeholderKey || 'all_teams') + '</option>';
-  groups.forEach(g => { selEl.innerHTML += '<option value="' + g.id + '">' + escHtml(g.name) + '</option>'; });
+  const teamParts = [];
+  groups.forEach(g => { teamParts.push('<option value="' + g.id + '">' + escHtml(g.name) + '</option>'); });
+  selEl.innerHTML += teamParts.join('');
 }
 async function refreshAllTeamFilters() {
   await ensureTeamFilterData(true);
@@ -4012,7 +4015,9 @@ async function renderEmployeeTable() {
     const prevVal = sel.value;
     const deps = [...new Set(emps.map(e => e.department).filter(Boolean))].sort();
     sel.innerHTML = '<option value="">' + t('emp_all_depts') + '</option>';
-    deps.forEach(d => { sel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+    const deptParts = [];
+    deps.forEach(d => { deptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`); });
+    sel.innerHTML += deptParts.join('');
     if (deps.includes(prevVal)) sel.value = prevVal;
 
     // T18: team filter for underground department
@@ -4030,7 +4035,9 @@ async function renderEmployeeTable() {
       if (isUgDept) {
         const prevTeam = teamSel.value;
         teamSel.innerHTML = '<option value="">' + t('col_ug_team') + '</option>';
-        empGroups.forEach(g => { teamSel.innerHTML += `<option value="${g.id}">${escHtml(g.name)}</option>`; });
+        const ugTeamParts = [];
+        empGroups.forEach(g => { ugTeamParts.push(`<option value="${g.id}">${escHtml(g.name)}</option>`); });
+        teamSel.innerHTML += ugTeamParts.join('');
         if (empGroups.some(g => String(g.id) === prevTeam)) teamSel.value = prevTeam;
       }
     }
@@ -5377,7 +5384,9 @@ function openTempOverrideModal() {
     const sel = document.getElementById('pfTempCaptain');
     if (sel) {
       sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
-      caps.forEach(c => { sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; });
+      const capParts = [];
+      caps.forEach(c => { capParts.push('<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'); });
+      sel.innerHTML += capParts.join('');
     }
   }).catch(()=>{});
   toggleTempBase();
@@ -5600,7 +5609,9 @@ function showOverrideModal(eid) {
   fetch(api('/driller-captains')).then(r=>r.json()).then(caps=>{
     const sel = document.getElementById('modalTempCaptain');
     sel.innerHTML = '<option value="">' + t('modal_select_captain') + '</option>';
-    caps.forEach(c => { sel.innerHTML += '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; });
+    const capParts2 = [];
+    caps.forEach(c => { capParts2.push('<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'); });
+    sel.innerHTML += capParts2.join('');
   }).catch(()=>{});
   // 加载井下班组列表（与编辑员工档案井下时同源：/api/employee_groups 返回 {id, name}）
   fetch(api('/api/employee_groups')).then(r=>r.json()).then(data=>{
@@ -5870,9 +5881,11 @@ async function renderSalaryTable(result) {
   if (deptSel && deptSel.options.length === 1) {
     const depts = new Set();
     (STATE._empAll || result.employees).forEach(e => { if (e.department) depts.add(e.department); });
+    const salDeptParts = [];
     [...depts].sort().forEach(d => {
-      deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`;
+      salDeptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`);
     });
+    deptSel.innerHTML += salDeptParts.join('');
   }
   // R3: show team filter when UG dept selected
   await ensureTeamFilterData();
@@ -6099,9 +6112,11 @@ async function loadDailyWages() {
     }
     const sel = document.getElementById('dwFilterDept');
     if (sel.options.length === 1) {
+      const dwDeptParts = [];
       [...depts].sort().forEach(d => {
-        sel.innerHTML += '<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>';
+        dwDeptParts.push('<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>');
       });
+      sel.innerHTML += dwDeptParts.join('');
     }
     // R3: ensure team filter data
     await ensureTeamFilterData();
@@ -6305,9 +6320,11 @@ async function exportAllPayslips() {
   deptSel.innerHTML = '<option value="">全部部门</option>';
   const depts = new Set();
   (STATE._empAll || []).forEach(e => { if (e.department) depts.add(e.department); });
+  const psDeptParts = [];
   [...depts].sort().forEach(d => {
-    deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`;
+    psDeptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`);
   });
+  deptSel.innerHTML += psDeptParts.join('');
   
   const monthSel = document.getElementById('payslipDeptMonthSelect');
   monthSel.innerHTML = '';
@@ -6424,7 +6441,9 @@ function renderAttendance() {
   if (deptSel.options.length === 1) {
     const depts = new Set();
     data.rows.forEach(r => { if (r.department) depts.add(r.department); });
-    [...depts].sort().forEach(d => { deptSel.innerHTML += `<option value="${escHtml(d)}">${escHtml(d)}</option>`; });
+    const attDeptParts = [];
+    [...depts].sort().forEach(d => { attDeptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`); });
+    deptSel.innerHTML += attDeptParts.join('');
   }
   // R3: team filter show/hide
   const attTeamSel = document.getElementById('attFilterTeam');
@@ -6435,11 +6454,14 @@ function renderAttendance() {
   }
   const attTeamFilter = (attTeamSel && attIsUg) ? attTeamSel.value : '';
 
+  // P2-7: 员工缓存建一次 Map 查表，避免 filter 回调内逐行 find（O(n²)→O(n)）
+  const empById = new Map((STATE._empAll || []).map(e => [String(e.id), e]));
+
   const filtered = data.rows.filter(r => {
     if (q) {
       const nameHit = (r.name || '').toLowerCase().includes(q);
       // attendance rows 可能无 alias,从员工缓存关联
-      const empRec = (STATE._empAll || []).find(x => String(x.id) === String(r.id || r.employee_id));
+      const empRec = empById.get(String(r.id || r.employee_id));
       const aliasHit = ((empRec && empRec.alias) || '').toLowerCase().includes(q);
       const numHit = String(r.custom_number || (empRec && (empRec.custom_number || empRec.id)) || r.id).toLowerCase().includes(q);
       if (!nameHit && !aliasHit && !numHit) return false;

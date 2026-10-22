@@ -51,6 +51,7 @@ def init_db(data_folder):
             source INTEGER DEFAULT 0,
             PRIMARY KEY (employee_id, date)
         );
+        CREATE INDEX IF NOT EXISTS idx_att_date ON attendance_overrides(date);
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -237,6 +238,7 @@ def init_db(data_folder):
         );
         CREATE INDEX IF NOT EXISTS idx_events_employee ON employee_events(employee_id, effective_date);
         CREATE INDEX IF NOT EXISTS idx_events_status ON employee_events(status);
+        CREATE INDEX IF NOT EXISTS idx_events_status_type_date ON employee_events(status, event_type, effective_date);
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,

@@ -851,13 +851,15 @@ def _month_cache_evict_if_needed():
 
 # ── P2 Cache invalidation (per-month) ─────────────────────
 # Write endpoint -> invalidated MONTH_CACHE key (per-month only):
-#   POST /api/collection/submit               -> month = submission_date[:7] + __all__（2026-09-01 补：__all__ 全量快照失效，防旧快照回写）
-#   POST /api/collection/edit/<id>            -> old_date[:7] + new_date[:7] + __all__
-#   POST /attendance/toggle                   -> month = body date[:7] (fallback g.view_month) + __all__
-#   POST /employees/override                  -> month = effective_from or start_date[:7] or g.view_month（_refresh_employees_cache 已全量重建刷新 APP_STATE）
+#   POST /api/collection/submit               -> month = submission_date[:7]（perf-batch2 C2: __all__ 失效已移除，死缓存无消费者）
+#   POST /api/collection/edit/<id>            -> old_date[:7] + new_date[:7]（同上）
+#   POST /attendance/toggle                   -> month = body date[:7] (fallback g.view_month)（同上）
+#   POST /employees/override                  -> month = effective_from or start_date[:7] or g.view_month（perf-batch2 C1: eager 重算移出请求路径，仅失效）
 #   POST /employees/remove-override           -> month = g.view_month（同上）
 #   POST /employees/remove-temp-override      -> month = g.view_month（同上）
 #   POST /employees/remove-override-by-id     -> month = override row effective_from/start_date or g.view_month（同上）
+#   POST /employees/restore | /api/employees/* 基本字段/薪资类型 | OA approve/revoke/edit
+#                                             -> 原覆盖面月份失效（APP_STATE.month / eff_month / 逐月），响应不依赖刷新后数据
 #   POST /employees/bonus-penalty             -> month = body month[:7]
 #   POST /api/salary/inline-edit              -> month = body month[:7]
 #   POST /recalculate                         -> month = g.view_month (per-month recompute)
@@ -866,9 +868,14 @@ def _month_cache_evict_if_needed():
 #        禁止用 __all__/APP_STATE 旧快照 deepcopy-filter 回写（2026-08-31 数据缺失 bug 根因）。
 
 def _invalidate_all_cache_base():
-    """失效 __all__ 全量快照（数据事实变更点：采集提交/编辑/出勤标记）。
-    __all__ 条目由 _run_pipeline(month_filter=None) 构建，失效后由下一次
-    view_month='all' 读自动重建，保证全量视图不携带陈旧数据。"""
+    """[perf-batch2 C2 已废弃调用] 失效 __all__ 全量快照。
+    2026-10-22 审计结论：MONTH_CACHE['__all__'] 为"只写不读"死缓存——app.py 全部
+    MONTH_CACHE 引用中无任何读取 '__all__' 键；resolve_month 池回退显式排除它；
+    _get_month_data 对 month='all' 一律映射 g.view_month 从不取 '__all__'；
+    /set-month 与 /recalculate 的 all 分支直接消费 _run_pipeline 返回值不走缓存；
+    core/ 模块零引用。原先防的"旧快照回写"是 2026-09-01 已删除的 deepcopy-filter
+    快路径（见 _get_month_data 注释）。故 8 个数据事实写端点的本函数调用全部移除
+    （行为可证明无变化）。函数保留供兼容；__all__ 写入与死缓存清理留批次 3。"""
     with MONTH_CACHE_LOCK:
         MONTH_CACHE.pop('__all__', None)
 
@@ -882,6 +889,17 @@ def _invalidate_month_cache(month: str | None):
     with MONTH_CACHE_LOCK:
         MONTH_CACHE.pop(month, None)
         MONTH_CACHE_LOCKS.pop(month, None)
+
+
+def _invalidate_current_view_month():
+    """perf-batch2 C1 (P0-2): 替代无月份参数的 _refresh_employees_cache() 同步全量重算。
+    原逻辑覆盖面 = APP_STATE.month 单月（为 None/'all' 时仅重建 __all__ 死缓存，
+    不触碰任何单月缓存）。此处按相同覆盖面只做失效，重建移交下一个读请求
+    （_get_month_data 缓存 miss → per-month 单飞锁内全量管线）。
+    仅当写端点响应不依赖刷新后数据时才可用本函数（响应依赖数据须保留 eager 重建）。"""
+    _m = APP_STATE.get('month')
+    if _m and _m != 'all':
+        _invalidate_month_cache(_m)
 
 
 def _clear_all_month_cache():
@@ -1576,7 +1594,10 @@ def _get_daily_breakdown(month, main_data, employees, pricing=None):
 
 
 def _refresh_employees_cache(month: str | None = None):
-    """Per-month cache refresh (not global): rebuild MONTH_CACHE[month] via _run_pipeline."""
+    """Per-month cache refresh (not global): rebuild MONTH_CACHE[month] via _run_pipeline.
+    [perf-batch2 C1] app.py 内已无调用方——写端点响应不依赖刷新后数据，改走
+    _invalidate_month_cache/_invalidate_current_view_month 失效，重建移交下个读请求。
+    函数保留供兼容/测试引用。"""
     if not APP_STATE.get('parsed'):
         return None
     _month = month if month is not None else APP_STATE.get('month')
@@ -1815,8 +1836,8 @@ def save_override():
             data['effective_from'] = vm
             affected_month = vm
         _save(app.config['DATA_FOLDER'], data)
-        _refresh_employees_cache(affected_month)
-        # evict to satisfy cache-miss verification (next GET rebuilds correctly)
+        # perf-batch2 C1: 响应不依赖刷新后数据，eager 重算移出请求路径——
+        # 原有 _refresh_employees_cache(affected_month) 紧跟 invalidate 属重复劳动，仅保留失效
         _invalidate_month_cache(affected_month)
     _audit('override_save', eid, json.dumps({
         'name': next((e['name'] for e in APP_STATE.get('employees',[]) if e['id']==eid), eid),
@@ -1838,7 +1859,7 @@ def remove_override():
     except Exception:
         vm = resolve_month(request) if request else APP_STATE.get('month')
     remove_override(app.config['DATA_FOLDER'], data.get('employee_id'), data.get('index'))
-    _refresh_employees_cache(vm)
+    # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
     _invalidate_month_cache(vm)
     _audit('remove_override', data.get('employee_id',''), json.dumps({'month': vm}))
     return jsonify({'ok': True})
@@ -1862,7 +1883,7 @@ def remove_temp_override():
     conn.execute("DELETE FROM overrides WHERE employee_id=? AND (start_date!='' OR end_date!='') AND (type IS NULL OR type != 'exclusion')", (eid,))
     conn.commit()
     conn.close()
-    _refresh_employees_cache(vm)
+    # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
     _invalidate_month_cache(vm)
     _audit('remove_temp_override', eid, json.dumps({'month': vm}))
     return jsonify({'ok': True})
@@ -1891,7 +1912,7 @@ def remove_override_by_id():
     conn.execute("DELETE FROM overrides WHERE id=?", (oid,))
     conn.commit()
     conn.close()
-    _refresh_employees_cache(affected)
+    # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
     _invalidate_month_cache(affected)
     _audit('remove_override_by_id', str(oid), json.dumps({'month': affected}))
     return jsonify({'ok': True})
@@ -2045,8 +2066,10 @@ def restore_employee_api():
     _audit('restore_employee', eid, _json.dumps({
         'rehire_date': rehire_date, 'department': new_dept,
         'dept_changed': dept_changed, 'salary_changed': sal_changed}, ensure_ascii=False))
-    # P23 R4: 恢复员工重新进缓存（补 dismiss 过滤的对称逻辑），并重算薪资
-    _refresh_employees_cache()
+    # P23 R4: 恢复员工重新进缓存（补 dismiss 过滤的对称逻辑）——
+    # perf-batch2 C1: 响应不依赖刷新后数据，按原覆盖面（APP_STATE.month）失效，
+    # 重建移交下个读请求（原为无参 eager 重算，None/'all' 时本就不触碰单月缓存）
+    _invalidate_current_view_month()
     return jsonify({'ok': True})
 
 
@@ -2383,7 +2406,9 @@ def api_employee_update(employee_id):
         log_audit(app.config['DATA_FOLDER'], 'employee_update', employee_id,
                   json.dumps(data),
                   operator=session.get('username',''))
-    _refresh_employees_cache()  # P23 R4: 基本字段/月薪基数变更后全量重建
+    # P23 R4: 基本字段/月薪基数变更后需刷新——perf-batch2 C1: 响应不依赖刷新后数据，
+    # 改按原覆盖面（APP_STATE.month）失效，重建移交下个读请求
+    _invalidate_current_view_month()
     return jsonify({'ok': ok})
 
 def _record_direct_base_change(data, employee_id, old_row, note):
@@ -2465,7 +2490,9 @@ def api_employee_salary_type(employee_id):
               json.dumps({'salary_type': st, 'day_rate': day_rate,
                           'monthly_salary': monthly_salary}),
               operator=session.get('username',''))
-    _refresh_employees_cache()  # P23 R4: 核心修复点——薪资类型/基数变更后立即重算
+    # P23 R4: 薪资类型/基数变更后需刷新——perf-batch2 C1: 响应不依赖刷新后数据，
+    # 改按原覆盖面（APP_STATE.month）失效，重建移交下个读请求
+    _invalidate_current_view_month()
     return jsonify({'ok': True})
 
 # ── P7: 员工头像 ─────────────────────────────
@@ -3085,12 +3112,13 @@ def oa_approve_event(event_id):
                                 'oa_approved', ref_id=event_id)
         except Exception as e:
             app.logger.warning('写审批通知失败 event=%s: %s', event_id, e)
-    # P27 按月隔离修复：按事件生效月份精准刷新，避免全局 APP_STATE.month 错月污染
+    # P27 按月隔离修复：按事件生效月份精准失效，避免全局 APP_STATE.month 错月污染——
+    # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
-        _refresh_employees_cache(eff_month)
+        _invalidate_month_cache(eff_month)
     else:
-        _refresh_employees_cache()  # 回退：无生效日期时全局刷新
+        _invalidate_current_view_month()  # 回退：无生效日期时按原覆盖面失效
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/reject', methods=['POST'])
@@ -3202,12 +3230,13 @@ def oa_revoke_event(event_id):
     log_audit(app.config['DATA_FOLDER'], 'oa_revoke', event['employee_id'],
               json.dumps({'event_id': event_id, 'event_type': event['event_type']}),
               operator=session.get('username',''))
-    # P27 按月隔离修复：按事件生效月份精准回退，避免全局错月
+    # P27 按月隔离修复：按事件生效月份精准回退，避免全局错月——
+    # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
-        _refresh_employees_cache(eff_month)
+        _invalidate_month_cache(eff_month)
     else:
-        _refresh_employees_cache()  # 回退：无生效日期时全局刷新
+        _invalidate_current_view_month()  # 回退：无生效日期时按原覆盖面失效
     return jsonify({'ok': True})
 
 @app.route('/api/oa/events/<int:event_id>/edit', methods=['POST'])
@@ -3346,7 +3375,8 @@ def oa_edit_event(event_id):
               json.dumps({'event_id': event_id, 'employee_id': event['employee_id'],
                           'old_date': _old_date, 'new_date': new_date, 'operator': username}),
               operator=session.get('username',''))
-    # R1: 跨月跨年缓存刷新——收集旧/新日期范围覆盖的所有月份，逐月刷新
+    # R1: 跨月跨年缓存刷新——收集旧/新日期范围覆盖的所有月份，逐月失效
+    # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建（覆盖面不变，逐月全保留）
     from datetime import datetime as _dt, timedelta as _td
     try:
         _eff_range = int(json.loads(event.get('payload') or '{}').get('days', 1) or 1)
@@ -3366,9 +3396,9 @@ def oa_edit_event(event_id):
                 _months_to_refresh.add(_ds)
     if _months_to_refresh:
         for _m in sorted(_months_to_refresh):
-            _refresh_employees_cache(_m)
+            _invalidate_month_cache(_m)
     else:
-        _refresh_employees_cache()  # 回退：无有效月份时全局刷新
+        _invalidate_current_view_month()  # 回退：无有效月份时按原覆盖面失效
     return jsonify({'ok': True, 'event_id': event_id, 'new_event_id': msg})
 
 
@@ -5201,7 +5231,6 @@ def collection_submit():
             return jsonify({'ok': False, 'error': _err, 'error_key': 'col_team_conflict',
                             'error_params': _eparams}), 400
         _invalidate_month_cache(date[:7])
-        _invalidate_all_cache_base()
         log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
                   json.dumps({'form_type': form_type, 'date': date, 'sids': _sids, 'team_ids': _tids,
                               'department': dept, 'month': date[:7], 'split_rows': len(_sids)},
@@ -5228,7 +5257,6 @@ def collection_submit():
             return jsonify({'ok': False, 'error': _derr, 'error_key': 'col_team_conflict',
                             'error_params': _dparams}), 400
         _invalidate_month_cache(date[:7])
-        _invalidate_all_cache_base()
         log_audit(app.config['DATA_FOLDER'], 'collection_submit', '',
                   json.dumps({'form_type': form_type, 'date': date, 'sids': _dsids,
                               'captains': _dcaps, 'slots': [_dr_team_slot(t) for t in _dteams],
@@ -5290,9 +5318,8 @@ def collection_submit():
             sid = insert_collection_submission(app.config['DATA_FOLDER'], form_type, date, payload, username,
                                                department=dept)
 
-    # map: POST /api/collection/submit -> MONTH_CACHE[submission_date[:7]] per-month evict + __all__ base evict
+    # map: POST /api/collection/submit -> MONTH_CACHE[submission_date[:7]] per-month evict（perf-batch2 C2: __all__ 失效已移除）
     _invalidate_month_cache(date[:7])
-    _invalidate_all_cache_base()
     # C4: UG 出勤 drivers 变更后重设当日的 driver flags（通过单日 helper 保证多源合并）
     if form_type == 'attendance' and _is_ug_dept(dept):
         try:
@@ -5553,7 +5580,6 @@ def collection_edit(submission_id):
             delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
         _invalidate_month_cache(old_date[:7])
         _invalidate_month_cache(new_date[:7])
-        _invalidate_all_cache_base()
         log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
                   json.dumps({'submission_id': (_sids[0] if _sids else submission_id), 'form_type': form_type,
                               'date': new_date, 'old_date': old_date, 'month': new_date[:7],
@@ -5638,7 +5664,6 @@ def collection_edit(submission_id):
             delete_collection_submission(app.config['DATA_FOLDER'], submission_id)
         _invalidate_month_cache(old_date[:7])
         _invalidate_month_cache(new_date[:7])
-        _invalidate_all_cache_base()
         log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
                   json.dumps({'submission_id': (_dsids[0] if _dsids else submission_id), 'form_type': form_type,
                               'date': new_date, 'old_date': old_date, 'month': new_date[:7],
@@ -5974,13 +5999,12 @@ def collection_edit(submission_id):
         ok = update_collection_submission(app.config['DATA_FOLDER'], submission_id, payload, username)
     if not ok:
         return jsonify({'ok': False, 'error': '更新失败'}), 500
-    # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict + __all__ base evict
+    # map: POST /api/collection/edit -> MONTH_CACHE[old_date[:7], new_date[:7]] per-month evict（perf-batch2 C2: __all__ 失效已移除）
     _invalidate_month_cache(old_date[:7])
     if new_date != old_date:
         _invalidate_month_cache(new_date[:7])
     else:
         _invalidate_month_cache(new_date[:7])
-    _invalidate_all_cache_base()
     log_audit(app.config['DATA_FOLDER'], 'collection_edit', '',
               json.dumps({'submission_id': submission_id, 'form_type': form_type,
                           'date': new_date, 'old_date': old_date, 'month': new_date[:7],
@@ -6159,7 +6183,6 @@ def api_collection_exempt(submission_id):
     sub2 = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     new_ver = sub2.get('version', 0) if sub2 else 0
     _invalidate_month_cache(month)
-    _invalidate_all_cache_base()
     # audit
     try:
         from core.database import log_audit
@@ -7376,7 +7399,6 @@ def toggle_attendance():
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     _invalidate_month_cache((date or '')[:7] or month)
-    _invalidate_all_cache_base()
     _audit('attendance_toggle', eid, json.dumps({'date': date, 'status': status, 'month': month, 'invalidated': (date or '')[:7] or month}))
     return jsonify({'ok': True, 'month': month})
 
