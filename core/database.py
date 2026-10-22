@@ -2070,8 +2070,41 @@ def apply_approved_event(data_folder, event):
                 d0 = _dt.strptime(eff, '%Y-%m-%d')
             except (TypeError, ValueError):
                 raise RuntimeError(f'请假事件生效日期格式无效: {eff}')
+            # G4 (oa-ux 2026-10-23): 覆盖保护——此前为无条件覆盖（ON CONFLICT 必 UPDATE）。
+            # 新规则：① 驳回落下的 A（source=0）可被请假状态覆盖（文案承诺兑现：
+            # "重新提交获批后将覆盖旷工标记"）② source=1 手动标记不覆盖 ③ 其他已批
+            # 假期覆盖的日期不覆盖（按 approved 请假事件逐日展开判定，含 800 天 clamp）
+            _protected_dates = set()
+            try:
+                _evr = conn.execute(
+                    "SELECT id, effective_date, payload FROM employee_events "
+                    "WHERE employee_id=? AND status='approved' "
+                    "AND event_type IN ('annual_leave','comp_leave','sick','casual') "
+                    "AND id != ?",
+                    (eid, event.get('id') or 0)).fetchall()
+                for _er in _evr:
+                    try:
+                        _ed = int(json.loads(_er['payload'] or '{}').get('days', 1) or 1)
+                    except (TypeError, ValueError):
+                        _ed = 1
+                    _ed = max(1, min(_ed, 800))  # 区间展开硬上限（OOM 铁律）
+                    try:
+                        _ed0 = _dt.strptime((_er['effective_date'] or '')[:10], '%Y-%m-%d')
+                    except (TypeError, ValueError):
+                        continue
+                    for _j in range(_ed):
+                        _protected_dates.add((_ed0 + _td(days=_j)).strftime('%Y-%m-%d'))
+            except Exception as _pe:
+                _protected_dates = set()  # 保护集合查询失败不阻断审批，退化为仅 source 保护
+                print(f"[warn] G4 已批假期保护集合构建失败 event={event.get('id')}: {_pe}")
             for _i in range(days):
                 _ds = (d0 + _td(days=_i)).strftime('%Y-%m-%d')
+                _row = conn.execute(
+                    "SELECT source FROM attendance_overrides WHERE employee_id=? AND date=?",
+                    (eid, _ds)).fetchone()
+                if _ds in _protected_dates or (_row is not None and _row['source'] == 1):
+                    continue  # 其他已批假期 / 手动标记 → 跳过不覆盖
+                # 非保护行（空档 / A / 其他 source=0 采集标记，维持既有覆盖行为）→ 写入请假状态
                 conn.execute(
                     "INSERT INTO attendance_overrides (employee_id, date, status, is_driver) VALUES (?,?,?,0) "
                     "ON CONFLICT(employee_id,date) DO UPDATE SET status=?, is_driver=0",
@@ -2809,33 +2842,39 @@ def get_pending_events(data_folder, approver='', is_super_admin=False, operator_
     conn.close()
     return _fill_event_employee_name(rows)
 
-def get_processed_events(data_folder, event_type=None, operator_filter=None, approver=None):
-    """P8: 获取所有已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked
+def get_processed_events(data_folder, event_type=None, operator_filter=None,
+                         approver=None, page=1, page_size=20):
+    """P8: 获取已处理（approved/rejected）事件，JOIN 员工姓名；P21 M4 增加 revoked
     P22 R2: 增加 event_type 可选过滤（None 时不过滤）
     P29 T4: operator_filter（oa:apply-only 用户）时仅返回该提交人的事件
     （全状态含 revoked——撤销结果对本人可见）
-    OA 重设计 R1: approver 匹配 approved_by OR rejected_by（与 event_type/operator_filter 可叠加）"""
+    OA 重设计 R1: approver 匹配 approved_by OR rejected_by（与 event_type/operator_filter 可叠加）
+    G1 (oa-ux 2026-10-23): 分页——page（默认 1）+ page_size（默认 20，调用方负责 clamp 1~100），
+    LIMIT/OFFSET 只取当页，并返回同条件 COUNT；签名改为返回 (rows, total) 元组
+    （唯一调用方 oa_history 已同步适配，响应结构 {events,total,page,page_size} 为 breaking）"""
+    page = max(1, page)
+    page_size = max(1, page_size)
     conn = get_conn(data_folder)
-    sql = """
-        SELECT e.*, em.name as employee_name
-        FROM employee_events e
-        LEFT JOIN employees em ON e.employee_id = em.id
-        WHERE e.status IN ('approved', 'rejected', 'revoked')
-    """
+    where = " WHERE e.status IN ('approved', 'rejected', 'revoked')"
     params = []
     if event_type:
-        sql += " AND e.event_type=?"
+        where += " AND e.event_type=?"
         params.append(event_type)
     if operator_filter:
-        sql += " AND e.operator_id=?"
+        where += " AND e.operator_id=?"
         params.append(operator_filter)
     if approver:
-        sql += " AND (e.approved_by=? OR e.rejected_by=?)"
+        where += " AND (e.approved_by=? OR e.rejected_by=?)"
         params += [approver, approver]
-    sql += " ORDER BY e.updated_at DESC, e.created_at DESC"
-    rows = conn.execute(sql, params).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM employee_events e" + where, params).fetchone()[0]
+    sql = ("SELECT e.*, em.name as employee_name"
+           " FROM employee_events e"
+           " LEFT JOIN employees em ON e.employee_id = em.id" + where +
+           " ORDER BY e.updated_at DESC, e.created_at DESC LIMIT ? OFFSET ?")
+    rows = conn.execute(sql, params + [page_size, (page - 1) * page_size]).fetchall()
     conn.close()
-    return _fill_event_employee_name(rows)
+    return _fill_event_employee_name(rows), total
 
 def get_employee_events(data_folder, employee_id):
     """获取某员工的所有生命周期事件（按时间倒序）"""

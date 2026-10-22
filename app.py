@@ -2967,7 +2967,11 @@ def oa_history():
     P29 T4 A4: (oa:view || oa:apply) 门控；仅 apply 者只看自己提交的（含 revoked）
     OA 重设计 R1: ?mine=1 强制只看自己提交的（任何双键账号可用，仅 apply 者天然如此）；
     ?approver= 按审批人（approved_by/rejected_by）筛，仅 oa:view 账号生效。
-    mine 与 approver 语义互斥，同时传以 mine 为准。"""
+    mine 与 approver 语义互斥，同时传以 mine 为准。
+    G1 (oa-ux 2026-10-23): ?page（默认 1）+ ?page_size（默认 20，clamp 1~100）分页；
+    响应改 {events, total, page, page_size}（breaking，前端任务 H 同批适配）；
+    _attach_employee_info 只对当页事件执行。mine=1 路径：合并 pending 后统一排序再切片，
+    total = 已处理数 + pending 数。"""
     from core.database import get_processed_events, check_permission
     op_filter, denied = _oa_read_gate()
     if denied:
@@ -2975,23 +2979,37 @@ def oa_history():
     ev_type = (request.args.get('type') or '').strip() or None
     mine = (request.args.get('mine') or '') in ('1', 'true')
     approver = (request.args.get('approver') or '').strip() or None
+    _page_raw = request.args.get('page', type=int)
+    _ps_raw = request.args.get('page_size', type=int)
+    page = _page_raw if (_page_raw is not None and _page_raw > 0) else 1
+    page_size = 20 if _ps_raw is None else _ps_raw
+    page_size = max(1, min(page_size, 100))  # G1: 页容量硬边界 1~100
     if mine:
         op_filter = session.get('username', '')
         approver = None
     elif approver and not check_permission(app.config['DATA_FOLDER'],
                                            session.get('username', ''), 'oa', 'view'):
         approver = None
-    events = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type,
-                                  operator_filter=op_filter, approver=approver)
     # BUG-1: 我的申请需含 pending 态（复用 get_pending_events 的 operator_filter 查询），
-    # 统一按 created_at 倒序合并；仅 mine 请求受影响
+    # 统一按 created_at 倒序合并；仅 mine 请求受影响。G1: 合并后统一排序再切片
     if mine:
+        # mine 路径需全量已处理事件参与合并排序，取回后再 Python 切片
+        events, _tp = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type,
+                                           operator_filter=op_filter, approver=approver,
+                                           page=1, page_size=10 ** 9)
         from core.database import get_pending_events
         pending = get_pending_events(app.config['DATA_FOLDER'],
                                      operator_filter=session.get('username', ''))
         events = pending + events
         events.sort(key=lambda e: e.get('created_at') or '', reverse=True)
-    return jsonify({'events': _attach_employee_info(events)})
+        total = len(events)
+        events = events[(page - 1) * page_size: page * page_size]
+    else:
+        events, total = get_processed_events(app.config['DATA_FOLDER'], event_type=ev_type,
+                                             operator_filter=op_filter, approver=approver,
+                                             page=page, page_size=page_size)
+    return jsonify({'events': _attach_employee_info(events),
+                    'total': total, 'page': page, 'page_size': page_size})
 
 @app.route('/api/notifications', methods=['GET'])
 @login_required
@@ -3143,51 +3161,110 @@ def oa_reject_event(event_id):
             log_audit(app.config['DATA_FOLDER'], 'oa_reject',
                       event['employee_id'], json.dumps({'event_id': event_id, 'reason': reason}),
                       operator=session.get('username',''))
-            # OA 重设计 R2: 通知提交人审批驳回（body 带原因；旁路，失败不阻断）
+            # OA 重设计 R2: 通知提交人审批驳回（旁路，失败不阻断）
+            # G2 (oa-ux 2026-10-23): body 改 JSON 字符串——title/reason/consequence_key/
+            # event_id + 结构化字段（event_type/employee_name/effective_date/days），
+            # 前端按 consequence_key 取双语文案；旧通知 body 为纯文本，前端降级原样渲染
             if event.get('operator_id') and event['operator_id'] != username:
                 try:
                     from core.database import create_notification
+                    _pl_n = {}
+                    try:
+                        _pl_n = json.loads(event.get('payload') or '{}')
+                    except Exception:
+                        _pl_n = {}
+                    if not isinstance(_pl_n, dict):
+                        _pl_n = {}
+                    _et_n = event.get('event_type', '')
+                    # G2 后果映射表（event_type → consequence_key）：
+                    # casual/sick（G4 统一落 A 后采集与手动来源同文案）/ overtime /
+                    # transfer / salary_change / hire·dismiss·其他
+                    if _et_n in ('casual', 'sick'):
+                        _ckey_n = 'consequence_reject_a'
+                    elif _et_n == 'overtime':
+                        _ckey_n = 'consequence_reject_ot'
+                    elif _et_n == 'transfer':
+                        _ckey_n = 'consequence_reject_tr'
+                    elif _et_n == 'salary_change':
+                        _ckey_n = 'consequence_reject_sal'
+                    else:
+                        _ckey_n = 'consequence_reject_general'
+                    try:
+                        _days_n = int(_pl_n.get('days') or 0)
+                    except (TypeError, ValueError):
+                        _days_n = 0
+                    _name_n = ''
+                    try:
+                        from core.database import get_employee_info as _gei_n
+                        _name_n = ((_gei_n(app.config['DATA_FOLDER'],
+                                           event.get('employee_id', '')) or {}).get('name') or '')
+                    except Exception:
+                        _name_n = ''
+                    _et_zh = {'casual': '事假', 'sick': '病假', 'annual_leave': '年假',
+                              'comp_leave': '调休', 'overtime': '加班', 'transfer': '调岗',
+                              'salary_change': '薪资调整', 'hire': '入职',
+                              'dismiss': '离职', 'resign': '离职'}.get(_et_n, _et_n)
+                    _eff_n = (event.get('effective_date') or '')[:10]
+                    _title_n = (f"{_et_zh}申请驳回：{_name_n or event.get('employee_id', '')}"
+                                + (f"，{_eff_n} 起 {_days_n} 天" if _days_n > 0
+                                   else (f"，生效 {_eff_n}" if _eff_n else '')))
+                    _body_n = {
+                        'title': _title_n,
+                        'reason': reason,
+                        'consequence_key': _ckey_n,
+                        'event_id': event_id,
+                        'event_type': _et_n,
+                        'employee_name': _name_n,
+                        'effective_date': _eff_n,
+                        'days': _days_n,
+                    }
                     create_notification(app.config['DATA_FOLDER'], event['operator_id'],
-                                        'oa_rejected', ref_id=event_id, body=reason)
+                                        'oa_rejected', ref_id=event_id,
+                                        body=json.dumps(_body_n, ensure_ascii=False))
                 except Exception as e:
                     app.logger.warning('写驳回通知失败 event=%s: %s', event_id, e)
-            # P38-3: 出勤采集自动转 OA 的请假(casual)/病假(sick)被驳回 → 对应日期落旷工 A
-            # 仅 collection_routing 来源生效（OA 手动申请驳回不落 A，维持现状）；
-            # 已有任何状态（P/T/NU/E 等）跳过不覆盖（防覆盖采集员改标/已批假期，保单轨不变量）
+            # P38-3 → G3 (oa-ux 2026-10-23): casual/sick 被驳回 → 对应日期落旷工 A
+            # 用户决策：移除原 source ∈ (collection_routing, collection_edit_routing)
+            # 来源过滤——OA 手动申请驳回同样落 A，两来源行为一致（文案承诺成立的前提）。
+            # 保留两条既有保护，不得破坏：
+            # ① 该日已有任何出勤状态（P/T/NU/E/L/SK 等）跳过不覆盖（get_attendance_status 判断）
+            # ② 落 A 只写 source=0（手动标记 source=1 永不触碰，save 默认 source=1 故显式传 0）
+            # 单轨不变量：attendance_overrides PK=(employee_id,date)，天然一人一日一条
             try:
                 if event.get('event_type') in ('casual', 'sick'):
                     try:
                         _pl_a = json.loads(event.get('payload') or '{}')
                     except Exception:
                         _pl_a = {}
-                    if isinstance(_pl_a, dict) and _pl_a.get('source') in ('collection_routing', 'collection_edit_routing'):
-                        from core.database import get_attendance_status as _gas, save_attendance_override as _sao
-                        _eid_a = event.get('employee_id', '')
-                        _eff_a = (event.get('effective_date') or '')[:10]
-                        try:
-                            _days_a = int(_pl_a.get('days') or 1)
-                        except Exception:
-                            _days_a = 1
-                        _days_a = max(1, min(_days_a, 800))  # 区间展开硬上限（OOM 铁律同款 clamp）
-                        if _eid_a and _eff_a:
-                            _marked_a, _skipped_a = [], []
-                            for _i in range(_days_a):
-                                _d_a = (datetime.strptime(_eff_a, '%Y-%m-%d') + timedelta(days=_i)).strftime('%Y-%m-%d')
-                                if _gas(app.config['DATA_FOLDER'], _eid_a, _d_a):
-                                    _skipped_a.append(_d_a)
-                                else:
-                                    _sao(app.config['DATA_FOLDER'], _eid_a, _d_a, 'A', source=0)
-                                    _marked_a.append(_d_a)
-                            log_audit(app.config['DATA_FOLDER'], 'oa_reject_attendance_a',
-                                      _eid_a, json.dumps({'event_id': event_id, 'days': _days_a,
-                                                          'marked': _marked_a, 'skipped': _skipped_a},
-                                                         ensure_ascii=False),
-                                      operator=session.get('username', ''))
-                            # perf-batch3 F1: 落 A 经 save_attendance_override 直写 DB，
-                            # 此处按被落 A 日期所属月份补失效（跨月逐月），否则 MONTH_CACHE 显示陈旧
-                            _f1_months = {_d[:7] for _d in _marked_a if MONTH_RE.match(_d[:7])}
-                            for _fm in sorted(_f1_months):
-                                _invalidate_month_cache(_fm)
+                    if not isinstance(_pl_a, dict):
+                        _pl_a = {}
+                    from core.database import get_attendance_status as _gas, save_attendance_override as _sao
+                    _eid_a = event.get('employee_id', '')
+                    _eff_a = (event.get('effective_date') or '')[:10]
+                    try:
+                        _days_a = int(_pl_a.get('days') or 1)
+                    except Exception:
+                        _days_a = 1
+                    _days_a = max(1, min(_days_a, 800))  # 区间展开硬上限（OOM 铁律同款 clamp）
+                    if _eid_a and _eff_a:
+                        _marked_a, _skipped_a = [], []
+                        for _i in range(_days_a):
+                            _d_a = (datetime.strptime(_eff_a, '%Y-%m-%d') + timedelta(days=_i)).strftime('%Y-%m-%d')
+                            if _gas(app.config['DATA_FOLDER'], _eid_a, _d_a):
+                                _skipped_a.append(_d_a)
+                            else:
+                                _sao(app.config['DATA_FOLDER'], _eid_a, _d_a, 'A', source=0)
+                                _marked_a.append(_d_a)
+                        log_audit(app.config['DATA_FOLDER'], 'oa_reject_attendance_a',
+                                  _eid_a, json.dumps({'event_id': event_id, 'days': _days_a,
+                                                      'marked': _marked_a, 'skipped': _skipped_a},
+                                                     ensure_ascii=False),
+                                  operator=session.get('username', ''))
+                        # perf-batch3 F1: 落 A 经 save_attendance_override 直写 DB，
+                        # 此处按被落 A 日期所属月份补失效（跨月逐月），否则 MONTH_CACHE 显示陈旧
+                        _f1_months = {_d[:7] for _d in _marked_a if MONTH_RE.match(_d[:7])}
+                        for _fm in sorted(_f1_months):
+                            _invalidate_month_cache(_fm)
             except Exception as e:
                 app.logger.warning('驳回后落旷工 A 失败 event=%s: %s', event_id, e)
     return jsonify({'ok': ok})

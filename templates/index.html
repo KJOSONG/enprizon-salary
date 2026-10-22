@@ -440,17 +440,18 @@
       <p style="color:var(--text-muted);font-size:13px;" data-i18n="oa_history_hint">以下为近期已处理的 OA 事件</p>
       <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
         <span style="font-size:13px;color:var(--text-muted);" data-i18n="oa_history_filter">类型</span>
-        <select id="oaHistoryTypeFilter" onchange="loadOAHistory()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <select id="oaHistoryTypeFilter" onchange="oaHistResetPage()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
           <option value="" data-i18n="all_types">全部</option>
         </select>
         <span style="font-size:13px;color:var(--text-muted);" data-i18n="oa_approver_filter">审批人</span>
-        <select id="oaHistoryApproverFilter" onchange="loadOAHistory()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
+        <select id="oaHistoryApproverFilter" onchange="oaHistResetPage()" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:13px;">
           <option value="" data-i18n="all_types">全部</option>
         </select>
       </div>
       <div id="oaHistoryList" style="margin-top:12px;">
         <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
       </div>
+      <div id="oaHistoryPager"></div>
     </div>
   </div>
 
@@ -462,6 +463,7 @@
       <div id="oaMineList" style="margin-top:12px;">
         <div style="text-align:center;color:var(--text-muted);padding:40px;" data-i18n="loading">加载中...</div>
       </div>
+      <div id="oaMinePager"></div>
     </div>
   </div>
 </div>
@@ -7206,7 +7208,7 @@ async function loadAuditLog() {
 const EVENT_LABELS_MAP = {
   hire: 'event_hire', transfer: 'event_transfer', dismiss: 'event_dismiss',
   salary_change: 'event_salary_change', skill_change: 'event_skill_change', reinstatement: 'event_reinstatement',
-  sick: 'event_sick_leave', sick_leave: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave',
+  sick: 'event_sick_leave', casual: 'event_casual', annual_leave: 'event_annual_leave', comp_leave: 'event_comp_leave',
   overtime: 'event_overtime'   // P23 R2
 };
 
@@ -7612,6 +7614,63 @@ async function editLeaveEvent(eventId) {
   editOaEvent(eventId);
 }
 
+/* ── oa-ux H1: OA 历史/我的申请分页（后端响应 {events,total,page,page_size}；旧数组结构容错为无分页旧行为） ── */
+const _oaPagerState = {
+  hist: { page: 1, size: 20, total: 0, legacy: false },
+  mine: { page: 1, size: 20, total: 0, legacy: false }
+};
+function _oaNormalizeResp(data, st) {
+  if (Array.isArray(data)) { st.legacy = true; st.total = data.length; return data; }
+  st.legacy = false;
+  st.total = (typeof data.total === 'number') ? data.total : (data.events || []).length;
+  if (typeof data.page === 'number' && data.page > 0) st.page = data.page;
+  if (typeof data.page_size === 'number' && data.page_size > 0) st.size = data.page_size;
+  return data.events || [];
+}
+function _oaPageCount(st) { return Math.max(1, Math.ceil(st.total / st.size)); }
+function _oaWindowPages(cur, last) {
+  const pages = [];
+  const win = [];
+  for (let p = Math.max(1, cur - 1); p <= Math.min(last, cur + 1); p++) win.push(p);
+  if (win[0] > 1) { pages.push(1); if (win[0] > 2) pages.push('…'); }
+  win.forEach(p => pages.push(p));
+  if (win[win.length - 1] < last) { if (win[win.length - 1] < last - 1) pages.push('…'); pages.push(last); }
+  return pages;
+}
+function _oaPagerHtml(key, st) {
+  if (st.legacy) return '';  // 旧结构（数组响应）无分页，隐藏控件
+  const last = _oaPageCount(st);
+  const btnStyle = 'style="min-width:30px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text-muted);font-size:12px;cursor:pointer;"';
+  const btnStyleCur = 'style="min-width:30px;padding:4px 8px;border:1px solid var(--accent);border-radius:var(--radius);background:var(--accent);color:#fff;font-size:12px;cursor:pointer;font-weight:600;"';
+  const pages = _oaWindowPages(st.page, last).map(p => p === '…'
+    ? '<span style="padding:4px 2px;color:var(--text-muted);font-size:12px;">…</span>'
+    : '<button ' + (p === st.page ? btnStyleCur : btnStyle) + ' onclick="_oaGoPage(\'' + key + '\',' + p + ')">' + p + '</button>').join('');
+  const sizeSel = '<select onchange="_oaSetPageSize(\'' + key + '\', this.value)" style="padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;">'
+    + [20, 50, 100].map(s => '<option value="' + s + '"' + (s === st.size ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>';
+  return '<div style="display:flex;align-items:center;gap:6px;margin-top:12px;flex-wrap:wrap;">'
+    + '<span style="font-size:12px;color:var(--text-muted);">' + t('oa_total_count').replace('{n}', st.total) + '</span>'
+    + '<span style="font-size:12px;color:var(--text-muted);">' + t('oa_page_size') + '</span>' + sizeSel
+    + '<span style="flex:1;"></span>' + pages + '</div>';
+}
+function _oaReload(key) { if (key === 'hist') loadOAHistory(); else loadOAMine(); }
+function _oaGoPage(key, p) {
+  const st = _oaPagerState[key]; if (!st) return;
+  st.page = Math.min(Math.max(1, p), _oaPageCount(st));
+  _oaReload(key);
+}
+function _oaSetPageSize(key, v) {
+  const st = _oaPagerState[key]; if (!st) return;
+  const s = parseInt(v, 10);
+  if (![20, 50, 100].includes(s)) return;
+  st.size = s; st.page = 1;  // 页容量变更 → 重置回第 1 页
+  _oaReload(key);
+}
+function _oaResetPager(key) {
+  const st = _oaPagerState[key]; if (st) st.page = 1;
+  _oaReload(key);
+}
+function oaHistResetPage() { _oaResetPager('hist'); }  // 类型/审批人筛选变更 → 重置页码
+
 async function loadOAHistory() {
   const container = document.getElementById('oaHistoryList');
   if (!container) return;
@@ -7634,9 +7693,11 @@ async function loadOAHistory() {
     const approver = apSel ? apSel.value : '';
     let qs = filter ? '?type=' + encodeURIComponent(filter) : '';
     if (approver) qs += (qs ? '&' : '?') + 'approver=' + encodeURIComponent(approver);
+    const st = _oaPagerState.hist;
+    qs += (qs ? '&' : '?') + 'page=' + st.page + '&page_size=' + st.size;
     const res = await fetch(api('/api/oa/history' + qs));
     const data = await res.json();
-    const events = data.events || [];
+    const events = _oaNormalizeResp(data, st);
     // 审批人下拉选项从已加载数据聚合（merge 补充，切筛选后已选项不丢失）
     if (apSel) {
       const known = new Set(Array.from(apSel.options).map(o => o.value).filter(v => v));
@@ -7652,6 +7713,8 @@ async function loadOAHistory() {
       apSel.value = Array.from(known).includes(cur) ? cur : '';
     }
     _renderOAHistoryCards(events, container, 'oaHistCard', 'oaHistDetail', false);
+    const pager = document.getElementById('oaHistoryPager');
+    if (pager) pager.innerHTML = _oaPagerHtml('hist', st);
   } catch (e) { container.innerHTML = t('load_fail'); showToast(t('load_fail_prefix') + e.message, 'error'); }
 }
 
@@ -7705,9 +7768,13 @@ async function loadOAMine() {
   const container = document.getElementById('oaMineList');
   if (!container) return;
   try {
-    const res = await fetch(api('/api/oa/history?mine=1'));
+    const st = _oaPagerState.mine;
+    const res = await fetch(api('/api/oa/history?mine=1&page=' + st.page + '&page_size=' + st.size));
     const data = await res.json();
-    _renderOAHistoryCards(data.events || [], container, 'oaMineCard', 'oaMineDetail', true);
+    const events = _oaNormalizeResp(data, st);
+    _renderOAHistoryCards(events, container, 'oaMineCard', 'oaMineDetail', true);
+    const pager = document.getElementById('oaMinePager');
+    if (pager) pager.innerHTML = _oaPagerHtml('mine', st);
   } catch (e) { container.innerHTML = t('load_fail'); }
 }
 
@@ -7800,6 +7867,26 @@ function toggleNotifPanel() {
   }
 }
 
+/* ── oa-ux H3/M2: 通知 body 结构化解析（G2 后端存 JSON 字符串；旧纯文本降级原样显示） ── */
+function _parseNotifBody(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o === 'object' && !Array.isArray(o) && (o.title || o.reason || o.consequence_key)) return o;
+  } catch (e) { /* 旧纯文本 body */ }
+  return null;
+}
+/* M2: 结构化字段齐全时按 i18n 重组标题（跟随界面语言）；缺字段回退 body.title 兜底（格式对齐后端） */
+function _notifTitleI18n(bj) {
+  const tp = (bj.event_type && EVENT_LABELS_MAP[bj.event_type]) ? t(EVENT_LABELS_MAP[bj.event_type]) : '';
+  if (!tp || !bj.employee_name) return bj.title || '';
+  const d = parseInt(bj.days, 10) || 0;
+  const eff = bj.effective_date || '';
+  const tail = d > 0 ? t('notif_title_days').replace('{date}', eff).replace('{days}', d)
+                     : (eff ? t('notif_title_eff').replace('{date}', eff) : '');
+  return t('notif_reject_title').replace('{type}', tp).replace('{name}', bj.employee_name) + tail;
+}
+
 async function loadNotifResults() {
   const box = document.getElementById('notifResults');
   if (!box) return;
@@ -7813,18 +7900,55 @@ async function loadNotifResults() {
     box.innerHTML = '<div class="notif-section-title" data-i18n="notif_result_section">' + t('notif_result_section') + '</div>'
       + (items.length === 0
         ? '<div style="text-align:center;color:var(--muted-foreground);padding:16px;" data-i18n="notif_no_result">' + t('notif_no_result') + '</div>'
-        : items.map(n => `
+        : items.map(n => {
+            const bj = _parseNotifBody(n.body);
+            let bodyHtml;
+            if (bj) {
+              const ck = (typeof bj.consequence_key === 'string' && bj.consequence_key.indexOf('consequence_') === 0) ? bj.consequence_key : '';
+              const _nt = _notifTitleI18n(bj);
+              bodyHtml = (_nt ? `<div class="notif-result-body" style="font-weight:600;color:var(--text);">${escHtml(_nt)}</div>` : '')
+                + (bj.reason ? `<div class="notif-result-body">${escHtml(bj.reason)}</div>` : '')
+                + (ck ? `<div class="notif-result-body" style="color:var(--muted-foreground);font-size:12px;">${escHtml(t('notif_consequence_label'))}${escHtml(t(ck))}</div>` : '');
+            } else {
+              bodyHtml = n.body ? `<div class="notif-result-body">${escHtml(n.body)}</div>` : '';
+            }
+            return `
           <div class="notif-result-item${n.read ? '' : ' is-unread'}" onclick="notifGoEvent(${n.id}, ${n.ref_id})">
             <div class="notif-result-title" style="color:${typeColor(n)};">${typeLabel(n)}</div>
-            ${n.body ? `<div class="notif-result-body">${escHtml(n.body)}</div>` : ''}
+            ${bodyHtml}
             <div class="notif-result-meta">${escHtml(String(n.created_at || '').slice(0, 16))}</div>
-          </div>`).join(''));
+          </div>`;}).join(''));
     const markAll = document.getElementById('notifMarkAllBtn');
     if (markAll) markAll.style.display = _notifUnread > 0 ? '' : 'none';
   } catch (e) {
     box.innerHTML = '<div class="notif-section-title" data-i18n="notif_result_section">' + t('notif_result_section') + '</div>'
       + '<div style="text-align:center;color:var(--muted-foreground);padding:16px;">' + t('notif_load_fail') + '</div>';
   }
+}
+
+/* oa-ux H1/H3: 分页后目标事件可能不在第 1 页 —— 从第 1 页向后回溯（最多 10 页），
+   命中即跳到该页并滚动定位；未命中或旧结构（数组响应）则回第 1 页正常加载 */
+async function _oaMineLocateAndLoad(refId) {
+  const st = _oaPagerState.mine;
+  for (let p = 1; p <= 10; p++) {
+    let evs = [], legacy = false;
+    try {
+      const res = await fetch(api('/api/oa/history?mine=1&page=' + p + '&page_size=' + st.size));
+      const d = await res.json();
+      legacy = Array.isArray(d);
+      evs = legacy ? d : (d.events || []);
+    } catch (e) { break; }
+    if (evs.some(ev => String(ev.id) === String(refId))) {
+      if (!legacy) st.page = p;
+      await loadOAMine();
+      const card = document.getElementById('oaMineCard' + refId);
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (legacy || evs.length < st.size) break;  // 旧结构或已到末页
+  }
+  st.page = 1;
+  await loadOAMine();
 }
 
 async function notifGoEvent(nid, refId) {
@@ -7836,10 +7960,7 @@ async function notifGoEvent(nid, refId) {
   // 审批结果事件在「我的申请」页签查看（提交人视角；数据源 history?mine=1 含全部状态）
   navigate('employees', 'list');
   switchEmpTab('oa-mine');
-  setTimeout(() => {
-    const card = document.getElementById('oaMineCard' + refId);
-    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, 500);
+  await _oaMineLocateAndLoad(refId);
 }
 
 async function markAllNotifsRead() {

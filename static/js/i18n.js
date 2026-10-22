@@ -885,6 +885,21 @@ const I18N_DICT = {
     notif_rejected: '已驳回',
     notif_mark_all_read: '全部已读',
     notif_new_pending: '有新的审批待处理',
+    /* oa-ux H1: OA 列表分页 */
+    oa_total_count: '共 {n} 条',
+    oa_page_size: '每页条数',
+    oa_page_indicator: '第 {a} / {b} 页',
+    /* oa-ux H3: 驳回通知结构化 body（consequence 后果文案） */
+    notif_consequence_label: '后果：',
+    /* oa-ux M2: 通知标题 i18n 重组（格式对齐后端 title 兜底） */
+    notif_reject_title: '{type}申请驳回：{name}',
+    notif_title_days: '，{date} 起 {days} 天',
+    notif_title_eff: '，生效 {date}',
+    consequence_reject_a: '相关日期已按旷工(A)记录（已有出勤标记的日期除外）。若实际为事假（无诊断证明），请重新提交事假申请，批准后将覆盖旷工标记。',
+    consequence_reject_ot: '该日不计加班费。',
+    consequence_reject_tr: '员工维持原岗位与原薪资。',
+    consequence_reject_sal: '员工维持原薪资标准。',
+    consequence_reject_general: '该申请未生效，请按现行安排执行。',
     /* P1 事件类型 */
     event_hire: '入职',
     /* P40-b 时间线状态徽标与补充请假类型 */
@@ -2234,6 +2249,21 @@ const I18N_DICT = {
     notif_rejected: 'Rejected',
     notif_mark_all_read: 'Mark all read',
     notif_new_pending: 'New approval pending',
+    /* oa-ux H1: OA list pagination */
+    oa_total_count: '{n} in total',
+    oa_page_size: 'Rows per page',
+    oa_page_indicator: 'Page {a} / {b}',
+    /* oa-ux H3: structured rejection notification body (consequence text) */
+    notif_consequence_label: 'Impact: ',
+    /* oa-ux M2: notification title rebuilt via i18n (mirrors backend title fallback) */
+    notif_reject_title: '{type} application rejected: {name}',
+    notif_title_days: ', starting {date} for {days} days',
+    notif_title_eff: ', effective {date}',
+    consequence_reject_a: 'The affected dates are recorded as Absent (A), except dates that already carry an attendance mark. If this was actually casual leave (no medical certificate), please resubmit a casual leave request; once approved, it will override the absence marks.',
+    consequence_reject_ot: 'No overtime pay will be applied to that day.',
+    consequence_reject_tr: 'The employee stays in the original position at the original pay.',
+    consequence_reject_sal: 'The employee keeps the current salary standard.',
+    consequence_reject_general: 'This request has not taken effect; please proceed under the current arrangements.',
     /* P1 Event Types */
     event_hire: 'Hired',
     /* P40-b Timeline status badges & extra leave types */
