@@ -866,18 +866,8 @@ def _month_cache_evict_if_needed():
 #   POST /reload                              -> full clear (all keys) + recompute current month
 # 不变量：MONTH_CACHE miss 后必须走完整 _run_pipeline（含出勤重建+事件推导覆盖），
 #        禁止用 __all__/APP_STATE 旧快照 deepcopy-filter 回写（2026-08-31 数据缺失 bug 根因）。
-
-def _invalidate_all_cache_base():
-    """[perf-batch2 C2 已废弃调用] 失效 __all__ 全量快照。
-    2026-10-22 审计结论：MONTH_CACHE['__all__'] 为"只写不读"死缓存——app.py 全部
-    MONTH_CACHE 引用中无任何读取 '__all__' 键；resolve_month 池回退显式排除它；
-    _get_month_data 对 month='all' 一律映射 g.view_month 从不取 '__all__'；
-    /set-month 与 /recalculate 的 all 分支直接消费 _run_pipeline 返回值不走缓存；
-    core/ 模块零引用。原先防的"旧快照回写"是 2026-09-01 已删除的 deepcopy-filter
-    快路径（见 _get_month_data 注释）。故 8 个数据事实写端点的本函数调用全部移除
-    （行为可证明无变化）。函数保留供兼容；__all__ 写入与死缓存清理留批次 3。"""
-    with MONTH_CACHE_LOCK:
-        MONTH_CACHE.pop('__all__', None)
+# perf-batch3 F3: _invalidate_all_cache_base 已删除——__all__ 为只写不读死缓存（batch2 C2 审计
+# 结论），且 batch3 起 _run_pipeline 对 month_filter=None 不再写入 '__all__' 键，无失效对象。
 
 def _invalidate_month_cache(month: str | None):
     """Evict single MONTH_CACHE entry for `month` (per-month only). No-op if month invalid."""
@@ -891,9 +881,28 @@ def _invalidate_month_cache(month: str | None):
         MONTH_CACHE_LOCKS.pop(month, None)
 
 
+def _invalidate_month_cache_from(eff_month: str | None):
+    """perf-batch3 F2: 失效 eff_month 及其后所有**已缓存**月份。
+    长效 override（无 end_date，如调岗/薪资变更）经事件推导影响 eff_month 之后所有月份，
+    只清 eff_month 单月会留下后续月份陈旧缓存。实现：遍历 MONTH_CACHE 现存键，
+    凡形如 YYYY-MM 且 key >= eff_month 的一并驱逐——不新建日期区间展开循环，
+    天然有界（最多 MONTH_CACHE_MAX=6 个键），符合 800 天 clamp 铁律精神；
+    未缓存月份本就走 miss 重建，无需处理。"""
+    if not eff_month:
+        return
+    eff_month = str(eff_month)[:7]
+    if not MONTH_RE.match(eff_month):
+        return
+    with MONTH_CACHE_LOCK:
+        stale = [k for k in MONTH_CACHE if MONTH_RE.match(k) and k >= eff_month]
+        for k in stale:
+            MONTH_CACHE.pop(k, None)
+            MONTH_CACHE_LOCKS.pop(k, None)
+
+
 def _invalidate_current_view_month():
-    """perf-batch2 C1 (P0-2): 替代无月份参数的 _refresh_employees_cache() 同步全量重算。
-    原逻辑覆盖面 = APP_STATE.month 单月（为 None/'all' 时仅重建 __all__ 死缓存，
+    """perf-batch2 C1 (P0-2): 替代无月份参数的全量同步重算（该函数已随 perf-batch3 F3 删除）。
+    原逻辑覆盖面 = APP_STATE.month 单月（为 None/'all' 时仅重建已停写的全量死缓存键，
     不触碰任何单月缓存）。此处按相同覆盖面只做失效，重建移交下一个读请求
     （_get_month_data 缓存 miss → per-month 单飞锁内全量管线）。
     仅当写端点响应不依赖刷新后数据时才可用本函数（响应依赖数据须保留 eager 重建）。"""
@@ -966,9 +975,8 @@ def resolve_month(req=None):
     with MONTH_CACHE_LOCK:
         if MONTH_CACHE:
             try:
-                filtered = {k: v for k, v in MONTH_CACHE.items() if k != '__all__'}
-                pool = filtered if filtered else MONTH_CACHE
-                cur = max(pool.items(), key=lambda kv: kv[1].get('built_at', 0))[0]
+                # perf-batch3 F3: '__all__' 键已停写（见 _run_pipeline），MONTH_CACHE 仅存 YYYY-MM 月键
+                cur = max(MONTH_CACHE.items(), key=lambda kv: kv[1].get('built_at', 0))[0]
                 if cur and MONTH_RE.match(cur):
                     return cur
             except Exception:
@@ -1459,7 +1467,9 @@ def _run_pipeline(month_filter=None):
     # 此处不再重复处理。
 
     built_at = time.time()
-    month_key = (month_filter or '')[:7] if month_filter else '__all__'
+    # perf-batch3 F3: '__all__' 只写不读死缓存停写（batch2 C2 审计结论）——month_filter=None
+    # （/set-month、/recalculate 的 all 分支）直接消费返回值不走缓存，仅月键落缓存
+    month_key = (month_filter or '')[:7] if month_filter else None
     month_data = {
         'main_data': main_data,
         'employees': employees,
@@ -1473,11 +1483,12 @@ def _run_pipeline(month_filter=None):
         'calculated': True,
     }
 
-    per_lock = _get_month_lock(month_key)
-    with per_lock:
-        with MONTH_CACHE_LOCK:
-            MONTH_CACHE[month_key] = month_data
-            _month_cache_evict_if_needed()
+    if month_key and MONTH_RE.match(month_key):
+        per_lock = _get_month_lock(month_key)
+        with per_lock:
+            with MONTH_CACHE_LOCK:
+                MONTH_CACHE[month_key] = month_data
+                _month_cache_evict_if_needed()
 
     APP_STATE.update({
         'parsed': True,
@@ -1593,17 +1604,9 @@ def _get_daily_breakdown(month, main_data, employees, pricing=None):
         return _copy.deepcopy(result)
 
 
-def _refresh_employees_cache(month: str | None = None):
-    """Per-month cache refresh (not global): rebuild MONTH_CACHE[month] via _run_pipeline.
-    [perf-batch2 C1] app.py 内已无调用方——写端点响应不依赖刷新后数据，改走
-    _invalidate_month_cache/_invalidate_current_view_month 失效，重建移交下个读请求。
-    函数保留供兼容/测试引用。"""
-    if not APP_STATE.get('parsed'):
-        return None
-    _month = month if month is not None else APP_STATE.get('month')
-    return _run_pipeline(month_filter=_month if _month != 'all' else None)
-
-
+# perf-batch3 F3: _refresh_employees_cache 已删除——batch2 C1 后 app.py 全仓（含 core/、tests/）
+# 零调用（grep 证据在案），原"重建缓存"语义由失效 + 下个读请求单飞重建取代
+# （_invalidate_month_cache / _invalidate_current_view_month → _get_month_data miss → _run_pipeline）。
 def _sync_employee_cache(eid, fields):
     """P23 R4: 轻量同步单个员工字段（不触发全量重建），用于纯展示字段。"""
     for _emp in APP_STATE.get('employees', []):
@@ -1837,7 +1840,7 @@ def save_override():
             affected_month = vm
         _save(app.config['DATA_FOLDER'], data)
         # perf-batch2 C1: 响应不依赖刷新后数据，eager 重算移出请求路径——
-        # 原有 _refresh_employees_cache(affected_month) 紧跟 invalidate 属重复劳动，仅保留失效
+        # 原有"刷新后紧跟 invalidate"属重复劳动，仅保留失效（eager 函数已随 perf-batch3 F3 删除）
         _invalidate_month_cache(affected_month)
     _audit('override_save', eid, json.dumps({
         'name': next((e['name'] for e in APP_STATE.get('employees',[]) if e['id']==eid), eid),
@@ -1987,7 +1990,7 @@ def dismiss_employee_api():
     with MONTH_CACHE_LOCK:
         affected = [k for k, v in list(MONTH_CACHE.items()) if any(x.get('id') == eid for x in v.get('employees', []))]
     for k in affected:
-        if k != '__all__':
+        if MONTH_RE.match(k):  # perf-batch3 F3: MONTH_CACHE 仅存月键（__all__ 已停写）
             _invalidate_month_cache(k)
     # 若无缓存命中，回退失效当前视图月
     try:
@@ -3114,9 +3117,10 @@ def oa_approve_event(event_id):
             app.logger.warning('写审批通知失败 event=%s: %s', event_id, e)
     # P27 按月隔离修复：按事件生效月份精准失效，避免全局 APP_STATE.month 错月污染——
     # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
+    # perf-batch3 F2: 长效 override 影响 eff_month 之后所有月份，改用"现存键 >= eff_month"失效
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
-        _invalidate_month_cache(eff_month)
+        _invalidate_month_cache_from(eff_month)
     else:
         _invalidate_current_view_month()  # 回退：无生效日期时按原覆盖面失效
     return jsonify({'ok': True})
@@ -3179,6 +3183,11 @@ def oa_reject_event(event_id):
                                                           'marked': _marked_a, 'skipped': _skipped_a},
                                                          ensure_ascii=False),
                                       operator=session.get('username', ''))
+                            # perf-batch3 F1: 落 A 经 save_attendance_override 直写 DB，
+                            # 此处按被落 A 日期所属月份补失效（跨月逐月），否则 MONTH_CACHE 显示陈旧
+                            _f1_months = {_d[:7] for _d in _marked_a if MONTH_RE.match(_d[:7])}
+                            for _fm in sorted(_f1_months):
+                                _invalidate_month_cache(_fm)
             except Exception as e:
                 app.logger.warning('驳回后落旷工 A 失败 event=%s: %s', event_id, e)
     return jsonify({'ok': ok})
@@ -3232,9 +3241,10 @@ def oa_revoke_event(event_id):
               operator=session.get('username',''))
     # P27 按月隔离修复：按事件生效月份精准回退，避免全局错月——
     # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
+    # perf-batch3 F2: revoke 撤销长效 override 同样影响 eff_month 之后所有月份
     eff_month = (event.get('effective_date') or '')[:7]
     if eff_month and MONTH_RE.match(eff_month):
-        _invalidate_month_cache(eff_month)
+        _invalidate_month_cache_from(eff_month)
     else:
         _invalidate_current_view_month()  # 回退：无生效日期时按原覆盖面失效
     return jsonify({'ok': True})
@@ -3397,6 +3407,11 @@ def oa_edit_event(event_id):
     if _months_to_refresh:
         for _m in sorted(_months_to_refresh):
             _invalidate_month_cache(_m)
+        # perf-batch3 F2: 叠加现存键失效规则（取并集不缩小）——清 >= min(旧月,新月) 的
+        # 全部已缓存月份；已批事件改期不缩小原逐月覆盖面，只可能更全
+        _f2_anchor = min((_old_date or '9999-12-31', new_date or '9999-12-31'))[:7]
+        if MONTH_RE.match(_f2_anchor):
+            _invalidate_month_cache_from(_f2_anchor)
     else:
         _invalidate_current_view_month()  # 回退：无有效月份时按原覆盖面失效
     return jsonify({'ok': True, 'event_id': event_id, 'new_event_id': msg})
