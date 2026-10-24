@@ -3973,6 +3973,64 @@ const isDrillerDept = d => _DR_DEPT_NORMS.includes(normDept(d));
 const isUgDeptNorm = nd => _UG_DEPT_NORMS.includes(nd);           // 入参：已 normDept 的值
 const isCrushDeptNorm = nd => _CR_DEPT_NORMS.includes(nd);
 const isDrillerDeptNorm = nd => _DR_DEPT_NORMS.includes(nd);
+
+// ── 2026-11 组织重组：部门两级结构（大部门 → 子部门）单一事实源 ──
+// children.v 必须与 employees.department 精确一致；label 缺省用 v 本身。
+// 三主管叶子值 = 'Mining Department'（父部门名本体），展示为「主管」避免与组名混淆。
+const DEPT_TREE = [
+  { parent: 'Mining Department', children: [
+    { v: 'Production TEAM' },
+    { v: 'Driller Team' },
+    { v: 'Mining Department', label: () => t('dept_supervisors') },
+  ]},
+  { parent: 'Engineering & Maintenance Department', children: [{ v: 'Engineering & Maintenance Department' }] },
+  { parent: 'Site Operations & Services Department', children: [{ v: 'Site Operations & Services Department' }] },
+  { parent: 'Materials & Logistics Department', children: [
+    { v: 'Sorting Team' },
+    { v: 'Crushing Team' },
+  ]},
+  { parent: 'RIG', children: [{ v: 'RIG' }] },
+  { parent: 'ENPRIZON LINDI PROJECT', children: [{ v: 'ENPRIZON LINDI PROJECT' }] },
+];
+function deptParentOf(v) {
+  for (const g of DEPT_TREE) if (g.children.some(c => c.v === v)) return g.parent;
+  return null;
+}
+function deptOptionLabel(v) {
+  for (const g of DEPT_TREE) {
+    const c = g.children.find(c => c.v === v);
+    if (c) return c.label ? c.label() : c.v;
+  }
+  return v;
+}
+/* 两级部门下拉 HTML：<optgroup label=大部门>（该大部门在场子部门 ≥2 时），
+   单子部门大部门平铺为单选项；不在树内的值（历史遗留部门名）归入「其他部门」组。 */
+function buildDeptOptionsHTML(presentList, selected) {
+  const present = [...new Set((presentList || []).filter(Boolean))];
+  if (!present.length) return '';
+  const inSet = new Set(present);
+  const groups = [];
+  const used = new Set();
+  DEPT_TREE.forEach(g => {
+    const items = g.children.filter(c => inSet.has(c.v)).map(c => ({ v: c.v, label: c.label ? c.label() : c.v }));
+    if (items.length) { groups.push({ parent: g.parent, items }); items.forEach(i => used.add(i.v)); }
+  });
+  const others = present.filter(v => !used.has(v)).sort();
+  let html = '';
+  groups.forEach(g => {
+    if (g.items.length === 1) {
+      html += `<option value="${escHtml(g.items[0].v)}" ${selected === g.items[0].v ? 'selected' : ''}>${escHtml(g.items[0].label)}</option>`;
+    } else {
+      html += `<optgroup label="${escHtml(g.parent)}">` + g.items.map(i =>
+        `<option value="${escHtml(i.v)}" ${selected === i.v ? 'selected' : ''}>${escHtml(i.label)}</option>`).join('') + '</optgroup>';
+    }
+  });
+  if (others.length) {
+    html += `<optgroup label="${escHtml(t('dept_group_other'))}">` + others.map(v =>
+      `<option value="${escHtml(v)}" ${selected === v ? 'selected' : ''}>${escHtml(v)}</option>`).join('') + '</optgroup>';
+  }
+  return html;
+}
 async function ensureTeamFilterData(force) {
   if (!force && STATE._teamData && (STATE._teamData.groups || []).length) return STATE._teamData;
   try {
@@ -4023,14 +4081,11 @@ async function renderEmployeeTable() {
     const data = await res.json();
     const emps = data.employees || [];
 
-    // 填充部门筛选（P13.1: 重建下拉前保留选中值）
+    // 填充部门筛选（P13.1: 重建下拉前保留选中值；2026-11 两级化：大部门 optgroup → 子部门）
     const sel = document.getElementById('empFilterDept');
     const prevVal = sel.value;
     const deps = [...new Set(emps.map(e => e.department).filter(Boolean))].sort();
-    sel.innerHTML = '<option value="">' + t('emp_all_depts') + '</option>';
-    const deptParts = [];
-    deps.forEach(d => { deptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`); });
-    sel.innerHTML += deptParts.join('');
+    sel.innerHTML = '<option value="">' + t('emp_all_depts') + '</option>' + buildDeptOptionsHTML(deps, prevVal);
     if (deps.includes(prevVal)) sel.value = prevVal;
 
     // T18: team filter for underground department
@@ -5889,16 +5944,12 @@ async function renderSalaryTable(result) {
   const dupDiv = document.getElementById('duplicateWarnings');
   dupDiv.style.display = 'none';
 
-  // 懒初始化：首次渲染薪资表时填充部门下拉框
+  // 懒初始化：首次渲染薪资表时填充部门下拉框（2026-11 两级化）
   const deptSel = document.getElementById('salaryFilterDept');
   if (deptSel && deptSel.options.length === 1) {
     const depts = new Set();
     (STATE._empAll || result.employees).forEach(e => { if (e.department) depts.add(e.department); });
-    const salDeptParts = [];
-    [...depts].sort().forEach(d => {
-      salDeptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`);
-    });
-    deptSel.innerHTML += salDeptParts.join('');
+    deptSel.innerHTML += buildDeptOptionsHTML([...depts], '');
   }
   // R3: show team filter when UG dept selected
   await ensureTeamFilterData();
@@ -6125,11 +6176,7 @@ async function loadDailyWages() {
     }
     const sel = document.getElementById('dwFilterDept');
     if (sel.options.length === 1) {
-      const dwDeptParts = [];
-      [...depts].sort().forEach(d => {
-        dwDeptParts.push('<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>');
-      });
-      sel.innerHTML += dwDeptParts.join('');
+      sel.innerHTML += buildDeptOptionsHTML([...depts], '');
     }
     // R3: ensure team filter data
     await ensureTeamFilterData();
@@ -6449,14 +6496,12 @@ function renderAttendance() {
   const ft = document.getElementById('attFilterType').value;
   const fd = document.getElementById('attFilterDept').value;
 
-  // 首次加载时动态填充部门下拉选项
+  // 首次加载时动态填充部门下拉选项（2026-11 两级化）
   const deptSel = document.getElementById('attFilterDept');
   if (deptSel.options.length === 1) {
     const depts = new Set();
     data.rows.forEach(r => { if (r.department) depts.add(r.department); });
-    const attDeptParts = [];
-    [...depts].sort().forEach(d => { attDeptParts.push(`<option value="${escHtml(d)}">${escHtml(d)}</option>`); });
-    deptSel.innerHTML += attDeptParts.join('');
+    deptSel.innerHTML += buildDeptOptionsHTML([...depts], '');
   }
   // R3: team filter show/hide
   const attTeamSel = document.getElementById('attFilterTeam');
@@ -9722,7 +9767,7 @@ async function renderAttCollectionForm(payload) {
     <div class="form-row" style="margin-top:8px;"><label style="min-width:70px;" data-i18n="col_att_dept">部门</label>
       <select id="attDeptSel" onchange="filterAttRoster()" style="${colInStyle(true)}">
         <option value="">${t('col_select_dept_placeholder')}</option>
-        ${depts.map(d => `<option value="${escHtml(d)}" ${selDept === d ? 'selected' : ''}>${escHtml(d)}</option>`).join('')}
+        ${buildDeptOptionsHTML(depts, selDept)}
       </select>
     </div>
     <div id="attUgTeamWrap" style="margin-top:8px;${isUgDept(selDept) ? '' : 'display:none;'}">

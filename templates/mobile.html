@@ -1926,6 +1926,37 @@
   const _mobIsUgDeptNorm=nd=>_MOB_UG_DEPT_NORMS.includes(nd);
   const _mobIsCrushDeptNorm=nd=>_MOB_CR_DEPT_NORMS.includes(nd);
   const _mobIsDrillerDeptNorm=nd=>_MOB_DR_DEPT_NORMS.includes(nd);
+
+  // ── 2026-11 组织重组：部门两级结构（大部门 → 子部门；与 index.html DEPT_TREE 保持一致）──
+  const _MOB_DEPT_TREE = [
+    { parent: 'Mining Department', children: [
+      { v: 'Production TEAM' },
+      { v: 'Driller Team' },
+      { v: 'Mining Department', label: function(){ return t('dept_supervisors'); } },
+    ]},
+    { parent: 'Engineering & Maintenance Department', children: [{ v: 'Engineering & Maintenance Department' }] },
+    { parent: 'Site Operations & Services Department', children: [{ v: 'Site Operations & Services Department' }] },
+    { parent: 'Materials & Logistics Department', children: [{ v: 'Sorting Team' }, { v: 'Crushing Team' }] },
+    { parent: 'RIG', children: [{ v: 'RIG' }] },
+    { parent: 'ENPRIZON LINDI PROJECT', children: [{ v: 'ENPRIZON LINDI PROJECT' }] },
+  ];
+  function _mobDeptChildLabel(v){
+    for (const g of _MOB_DEPT_TREE) { const c=g.children.find(function(c){return c.v===v;}); if (c) return c.label?c.label():c.v; }
+    return v;
+  }
+  /* 按在场部门分组：[{parent, items:[{v,label}]}...]；树外值（历史遗留名）归 parent=null 的「其他部门」组 */
+  function _mobGroupDepts(present){
+    const set = new Set((present||[]).filter(Boolean));
+    if (!set.size) return [];
+    const groups = []; const used = new Set();
+    _MOB_DEPT_TREE.forEach(g => {
+      const items = g.children.filter(c=>set.has(c.v)).map(c=>({v:c.v,label:c.label?c.label():c.v}));
+      if (items.length){ groups.push({parent:g.parent, items}); items.forEach(i=>used.add(i.v)); }
+    });
+    const others = Array.from(set).filter(v=>!used.has(v)).sort();
+    if (others.length) groups.push({parent:null, items: others.map(v=>({v:v,label:_mobDeptChildLabel(v)}))});
+    return groups;
+  }
   function _mobSubTeam(s){
     if(s && s.team_id!=null && String(s.team_id).trim() && String(s.team_id).trim()!=='0') return String(s.team_id);
     try{ const tv=JSON.parse((s&&s.payload)||'{}').team_id; if(tv!=null && String(tv).trim() && String(tv).trim()!=='0') return String(tv); }catch(e){}
@@ -2665,19 +2696,44 @@
     const selDept=(init&&init.department)||'';
     const selTeam=(init&&init.team_id!=null? String(init.team_id):'');
     STATE._attTeamId=selTeam;
-    const deptOpts=allDepts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('');
+    // 2026-11 两级化：先选大部门 → 再选子部门；历史遗留部门名归「其他部门」组，编辑旧行可回填
+    const groups = _mobGroupDepts(allDepts);
+    STATE._attDeptGroups = groups;
+    const _OTHER='__OTHER__';
+    const selParent = selDept ? ((groups.find(g=>g.items.some(i=>i.v===selDept))||{parent:_OTHER}).parent || _OTHER) : '';
+    const parentOpts = '<option value="">'+t('sel_placeholder')+'</option>' + groups.map(g=>{
+      const pv = g.parent || _OTHER;
+      const pl = g.parent || t('dept_group_other');
+      return '<option value="'+esc(pv)+'" '+(selParent===pv?'selected':'')+'>'+esc(pl)+'</option>';
+    }).join('');
     const teamOpts='<option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
     const isUgInit = _mobIsUgDept(selDept);
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'" onchange="onMobAttDateChange()"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
-      + '<div class="field"><label class="field__label">'+t('dept')+'</label><select id="attColDept" onchange="onAttDeptChange()"><option value="">'+t('col_select_dept_placeholder')+'</option>'+deptOpts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept_parent')+'</label><select id="attColParent" onchange="onAttParentChange()">'+parentOpts+'</select></div>'
+      + '<div class="field"><label class="field__label">'+t('dept_sub')+'</label><select id="attColDept" onchange="onAttDeptChange()"><option value="">'+t('col_select_dept_placeholder')+'</option></select></div>'
       + '<div class="field" id="attTeamRow" style="display:'+(isUgInit?'block':'none')+';"><label class="field__label">'+t('col_att_ug_team')+'</label><select id="attTeamSel" onchange="renderAttRoster()"><option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('')+'</select></div>'
       + '<div class="col-batch-row" id="attBatchRow"><button class="btn" onclick="attBatchAll(\'P\')">'+t('batch_all_p')+'</button><button class="btn" onclick="attBatchAll(\'A\')">'+t('batch_all_a')+'</button></div>'
       + '<div id="attRoster"></div>'
       + '<div class="col-count-hint" id="attRosterCount"></div>'
       + '<button class="btn btn-primary btn-block" id="colSubmitBtn" onclick="submitAtt()">'+(STATE._colEditing?t('col_edit_save'):t('submit'))+'</button>';
+    if (selParent) _mobFillAttChildren(selParent, selDept);
     renderAttRoster();
+  }
+  /* 大部门 → 子部门级联填充（编辑回填时 selected=历史部门值） */
+  function _mobFillAttChildren(pv, selected){
+    const sel=document.getElementById('attColDept'); if(!sel) return;
+    const g=(STATE._attDeptGroups||[]).find(g=>(g.parent||'__OTHER__')===pv);
+    const items=g?g.items:[];
+    sel.innerHTML='<option value="">'+t('col_select_dept_placeholder')+'</option>'
+      + items.map(i=>'<option value="'+esc(i.v)+'" '+(selected===i.v?'selected':'')+'>'+esc(i.label)+'</option>').join('');
+    if (selected && items.some(i=>i.v===selected)) sel.value=selected;
+  }
+  function onAttParentChange(){
+    const pv=(document.getElementById('attColParent')||{}).value||'';
+    _mobFillAttChildren(pv, '');
+    onAttDeptChange();  // 子部门清空后的既有联动：隐藏班组行 + 清空名单
   }
   function onAttDeptChange(){
     const sel=document.getElementById('attColDept').value;
