@@ -3951,18 +3951,25 @@ def _ensure_collection_created_by_column(data_folder):
 
 def _build_ug_team_members(data_folder, month=None):
     """C5: 构建 ug_team_members: {team_id: [employee_id,...]} 仅 UG 部门按 team_id 分组。
-    month 可选：按月台账解析该月部门/班组归属，避免直接改部门/班组回溯污染历史月份。"""
+    month 可选：按月台账解析该月部门/班组归属，避免直接改部门/班组回溯污染历史月份。
+    2026-10-25 用户裁决：离职者不得出现在班组花名册——month 月之前（<month）离职的
+    成员剔除；离职当月及历史月保留（当月仍可能有其出勤标记，保历史重算逐分不变）。"""
     team_map = {}
     try:
         from core.database import get_conn, resolve_base_for_month
         conn = get_conn(data_folder)
-        for r in conn.execute("SELECT id, department, team_id FROM employees").fetchall():
+        for r in conn.execute("SELECT id, department, team_id, status, dismissed_at FROM employees").fetchall():
             base = resolve_base_for_month(data_folder, str(r['id']), month) if month else None
             dept = (base['department'] if base and base.get('department') is not None else r['department'])
             tid = (_safe_team_id(base['team_id'], 'ug_team_members_base') if base and base.get('team_id') is not None
                    else _safe_team_id(r['team_id'], 'ug_team_members_employees'))  # P40-HOTFIX
             if _norm_ug_dept(dept) in _UG_NORM_TARGETS:
                 if tid:
+                    # 离职过滤：dismissed_at 落在 month 之前的剔除（None=全量口径时一并剔除）
+                    if r['status'] != 'active':
+                        _d = (r['dismissed_at'] or '')[:7]
+                        if (not month) or (_d and _d < month):
+                            continue
                     team_map.setdefault(tid, []).append(str(r['id']))
         conn.close()
     except Exception:
