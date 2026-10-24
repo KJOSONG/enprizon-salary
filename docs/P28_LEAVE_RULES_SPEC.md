@@ -193,7 +193,8 @@ def _norm_dept(s):
     if not s:
         return ''
     return s.replace('（', '(').replace('）', ')').replace(' ', '').upper()
-# 判定：_norm_dept(dept) == 'PRODUCTIONTEAM(UNDERGROUND)'
+# 判定（2026-11 组织重组双名兼容）：_norm_dept(dept) in {'PRODUCTIONTEAM', 'PRODUCTIONTEAM(UNDERGROUND)'}
+# 新名 'Production TEAM'（组织重组后 DB 值），旧名保历史月重算/调岗时间线兼容
 ```
 
 ### 6.4 生效条件
@@ -490,7 +491,7 @@ OA 审批的 `effective_date` 跨月时，`apply_approved_event()` 逐日计算�
 
 ### 15.4 R4 — 年假折算
 
-- [ ] UG 部门（`normDept == 'PRODUCTIONTEAM(UNDERGROUND)'`）+ `piece_underground` 类型员工，NU 天按 `round(ug_annual_leave_monthly / 26)` 计发。
+- [ ] UG 部门（`normDept in {'PRODUCTIONTEAM','PRODUCTIONTEAM(UNDERGROUND)'}`，2026-11 双名兼容）+ `piece_underground` 类型员工，NU 天按 `round(ug_annual_leave_monthly / 26)` 计发。
 - [ ] 该笔钱走日薪轨道特判，不计入 `ug_base`。
 - [ ] `coefficient_conservation` 检查不受影响（V2 零和守恒仍成立）。
 - [ ] `calculate_all` / `compute_daily_breakdown` / `verification.py` 三处 per-day 取整公式一致。

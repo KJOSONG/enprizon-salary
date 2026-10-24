@@ -3078,9 +3078,11 @@ def oa_approve_event(event_id):
         _nt = _pl.get('new_type') or ''
         _nd = (_pl.get('new_department') or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
         # P41 需求2: 调入破碎（SORTCRUSH/CRUSHPIECERATE）自动映射 piece_crush，无需确认；转出仍须确认
+        # 2026-11 组织重组：井下/破碎新旧部门名（规范化）都免确认，双名兼容见 ORG_RESTRUCTURE_2026_PLAN
         if _old_type in ('piece_underground', 'piece_driller', 'piece_crush') \
                 and _nt not in _valid5 \
-                and _nd not in ('PRODUCTIONTEAM(UNDERGROUND)', 'SORTCRUSH/CRUSHPIECERATE'):
+                and _nd not in ('PRODUCTIONTEAM', 'PRODUCTIONTEAM(UNDERGROUND)',
+                                'CRUSHINGTEAM', 'SORTCRUSH/CRUSHPIECERATE'):
             return jsonify({'ok': False, 'error': 'transfer_salary_type_required'}), 400
         if _nt in ('day_rate', 'monthly'):
             try:
@@ -3898,10 +3900,13 @@ def _norm_ug_dept(s):
     """UG 部门规范化：去所有空格 + 全角括号归一半角 + 大写（禁止裸字符串比较）"""
     return re.sub(r'\s+', '', (s or '')).replace('（', '(').replace('）', ')').upper()
 
-_UG_NORM_TARGET = _norm_ug_dept('Production TEAM （underground）')
+_UG_NORM_TARGETS = frozenset((
+    _norm_ug_dept('Production TEAM'),                 # 2026-11 组织重组新名
+    _norm_ug_dept('Production TEAM （underground）'),  # 历史名（历史月重算/旧事件兼容）
+))
 
 def _is_ug_dept(dept):
-    return _norm_ug_dept(dept) == _UG_NORM_TARGET
+    return _norm_ug_dept(dept) in _UG_NORM_TARGETS
 
 def _ensure_collection_team_id_column(data_folder):
     """懒迁移：给 collection_submissions 补 team_id 列（UG 出勤按 team 分行需要）"""
@@ -3956,7 +3961,7 @@ def _build_ug_team_members(data_folder, month=None):
             dept = (base['department'] if base and base.get('department') is not None else r['department'])
             tid = (_safe_team_id(base['team_id'], 'ug_team_members_base') if base and base.get('team_id') is not None
                    else _safe_team_id(r['team_id'], 'ug_team_members_employees'))  # P40-HOTFIX
-            if _norm_ug_dept(dept) == _UG_NORM_TARGET:
+            if _norm_ug_dept(dept) in _UG_NORM_TARGETS:
                 if tid:
                     team_map.setdefault(tid, []).append(str(r['id']))
         conn.close()
@@ -4013,7 +4018,7 @@ def _build_transfer_day_map(data_folder, month=None):
             except (TypeError, ValueError):
                 team = 0
             if team <= 0:
-                team = None if (dept and _norm_ug_dept(dept) == _UG_NORM_TARGET) else 0
+                team = None if (dept and _norm_ug_dept(dept) in _UG_NORM_TARGETS) else 0
             nt = payload.get('new_type') or ''
             typ = nt if nt in _VALID_SALARY_TYPES else None
         else:  # salary_change
@@ -4113,7 +4118,7 @@ def _apply_transfer_day_view(data_folder, employees, date):
             # 生效日前：基线 = 首个调岗事件的 old_department（旧部门），缺失回退 employees 表值；
             # 班组：旧部门非 UG 归 0，UG 无法从 payload 还原旧班组 → 回退 employees 表值
             base_dept = first['old_dept'] or (e.get('department') or '')
-            if base_dept and _norm_ug_dept(base_dept) != _UG_NORM_TARGET:
+            if base_dept and _norm_ug_dept(base_dept) not in _UG_NORM_TARGETS:
                 e2['department'] = base_dept
                 e2['team_id'] = 0
             else:
@@ -4609,7 +4614,7 @@ def _roster_stale_error(marks, dept, team_id, data_folder, date=None):
                 # 回退放行交给原静默部门/班组过滤，只有明确班组归属且与 payload 不符才 400
                 mismatch = bool(emp['team']) and emp['team'] != tid_payload
             else:
-                mismatch = _norm_ug_dept(emp['dept']) != _UG_NORM_TARGET
+                mismatch = _norm_ug_dept(emp['dept']) not in _UG_NORM_TARGETS
         else:
             mismatch = bool(emp['dept']) and emp['dept'] != _dept_payload
         if not mismatch:

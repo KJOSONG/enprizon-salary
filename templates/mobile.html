@@ -1213,8 +1213,8 @@
     const tid = e && e.team_id;
     if(tid==null || tid==='' || String(tid)==='0') return '';
     const nd = _mobNormDept(e.department);
-    if(nd==='PRODUCTIONTEAM(UNDERGROUND)'){ await _mobUgGroups(); return _mobUgTeamName(tid); }
-    if(nd==='DRILLERTEAM'){
+    if(_mobIsUgDeptNorm(nd)){ await _mobUgGroups(); return _mobUgTeamName(tid); }
+    if(_mobIsDrillerDeptNorm(nd)){
       if(!STATE._drCaps){ try{ STATE._drCaps=(await api('/api/driller-captains')).captains||[]; }catch(err){ STATE._drCaps=[]; } }
       const c=(STATE._drCaps||[]).find(x=>String(x.employee_id)===String(tid)||String(x.id)===String(tid));
       return c?c.name:'';
@@ -1591,8 +1591,8 @@
     let p={};
     try{ p=JSON.parse(ev.payload||'{}'); }catch(e){ p={}; }
     const nd=_mobNormDept(p.new_department);
-    if(nd==='PRODUCTIONTEAM(UNDERGROUND)') return false;
-    if(nd==='SORTCRUSH/CRUSHPIECERATE') return false;  // P41: 转入破碎自动映射 piece_crush，无需确认
+    if(_mobIsUgDeptNorm(nd)) return false;  // 井下内部调动（新旧名兼容），计件自动保持
+    if(_mobIsCrushDeptNorm(nd)) return false;  // P41: 转入破碎自动映射 piece_crush，无需确认
     if(p.new_type) return false;
     let oldType=p.old_type||'';
     if(!oldType){
@@ -1610,7 +1610,7 @@
       const nd=_mobNormDept(p0.new_department);
       const allLabels={ piece_underground:t('type_ug_piece'), piece_driller:t('type_dr_piece'), piece_crush:t('type_crush_piece'), day_rate:t('type_dayrate'), monthly:t('type_monthly') };
       // P41: 目标为非计件部门（无自动映射）时只保留 day_rate/monthly，默认 day_rate
-      const labels=(nd==='DRILLERTEAM')?allLabels:{ day_rate:allLabels.day_rate, monthly:allLabels.monthly };
+      const labels=(_mobIsUgDeptNorm(nd)||_mobIsDrillerDeptNorm(nd)||_mobIsCrushDeptNorm(nd))?allLabels:{ day_rate:allLabels.day_rate, monthly:allLabels.monthly };
       const opts=Object.keys(labels).map(v=>'<option value="'+v+'">'+esc(labels[v])+'</option>').join('');
       const body='<div class="field"><label class="field__label">'+esc(t('transfer_type_confirm_hint'))+'</label>'
         +'<select id="mobTtType">'+opts+'</select></div>'
@@ -1798,20 +1798,20 @@
   // ── 数据采集 (Phase 3) ──
   STATE.colType = '';
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
-  // 部门池工具(部门名已 EN 化,用英文关键字 contains)
-  function deptHas(e,k){ return (e.department||'').toUpperCase().includes(k); }
+  // 部门池工具（2026-11 组织重组后判定走 _mobIs* 双名谓词；deptHas 保留给其他关键字场景）
   function deptPool(kind, teamId, src){
     return (src||STATE.employees).filter(e=>{
       const d=(e.department||'').toUpperCase();
+      // 2026-11 组织重组：按规范化双名集合判定（'Production TEAM' 新名不再含 UNDERGROUND 关键词）
       if(kind==='underground'){
-        if(!d.includes('UNDERGROUND')) return false;
+        if(!_mobIsUgDept(d)) return false;
         if(teamId && String(e.team_id)!==String(teamId)) return false;
         return true;
       }
-      if(kind==='driller') return d.includes('DRILLER');
-      // Sort Crush/Crush Piece Rate(子部门)归破碎计件;Sort Crush(父部门)归出勤收集
-      if(kind==='crush') return d.includes('CRUSH PIECE RATE');
-      if(kind==='other') return !(d.includes('UNDERGROUND')||d.includes('DRILLER')||d.includes('CRUSH PIECE RATE'));
+      if(kind==='driller') return _mobIsDrillerDept(d);
+      // Crushing Team（旧 Sort Crush/Crush Piece Rate）归破碎计件;Sorting Team（旧 Sort Crush）归出勤收集
+      if(kind==='crush') return _mobIsCrushDept(d);
+      if(kind==='other') return !_mobIsUgDept(d)&&!_mobIsDrillerDept(d)&&!_mobIsCrushDept(d);
       return true;
     });
   }
@@ -1916,6 +1916,16 @@
   }
   // 班组名注入（对齐 web 端 colRowTeam）：井下部门历史行后追加「· 班组名」
   function _mobNormDept(s){ return (s||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase(); }
+  // 2026-11 组织重组：井下/破碎部门新旧名双名集合（历史月调岗时间线仍携带旧名，必须兼容）
+  const _MOB_UG_DEPT_NORMS=['PRODUCTIONTEAM','PRODUCTIONTEAM(UNDERGROUND)'];
+  const _MOB_CR_DEPT_NORMS=['CRUSHINGTEAM','SORTCRUSH/CRUSHPIECERATE'];
+  const _MOB_DR_DEPT_NORMS=['DRILLERTEAM'];
+  const _mobIsUgDept=d=>_MOB_UG_DEPT_NORMS.includes(_mobNormDept(d));
+  const _mobIsCrushDept=d=>_MOB_CR_DEPT_NORMS.includes(_mobNormDept(d));
+  const _mobIsDrillerDept=d=>_MOB_DR_DEPT_NORMS.includes(_mobNormDept(d));
+  const _mobIsUgDeptNorm=nd=>_MOB_UG_DEPT_NORMS.includes(nd);
+  const _mobIsCrushDeptNorm=nd=>_MOB_CR_DEPT_NORMS.includes(nd);
+  const _mobIsDrillerDeptNorm=nd=>_MOB_DR_DEPT_NORMS.includes(nd);
   function _mobSubTeam(s){
     if(s && s.team_id!=null && String(s.team_id).trim() && String(s.team_id).trim()!=='0') return String(s.team_id);
     try{ const tv=JSON.parse((s&&s.payload)||'{}').team_id; if(tv!=null && String(tv).trim() && String(tv).trim()!=='0') return String(tv); }catch(e){}
@@ -1966,7 +1976,7 @@
       el.innerHTML = subs.length? subs.map(s=>{
         let p={}; try{ p=JSON.parse(s.payload||'{}'); }catch(e){}
         const dept = s.department || (p.department||'');
-        const isUG = _mobNormDept(dept)==='PRODUCTIONTEAM(UNDERGROUND)';
+        const isUG = _mobIsUgDept(dept);
         const ts = typeShort[s.form_type]||['t-att',s.form_type];
         const dShort = esc((s.submission_date||'').slice(5));
         let shiftChip='', count='', placeHTML='', opNote='';
@@ -2630,7 +2640,7 @@
     const otherPool=deptPool('other', null, STATE.employees);
     const ugPool=deptPool('underground', null, STATE.employees);
     // C3: 确保 UG 部门出现在下拉中（full-width brackets）
-    const UG_DEPT='Production TEAM （underground）';
+    const UG_DEPT='Production TEAM';
     // 合并 UG 员工到池但 deptPool 已经独立，此处 pool 用于非UG；UG 花名册另用 deptPool('underground', teamId)
     // 为下拉去重收集所有部门（含 UG）
     const allDepts=[...new Set([...otherPool,...ugPool].map(e=>e.department).filter(Boolean))].sort();
@@ -2657,7 +2667,7 @@
     STATE._attTeamId=selTeam;
     const deptOpts=allDepts.map(x=>'<option value="'+esc(x)+'" '+(selDept===x?'selected':'')+'>'+esc(x)+'</option>').join('');
     const teamOpts='<option value="">'+t('col_att_ug_team')+'</option>'+ugGroups.map(g=>'<option value="'+g.id+'" '+(selTeam===String(g.id)?'selected':'')+'>'+esc(g.name)+'</option>').join('');
-    const isUgInit = selDept===UG_DEPT;
+    const isUgInit = _mobIsUgDept(selDept);
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_att')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'" onchange="onMobAttDateChange()"></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
@@ -2671,19 +2681,19 @@
   }
   function onAttDeptChange(){
     const sel=document.getElementById('attColDept').value;
-    const UG_DEPT='Production TEAM （underground）';
+    const UG_DEPT='Production TEAM';
     const row=document.getElementById('attTeamRow');
-    if(row) row.style.display = sel===UG_DEPT ? 'block' : 'none';
-    if(sel!==UG_DEPT) STATE._attTeamId='';
+    if(row) row.style.display = _mobIsUgDept(sel) ? 'block' : 'none';
+    if(!_mobIsUgDept(sel)) STATE._attTeamId='';
     renderAttRoster();
   }
   async function attRosterEmpIds(){
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
     const sel=document.getElementById('attColDept')?.value || '';
-    const UG_DEPT='Production TEAM （underground）';
+    const UG_DEPT='Production TEAM';
     // P40-g: 池按日期归属（renderAttForm/onMobAttDateChange 已按日缓存于 STATE._attDatePool）
     const datePool = STATE._attDatePool || await mobDateViewPool(dt);
-    if(sel===UG_DEPT){
+    if(_mobIsUgDept(sel)){
       const tid=document.getElementById('attTeamSel')?.value || '';
       STATE._attTeamId=tid;
       if(!tid) return [];
@@ -2697,8 +2707,8 @@
   async function renderAttRoster(){ const list=await attRosterEmpIds();
     const box=document.getElementById('attRoster'); if(!box) return;
     const sel=document.getElementById('attColDept')?.value || '';
-    const UG_DEPT='Production TEAM （underground）';
-    const isUg = sel===UG_DEPT;
+    const UG_DEPT='Production TEAM';
+    const isUg = _mobIsUgDept(sel);
     const countEl=document.getElementById('attRosterCount');
     const batchRow=document.getElementById('attBatchRow');
     if(!sel){  // 未选部门 → 隐藏
@@ -2745,16 +2755,16 @@
   }
   async function attBatchAll(status){
     const deptSel=document.getElementById('attColDept')?.value || '';
-    const UG_DEPT='Production TEAM （underground）';
-    if(deptSel===UG_DEPT && !document.getElementById('attTeamSel')?.value) return;
+    const UG_DEPT='Production TEAM';
+    if(_mobIsUgDept(deptSel) && !document.getElementById('attTeamSel')?.value) return;
     const dt=((document.getElementById('colDate')||{}).value||'').trim();
     const list=await attRosterEmpIds(); list.forEach(e=>{ if(mobAttLeaveLocked(dt, String(e.id))) return; const el=document.getElementById('attSt'+e.id); if(el) el.value=status; });
   }
   async function submitAtt(){ const date=document.getElementById('colDate').value; if(!date){ colFailMsg('attendance', t('val_date')); return; }
     const deptEl=document.getElementById('attColDept');
     if(!deptEl || !deptEl.value){ colFailMsg('attendance', t('col_att_need_dept')); return; }
-    const UG_DEPT='Production TEAM （underground）';
-    const isUg = deptEl.value===UG_DEPT;
+    const UG_DEPT='Production TEAM';
+    const isUg = _mobIsUgDept(deptEl.value);
     if(isUg && !document.getElementById('attTeamSel').value){ colFailMsg('attendance', t('col_att_ug_pick_team')); return; }
     const list=await attRosterEmpIds();
     // B→P 兜底: 若状态为 B 则转 P；当天已批假者无状态选择器，跳过
@@ -3119,9 +3129,9 @@
     const team=document.getElementById('oaTrTeam'); if(!sel||!row||!team) return;
     const d=(sel.value||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase();
     const ph='<option value="">—</option>';
-    if(d==='DRILLERTEAM'||d==='PRODUCTIONTEAM(UNDERGROUND)'){
+    if(d==='DRILLERTEAM'||_mobIsUgDeptNorm(d)){
       row.style.display=''; team.innerHTML=ph;
-      if(d==='PRODUCTIONTEAM(UNDERGROUND)'){
+      if(_mobIsUgDeptNorm(d)){
         api('/api/employee_groups').then(g=>{ team.innerHTML=ph+((g.groups||[]).map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')); }).catch(()=>{});
       } else {
         // 钻工队长列表走 ensureDrCaptains 不可用时的服务端备用：这里复用移动端已有队长池拉取失败则提示
@@ -3141,11 +3151,11 @@
     const payload={ new_department:newDept, new_position:document.getElementById('oaTrPosition').value.trim() };
     const d=newDept.replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase();
     const team=document.getElementById('oaTrTeam');
-    if(d==='DRILLERTEAM'){
+    if(_mobIsDrillerDeptNorm(d)){
       const cap=team?team.value:'';
       if(!cap){ oaFormMsg(false, t('col_ug_team_required')); return; }
       payload.captain=cap;
-    } else if(d==='PRODUCTIONTEAM(UNDERGROUND)'){
+    } else if(_mobIsUgDeptNorm(d)){
       const tid=team?team.value:'';
       if(!tid){ oaFormMsg(false, t('col_att_ug_pick_team')); return; }
       payload.team_id=tid;

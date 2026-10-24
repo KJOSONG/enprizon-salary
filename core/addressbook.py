@@ -6,12 +6,12 @@ import openpyxl
 from .namematch import (canonical, make_employee_id, load_address_book_index, strip_alias,
                         display_name, _find_header_row, _build_header_col_map, _norm_header)
 
-# ── 部门映射（用于批量设置薪资类型） ──────────────
+# ── 部门映射（用于批量设置薪资类型；2026-11 组织重组后新旧部门名并存） ──────────────
 DEPT_PATTERNS = {
     'piece_driller': ['钻工'],
-    'piece_underground': ['生产组井下', 'Production Team underground'],
-    'day_rate': ['后勤', '分拣破碎', '机修组', 'Logistics', 'Sort Crush', 'Mechanic Team',
-                 '后勤/生产地面', 'Ground Production'],
+    'piece_underground': ['生产组井下', 'Production Team underground', 'Production TEAM'],
+    'day_rate': ['后勤', '分拣破碎', '机修组', 'Logistics', 'Sort Crush', 'Sorting Team', 'Mechanic Team',
+                 '后勤/生产地面', 'Ground Production', 'Crushing Team'],
 }
 
 def guess_pay_type(department):

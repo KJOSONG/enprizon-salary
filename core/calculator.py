@@ -17,7 +17,10 @@ PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000}
 PRICE_CRUSH = 300  # TZS/bag
 
 # P21 R4: 井下计件目标部门（注意 DB 实际值含空格 + 全角括号，匹配一律经 _norm_dept 规范化）
+# 2026-11 组织重组：DB 值改为 'Production TEAM'，历史 dept_day_map/月台账仍携带旧名，
+# 故判定一律用 _UG_DEPT_SET 双名兼容（历史月薪资逐分不变），禁止裸字符串比较。
 PRODUCTION_UG_DEPT = 'Production TEAM （underground）'
+PRODUCTION_UG_DEPT_NEW = 'Production TEAM'
 
 # PAYE 公司代付比例（2026-09 用户决定：公司帮工人承担一半 PAYE，实发少扣 paye//2）
 PAYE_COMPANY_RATIO = 0.5
@@ -53,6 +56,10 @@ def _norm_dept(s):
     """部门名规范化：去所有空格 + 全角括号归一为半角 + 大写（防历史数据漂移，禁止裸字符串比较）"""
     import re
     return re.sub(r'\s+', '', (s or '')).replace('（', '(').replace('）', ')').upper()
+
+# 2026-11 组织重组：井下部门名双名集合（新名 Production TEAM + 历史名含 (underground)），
+# 判定一律 in 本集合，历史 dept_day_map 旧名继续命中，历史月薪资逐分不变。
+_UG_DEPT_SET = frozenset((_norm_dept(PRODUCTION_UG_DEPT), _norm_dept(PRODUCTION_UG_DEPT_NEW)))
 
 def ug_annual_leave_per_day(monthly):
     """P28 R4: 井下年假逐日折算 round(monthly/26)。
@@ -169,8 +176,8 @@ def sick_subsidy_days(eid, emp, sk_dates, att_overrides, per_date_type, present_
     return granted
 
 def is_ug_production_emp(emp):
-    """P28 R4: 井下生产工判定 = 部门匹配目标井下部门（规范化比较）"""
-    return _norm_dept(emp.get('department')) == _norm_dept(PRODUCTION_UG_DEPT)
+    """P28 R4: 井下生产工判定 = 部门命中井下双名集合（规范化比较，新旧名兼容）"""
+    return _norm_dept(emp.get('department')) in _UG_DEPT_SET
 
 # ── P35: 调岗/调薪日粒度时间线 ─────────────────────────────
 # dept_day_map 形如 {eid: {'start_dept':..,'start_team':..,'start_type':..,
@@ -224,6 +231,7 @@ def _type_at(eid, dt, ddm, perm_type):
     return _tl_type(tl, dt, perm_type)
 
 _UG_NORM = _norm_dept(PRODUCTION_UG_DEPT)
+_UG_NORM_SET = _UG_DEPT_SET
 
 def _team_roster_at(date_str, tid, base_roster, ddm):
     """P35: 逐日班组名单——调岗生效日切分。
@@ -238,12 +246,12 @@ def _team_roster_at(date_str, tid, base_roster, ddm):
         if tl is None:
             out.append(e)
             continue
-        if _tl_team(tl, date_str) == tid and _norm_dept(_tl_dept(tl, date_str)) == _UG_NORM:
+        if _tl_team(tl, date_str) == tid and _norm_dept(_tl_dept(tl, date_str)) in _UG_NORM_SET:
             out.append(e)
     for se, tl in ddm.items():
         if se in base_roster or not isinstance(se, str):
             continue
-        if _tl_team(tl, date_str) == tid and _norm_dept(_tl_dept(tl, date_str)) == _UG_NORM:
+        if _tl_team(tl, date_str) == tid and _norm_dept(_tl_dept(tl, date_str)) in _UG_NORM_SET:
             out.append(se)
     return out
 
@@ -1331,7 +1339,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         # 先于本块写入 per_date_type（见上方 787 行临时例外循环），此处不得覆盖。
                         if dt in per_date_type.get(eid, {}):
                             continue
-                        if _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) == _norm_dept(PRODUCTION_UG_DEPT):
+                        if _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) in _UG_DEPT_SET:
                             _hit = True
                             per_date_type[eid][dt] = 'monthly'
                     if _hit:
@@ -1375,7 +1383,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                 # P35: 部门条件按调岗时间线逐日解析；临时例外命中日豁免部门条件（B2）
                 if dtype != 'piece_underground':
                     ug_type_excl.add((eid, dt))
-                elif _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) != _norm_dept(PRODUCTION_UG_DEPT) \
+                elif _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) not in _UG_DEPT_SET \
                         and not _ug_exception_active(eid, dt, ug_exc_intervals):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))
@@ -1861,7 +1869,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                         # P27: 临时例外优先于模式重定向（与 calculate_all 保持一致）
                         if dt in per_date_type.get(eid, {}):
                             continue
-                        if _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) == _norm_dept(PRODUCTION_UG_DEPT):
+                        if _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) in _UG_DEPT_SET:
                             _hit = True
                             per_date_type[eid][dt] = 'monthly'
                     if _hit:
@@ -1902,7 +1910,7 @@ def compute_daily_breakdown(main_data, employees, overrides=None, exclusions=Non
                 # P35: 部门条件日粒度 + 临时例外豁免（B2）
                 if dtype != 'piece_underground':
                     ug_type_excl.add((eid, dt))
-                elif _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) != _norm_dept(PRODUCTION_UG_DEPT) \
+                elif _norm_dept(_dept_at(eid, dt, emp, dept_day_map)) not in _UG_DEPT_SET \
                         and not _ug_exception_active(eid, dt, ug_exc_intervals):
                     ug_type_excl.add((eid, dt))
                 if dtype != 'piece_driller': dr_type_excl.add((eid, dt))

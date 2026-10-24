@@ -3962,6 +3962,17 @@ async function reloadSource() {
 //  Team filter utilities (R3)
 // ════════════════════════════════════════════════
 function normDept(s) { return (s || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase(); }
+// 2026-11 组织重组：井下/破碎部门新旧名双名集合（历史月调岗时间线仍携带旧名，必须兼容）。
+// 部门判定一律走本组谓词，禁新增裸字符串比较（AGENTS.md 前端陷阱）。
+const _UG_DEPT_NORMS = ['PRODUCTIONTEAM', 'PRODUCTIONTEAM(UNDERGROUND)'];
+const _CR_DEPT_NORMS = ['CRUSHINGTEAM', 'SORTCRUSH/CRUSHPIECERATE'];
+const _DR_DEPT_NORMS = ['DRILLERTEAM'];
+const isUgDept = d => _UG_DEPT_NORMS.includes(normDept(d));       // 入参：原始部门名
+const isCrushDept = d => _CR_DEPT_NORMS.includes(normDept(d));
+const isDrillerDept = d => _DR_DEPT_NORMS.includes(normDept(d));
+const isUgDeptNorm = nd => _UG_DEPT_NORMS.includes(nd);           // 入参：已 normDept 的值
+const isCrushDeptNorm = nd => _CR_DEPT_NORMS.includes(nd);
+const isDrillerDeptNorm = nd => _DR_DEPT_NORMS.includes(nd);
 async function ensureTeamFilterData(force) {
   if (!force && STATE._teamData && (STATE._teamData.groups || []).length) return STATE._teamData;
   try {
@@ -4031,10 +4042,10 @@ async function renderEmployeeTable() {
     const teamMap = {};
     empGroups.forEach(g => { teamMap[g.id] = g.name; });
     const teamSel = document.getElementById('empFilterTeam');
-    const isUgDept = normDept(sel.value) === 'PRODUCTIONTEAM(UNDERGROUND)';
+    const selIsUg = isUgDept(sel.value);
     if (teamSel) {
-      teamSel.style.display = isUgDept ? '' : 'none';
-      if (isUgDept) {
+      teamSel.style.display = selIsUg ? '' : 'none';
+      if (selIsUg) {
         const prevTeam = teamSel.value;
         teamSel.innerHTML = '<option value="">' + t('col_ug_team') + '</option>';
         const ugTeamParts = [];
@@ -4048,12 +4059,12 @@ async function renderEmployeeTable() {
     const normQ = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
     const q = normQ(document.getElementById('empSearch').value);
     const d = sel.value;
-    const tFilter = (teamSel && isUgDept) ? teamSel.value : '';
+    const tFilter = (teamSel && selIsUg) ? teamSel.value : '';
     const filtered = emps.filter(e => {
       if (q && !normQ(e.name).includes(q) && !normQ(e.alias).includes(q)
           && !String(e.custom_number || e.id).toLowerCase().includes(q)) return false;
       if (d && e.department !== d) return false;
-      if (isUgDept) {
+      if (selIsUg) {
         if (tFilter) {
           if (String(e.team_id || '') !== tFilter) return false;
         } else {
@@ -4068,7 +4079,7 @@ async function renderEmployeeTable() {
 
     tbody.innerHTML = filtered.map(e => {
       const teamName = e.team_id && teamMap[e.team_id] ? escHtml(teamMap[e.team_id]) : '';
-      const isUg = normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)';
+      const isUg = isUgDept(e.department);
       const deptDisplay = isUg && teamName ? teamName : escHtml(e.department||'—');
       return `
       <tr style="cursor:pointer;" onclick="if(!window.getSelection().toString())navigate('employees','profile',{id:'${e.id}'})">
@@ -4132,12 +4143,12 @@ async function loadEmployeeProfilePage(eid) {
     document.getElementById('pfDept').textContent = emp.department;
     // 班组 (team) display —— 按部门：井下出渣→井下班组，钻工→钻工队长；其他部门不显示
     const deptNorm = normDept(emp.department);
-    const showTeamRow = (deptNorm === 'PRODUCTIONTEAM(UNDERGROUND)' || deptNorm === 'DRILLERTEAM');
+    const showTeamRow = (isUgDeptNorm(deptNorm) || isDrillerDeptNorm(deptNorm));
     const pfTeamRowEl = document.getElementById('pfTeamRow');
     if (pfTeamRowEl) pfTeamRowEl.style.display = showTeamRow ? '' : 'none';
     const pfTeamEl = document.getElementById('pfTeam');
     if (!showTeamRow) { if (pfTeamEl) pfTeamEl.textContent = '—'; }
-    else if (deptNorm === 'PRODUCTIONTEAM(UNDERGROUND)') {
+    else if (isUgDeptNorm(deptNorm)) {
       try {
         const gRes = await fetch(api('/api/employee_groups'));
         const gData = (await gRes.json()).groups || [];
@@ -4145,7 +4156,7 @@ async function loadEmployeeProfilePage(eid) {
         gData.forEach(g => { gMap[g.id] = g.name; });
         if (pfTeamEl) pfTeamEl.textContent = (emp.team_id && gMap[emp.team_id]) || '—';
       } catch(e) { if (pfTeamEl) pfTeamEl.textContent = '—'; }
-    } else if (deptNorm === 'DRILLERTEAM') {
+    } else if (isDrillerDeptNorm(deptNorm)) {
       try {
         const caps = await ensureDrCaptains();
         const cap = caps.find(c => String(c.employee_id) === String(emp.team_id) || String(c.id) === String(emp.team_id));
@@ -4869,9 +4880,9 @@ async function editEmployeeProfile() {
 
   // 班组选项：按部门分源（井下出渣→井下班组 employee_groups；钻工→钻工队长 driller_captains）
   const deptNormEdit = normDept(emp.department);
-  const showTeamEdit = (deptNormEdit === 'PRODUCTIONTEAM(UNDERGROUND)' || deptNormEdit === 'DRILLERTEAM');
+  const showTeamEdit = (isUgDeptNorm(deptNormEdit) || isDrillerDeptNorm(deptNormEdit));
   let teamOpts = '';
-  if (deptNormEdit === 'PRODUCTIONTEAM(UNDERGROUND)') {
+  if (isUgDeptNorm(deptNormEdit)) {
     let groups = [];
     try {
       const gRes = await fetch(api('/api/employee_groups'));
@@ -4879,7 +4890,7 @@ async function editEmployeeProfile() {
     } catch(e) {}
     teamOpts = groups.map(gr =>
       `<option value="${gr.id}" ${String(emp.team_id) === String(gr.id) ? 'selected' : ''}>${escHtml(gr.name)}</option>`).join('');
-  } else if (deptNormEdit === 'DRILLERTEAM') {
+  } else if (isDrillerDeptNorm(deptNormEdit)) {
     const caps = await ensureDrCaptains();
     teamOpts = caps.map(c =>
       `<option value="${escHtml(c.employee_id)}" ${String(emp.team_id) === String(c.employee_id) || String(emp.team_id) === String(c.id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
@@ -4973,17 +4984,17 @@ async function onPfDeptChange() {
   const nd = normDept(deptEl.value || '');
   const sameDept = deptEl.value === (emp.department || '');
   const ph = '<option value="0" data-i18n="emp_no_team">未分班</option>';
-  if (nd === 'DRILLERTEAM') {
+  if (isDrillerDeptNorm(nd)) {
     if (rowTeam) rowTeam.style.display = '';
     teamEl.innerHTML = ph;
     try {
       const caps = await ensureDrCaptains();
-      if (normDept((document.getElementById('pfEdit_department') || {}).value || '') === 'DRILLERTEAM') {
+      if (isDrillerDept(normDept((document.getElementById('pfEdit_department') || {}).value || ''))) {
         teamEl.innerHTML = ph + caps.map(c =>
           `<option value="${escHtml(c.employee_id)}" ${sameDept && (String(emp.team_id) === String(c.employee_id) || String(emp.team_id) === String(c.id)) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
       }
     } catch(e) {}
-  } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
+  } else if (isUgDeptNorm(nd)) {
     if (rowTeam) rowTeam.style.display = '';
     teamEl.innerHTML = ph;
     try {
@@ -5170,7 +5181,7 @@ async function saveEmployeeProfile(eid) {
   if (!isSA) delete data.department;
   // 班组仅井下出渣/钻工部门（按部门判定；其他部门置 0）
   const deptSave = normDept(document.getElementById('pfEdit_department').value);
-  data.team_id = (deptSave === 'PRODUCTIONTEAM(UNDERGROUND)' || deptSave === 'DRILLERTEAM')
+  data.team_id = (isUgDeptNorm(deptSave) || isDrillerDeptNorm(deptSave))
     ? (parseInt(document.getElementById('pfEdit_team_id').value) || 0) : 0;
   data.phone = phoneRaw ? '+255' + phoneRaw : '';
   // 月度隔离：仅当部门/班组确实变更时才携带生效月份（避免改其他信息产生歧义）
@@ -5892,7 +5903,7 @@ async function renderSalaryTable(result) {
   // R3: show team filter when UG dept selected
   await ensureTeamFilterData();
   const salaryTeamSel = document.getElementById('salaryFilterTeam');
-  const salaryIsUg = (deptSel && normDept(deptSel.value) === 'PRODUCTIONTEAM(UNDERGROUND)');
+  const salaryIsUg = (deptSel && isUgDept(deptSel.value));
   if (salaryTeamSel) {
     salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
     if (salaryIsUg) populateTeamFilterSelect(salaryTeamSel);
@@ -5910,7 +5921,7 @@ function filterSalaryTable() {
   const fd = document.getElementById('salaryFilterDept').value;
   // R3: team filter show/hide
   const salaryTeamSel = document.getElementById('salaryFilterTeam');
-  const salaryIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const salaryIsUg = isUgDept(fd);
   if (salaryTeamSel) {
     salaryTeamSel.style.display = salaryIsUg ? '' : 'none';
     if (salaryIsUg && salaryTeamSel.options.length <= 1) populateTeamFilterSelect(salaryTeamSel);
@@ -6144,7 +6155,7 @@ function renderDailyWages() {
   const fd = document.getElementById('dwFilterDept').value;
   // R3: team filter show/hide
   const dwTeamSel = document.getElementById('dwFilterTeam');
-  const dwIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const dwIsUg = isUgDept(fd);
   if (dwTeamSel) {
     dwTeamSel.style.display = dwIsUg ? '' : 'none';
     if (dwIsUg && dwTeamSel.options.length <= 1) populateTeamFilterSelect(dwTeamSel);
@@ -6449,7 +6460,7 @@ function renderAttendance() {
   }
   // R3: team filter show/hide
   const attTeamSel = document.getElementById('attFilterTeam');
-  const attIsUg = normDept(fd) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const attIsUg = isUgDept(fd);
   if (attTeamSel) {
     attTeamSel.style.display = attIsUg ? '' : 'none';
     if (attIsUg && attTeamSel.options.length <= 1) populateTeamFilterSelect(attTeamSel);
@@ -7346,8 +7357,8 @@ async function _transferNeedsConfirm(ev) {
   let p = {};
   try { p = JSON.parse(ev.payload || '{}'); } catch (e) { p = {}; }
   const nd = (p.new_department || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase();
-  if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') return false;  // 井下内部调动，计件自动保持
-  if (nd === 'SORTCRUSH/CRUSHPIECERATE') return false;     // P41: 转入破碎自动映射破碎计件，无需弹窗
+  if (isUgDeptNorm(nd)) return false;  // 井下内部调动（新旧名兼容），计件自动保持
+  if (isCrushDeptNorm(nd)) return false; // P41: 转入破碎自动映射破碎计件，无需弹窗
   if (p.new_type) return false;                            // 已带显式类型
   let oldType = p.old_type || '';
   if (!oldType) {
@@ -7367,7 +7378,7 @@ function _pickTransferType(ev) {
     let p0 = {};
     try { p0 = JSON.parse(ev.payload || '{}'); } catch (e) { p0 = {}; }
     const nd0 = (p0.new_department || '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')').toUpperCase();
-    const isPieceTarget = ['PRODUCTIONTEAM(UNDERGROUND)', 'DRILLERTEAM', 'SORTCRUSH/CRUSHPIECERATE'].includes(nd0);
+    const isPieceTarget = isUgDeptNorm(nd0) || isDrillerDeptNorm(nd0) || isCrushDeptNorm(nd0);
     const labels = _SALARY_TYPE_LABELS();
     const entries = isPieceTarget ? Object.entries(labels) : Object.entries(labels).filter(([v]) => v === 'day_rate' || v === 'monthly');
     const opts = entries.map(([v, l]) => `<option value="${v}">${escHtml(l)}</option>`).join('');
@@ -8363,11 +8374,11 @@ async function submitApply(type) {
       new_position: document.getElementById('transferPosition').value.trim(),
     };
     const teamSel = document.getElementById('transferTeam');
-    if (nd === 'DRILLERTEAM') {
+    if (isDrillerDeptNorm(nd)) {
       const capVal = teamSel ? teamSel.value : '';
       if (!capVal) { setApplyMsg(msgId, t('col_ug_team_required'), false); return; }
       payload.captain = capVal;
-    } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
+    } else if (isUgDeptNorm(nd)) {
       const tidVal = teamSel ? teamSel.value : '';
       if (!tidVal) { setApplyMsg(msgId, t('col_att_ug_pick_team'), false); return; }
       payload.team_id = tidVal;
@@ -8465,13 +8476,13 @@ async function onTransferDeptChange() {
   const nd = normDept(d);
   const ph = '<option value="" data-i18n="sel_placeholder">请选择</option>';
   sel.innerHTML = ph;
-  if (nd === 'DRILLERTEAM') {
+  if (isDrillerDeptNorm(nd)) {
     try {
       const caps = await ensureDrCaptains();
       sel.innerHTML = ph + caps.map(c => `<option value="${escHtml(c.employee_id)}">${escHtml(c.name || c.employee_id)}</option>`).join('');
     } catch(e) {}
     row.style.display = '';
-  } else if (nd === 'PRODUCTIONTEAM(UNDERGROUND)') {
+  } else if (isUgDeptNorm(nd)) {
     try {
       const res = await fetch(api('/api/employee_groups'));
       const data = await res.json();
@@ -8563,10 +8574,10 @@ async function getEmpPool(date) {
 function filterEmpByDept(pool, kw) {
   return pool.filter(e => {
     const d = (e.department || '').toUpperCase();
-    if (kw === 'underground') return d.includes('UNDERGROUND');
-    if (kw === 'driller') return d.includes('DRILLER');
-    if (kw === 'crush') return d.includes('CRUSH PIECE RATE');
-    if (kw === 'other') return !d.includes('UNDERGROUND') && !d.includes('DRILLER') && !d.includes('CRUSH PIECE RATE');
+    if (kw === 'underground') return isUgDept(d);
+    if (kw === 'driller') return isDrillerDept(d);
+    if (kw === 'crush') return isCrushDept(d);
+    if (kw === 'other') return !isUgDept(d) && !isDrillerDept(d) && !isCrushDept(d);
     return true;
   });
 }
@@ -8589,7 +8600,7 @@ async function loadColHistory(formType, containerId) {
     await _ensureUgGroups();
     const f = _colHisFilter[containerId];
     const depts = [...new Set(subs.map(colSubDept).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    const isUgSel = !!f.dept && normDept(f.dept) === 'PRODUCTIONTEAM(UNDERGROUND)';
+    const isUgSel = !!f.dept && isUgDept(f.dept);
     // 应用部门 / （井下）班组 前端筛选（日期已在服务端过滤）
     let filtered = subs;
     if (f.dept) filtered = filtered.filter(s => colSubDept(s) === f.dept);
@@ -8694,7 +8705,7 @@ function _ugTeamName(id) {
 
 /* 概览行：井下部门后追加「· 班组名」，非井下返回空串 */
 function colRowTeam(dpt, s) {
-  if (!dpt || normDept(dpt) !== 'PRODUCTIONTEAM(UNDERGROUND)') return '';
+  if (!dpt || !isUgDept(dpt)) return '';
   const tid = String(colSubTeam(s)).trim();
   if (!tid || tid === '0') return '';
   const nm = _ugTeamName(tid) || tid;
@@ -9661,21 +9672,21 @@ async function renderAttCollectionForm(payload) {
   const pool = await getEmpPool(date);  // P40-d: 出勤采集按表单日期归属取池
   await _ensureUgGroups();
   const rosterOther = filterEmpByDept(pool, 'other');
-  const ugDeptExact = 'Production TEAM （underground）';
-  const ugPool = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)');
+  const ugDeptExact = 'Production TEAM';  // 2026-11 组织重组：新提交按新名落库（历史行旧名兼容展示）
+  const ugPool = pool.filter(e => isUgDept(e.department));
   // 编辑模式：原 marks 员工并入名单池（对齐移动端 P1 修复）——部门变更/不在 other 池的原员工也能显示与改状态
   if (payload.marks && payload.marks.length) {
     const ids = new Set(payload.marks.map(m => String(m.employee_id)).filter(Boolean));
     const have = ids.has.bind(ids);
     pool.forEach(e => {
       if (!have(String(e.id))) return;
-      const target = normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)' ? ugPool : rosterOther;
+      const target = isUgDept(e.department) ? ugPool : rosterOther;
       if (!target.some(p => String(p.id) === String(e.id))) target.push(e);
     });
   }
   const deptsOther = [...new Set(rosterOther.map(e => e.department).filter(Boolean))].sort();
   const depts = deptsOther.slice();
-  if (ugPool.length && !depts.some(d => normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)')) depts.push(ugDeptExact);
+  if (ugPool.length && !depts.some(d => isUgDept(d))) depts.push(ugDeptExact);
   depts.sort();
   const selDept = payload.department || '';
   const selTeamId = payload.team_id != null ? String(payload.team_id) : '';
@@ -9714,7 +9725,7 @@ async function renderAttCollectionForm(payload) {
         ${depts.map(d => `<option value="${escHtml(d)}" ${selDept === d ? 'selected' : ''}>${escHtml(d)}</option>`).join('')}
       </select>
     </div>
-    <div id="attUgTeamWrap" style="margin-top:8px;${normDept(selDept) === 'PRODUCTIONTEAM(UNDERGROUND)' ? '' : 'display:none;'}">
+    <div id="attUgTeamWrap" style="margin-top:8px;${isUgDept(selDept) ? '' : 'display:none;'}">
       <div class="form-row"><label style="min-width:70px;">${t('col_att_ug_team')}</label><select id="attUgTeamSel" onchange="filterAttRoster()" style="${colInStyle(true)}"><option value="">${t('col_ug_team_placeholder')}</option>${teamOpts}</select></div>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--text-muted);">请为每位员工手动选择出勤状态（可用「全部P / 全部A」批量设置）</div>
@@ -9737,7 +9748,7 @@ function filterAttRoster() {
   const box = document.getElementById('attRoster');
   const wrap = document.getElementById('attUgTeamWrap');
   const hint = document.getElementById('attUgPickHint');
-  const isUg = normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const isUg = isUgDept(d);
   if (wrap) wrap.style.display = isUg ? '' : 'none';
   if (hint) hint.textContent = t('col_att_ug_pick_team');
   if (!box) return;
@@ -9808,7 +9819,7 @@ function filterAttRoster() {
 
 function resetAttStatus() {
   const d = (document.getElementById('attDeptSel')||{}).value || '';
-  const isUg = normDept(d) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const isUg = isUgDept(d);
   const teamVal = isUg ? ((document.getElementById('attUgTeamSel')||{}).value || '') : '';
   document.querySelectorAll('#attRoster .att-row').forEach(row => {
     if (row.style.display === 'none') return;
@@ -9825,7 +9836,7 @@ async function submitAttCollection() {
   const deptEl = document.getElementById('attDeptSel');
   if (!deptEl || !deptEl.value) { showToast(t('col_att_need_dept'), 'error'); return; }
   const dept = deptEl.value;
-  const isUg = normDept(dept) === 'PRODUCTIONTEAM(UNDERGROUND)';
+  const isUg = isUgDept(dept);
   let teamId = null;
   if (isUg) {
     const tsel = document.getElementById('attUgTeamSel');
@@ -9835,7 +9846,7 @@ async function submitAttCollection() {
   const pool = await getEmpPool(date);  // P40-d: 提交收集按表单日期归属取池
   let roster;
   if (isUg) {
-    roster = pool.filter(e => normDept(e.department) === 'PRODUCTIONTEAM(UNDERGROUND)' && String(e.team_id||'') === String(teamId));
+    roster = pool.filter(e => isUgDept(e.department) && String(e.team_id||'') === String(teamId));
   } else {
     roster = filterEmpByDept(pool, 'other').filter(e => e.department === dept);
   }

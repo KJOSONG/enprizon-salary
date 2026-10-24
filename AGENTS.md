@@ -636,7 +636,7 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 - **数据/核对**：`monthly_data` 增 `ug_base`/`ug_coefficient` 列；`verify_salary` V2 分支 + `coefficient_conservation`（≤10 舍入）字段，逐日对比在 V2 下松弛。
 
-- **⚠️ 前端陷阱**：DB 部门名是**全角括号** `Production TEAM （underground）`；前端比较一律用 `normDept()`（index.html 内，规范化空格/全角括号/大写）再比 `'PRODUCTIONTEAM(UNDERGROUND)'`，**禁用裸字符串比较**。
+- **⚠️ 前端陷阱（2026-11 组织重组更新）**：井下部门 DB 值为 `Production TEAM`（新名，组织重组后），历史数据/调岗时间线仍携带旧名 `Production TEAM （underground）`（全角括号）。前端比较一律走 `normDept()` 规范化 + 双名集合谓词：index.html 用 `isUgDept()/isDrillerDept()/isCrushDept()`（及 `*DeptNorm` 变体），mobile.html 用 `_mobIsUgDept()` 等；破碎双名 = `Crushing Team`/`Sort Crush/Crush Piece Rate`，钻工 = `Driller Team`。**禁用裸字符串比较与关键词 includes 判池**（新名不再含 UNDERGROUND/CRUSH PIECE RATE 关键词）。
 
 - **测试**：38 个 pytest（凸性池/月末守恒/门控/豁免）曾在 `_work/piecework-v2/`，部署后已按 TTL 清理；纯逻辑改动可重建同款用例。
 

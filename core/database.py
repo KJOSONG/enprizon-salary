@@ -1883,10 +1883,11 @@ def apply_approved_event(data_folder, event):
                 return (s or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
             _nd = _norm(new_dept)
             is_driller = _nd == 'DRILLERTEAM'
-            is_ug = _nd == 'PRODUCTIONTEAM(UNDERGROUND)'
-            # P41 需求2: 调入破碎部门（生产库准确名 Sort Crush/Crush Piece Rate）自动切计件；
-            # 注意 'Sort Crush'（无 /Crush Piece Rate 后缀）不匹配，维持原类型
-            is_crush = _nd == 'SORTCRUSH/CRUSHPIECERATE'
+            # 2026-11 组织重组：井下新旧部门名都识别（新名 'Production TEAM'，旧名含 (underground)）
+            is_ug = _nd in ('PRODUCTIONTEAM', 'PRODUCTIONTEAM(UNDERGROUND)')
+            # P41 需求2: 调入破碎部门（2026-11 新名 Crushing Team，旧名 Sort Crush/Crush Piece Rate）
+            # 自动切计件；注意 'Sort Crush'/'Sorting Team'（分拣）不匹配，维持原类型
+            is_crush = _nd in ('CRUSHINGTEAM', 'SORTCRUSH/CRUSHPIECERATE')
             # 自动目标薪资类型：调入钻工/井下/破碎自动切计件，其余部门保持原薪资
             new_type = ('piece_driller' if is_driller else
                         ('piece_underground' if is_ug else ('piece_crush' if is_crush else '')))
@@ -3536,7 +3537,8 @@ def update_employee_fields(data_folder, employee_id, fields):
         conn.close()
         if _row:
             _dept = (_row['department'] or '').replace(' ', '').replace('（', '(').replace('）', ')').upper()
-            if _dept not in ('PRODUCTIONTEAM(UNDERGROUND)', 'DRILLERTEAM'):
+            # 2026-11 组织重组：井下新旧部门名都允许班组（新名 'Production TEAM'）
+            if _dept not in ('PRODUCTIONTEAM', 'PRODUCTIONTEAM(UNDERGROUND)', 'DRILLERTEAM'):
                 fields['team_id'] = 0
     updates = {k: v for k, v in fields.items() if k in allowed}
     # 归一化 NSSF/TIN 号码：去除连字符与空白（统一格式）
