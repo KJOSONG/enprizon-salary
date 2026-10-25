@@ -286,3 +286,30 @@ const isDrDept = d => _DR_DEPTS.includes(normDept(d));
 5. **基线校正**：29/47/50/177 四人 2026-11 基线按现部门补齐（audit: `org_restructure_baseline_fix`；不影响 11 月前任何月份）。
 6. **班组映射核验**：2026-11 UG 班组映射 {LAMBA:8, SAKA:9, MIZOZO:7} + 2 名已离职成员（既有行为，见 §七），现役 24 人全部在册无遗漏。
 7. **验收工具**：`scripts/verify_salary_identity.py`（对任意 DB 跑指定月管线输出逐人 JSON，可复用于今后调岗/迁移的前后对比）。
+
+---
+
+## 九、M&L 部门级主管叶子（2026-10-26 增量，用户确认）
+
+组织图更新：Materials & Logistics Department 与 Mining Department 同构，增设**部门级主管叶子**
+`Materials & Logistics Department`（下拉显示「主管」），两名主管按采矿部三主管模式管理
+Sorting/Crushing 两队（team_id=0，出勤归「其他部门」池）：
+
+| id | 姓名 | 原部门 | 新部门 | position | 类型 |
+|---|---|---|---|---|---|
+| 84 | GASPER IBRAHIMU | Sorting Team | `Materials & Logistics Department` | supervisor-sorting（已有） | day_rate（月基数 500000 override，不动） |
+| 90 | MALIKI HARUNI | Sorting Team | `Materials & Logistics Department` | 补记 supervisor-crush | day_rate（12000 override，不动） |
+
+**背景**：EKON LEONARD(82) 已由生产端 OA 事件 535 批准转 `Production TEAM`（member，team 4，
+2026-10-26 生效），破碎主管席位空出；MALIKI 10-25 的调岗申请（事件 541）误选
+`Site Operations & Services Department` 被拒，本次按组织图直接归位。
+
+**实施**（2026-10-26）：
+1. 代码先行：`scripts/migrate_ml_supervisors.py`（幂等）入库；DEPT_TREE（index/mobile 各一份）
+   M&L 组增加主管叶子；`tests/test_org_restructure.py` 补 M&L 叶子调岗用例（非计件目标、
+   不自动切类型、team_id 归 0）。
+2. 数据：生产库执行迁移（2 条变更 + 逐人 audit_log `org_restructure`）；迁移后分布
+   Sorting 23 / Crushing 14 / M&L 叶子 2（Production TEAM 32 等为 10-25 晚批量调岗后现状，
+   与 §1.2 的差异属生产端自然演进，非本次引入）。
+3. 验收：迁移前后备份库 vs 生产库跑 2026-10 管线逐人对比（两名主管均在「其他部门」池内、
+   类型零改动）——0 差异；前端两级下拉 M&L 组显示「Sorting Team / Crushing Team / 主管」。

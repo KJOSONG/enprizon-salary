@@ -3,6 +3,7 @@
 背景（docs/ORG_RESTRUCTURE_2026_PLAN.md）：
 - DB 值改为 'Production TEAM'（去 "(underground)"）、'Sorting Team'（原 Sort Crush）、
   'Crushing Team'（原 Sort Crush/Crush Piece Rate），新增叶子 'Mining Department'（主管）
+- 2026-10-26：增设 'Materials & Logistics Department' 主管叶子（GASPER/MALIKI，见 §九）
 - 历史 dept_day_map / 月台账 / 旧事件 payload 仍携带旧名 → 全链路必须双名兼容
 - 调入计件部门的自动类型映射必须同时认得新旧名；'Sorting Team' 不得误判为破碎计件
 """
@@ -119,6 +120,18 @@ def test_transfer_mining_department_no_auto_piece(tmp_path):
     apply_approved_event(data_folder, _transfer_event('Mining Department'))
     emp = _emp_row(data_folder)
     assert emp['department'] == 'Mining Department'
+    assert emp['default_type'] == 'day_rate'
+    assert _override_types(data_folder) == []
+    assert int(emp['team_id']) == 0
+
+
+def test_transfer_ml_department_no_auto_piece(tmp_path):
+    """调入 'Materials & Logistics Department'（M&L 主管叶子，非计件目标）→ 不自动切计件"""
+    data_folder = _seed_db(tmp_path)
+    from core.database import apply_approved_event
+    apply_approved_event(data_folder, _transfer_event('Materials & Logistics Department'))
+    emp = _emp_row(data_folder)
+    assert emp['department'] == 'Materials & Logistics Department'
     assert emp['default_type'] == 'day_rate'
     assert _override_types(data_folder) == []
     assert int(emp['team_id']) == 0
