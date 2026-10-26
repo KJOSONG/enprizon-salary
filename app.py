@@ -2431,9 +2431,10 @@ def _record_direct_base_change(data, employee_id, old_row, note):
                        new=new, operator_id=session.get('username', 'unknown'), note=note)
 
 @app.route('/api/employees/<employee_id>/salary-type', methods=['POST'])
-@editor_required
+@super_admin_required
 def api_employee_salary_type(employee_id):
-    """P7: 修改员工薪资类别+基数 — 同步 employees 主档 + 写 salary_change 事件"""
+    """P7: 修改员工薪资类别+基数 — 同步 employees 主档 + 写 salary_change 事件
+    2026-10-26: 调薪开关超管化——直改仅 super_admin（其他管理员走 OA 调薪申请）"""
     from core.database import update_employee_salary_type, create_event, log_audit, record_base_change
     from datetime import datetime
     data = request.get_json() or {}
@@ -2891,6 +2892,82 @@ def oa_create_event():
             if abs((ot_date - today).days) > 2:
                 _lang = (data.get('lang') or 'zh')
                 return jsonify({'ok': False, 'error': _ot_window_err_msg(_lang)}), 400
+    # ── 2026-10-26: OA 调薪申请（salary_change）校验链 ──
+    # 生效日期硬约束：不得早于当前月 1 号（EAT）——历史月由 employee_base_history 月度基线
+    # 保护，任何早于当月的生效日都会回溯改写已发薪资，一律 400。
+    if data.get('event_type') == 'salary_change':
+        from core.database import get_conn as _sc_conn
+        _seid = str(data.get('employee_id') or '')
+        _pl_s = data.get('payload') or {}
+        _st = _pl_s.get('salary_type', '')
+        if _st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+            return jsonify({'ok': False, 'error': '无效的薪资类别',
+                            'error_key': 'sal_bad_type'}), 400
+        def _to_int_s(v):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+        _day_s = _to_int_s(_pl_s.get('day_rate', 0)) or 0
+        _mon_s = _to_int_s(_pl_s.get('monthly_salary', 0)) or 0
+        if _st == 'day_rate' and _day_s <= 0:
+            return jsonify({'ok': False, 'error': '日薪基数必须大于 0',
+                            'error_key': 'sal_base_required'}), 400
+        if _st == 'monthly' and _mon_s <= 0:
+            return jsonify({'ok': False, 'error': '月薪基数必须大于 0',
+                            'error_key': 'sal_base_required'}), 400
+        _eff_s = str(_pl_s.get('effective_date') or data.get('effective_date') or '')[:10]
+        try:
+            datetime.strptime(_eff_s, '%Y-%m-%d')
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': '生效日期无效',
+                            'error_key': 'sal_bad_eff_date'}), 400
+        if _eff_s < datetime.now(EAT).strftime('%Y-%m-01'):
+            return jsonify({'ok': False,
+                            'error': '调薪生效日期不能早于当前月（不可追溯影响已发薪资）',
+                            'error_key': 'sal_eff_past'}), 400
+        _sc = _sc_conn(app.config['DATA_FOLDER'])
+        try:
+            _srow = _sc.execute("SELECT name, status FROM employees WHERE id=?",
+                                (_seid,)).fetchone()
+            if not _srow:
+                return jsonify({'ok': False, 'error': '员工不存在'}), 400
+            if (_srow['status'] or '') != 'active':
+                return jsonify({'ok': False, 'error': f'员工 {_srow["name"]} 非在职，不能发起调薪',
+                                'error_key': 'sal_emp_inactive',
+                                'error_params': {'name': _srow['name'] or _seid}}), 400
+            _dup_s = _sc.execute(
+                "SELECT id, operator_id, effective_date FROM employee_events"
+                " WHERE employee_id=? AND event_type='salary_change' AND status='pending'"
+                " ORDER BY id DESC LIMIT 1", (_seid,)).fetchone()
+            if _dup_s:
+                return jsonify({'ok': False,
+                                'error': f'该员工已有待审的调薪申请（提交人 {_dup_s["operator_id"]}，生效日 {_dup_s["effective_date"]}）',
+                                'error_key': 'sal_dup_pending',
+                                'error_params': {'operator': _dup_s['operator_id'] or '',
+                                                 'date': _dup_s['effective_date'] or ''}}), 400
+        finally:
+            _sc.close()
+        # 与当前有效基线完全相同 → 拒绝（无意义变更）
+        from core.database import resolve_effective_base as _reb
+        _sc2 = _sc_conn(app.config['DATA_FOLDER'])
+        try:
+            _cur = _reb(_sc2, _seid)
+        finally:
+            _sc2.close()
+        _cur_type = _cur.get('default_type') or ''
+        _cur_day = int(_cur.get('day_rate') or 0)
+        _cur_mon = int(_cur.get('monthly_salary') or 0)
+        if _st == _cur_type and ((_st == 'day_rate' and _day_s == _cur_day)
+                                  or (_st == 'monthly' and _mon_s == _cur_mon)
+                                  or (_st not in ('day_rate', 'monthly'))):
+            return jsonify({'ok': False, 'error': '新薪资与当前有效基线相同，无需调薪',
+                            'error_key': 'sal_same_value'}), 400
+        # 服务端固化旧值快照（时间线 前 → 后），不信任前端传入
+        _pl_s['old_type'] = _cur_type
+        _pl_s['old_salary'] = _cur_day if _cur_type == 'day_rate' else (
+            _cur_mon if _cur_type == 'monthly' else 0)
+        data['payload'] = _pl_s
     # P13: 按事件类型取指定审批人写入（未设定为 ''）
     from core.database import get_approver_for_event
     data['approver'] = get_approver_for_event(app.config['DATA_FOLDER'], data.get('event_type', ''))
@@ -3498,7 +3575,7 @@ def oa_edit_event(event_id):
 
 # ── P13: 审批人路由（super_admin 后台指定） ─────────────
 
-ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave', 'overtime', 'sick')  # P28 R5: 增病假
+ALLOWED_APPROVAL_EVENT_TYPES = ('hire', 'transfer', 'dismiss', 'leave', 'overtime', 'sick', 'salary_change')  # P28 R5: 增病假; 2026-10-26: 增调薪
 
 # ── P21 M7/R5: 年假资格错误双语（后端无 i18n 模块，硬编码两套文案） ──
 _LEAVE_ERR_MSG = {

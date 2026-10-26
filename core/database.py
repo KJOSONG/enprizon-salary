@@ -2019,6 +2019,71 @@ def apply_approved_event(data_folder, event):
                 _p2['team_id'] = team_id_val
             conn.execute("UPDATE employee_events SET payload=? WHERE id=?",
                          (json.dumps(_p2, ensure_ascii=False), event['id']))
+        elif etype == 'salary_change':
+            # 2026-10-26: OA 调薪批准落库——主档更新 + 月度基线台账 + 清遗留永久覆盖
+            # 生效日期语义（防历史回溯；提交端已校验 ≥ 当月 1 号，此处双保险）：
+            # - 基线台账 from_month：eff 为 1 号 → 生效月整月新值；月中 → 次月起落新值，
+            #   生效月内由事件推导 override（start=eff，日粒度）接管 eff 起的天数，
+            #   eff 前的天数命中旧基线条目 → 生效月之前的任何月份零影响。
+            _st_s = payload.get('salary_type', '')
+            if _st_s not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
+                raise RuntimeError('调薪申请缺少有效薪资类别')
+            if not eff:
+                raise RuntimeError('调薪申请缺少生效日期')
+            _day_s = int(float(payload.get('day_rate') or 0))
+            _mon_s = int(float(payload.get('monthly_salary') or 0))
+            if _st_s == 'day_rate' and _day_s <= 0:
+                raise RuntimeError('调薪日薪基数必须大于 0')
+            if _st_s == 'monthly' and _mon_s <= 0:
+                raise RuntimeError('调薪月薪基数必须大于 0')
+            try:
+                from datetime import datetime as _dts, timedelta as _tds
+                _eff_dt = _dts.strptime(eff, '%Y-%m-%d')
+            except Exception:
+                raise RuntimeError('调薪生效日期格式无效')
+            _cur_m = _dts.now().strftime('%Y-%m')  # 服务器 TZ=Africa/Dar_es_Salaam(EAT)
+            if eff[:7] < _cur_m:
+                raise RuntimeError('调薪生效日期不能早于当前月')
+            old = resolve_effective_base(conn, eid)
+            if not old:
+                raise RuntimeError('调薪员工不存在')
+            # 首条旧基线（镜像 transfer 分支：无任何台账时补 hire 月旧基线）
+            _hist_c = conn.execute(
+                "SELECT COUNT(*) AS c FROM employee_base_history WHERE employee_id=?", (eid,)).fetchone()['c']
+            if int(_hist_c) == 0:
+                _hire = conn.execute(
+                    "SELECT effective_date FROM employee_events WHERE employee_id=? AND event_type='hire' AND status='approved' LIMIT 1",
+                    (eid,)).fetchone()
+                _base_from = (_hire['effective_date'] or '')[:7] if _hire else ''
+                if not _base_from:
+                    _min_m = conn.execute("SELECT MIN(month) AS m FROM monthly_data").fetchone()['m']
+                    _base_from = str(_min_m)[:7] if _min_m else '0000-00'
+                conn.execute(
+                    "INSERT INTO employee_base_history (employee_id,from_month,department,default_type,day_rate,monthly_salary,team_id,note,operator_id)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (eid, _base_from, old.get('department') or '', old.get('default_type') or '',
+                     old.get('day_rate') or 0, old.get('monthly_salary') or 0,
+                     int(old.get('team_id') or 0), '基线', 'system'))
+            # 新基线条目 from_month：eff=1 号 → 生效月；月中 → 次月（生效月由事件 override 日粒度接管）
+            if _eff_dt.day == 1:
+                _sal_from = eff[:7]
+            else:
+                _nm_dt = _eff_dt.replace(day=1) + _tds(days=32)
+                _sal_from = _nm_dt.strftime('%Y-%m')
+            _new_day = _day_s if _st_s == 'day_rate' else 0
+            _new_mon = _mon_s if _st_s == 'monthly' else 0
+            conn.execute(
+                "INSERT INTO employee_base_history (employee_id,from_month,department,default_type,day_rate,monthly_salary,team_id,note,operator_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (eid, _sal_from, old.get('department') or '', _st_s, _new_day, _new_mon,
+                 int(old.get('team_id') or 0), f'OA调薪 #{event.get("id")}', 'system'))
+            # 主档更新 + 清遗留永久覆盖（P26 HALIMA 先例：避免 override_type 优先掩盖新主档）
+            conn.execute(
+                "UPDATE employees SET default_type=?, day_rate=?, monthly_salary=? WHERE id=?",
+                (_st_s, _new_day, _new_mon, eid))
+            conn.execute(
+                "DELETE FROM overrides WHERE employee_id=? AND IFNULL(start_date,'')='' AND IFNULL(end_date,'')=''",
+                (eid,))
         elif etype in ('dismiss', 'resign'):
             note = payload.get('reason', '')
             if eff:
