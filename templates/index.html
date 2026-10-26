@@ -7469,14 +7469,14 @@ function _pickTransferType(ev) {
     const overlay = document.createElement('div');
     overlay.id = 'ttConfirmOverlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    overlay.innerHTML = `<div style="background:var(--bg-primary,#fff);border-radius:12px;padding:20px;width:min(92vw,420px);box-shadow:0 10px 40px rgba(0,0,0,.25);">
-      <h3 style="margin:0 0 6px;font-size:16px;">${escHtml(t('oa_transfer'))} · ${escHtml(ev.employee_name || ev.employee_id || '')}</h3>
+    overlay.innerHTML = `<div style="background:var(--card);color:var(--foreground);border:1px solid var(--border);border-radius:12px;padding:20px;width:min(92vw,420px);box-shadow:var(--shadow-lg,0 10px 40px rgba(0,0,0,.25));">
+      <h3 style="margin:0 0 6px;font-size:16px;color:var(--foreground);">${escHtml(t('oa_transfer'))} · ${escHtml(ev.employee_name || ev.employee_id || '')}</h3>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">${escHtml(t('transfer_type_confirm_hint'))}</div>
-      <select id="ttTypeSel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">${opts}</select>
-      <div id="ttBaseRow" style="display:none;margin-top:8px;"><input id="ttBase" type="number" min="0" step="100" placeholder="${escHtml(t('transfer_base_placeholder'))}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);"></div>
+      <select id="ttTypeSel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--foreground);">${opts}</select>
+      <div id="ttBaseRow" style="display:none;margin-top:8px;"><input id="ttBase" type="number" min="0" step="100" placeholder="${escHtml(t('transfer_base_placeholder'))}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--foreground);"></div>
       <div style="display:flex;gap:8px;margin-top:14px;">
-        <button id="ttCancel" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">${escHtml(t('btn_cancel'))}</button>
-        <button id="ttOk" style="flex:1;padding:8px;border:none;border-radius:8px;background:var(--primary,#2563eb);color:#fff;">${escHtml(t('approve'))}</button>
+        <button id="ttCancel" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--foreground);">${escHtml(t('btn_cancel'))}</button>
+        <button id="ttOk" style="flex:1;padding:8px;border:none;border-radius:8px;background:var(--primary,#2563eb);color:var(--primary-foreground,#fff);">${escHtml(t('approve'))}</button>
       </div></div>`;
     document.body.appendChild(overlay);
     const typeSel = overlay.querySelector('#ttTypeSel');
