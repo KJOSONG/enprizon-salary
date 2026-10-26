@@ -8377,11 +8377,16 @@ function _salOnEmpPicked(eid) {
   const row = document.getElementById('salCurRow');
   const box = document.getElementById('salCurBase');
   if (!row || !box) return;
-  const emp = (STATE.employees || []).find(e => String(e.id) === String(eid));
+  // STATE.employees 直达 OA 时可能为空，回退 typeahead 员工池（同源 /api/employees）
+  const pool = (STATE.employees && STATE.employees.length) ? STATE.employees : (_empPool || []);
+  const emp = pool.find(e => String(e.id) === String(eid));
   if (!emp) { row.style.display = 'none'; return; }
   const ty = emp.override_type || emp.default_type || '';
   const base = ty === 'day_rate' ? (emp.day_rate || 0) : ty === 'monthly' ? (emp.monthly_salary || 0) : 0;
-  const lbl = TYPE_LBL[ty] || ty || '—';
+  // TYPE_LBL 是各渲染函数的局部变量，此处内联映射（勿引用全局不存在的标识符）
+  const lblMap = { piece_underground: t('type_ug_piece'), piece_driller: t('type_dr_piece'),
+                   piece_crush: t('type_crush_piece'), day_rate: t('type_dayrate'), monthly: t('type_monthly') };
+  const lbl = lblMap[ty] || ty || '—';
   box.textContent = base > 0 ? (lbl + ' · ' + fmtNum(base) + ' TZS' + (ty === 'day_rate' ? t('salary_per_day') : t('salary_per_month'))) : lbl;
   row.style.display = '';
 }
