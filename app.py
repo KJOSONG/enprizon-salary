@@ -8484,11 +8484,30 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             _p_dl = _dprice.get('NICKEL（L）', 4000) or 4000
             _p_dm = _dprice.get('MAWE', 3000) or 3000
 
-            ws7 = wb.create_sheet('Driller Team Details')
+            # ── 2026-10-27: 每支队伍独立 sheet + 概览页（Driller Summary）──
             section_font = Font(bold=True, size=12, color='185FA5')
             subtotal_fill = PatternFill('solid', fgColor='E8F4FD')
 
-            r = 1
+            def _sheet_name_safe(base, used):
+                """sheet 名 ≤31 字符、去 Excel 非法字符、重名加序号"""
+                import re as _re
+                name = _re.sub(r'[\[\]:\*\?/\\]', ' ', base).strip() or 'Sheet'
+                name = name[:31]
+                if name in used:
+                    i = 2
+                    while (name[:27] + f' ({i})') in used:
+                        i += 1
+                    name = name[:27] + f' ({i})'
+                used.add(name)
+                return name
+
+            used_names = set(wb.sheetnames)
+            ws_sum = wb.create_sheet('Driller Summary', index=len(wb.sheetnames))
+            used_names.add('Driller Summary')
+            sum_headers = ['Team', 'Days', 'NICKEL(H)', 'NICKEL(L)', 'MAWE', 'Amount(TZS)']
+            for ci, h in enumerate(sum_headers, 1):
+                c = ws_sum.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
+            ri = 2
             grand_nh = grand_nl = grand_mw = grand_amt = 0
 
             for gkey in ordered_keys:
@@ -8497,22 +8516,25 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                 disp_name = group_display.get(gkey, cap_name)
                 records.sort(key=lambda d: d['date'])
 
-                # ── 队伍标题行（slot>0 标注 队伍 N，与数据台 P54 角标一致）──
-                ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-                section_title = f'Captain: {disp_name}' + (f' (Team {slot_no})' if slot_no > 0 else '')
-                c = ws7.cell(r, 1, section_title + f' ({len(records)} days)')
-                c.font = section_font
-                r += 1
+                # ── 概览行 ──
+                team_label = disp_name + (f' (Team {slot_no})' if slot_no > 0 else '')
+                ws_sum.cell(ri, 1, team_label).border = tb
+                ws_sum.cell(ri, 2, len(records)).border = tb
+                ws_sum.cell(ri, 2).alignment = Alignment(horizontal='center')
 
-                # ── 表头 ──
+                # ── 队伍独立 sheet ──
+                wsT = wb.create_sheet(_sheet_name_safe(team_label, used_names))
+                wsT.merge_cells(start_row=1, start_column=1, end_row=1, end_column=7)
+                c = wsT.cell(1, 1, f'Captain: {disp_name}' + (f' (Team {slot_no})' if slot_no > 0 else '')
+                             + f' ({len(records)} days)')
+                c.font = section_font
                 sub_headers = ['Date', 'NH', 'NL', 'MW', 'Amount(TZS)', 'Headcount', 'Personnel']
                 for ci, h in enumerate(sub_headers, 1):
-                    c = ws7.cell(r, ci, h)
+                    c = wsT.cell(2, ci, h)
                     c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
-                r += 1
 
-                # ── 数据行 ──
                 cap_nh = cap_nl = cap_mw = cap_amt = 0
+                r = 3
                 for rec in records:
                     nh = rec.get('nh', 0) or 0
                     nl = rec.get('nl', 0) or 0
@@ -8525,45 +8547,52 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                     member_list = [_cap_disp] + (rec.get('members', []) or [])
                     cap_nh += nh; cap_nl += nl; cap_mw += mw; cap_amt += amt
 
-                    ws7.cell(r, 1, parse_dt(rec['date'])).border = tb
-                    ws7.cell(r, 2, nh).border = tb
-                    ws7.cell(r, 3, nl).border = tb
-                    ws7.cell(r, 4, mw).border = tb
-                    c = ws7.cell(r, 5, amt); c.border = tb; c.number_format = '#,##0'
-                    ws7.cell(r, 6, len(member_list)).border = tb
-                    ws7.cell(r, 7, ', '.join(member_list)).border = tb
+                    wsT.cell(r, 1, parse_dt(rec['date'])).border = tb
+                    wsT.cell(r, 2, nh).border = tb
+                    wsT.cell(r, 3, nl).border = tb
+                    wsT.cell(r, 4, mw).border = tb
+                    c = wsT.cell(r, 5, amt); c.border = tb; c.number_format = '#,##0'
+                    wsT.cell(r, 6, len(member_list)).border = tb
+                    wsT.cell(r, 7, ', '.join(member_list)).border = tb
                     r += 1
 
-                # ── 小计行 ──
-                _sub_label = f'{disp_name.split()[0]} Subtotal' + (f' (Team {slot_no})' if slot_no > 0 else '')
-                ws7.cell(r, 1, _sub_label).font = Font(bold=True)
-                for ci in [1, 2, 3, 4, 5, 6, 7]:
-                    ws7.cell(r, ci).fill = subtotal_fill; ws7.cell(r, ci).border = tb
-                ws7.cell(r, 2, cap_nh).number_format = '#,##0'
-                ws7.cell(r, 3, cap_nl).number_format = '#,##0'
-                ws7.cell(r, 4, cap_mw).number_format = '#,##0'
-                ws7.cell(r, 5, cap_amt).number_format = '#,##0'
+                # ── 队内小计行 ──
+                wsT.cell(r, 1, 'Subtotal').font = Font(bold=True)
+                for ci in range(1, 8):
+                    wsT.cell(r, ci).fill = subtotal_fill; wsT.cell(r, ci).border = tb
+                wsT.cell(r, 2, cap_nh).number_format = '#,##0'
+                wsT.cell(r, 3, cap_nl).number_format = '#,##0'
+                wsT.cell(r, 4, cap_mw).number_format = '#,##0'
+                wsT.cell(r, 5, cap_amt).number_format = '#,##0'
                 grand_nh += cap_nh; grand_nl += cap_nl; grand_mw += cap_mw; grand_amt += cap_amt
-                r += 2  # 空行分隔
 
-            # ── 总计行 ──
-            ws7.cell(r, 1, 'Grand Total').font = Font(bold=True, size=11)
-            for ci in [1, 2, 3, 4, 5, 6, 7]:
-                ws7.cell(r, ci).fill = total_fill; ws7.cell(r, ci).border = tb
-            ws7.cell(r, 2, grand_nh).number_format = '#,##0'
-            ws7.cell(r, 3, grand_nl).number_format = '#,##0'
-            ws7.cell(r, 4, grand_mw).number_format = '#,##0'
-            ws7.cell(r, 5, grand_amt).number_format = '#,##0'
+                # 概览行数值 + 队 sheet 列宽/冻结
+                ws_sum.cell(ri, 3, cap_nh).number_format = '#,##0'
+                ws_sum.cell(ri, 4, cap_nl).number_format = '#,##0'
+                ws_sum.cell(ri, 5, cap_mw).number_format = '#,##0'
+                c = ws_sum.cell(ri, 6, cap_amt); c.number_format = '#,##0'; c.font = Font(bold=True)
+                ri += 1
 
-            # ── 列宽 ──
-            ws7.column_dimensions['A'].width = 14
-            ws7.column_dimensions['B'].width = 10
-            ws7.column_dimensions['C'].width = 10
-            ws7.column_dimensions['D'].width = 10
-            ws7.column_dimensions['E'].width = 18
-            ws7.column_dimensions['F'].width = 10
-            ws7.column_dimensions['G'].width = 60
-            ws7.freeze_panes = 'A2'
+                wsT.column_dimensions['A'].width = 14
+                wsT.column_dimensions['B'].width = 10
+                wsT.column_dimensions['C'].width = 10
+                wsT.column_dimensions['D'].width = 10
+                wsT.column_dimensions['E'].width = 18
+                wsT.column_dimensions['F'].width = 10
+                wsT.column_dimensions['G'].width = 60
+                wsT.freeze_panes = 'A3'
+
+            # ── 概览总计行 ──
+            ws_sum.cell(ri, 1, 'Grand Total').font = Font(bold=True, size=11)
+            for ci in range(1, 7):
+                ws_sum.cell(ri, ci).fill = total_fill; ws_sum.cell(ri, ci).border = tb
+            ws_sum.cell(ri, 3, grand_nh).number_format = '#,##0'
+            ws_sum.cell(ri, 4, grand_nl).number_format = '#,##0'
+            ws_sum.cell(ri, 5, grand_mw).number_format = '#,##0'
+            ws_sum.cell(ri, 6, grand_amt).number_format = '#,##0'
+            for i, w in enumerate([30, 8, 12, 12, 10, 16], 1):
+                ws_sum.column_dimensions[chr(64 + i)].width = w
+            ws_sum.freeze_panes = 'A2'
 
     # ── 文件名 ──
     fname = f'ENPRIZON_LINDI_{_eff_month}.xlsx' if _eff_month else 'ENPRIZON_LINDI_Report.xlsx'
