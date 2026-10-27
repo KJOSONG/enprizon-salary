@@ -287,16 +287,15 @@
           <thead>
             <tr>
               <th rowspan="2" data-i18n="verify_col_date">日期</th>
-              <th rowspan="2" data-i18n="verify_col_group">钻工组</th>
               <th colspan="3" data-i18n="verify_col_dtotal">钻工合计</th>
-              <th colspan="3" data-i18n="verify_col_stotal">井下合计</th>
-              <th colspan="3" data-i18n="verify_diff">差值</th>
+              <th colspan="3" data-i18n="verify_col_stotal" class="v-sep">井下合计</th>
+              <th colspan="3" data-i18n="verify_diff" class="v-sep">差值</th>
               <th rowspan="2" data-i18n="verify_col_status">状态</th>
             </tr>
             <tr class="verify-subhead">
               <th>NH</th><th>NL</th><th>MW</th>
-              <th>NH</th><th>NL</th><th>MW</th>
-              <th>NH</th><th>NL</th><th>MW</th>
+              <th class="v-sep">NH</th><th>NL</th><th>MW</th>
+              <th class="v-sep">NH</th><th>NL</th><th>MW</th>
             </tr>
           </thead>
           <tbody id="dashVerifyBody"></tbody>
@@ -3790,19 +3789,19 @@ function renderVerifyCard() {
   const visible = rows.filter(r => _dashVerify.filter === 'all' || !r.match);
   // P55b: NH/NL/MW 分项列——总和相抵(如 NH+19/NL-19)时仍能一眼定位差在哪种矿石
   const ORES = ['nh', 'nl', 'mw'];
-  const ore3 = t => ORES.map(o => fmtNum((t || {})[o] || 0));
+  const ore3 = (t, cls) => ORES.map((o, i) => '<td' + (i === 0 && cls ? ' class="' + cls + '"' : '') + '>' + fmtNum((t || {})[o] || 0) + '</td>').join('');
   document.getElementById('dashVerifyBody').innerHTML = visible.map(r => {
     const dtot = r.driller_total || {}, stot = r.shift_total || {};
-    const diffCells = ORES.map(o => {
+    const diffCells = ORES.map((o, i) => {
       const dv = (dtot[o] || 0) - (stot[o] || 0);
       const bad = Math.abs(dv) > 1e-9;
-      return '<td class="' + (bad ? 'diff-bad' : 'diff-zero') + '">' + (dv > 0 ? '+' : '') + fmtNum(dv) + '</td>';
+      const sep = i === 0 ? ' v-sep' : '';
+      return '<td class="' + (bad ? 'diff-bad' : 'diff-zero') + sep + '">' + (dv > 0 ? '+' : '') + fmtNum(dv) + '</td>';
     }).join('');
     return '<tr data-date="' + escHtml(r.date) + '" class="' + (r.match ? '' : 'is-bad') + '">' +
       '<td>' + r.date + '</td>' +
-      '<td>' + ((r.driller_groups || []).length) + '</td>' +
-      ore3(dtot).map(v => '<td>' + v + '</td>').join('') +
-      ore3(stot).map(v => '<td>' + v + '</td>').join('') +
+      ore3(dtot) +
+      ore3(stot, 'v-sep') +
       diffCells +
       '<td>' + (r.match
         ? '<span class="badge ok"><span class="bd"></span>' + escHtml(t('verify_match')) + '</span>'

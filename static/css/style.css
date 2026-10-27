@@ -2594,9 +2594,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .badge.ok .bd { background: var(--success); }
 .badge.warn .bd { background: var(--warning); }
 td.diff-bad { color: color-mix(in srgb, var(--warning) 50%, var(--foreground)); font-weight: 600; }
-/* P55b: 核验卡双行表头——第二行(矿石子表头) sticky 偏移 = 第一行高度；零差值弱化显示 */
+/* P55b: 核验卡双行表头——第二行(矿石子表头) sticky 偏移 = 第一行高度；零差值弱化显示；
+   钻工合计|井下合计|差值 三区块间竖向分隔线 */
 .verify-table thead tr.verify-subhead th { top: 28px; padding: 3px 12px; border-top: 1px solid var(--border); }
 .verify-table td.diff-zero { color: var(--text-muted); }
+.verify-table .v-sep { border-left: 1px solid var(--border); }
 .verify-note { font-size: 11px; color: var(--text-muted); margin-top: 10px; }
 @media (max-width: 600px) {
   .verify-table-wrap { max-height: 260px; }
