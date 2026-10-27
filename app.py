@@ -7599,6 +7599,107 @@ def get_audit_log():
 #  API: 导出 Excel
 # ═══════════════════════════════════════════════════════════
 
+def _write_production_summary_sheet(ws, shift_production, header_font, header_fill,
+                                    header_align=None, thin_border=None, date_fmt=None,
+                                    parse_dt_fn=None, freeze=False):
+    """Production Summary 表内容（/export Sheet2 与 /export/daily Sheet5 共用）。
+
+    旧格式月（班组化之前）：Date | NICKEL(H) | NICKEL(L) | MAWE 单行表头，行为不变。
+    新格式月（P30 班组化，shift_production 含 'teams'）：按井下班组分组——
+    两行表头（班组名横跨 3 列 + NH/NL/MW 子表头），每日期一行，底部 Total 行 SUM 公式。
+    班组名取 employee_groups（与数据台班组图表同源）。"""
+    from openpyxl.styles import Font
+    days = shift_production or []
+    is_new = any('teams' in d for d in days)
+    if not is_new:
+        for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
+            c = ws.cell(1, ci, h); c.font = header_font; c.fill = header_fill
+            if header_align: c.alignment = header_align
+            if thin_border: c.border = thin_border
+        for i, d in enumerate(days, 2):
+            dp = d.get('day_prod') or {}; np_ = d.get('night_prod') or {}
+            c = ws.cell(i, 1, parse_dt_fn(d['date']) if parse_dt_fn else d['date'])
+            if date_fmt: c.number_format = date_fmt
+            if thin_border: c.border = thin_border
+            for ci, key in ((2, 'NICKEL（H）'), (3, 'NICKEL（L）'), (4, 'MAWE')):
+                cell = ws.cell(i, ci, (dp.get(key, 0) or 0) + (np_.get(key, 0) or 0))
+                if thin_border: cell.border = thin_border
+        if thin_border and freeze: ws.freeze_panes = 'A2'
+        for i, w in enumerate([14, 14, 14, 10], 1):
+            ws.column_dimensions[chr(64 + i)].width = w
+        return
+    # ── 新格式：按班组分组 ──
+    group_names = {}
+    try:
+        from core.database import list_employee_groups as _lg
+        for g in _lg(app.config['DATA_FOLDER']):
+            group_names[int(g['id'])] = g['name']
+    except Exception:
+        pass
+    # 班组按首次出现排序（数字序）
+    tids = []
+    for d in days:
+        for t in (d.get('teams') or []):
+            try:
+                tid = int(t.get('team_id', 0) or 0)
+            except Exception:
+                tid = 0
+            if tid not in tids:
+                tids.append(tid)
+    tids.sort()
+    names = {tid: group_names.get(tid) or ('Team %s' % tid) for tid in tids}
+    # 两行表头：Date + 每班组名横跨 3 列；第二行 NH/NL/MW
+    c = ws.cell(1, 1, 'Date'); c.font = header_font; c.fill = header_fill
+    if header_align: c.alignment = header_align
+    if thin_border: c.border = thin_border
+    c2 = ws.cell(2, 1); c2.font = header_font; c2.fill = header_fill
+    if thin_border: c2.border = thin_border
+    sub_heads = ['NICKEL(H)', 'NICKEL(L)', 'MAWE']
+    for ti, tid in enumerate(tids):
+        col0 = 2 + ti * 3
+        hc = ws.cell(1, col0, names[tid]); hc.font = header_font; hc.fill = header_fill
+        if header_align: hc.alignment = header_align
+        if thin_border: hc.border = thin_border
+        ws.merge_cells(start_row=1, start_column=col0, end_row=1, end_column=col0 + 2)
+        if thin_border:
+            for cc in range(col0, col0 + 3):
+                ws.cell(1, cc).border = thin_border
+        for j, sh in enumerate(sub_heads):
+            sc = ws.cell(2, col0 + j, sh); sc.font = header_font; sc.fill = header_fill
+            if header_align: sc.alignment = header_align
+            if thin_border: sc.border = thin_border
+    # 数据行：每日期一行；同班组合并后单条记录
+    for i, d in enumerate(days, 3):
+        c = ws.cell(i, 1, parse_dt_fn(d['date']) if parse_dt_fn else d['date'])
+        if date_fmt: c.number_format = date_fmt
+        if thin_border: c.border = thin_border
+        prod_by_tid = {}
+        for t in (d.get('teams') or []):
+            try:
+                prod_by_tid[int(t.get('team_id', 0) or 0)] = (t.get('prod') or {})
+            except Exception:
+                continue
+        for ti, tid in enumerate(tids):
+            prod = prod_by_tid.get(tid) or {}
+            for j, key in enumerate(('NICKEL（H）', 'NICKEL（L）', 'MAWE')):
+                cell = ws.cell(i, 2 + ti * 3 + j, prod.get(key, 0) or 0)
+                if thin_border: cell.border = thin_border
+    total_row = len(days) + 3
+    tc = ws.cell(total_row, 1, 'Total'); tc.font = Font(bold=True, size=11)
+    if thin_border: tc.border = thin_border
+    last_col = 1 + len(tids) * 3
+    for ci in range(2, last_col + 1):
+        letter = ws.cell(total_row, ci).column_letter
+        cell = ws.cell(total_row, ci, '=SUM(%s3:%s%d)' % (letter, letter, total_row - 1))
+        cell.font = Font(bold=True)
+        if thin_border: cell.border = thin_border
+    if thin_border and freeze: ws.freeze_panes = 'A3'
+    ws.column_dimensions['A'].width = 14
+    from openpyxl.utils import get_column_letter as _gcl
+    for ci in range(2, last_col + 1):
+        ws.column_dimensions[_gcl(ci)].width = 11
+
+
 @app.route('/export', methods=['POST'])
 @login_required
 @require_permission('salary', 'export')
@@ -7685,18 +7786,11 @@ def export_salary():
     for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
-    # Sheet 2: 产量
+    # Sheet 2: 产量（2026-10-26: 新格式按井下班组分组 NH/NL/MW；旧格式月保持原样）
     ws2 = wb.create_sheet('Production Summary')
-    for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
-        c = ws2.cell(1, ci, h); c.font = header_font; c.fill = header_fill
-
     md2 = md if 'md' in locals() and isinstance(md, dict) else (md_wrap.get('main_data', {}) if 'md_wrap' in locals() and md_wrap else {})
-    for i, d in enumerate(md2.get('shift_production', []), 2):
-        dp = d.get('day_prod') or {}; np = d.get('night_prod') or {}
-        ws2.cell(i, 1, d['date'])
-        ws2.cell(i, 2, (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0))
-        ws2.cell(i, 3, (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0))
-        ws2.cell(i, 4, (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0))
+    _write_production_summary_sheet(ws2, md2.get('shift_production', []),
+                                    header_font, header_fill, header_align=header_align)
 
     buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     fname = f'ENPRIZON_LINDI_Salary_{eff_month}.xlsx' if eff_month else 'ENPRIZON_LINDI_Salary.xlsx'
@@ -8328,18 +8422,9 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
     # ═══════════════════════════════════════════════════════
     if _eff_md and _eff_md.get('shift_production'):
         ws5 = wb.create_sheet('Production Summary')
-        for ci, h in enumerate(['Date', 'NICKEL(H)', 'NICKEL(L)', 'MAWE'], 1):
-            c = ws5.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
-        for i, d in enumerate(_eff_md.get('shift_production', []), 2):
-            dp = d.get('day_prod') or {}; np = d.get('night_prod') or {}
-            c_dt = ws5.cell(i, 1, parse_dt(d['date']))
-            c_dt.number_format = date_fmt; c_dt.border = tb
-            ws5.cell(i, 2, (dp.get('NICKEL（H）', 0) or 0) + (np.get('NICKEL（H）', 0) or 0)).border = tb
-            ws5.cell(i, 3, (dp.get('NICKEL（L）', 0) or 0) + (np.get('NICKEL（L）', 0) or 0)).border = tb
-            ws5.cell(i, 4, (dp.get('MAWE', 0) or 0) + (np.get('MAWE', 0) or 0)).border = tb
-        for i, w in enumerate([14, 14, 14, 10], 1):
-            ws5.column_dimensions[chr(64+i)].width = w
-        ws5.freeze_panes = 'A2'
+        _write_production_summary_sheet(ws5, _eff_md.get('shift_production', []),
+                                        hfont, hfill, header_align=ha, thin_border=tb,
+                                        date_fmt=date_fmt, parse_dt_fn=parse_dt, freeze=True)
 
     # ═══════════════════════════════════════════════════════
     #  Sheet 6: 钻工计件出勤明细
@@ -8366,14 +8451,39 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             return key
 
         from collections import defaultdict
+        # 2026-10-27 修复：①分组键扩为 (规范化队长, slot)——P54 同队长多队伍独立成段，
+        # 不再合并（此前 FREDY 等非硬编码队长整队被跳过 = "少一个队伍"）；
+        # ②队长动态化——已知 4 队长按固定顺序在前，其余队长按名称字母序追加；
+        # ③Amount 单价改读 DB config driller_prices（与计薪同源），不再硬编码。
         captain_groups = defaultdict(list)
+        group_display = {}
         for d in _eff_md['driller_production']:
             cap = _norm_captain(d['captain'])
-            captain_groups[cap].append(d)
+            try:
+                slot = int(d.get('slot', 0) or 0)
+            except Exception:
+                slot = 0
+            key = (cap, slot)
+            captain_groups[key].append(d)
+            group_display.setdefault(key, str(d.get('captain') or cap))
 
         captain_order = ['SHEDRACK PINIEL LAIZER', 'JOHN BOAY BURA', 'BARAKA LAIZER', 'JOSEPH DONALD']
 
-        if any(captain_groups.get(c) for c in captain_order):
+        def _group_sort_key(k):
+            known = captain_order.index(k[0]) if k[0] in captain_order else len(captain_order)
+            return (known, k[0], k[1])
+
+        ordered_keys = sorted(captain_groups.keys(), key=_group_sort_key)
+
+        if ordered_keys:
+            # 钻工单价：与计薪同源（config.driller_prices，默认 PRICES_DRILLER）
+            from core.pricing import load_config as _load_dcfg
+            _dcfg = _load_dcfg(app.config['DATA_FOLDER']) or {}
+            _dprice = (_dcfg.get('driller_prices') or {}) or {}
+            _p_dh = _dprice.get('NICKEL（H）', 5000) or 5000
+            _p_dl = _dprice.get('NICKEL（L）', 4000) or 4000
+            _p_dm = _dprice.get('MAWE', 3000) or 3000
+
             ws7 = wb.create_sheet('Driller Team Details')
             section_font = Font(bold=True, size=12, color='185FA5')
             subtotal_fill = PatternFill('solid', fgColor='E8F4FD')
@@ -8381,15 +8491,16 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             r = 1
             grand_nh = grand_nl = grand_mw = grand_amt = 0
 
-            for cap_name in captain_order:
-                records = captain_groups.get(cap_name, [])
-                if not records:
-                    continue
+            for gkey in ordered_keys:
+                records = captain_groups[gkey]
+                cap_name, slot_no = gkey
+                disp_name = group_display.get(gkey, cap_name)
                 records.sort(key=lambda d: d['date'])
 
-                # ── 队长标题行 ──
+                # ── 队伍标题行（slot>0 标注 队伍 N，与数据台 P54 角标一致）──
                 ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
-                c = ws7.cell(r, 1, f'Captain: {cap_name} ({len(records)} days)')
+                section_title = f'Captain: {disp_name}' + (f' (Team {slot_no})' if slot_no > 0 else '')
+                c = ws7.cell(r, 1, section_title + f' ({len(records)} days)')
                 c.font = section_font
                 r += 1
 
@@ -8406,9 +8517,12 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                     nh = rec.get('nh', 0) or 0
                     nl = rec.get('nl', 0) or 0
                     mw = rec.get('mw', 0) or 0
-                    amt = nh * 5000 + nl * 4000 + mw * 3000
-                    # 出勤人员列表（队长 + 成员）
-                    member_list = [_norm_captain(rec['captain'])] + (rec.get('members', []) or [])
+                    amt = nh * _p_dh + nl * _p_dl + mw * _p_dm
+                    # 出勤人员列表（队长 + 成员）；队长显示名：已知队长用规范名，其余用原始写法
+                    _cap_disp = _norm_captain(rec['captain'])
+                    if _cap_disp not in captain_order:
+                        _cap_disp = str(rec['captain'] or _cap_disp)
+                    member_list = [_cap_disp] + (rec.get('members', []) or [])
                     cap_nh += nh; cap_nl += nl; cap_mw += mw; cap_amt += amt
 
                     ws7.cell(r, 1, parse_dt(rec['date'])).border = tb
@@ -8421,7 +8535,8 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                     r += 1
 
                 # ── 小计行 ──
-                ws7.cell(r, 1, f'{cap_name.split()[0]} Subtotal').font = Font(bold=True)
+                _sub_label = f'{disp_name.split()[0]} Subtotal' + (f' (Team {slot_no})' if slot_no > 0 else '')
+                ws7.cell(r, 1, _sub_label).font = Font(bold=True)
                 for ci in [1, 2, 3, 4, 5, 6, 7]:
                     ws7.cell(r, ci).fill = subtotal_fill; ws7.cell(r, ci).border = tb
                 ws7.cell(r, 2, cap_nh).number_format = '#,##0'
