@@ -284,14 +284,21 @@
       <div class="verify-chips" id="dashVerifyChips"></div>
       <div class="verify-table-wrap">
         <table class="verify-table">
-          <thead><tr>
-            <th data-i18n="verify_col_date">日期</th>
-            <th data-i18n="verify_col_group">钻工组</th>
-            <th data-i18n="verify_col_dtotal">钻工合计</th>
-            <th data-i18n="verify_col_stotal">井下合计</th>
-            <th data-i18n="verify_diff">差值</th>
-            <th data-i18n="verify_col_status">状态</th>
-          </tr></thead>
+          <thead>
+            <tr>
+              <th rowspan="2" data-i18n="verify_col_date">日期</th>
+              <th rowspan="2" data-i18n="verify_col_group">钻工组</th>
+              <th colspan="3" data-i18n="verify_col_dtotal">钻工合计</th>
+              <th colspan="3" data-i18n="verify_col_stotal">井下合计</th>
+              <th colspan="3" data-i18n="verify_diff">差值</th>
+              <th rowspan="2" data-i18n="verify_col_status">状态</th>
+            </tr>
+            <tr class="verify-subhead">
+              <th>NH</th><th>NL</th><th>MW</th>
+              <th>NH</th><th>NL</th><th>MW</th>
+              <th>NH</th><th>NL</th><th>MW</th>
+            </tr>
+          </thead>
           <tbody id="dashVerifyBody"></tbody>
         </table>
       </div>
@@ -3781,15 +3788,22 @@ function renderVerifyCard() {
     '<span class="v-chip ok">✓ ' + t('verify_match_days') + ' <b>' + matchDays + '</b></span>' +
     '<span class="v-chip warn">▲ ' + t('verify_mismatch_days') + ' <b>' + (rows.length - matchDays) + '</b></span>';
   const visible = rows.filter(r => _dashVerify.filter === 'all' || !r.match);
+  // P55b: NH/NL/MW 分项列——总和相抵(如 NH+19/NL-19)时仍能一眼定位差在哪种矿石
+  const ORES = ['nh', 'nl', 'mw'];
+  const ore3 = t => ORES.map(o => fmtNum((t || {})[o] || 0));
   document.getElementById('dashVerifyBody').innerHTML = visible.map(r => {
-    const dtot = sum3(r.driller_total || {}), stot = sum3(r.shift_total || {});
-    const diff = dtot - stot;
+    const dtot = r.driller_total || {}, stot = r.shift_total || {};
+    const diffCells = ORES.map(o => {
+      const dv = (dtot[o] || 0) - (stot[o] || 0);
+      const bad = Math.abs(dv) > 1e-9;
+      return '<td class="' + (bad ? 'diff-bad' : 'diff-zero') + '">' + (dv > 0 ? '+' : '') + fmtNum(dv) + '</td>';
+    }).join('');
     return '<tr data-date="' + escHtml(r.date) + '" class="' + (r.match ? '' : 'is-bad') + '">' +
       '<td>' + r.date + '</td>' +
       '<td>' + ((r.driller_groups || []).length) + '</td>' +
-      '<td>' + fmtNum(dtot) + '</td>' +
-      '<td>' + fmtNum(stot) + '</td>' +
-      '<td class="' + (r.match ? '' : 'diff-bad') + '">' + (diff > 0 ? '+' : '') + fmtNum(diff) + '</td>' +
+      ore3(dtot).map(v => '<td>' + v + '</td>').join('') +
+      ore3(stot).map(v => '<td>' + v + '</td>').join('') +
+      diffCells +
       '<td>' + (r.match
         ? '<span class="badge ok"><span class="bd"></span>' + escHtml(t('verify_match')) + '</span>'
         : '<span class="badge warn"><span class="bd"></span>' + escHtml(t('verify_badge_diff')) + '</span>') + '</td></tr>';
@@ -3801,9 +3815,14 @@ function onVerifyRowClick(e) {
   if (!tr || !_dashVerify.data) return;
   const d = _dashVerify.data[tr.dataset.date];
   if (!d) return;
+  const ORES = ['nh', 'nl', 'mw'];
   const groups = (d.driller_groups || []).map(g => g.captain + ' ' + fmtNum((g.nh || 0) + (g.nl || 0) + (g.mw || 0))).join('｜');
+  const oreDiff = ORES.map(o => {
+    const dv = ((d.driller_total || {})[o] || 0) - ((d.shift_total || {})[o] || 0);
+    return o.toUpperCase() + ' ' + (dv > 0 ? '+' : '') + fmtNum(dv);
+  }).join(' / ');
   const diff = sum3(d.driller_total || {}) - sum3(d.shift_total || {});
-  showToast(tr.dataset.date + ' · ' + (d.match ? t('verify_match') : t('verify_badge_diff') + ' (' + (diff > 0 ? '+' : '') + fmtNum(diff) + ')') + ' ｜ ' + groups + ' ｜ ' + t('verify_col_dtotal') + ' ' + fmtNum(sum3(d.driller_total || {})) + ' / ' + t('verify_col_stotal') + ' ' + fmtNum(sum3(d.shift_total || {})), 'info');
+  showToast(tr.dataset.date + ' · ' + (d.match ? t('verify_match') : t('verify_badge_diff') + ' (' + oreDiff + ')') + ' ｜ ' + groups + ' ｜ ' + t('verify_col_dtotal') + ' ' + fmtNum(sum3(d.driller_total || {})) + ' / ' + t('verify_col_stotal') + ' ' + fmtNum(sum3(d.shift_total || {})), 'info');
 }
 
 // ── 销毁所有数据台图表 ──
