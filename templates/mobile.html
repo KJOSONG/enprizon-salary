@@ -2017,7 +2017,12 @@
         }catch(e){}
         // UG 行主位显示班组名：豁免=橙色、正常=灰色（颜色即状态，不重复显示徽标）；
         // 超管在班组名后带 ⇄ 切换钮；出渣多班组行显示班组名串联；其余部门显示原名
-        if(isUG){
+        // P55: 出渣/钻工行直显队伍——department 恒空，用后端解析的 team_label（出渣=班组名/多班组串联，钻工=队长名）+ Team N 角标；后端旧版无此字段时回退既有链路
+        const _slotN = (s.form_type==='driller' && s.team_slot>0)
+          ? '<span class="hist-sep">·</span><span class="hist-team">'+esc(t('dr_team_n').replace('{n}', s.team_slot))+'</span>' : '';
+        if((s.form_type==='underground' || s.form_type==='driller') && s.team_label){
+          placeHTML='<span class="hist-team">'+esc(s.team_label)+'</span>'+_slotN;
+        } else if(isUG){
           const tid=_mobSubTeam(s);
           if(tid){
             placeHTML='<span class="hist-team">'+esc(_mobUgTeamName(tid)||('T'+tid))+'</span>';

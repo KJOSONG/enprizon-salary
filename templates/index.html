@@ -8833,10 +8833,14 @@ async function loadColHistory(formType, containerId) {
             }
           }
         } catch(e) {}
+        // P55: 钻工/出渣历史行部门列直显队伍——department 恒空，用后端解析的 team_label（钻工=队长名，出渣=班组名）+ Team N 角标
+        const drLabel = (!d && s.team_label && (formType === 'driller' || formType === 'underground'))
+          ? escHtml(s.team_label) + (formType === 'driller' && s.team_slot > 0 ? ' <span style="color:var(--text-muted);font-size:11px;">· ' + escHtml(t('dr_team_n').replace('{n}', s.team_slot)) + '</span>' : '')
+          : '';
         return `
         <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}${exemptBadges}</td>
-          <td>${d ? escHtml(d) : '—'}${colRowTeam(d, s)}</td>
+          <td>${d ? escHtml(d) + colRowTeam(d, s) : (drLabel || '—')}</td>
           <td>v${s.version}</td>
           <td>${escHtml(s.operator_id)}</td>
           <td>${editable ? `<span style="color:var(--accent);font-size:11px;">${t('btn_edit_col')}</span>` : `<span style="color:var(--text-muted);font-size:11px;">${t('col_readonly')}</span>`}</td>

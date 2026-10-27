@@ -5553,6 +5553,53 @@ def collection_history():
         operator = u
     subs = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type, month=month,
                                       date=date, operator=operator)
+    # P55: 采集历史行队伍标签直显——driller/underground 行 department 列恒空（历史如此），
+    # 队伍关联在 team_id 列/payload.teams；此处统一解析为 team_label/team_slot 供两端历史行免点开直显。
+    # underground: team_id(或 payload.teams[].team_id) → employee_groups.name（多班组串联≤3+…）
+    # driller: team_id(或 payload.teams[0].captain) → driller_captains.name（回退 employees.name）；slot=同队长多队伍槽位
+    # 只读三张小表（班组4行/队长4行/员工~191行），常量级开销；解析失败逐条留空不阻断。
+    try:
+        from core.database import get_conn as _gc_hist
+        _c = _gc_hist(app.config['DATA_FOLDER'])
+        _ug = {str(r['id']): r['name'] for r in _c.execute("SELECT id, name FROM employee_groups").fetchall()}
+        _cap = {str(r['employee_id']): r['name'] for r in _c.execute("SELECT employee_id, name FROM driller_captains").fetchall()}
+        _emp = {str(r['id']): r['name'] for r in _c.execute("SELECT id, name FROM employees").fetchall()}
+        _c.close()
+    except Exception:
+        _ug, _cap, _emp = {}, {}, {}
+    for s in subs:
+        s['team_slot'] = 0
+        s['team_label'] = ''
+        try:
+            _pl = json.loads(s.get('payload') or '{}')
+        except (TypeError, ValueError):
+            _pl = {}
+        _teams = _pl.get('teams') if isinstance(_pl.get('teams'), list) else []
+        if s.get('form_type') == 'underground':
+            _names = []
+            for _tm in _teams:
+                if not isinstance(_tm, dict):
+                    continue
+                _tid = str(_tm.get('team_id') or '')
+                _nm = _ug.get(_tid) or ('T' + _tid if _tid else '')
+                if _nm:
+                    _names.append(_nm)
+            if not _names:
+                _tid = str(s.get('team_id') or '')
+                if _ug.get(_tid):
+                    _names.append(_ug[_tid])
+            if _names:
+                s['team_label'] = ' · '.join(_names[:3]) + ('…' if len(_names) > 3 else '')
+        elif s.get('form_type') == 'driller':
+            _tid = str(s.get('team_id') or '')
+            if not _tid and _teams and isinstance(_teams[0], dict):
+                _tid = str(_teams[0].get('captain') or '')
+            s['team_label'] = _cap.get(_tid) or _emp.get(_tid) or ''
+            try:
+                if _teams and isinstance(_teams[0], dict):
+                    s['team_slot'] = int(_teams[0].get('slot') or 0)
+            except (TypeError, ValueError):
+                s['team_slot'] = 0
     from core.database import load_dismissed
     try:
         dismissed_ids = sorted(load_dismissed(app.config['DATA_FOLDER']))
