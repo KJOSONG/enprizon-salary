@@ -1905,6 +1905,8 @@
   }
   // 班组名注入（对齐 web 端 colRowTeam）：井下部门历史行后追加「· 班组名」
   function _mobNormDept(s){ return (s||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase(); }
+  // P55c: 搜索空白归一——双空格名字(如 ALLY  MUSSA ALLY)用单空格也能命中
+  function _normWs(s){ return (s||'').toLowerCase().trim().replace(/\s+/g,' '); }
   // 2026-11 组织重组：井下/破碎部门新旧名双名集合（历史月调岗时间线仍携带旧名，必须兼容）
   const _MOB_UG_DEPT_NORMS=['PRODUCTIONTEAM','PRODUCTIONTEAM(UNDERGROUND)'];
   const _MOB_CR_DEPT_NORMS=['CRUSHINGTEAM','SORTCRUSH/CRUSHPIECERATE'];
@@ -2913,13 +2915,13 @@
   // 修改请走桌面端出勤网格或采集表单提交
   function renderAttGrid(){
     const d=STATE.attendance; if(!d) return;
-    const q=(document.getElementById('attSearch').value||'').toLowerCase().trim();
+    const q=_normWs(document.getElementById('attSearch').value);
     const dept=document.getElementById('attDept').value;
     const today=new Date().toISOString().slice(0,10);
     // 需求4: 与员工列表一致,按姓名排序(localeCompare 中文/英文均可)
     // P19: 支持别名匹配(attendance rows 可能无 alias,从员工缓存关联)
     const _aliasMap={}; (STATE.employees||[]).forEach(_e=>{ _aliasMap[String(_e.id)]=(_e.alias||'').toLowerCase(); });
-    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||(r.name||'').toLowerCase().includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q)||((r.alias||_aliasMap[String(r.id)]||'').toLowerCase().includes(q)))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    const allRows=(d.rows||[]).filter(r=>(!dept||r.department===dept)&&(!q||_normWs(r.name).includes(q)||String(r.id).toLowerCase().includes(q)||String(r.custom_number||'').includes(q)||_normWs(r.alias||_aliasMap[String(r.id)]).includes(q))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     STATE._attAllRows = allRows;
     const grid=document.getElementById('attGrid'); if(!grid) return;
     if(!allRows.length){ grid.innerHTML='<div class="state-box"><div class="state-box__icon">📋</div><div class="state-box__title">'+t('no_att_data')+'</div></div>'; return; }
@@ -2959,10 +2961,10 @@
     inp.addEventListener('input',function(){
       clearTimeout(this._timer);
       this._timer=setTimeout(function(){
-        const q=inp.value.trim().toLowerCase();
+        const q=_normWs(inp.value);
         if(q.length<1){ pk.innerHTML=''; pk.style.display='none'; return; }
         const hits=emps.filter(function(e){
-          return (e.name||'').toLowerCase().includes(q) || String(e.custom_number||e.id).toLowerCase().includes(q) || (e.alias||'').toLowerCase().includes(q);
+          return _normWs(e.name).includes(q) || String(e.custom_number||e.id).toLowerCase().includes(q) || _normWs(e.alias).includes(q);
         }).slice(0,8);
         if(!hits.length){
           pk.innerHTML='<div style="padding:8px 10px;color:var(--text-muted);font-size:12px;">'+t('no_match_emp')+'</div>';

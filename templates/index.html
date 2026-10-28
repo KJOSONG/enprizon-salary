@@ -4060,6 +4060,11 @@ function deptOptionLabel(v) {
   }
   return v;
 }
+/* P55c: 搜索空白归一——查询词与姓名统一折叠连续空格，双空格名字(如 ALLY  MUSSA ALLY)
+   用单空格也能命中；toeQ 语义 = toLowerCase + trim + \s+→' ' */
+function normQ(s) {
+  return (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
 /* P55c: 部门树内全部子部门值；筛选下拉（员工/薪资/逐日明细/出勤）只认树内名称——
    离职员工的历史旧部门名（Sort Crush/Logistics 等，重整未回溯）不入选项，
    其行仍显示历史部门名、选「全部部门」可见。采集表单/采集历史不用此过滤
@@ -4177,7 +4182,6 @@ async function renderEmployeeTable() {
     }
 
     // S5: 搜索归一化(去首尾空格+连续空格折叠),避免多词姓名因空格差异搜不到
-    const normQ = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
     const q = normQ(document.getElementById('empSearch').value);
     const d = sel.value;
     const tFilter = (teamSel && selIsUg) ? teamSel.value : '';
@@ -6033,7 +6037,7 @@ function filterSalaryTable() {
   const result = STATE._salaryResult;
   if (!result) return;
   const TYPE_LABELS = getTYPE_LABELS();
-  const q = (document.getElementById('salarySearch').value||'').toLowerCase();
+  const q = normQ(document.getElementById('salarySearch').value);
   const ft = document.getElementById('salaryFilterType').value;
   const fd = document.getElementById('salaryFilterDept').value;
   // R3: team filter show/hide
@@ -6051,9 +6055,9 @@ function filterSalaryTable() {
   }
   const filtered = result.employees.filter(e => {
     if (q) {
-      const nameHit = (e.name || '').toLowerCase().includes(q);
+      const nameHit = normQ(e.name).includes(q);
       const empRec = (STATE._empAll || []).find(x => String(x.id) === String(e.employee_id || e.id));
-      const aliasHit = ((empRec && empRec.alias) || e.alias || '').toLowerCase().includes(q);
+      const aliasHit = normQ((empRec && empRec.alias) || e.alias).includes(q);
       const numHit = String((empRec && (empRec.custom_number || empRec.id)) || e.id).toLowerCase().includes(q);
       if (!nameHit && !aliasHit && !numHit) return false;
     }
@@ -6263,7 +6267,7 @@ async function loadDailyWages() {
 function renderDailyWages() {
   const data = STATE._dailyWages;
   if (!data) return;
-  const q = (document.getElementById('dwSearch').value||'').toLowerCase();
+  const q = normQ(document.getElementById('dwSearch').value);
   const ft = document.getElementById('dwFilterType').value;
   const fd = document.getElementById('dwFilterDept').value;
   // R3: team filter show/hide
@@ -6282,10 +6286,10 @@ function renderDailyWages() {
   for (const eid in data) {
     const e = data[eid];
     if (q) {
-      const nameHit = (e.name || '').toLowerCase().includes(q);
+      const nameHit = normQ(e.name).includes(q);
       // 薪资结果无 alias,从员工缓存关联
       const empRec = (STATE._empAll || []).find(x => String(x.id) === String(eid));
-      const aliasHit = ((empRec && empRec.alias) || '').toLowerCase().includes(q);
+      const aliasHit = normQ((empRec && empRec.alias) || '').includes(q);
       const numHit = String((empRec && (empRec.custom_number || empRec.id)) || eid).toLowerCase().includes(q);
       if (!nameHit && !aliasHit && !numHit) continue;
     }
@@ -6558,7 +6562,7 @@ async function loadAttendance() {
 function renderAttendance() {
   const data = STATE.attendanceData;
   if (!data) return;
-  const q = (document.getElementById('attSearch').value||'').toLowerCase();
+  const q = normQ(document.getElementById('attSearch').value);
   const ft = document.getElementById('attFilterType').value;
   const fd = document.getElementById('attFilterDept').value;
 
@@ -6583,10 +6587,10 @@ function renderAttendance() {
 
   const filtered = data.rows.filter(r => {
     if (q) {
-      const nameHit = (r.name || '').toLowerCase().includes(q);
+      const nameHit = normQ(r.name).includes(q);
       // attendance rows 可能无 alias,从员工缓存关联
       const empRec = empById.get(String(r.id || r.employee_id));
-      const aliasHit = ((empRec && empRec.alias) || '').toLowerCase().includes(q);
+      const aliasHit = normQ((empRec && empRec.alias) || '').includes(q);
       const numHit = String(r.custom_number || (empRec && (empRec.custom_number || empRec.id)) || r.id).toLowerCase().includes(q);
       if (!nameHit && !aliasHit && !numHit) return false;
     }
@@ -8442,13 +8446,13 @@ function initEmpTypeahead(inputId, hiddenId, pickId) {
   input.addEventListener('input', () => {
     clearTimeout(input._taTimer);
     input._taTimer = setTimeout(async () => {
-      const q = input.value.trim().toLowerCase();
+      const q = normQ(input.value);
       const pick = document.getElementById(pickId);
       if (q.length < 1) { pick.innerHTML = ''; pick.style.display = 'none'; return; }
       const pool = await ensureEmpPool();
       const hits = pool.filter(e =>
-        (e.name || '').toLowerCase().includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) ||
-        (e.alias || '').toLowerCase().includes(q)).slice(0, 8);
+        normQ(e.name).includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) ||
+        normQ(e.alias).includes(q)).slice(0, 8);
       if (!hits.length) {
         pick.innerHTML = '<div style="padding:8px 10px;color:var(--text-muted);font-size:12px;">' + t('no_match_emp') + '</div>';
         pick.style.display = 'block';
@@ -9209,8 +9213,8 @@ async function openEmpPicker(kw, hiddenId, displayId, opts) {
 
 /* 渲染单栏人员勾选行：左出勤checkbox，右驾驶checkbox（showDriver 时） */
 function renderEmpCheckRows(list, checked, curDrivers, showDriver) {
-  const q = _pickerSearch.toLowerCase();
-  const filtered = q ? list.filter(e => (e.name || '').toLowerCase().includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) || (e.alias || '').toLowerCase().includes(q)) : list;
+  const q = normQ(_pickerSearch);
+  const filtered = q ? list.filter(e => normQ(e.name).includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) || normQ(e.alias).includes(q)) : list;
   if (!filtered.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center;">' + t('no_match_emp') + '</div>';
   return filtered.map(e => {
     const isChecked = checked.includes(e.id);
@@ -9719,11 +9723,11 @@ function updateDrMemberCount() {
 }
 
 function filterDrMemberList() {
-  const q = (document.getElementById('drMemberSearch').value || '').toLowerCase();
+  const q = normQ(document.getElementById('drMemberSearch').value);
   const pool = _colEmpPool || STATE._empAll || [];
   const driller = filterEmpByDept(pool, 'driller').filter(e =>
-    (e.name || '').toLowerCase().includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) ||
-    (e.alias || '').toLowerCase().includes(q));
+    normQ(e.name).includes(q) || String(e.custom_number || e.id).toLowerCase().includes(q) ||
+    normQ(e.alias).includes(q));
   const checked = [...document.querySelectorAll('#drMemberList input:checked')].map(c => c.value);
   document.getElementById('drMemberList').innerHTML = renderDrMemberRows(driller, checked);
 }
