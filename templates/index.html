@@ -4060,6 +4060,15 @@ function deptOptionLabel(v) {
   }
   return v;
 }
+/* P55c: 部门树内全部子部门值；筛选下拉（员工/薪资/逐日明细/出勤）只认树内名称——
+   离职员工的历史旧部门名（Sort Crush/Logistics 等，重整未回溯）不入选项，
+   其行仍显示历史部门名、选「全部部门」可见。采集表单/采集历史不用此过滤
+   （编辑历史行需旧名兼容回填，旧名提交记录筛旧名有实际意义）。 */
+function filterTreeDepts(list) {
+  const tree = new Set();
+  DEPT_TREE.forEach(g => g.children.forEach(c => tree.add(c.v)));
+  return (list || []).filter(v => tree.has(v));
+}
 /* 两级部门下拉 HTML：<optgroup label=大部门>（该大部门在场子部门 ≥2 时），
    单子部门大部门平铺为单选项；不在树内的值（历史遗留部门名）归入「其他部门」组。 */
 function buildDeptOptionsHTML(presentList, selected) {
@@ -4141,7 +4150,7 @@ async function renderEmployeeTable() {
     // 填充部门筛选（P13.1: 重建下拉前保留选中值；2026-11 两级化：大部门 optgroup → 子部门）
     const sel = document.getElementById('empFilterDept');
     const prevVal = sel.value;
-    const deps = [...new Set(emps.map(e => e.department).filter(Boolean))].sort();
+    const deps = filterTreeDepts([...new Set(emps.map(e => e.department).filter(Boolean))].sort());
     sel.innerHTML = '<option value="">' + t('emp_all_depts') + '</option>' + buildDeptOptionsHTML(deps, prevVal);
     if (deps.includes(prevVal)) sel.value = prevVal;
 
@@ -6006,7 +6015,7 @@ async function renderSalaryTable(result) {
   if (deptSel && deptSel.options.length === 1) {
     const depts = new Set();
     (STATE._empAll || result.employees).forEach(e => { if (e.department) depts.add(e.department); });
-    deptSel.innerHTML += buildDeptOptionsHTML([...depts], '');
+    deptSel.innerHTML += buildDeptOptionsHTML(filterTreeDepts([...depts]), '');
   }
   // R3: show team filter when UG dept selected
   await ensureTeamFilterData();
@@ -6233,7 +6242,7 @@ async function loadDailyWages() {
     }
     const sel = document.getElementById('dwFilterDept');
     if (sel.options.length === 1) {
-      sel.innerHTML += buildDeptOptionsHTML([...depts], '');
+      sel.innerHTML += buildDeptOptionsHTML(filterTreeDepts([...depts]), '');
     }
     // R3: ensure team filter data
     await ensureTeamFilterData();
@@ -6558,7 +6567,7 @@ function renderAttendance() {
   if (deptSel.options.length === 1) {
     const depts = new Set();
     data.rows.forEach(r => { if (r.department) depts.add(r.department); });
-    deptSel.innerHTML += buildDeptOptionsHTML([...depts], '');
+    deptSel.innerHTML += buildDeptOptionsHTML(filterTreeDepts([...depts]), '');
   }
   // R3: team filter show/hide
   const attTeamSel = document.getElementById('attFilterTeam');
