@@ -94,6 +94,23 @@ def test_piece_to_piece_no_preeff_override(tmp_path):
     assert not [r for r in rows if r['salary_type'] == 'monthly']
 
 
+def test_stale_piece_perm_override_trimmed(tmp_path):
+    """P55d 补充：无区间的旧计件类型 override（DASTANI 残留模式）截断到生效日前一天"""
+    data_folder = _seed_db(tmp_path)
+    conn = sqlite3.connect(os.path.join(data_folder, 'kilwa.db'))
+    conn.execute(
+        "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date)"
+        " VALUES ('EMP1', 'piece_crush', 0, 0, '', '')")
+    conn.commit()
+    conn.close()
+    from core.database import apply_approved_event
+    apply_approved_event(data_folder, _transfer_event('2026-10-27'))
+    rows = _ovr_rows(data_folder)
+    crush = [r for r in rows if r['salary_type'] == 'piece_crush']
+    assert len(crush) == 1
+    assert crush[0]['end_date'] == '2026-10-26'  # 截断保留历史轨道，不再污染当前类型
+
+
 def test_perm_override_case_no_duplicate(tmp_path):
     """基数挂永久 override（82 EKON 模式）：永久行天然覆盖生效前天数，不重复补区间"""
     data_folder = _seed_db(tmp_path)

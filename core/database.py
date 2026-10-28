@@ -2044,6 +2044,17 @@ def apply_approved_event(data_folder, event):
                                  f'OA调岗生效前基数保护 #{event.get("id")}', '', '', '', ''))
             except Exception as _e_pre:
                 print(f"[warn] P55d: 生效前基数保护写入失败 employee={eid} event=#{event.get('id')}: {_e_pre}")
+            # ── P55d 补充：回收无区间的旧计件类型 override（类型表达残留）──
+            # 旧时代调岗只写 override 不改主档，遗留"无区间计件类型行"会永久污染
+            # effective_type 标签（DASTANI 案例：6 月破碎残留 → 10 月调入钻工后仍显示破碎计件）。
+            # 计件行无基数价值（day_rate/monthly=0），截断到生效日前一天即可保历史轨道；
+            # day_rate/monthly 永久行是基数载体，绝不回收（P53-e）。
+            _final_type_p = new_type or (_explicit_type or old_type)
+            conn.execute(
+                "UPDATE overrides SET end_date=? WHERE employee_id=? AND IFNULL(end_date,'')=''"
+                " AND salary_type IN ('piece_underground','piece_driller','piece_crush')"
+                " AND salary_type != ? AND IFNULL(day_rate,0)=0 AND IFNULL(monthly_salary,0)=0",
+                (_prev_day, eid, _final_type_p))
             # 事件 payload 补充追溯信息
             _p2 = dict(payload)
             _p2.update({'new_type': new_type, 'old_type': old_type,
