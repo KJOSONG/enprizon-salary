@@ -2008,6 +2008,42 @@ def apply_approved_event(data_folder, event):
                     " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (eid, 'piece_crush', 0, 0, eff, '9999-12-31',
                      f'OA调岗转破碎计件 #{event.get("id")}', '', '', '', ''))
+            # ── P55d(2026-10-28): 当月月中调岗的生效前基数保护 ──
+            # 调入计件时主档 day_rate/monthly_salary 被清零（1964-1967 行），而生效日之前的
+            # 当月天数仍按旧类型旧基数计薪（P35 日粒度时间线定类型，计薪端读主档/override
+            # 取基数）→ 旧基数只挂主档（无永久 override）的人生效前工资全丢
+            # （AMOSI 批次 2026-10 案例：25 号月薪 600k/78 号等日薪 10k 合计 ~1.32M）。
+            # 修法：补一条 [当月1号, 生效日前一天] 的旧类型旧基数区间 override，
+            # 与 1985-1990 行"旧永久哨兵截断到生效日前一天"的语义对齐。
+            # 无需保护：生效日为 1 号（区间空）/ 旧类型非 day_rate·monthly / 旧基数为 0 /
+            # 已有等价区间或同类型永久 override（基数仍挂账，截断行已覆盖）。
+            try:
+                from datetime import datetime as _dtp
+                _eff_dt_p = _dtp.strptime(eff, '%Y-%m-%d')
+                _ms_p = _eff_dt_p.replace(day=1)
+                if _eff_dt_p > _ms_p and old_type in ('day_rate', 'monthly'):
+                    _old_amt = float(old_day) if old_type == 'day_rate' else float(old_month)
+                    if _old_amt > 0:
+                        _from_p = _ms_p.strftime('%Y-%m-%d')
+                        _perm = conn.execute(
+                            "SELECT COUNT(*) AS c FROM overrides WHERE employee_id=? AND salary_type=?"
+                            " AND IFNULL(start_date,'')='' AND IFNULL(end_date,'')=''",
+                            (eid, old_type)).fetchone()['c']
+                        _dup = conn.execute(
+                            "SELECT COUNT(*) AS c FROM overrides WHERE employee_id=? AND salary_type=?"
+                            " AND start_date=? AND end_date=?",
+                            (eid, old_type, _from_p, _prev_day)).fetchone()['c']
+                        if int(_perm) == 0 and int(_dup) == 0:
+                            conn.execute(
+                                "INSERT INTO overrides (employee_id, salary_type, day_rate, monthly_salary, start_date, end_date, note, type, shift, captain, effective_from)"
+                                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                (eid, old_type,
+                                 _old_amt if old_type == 'day_rate' else 0,
+                                 _old_amt if old_type == 'monthly' else 0,
+                                 _from_p, _prev_day,
+                                 f'OA调岗生效前基数保护 #{event.get("id")}', '', '', '', ''))
+            except Exception as _e_pre:
+                print(f"[warn] P55d: 生效前基数保护写入失败 employee={eid} event=#{event.get('id')}: {_e_pre}")
             # 事件 payload 补充追溯信息
             _p2 = dict(payload)
             _p2.update({'new_type': new_type, 'old_type': old_type,
