@@ -79,7 +79,11 @@ _SICK_CERT_KEYS = ('nida_number', 'nssf_number', 'tin_number')
 
 def sick_subsidy_eligible(emp, data_folder=None):
     """P48: 正式员工判定 = nida/nssf/tin 三证 strip() 后均非空（2026-09-30 用户确认）。
+    P55e(2026-10-28): sick_subsidy_exempt=1（工伤等特殊情况豁免，super_admin 切换）
+    直接合格，跳过三证检查。
     员工入参缺三证列时回退从 employees 表补查；仍拿不到视为不合格（发 0）。"""
+    if emp.get('sick_subsidy_exempt'):
+        return True
     if any(k in emp for k in _SICK_CERT_KEYS):
         return all((emp.get(k) or '').strip() for k in _SICK_CERT_KEYS)
     if data_folder:
@@ -89,11 +93,13 @@ def sick_subsidy_eligible(emp, data_folder=None):
             if os.path.exists(_dbp):
                 _conn = sqlite3.connect(_dbp)
                 _row = _conn.execute(
-                    "SELECT nida_number, nssf_number, tin_number FROM employees WHERE id=?",
+                    "SELECT nida_number, nssf_number, tin_number, sick_subsidy_exempt FROM employees WHERE id=?",
                     (emp.get('id'),)).fetchone()
                 _conn.close()
                 if _row is not None:
-                    return all((v or '').strip() for v in _row)
+                    if _row['sick_subsidy_exempt']:
+                        return True
+                    return all((v or '').strip() for v in (_row['nida_number'], _row['nssf_number'], _row['tin_number']))
         except Exception:
             pass
     return False
@@ -109,7 +115,9 @@ def sick_subsidy_eligible_batch(employees, data_folder=None):
     need_db = []
     for emp in employees:
         eid = emp.get('id')
-        if any(k in emp for k in _SICK_CERT_KEYS):
+        if emp.get('sick_subsidy_exempt'):
+            result[eid] = True
+        elif any(k in emp for k in _SICK_CERT_KEYS):
             result[eid] = all((emp.get(k) or '').strip() for k in _SICK_CERT_KEYS)
         else:
             result[eid] = False
@@ -122,13 +130,15 @@ def sick_subsidy_eligible_batch(employees, data_folder=None):
                 _conn = sqlite3.connect(_dbp)
                 _ph = ','.join('?' * len(need_db))
                 _rows = _conn.execute(
-                    f"SELECT id, nida_number, nssf_number, tin_number FROM employees WHERE id IN ({_ph})",
+                    f"SELECT id, nida_number, nssf_number, tin_number, sick_subsidy_exempt FROM employees WHERE id IN ({_ph})",
                     need_db).fetchall()
                 _conn.close()
                 _certs = {r[0]: r[1:] for r in _rows}
                 for eid in need_db:
                     if eid in _certs:
-                        result[eid] = all((v or '').strip() for v in _certs[eid])
+                        _nida, _nssf, _tin, _exempt = _certs[eid]
+                        result[eid] = True if _exempt else all(
+                            (v or '').strip() for v in (_nida, _nssf, _tin))
         except Exception:
             pass
     return result

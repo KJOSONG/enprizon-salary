@@ -2363,6 +2363,38 @@ def api_employee_annual_leave_override(employee_id):
               operator=session.get('username',''))
     return jsonify({'ok': True, 'override': new_val})
 
+@app.route('/api/employees/<employee_id>/sick-subsidy-exempt', methods=['POST'])
+@super_admin_required
+def api_employee_sick_subsidy_exempt(employee_id):
+    """P55e: 切换员工病假补贴豁免（工伤等特殊情况，跳过三证检查）——仅 super_admin 可改。
+    病假补贴计入当月薪资 → 切换后失效当月视图缓存触发重算。"""
+    from core.database import get_conn, log_audit
+    data = request.get_json() or {}
+    v = data.get('exempt')
+    if v in (True, 'true', '1', 1):
+        new_val = 1
+    elif v in (False, 'false', '0', 0):
+        new_val = 0
+    else:
+        return jsonify({'ok': False, 'error': 'exempt 必须是 0 或 1'}), 400
+    conn = get_conn(app.config['DATA_FOLDER'])
+    row = conn.execute("SELECT sick_subsidy_exempt FROM employees WHERE id=?",
+                       (employee_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'ok': False, 'error': '员工不存在'}), 404
+    conn.execute("UPDATE employees SET sick_subsidy_exempt=? WHERE id=?",
+                 (new_val, employee_id))
+    conn.commit()
+    conn.close()
+    _sync_employee_cache(employee_id, {'sick_subsidy_exempt': new_val})  # P23 R4 轻量同步
+    _invalidate_current_view_month()  # 病假补贴影响当月薪资，失效当前月缓存触发重算
+    log_audit(app.config['DATA_FOLDER'], 'sick_subsidy_exempt_toggle',
+              employee_id, json.dumps({'exempt': new_val,
+                  'operator': session.get('username', '')}),
+              operator=session.get('username',''))
+    return jsonify({'ok': True, 'exempt': new_val})
+
 @app.route('/api/employees/<employee_id>', methods=['POST'])
 @editor_required
 def api_employee_update(employee_id):

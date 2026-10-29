@@ -149,6 +149,8 @@ def init_db(data_folder):
         ('alias', 'TEXT DEFAULT \'\''),
         # P20: 年假资格豁免（开启后绕过 NSSF + NIDA 检查，仅 OA 审批人可改）
         ('annual_leave_override', 'INTEGER DEFAULT 0'),
+        # P55e: 病假补贴豁免（工伤等特殊情况，开启后跳过三证检查，仅 super_admin 可改）
+        ('sick_subsidy_exempt', 'INTEGER DEFAULT 0'),
         # P21 R3: TIN 号码（年假资格检查要求有值）
         ('tin_number', 'TEXT DEFAULT \'\''),
     ]
