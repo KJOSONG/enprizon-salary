@@ -1126,7 +1126,8 @@ def load_employees_from_db(data_folder):
     conn = get_conn(data_folder)
     rows = conn.execute("""
         SELECT id, name, department, default_type, day_rate, monthly_salary,
-               nssf_enrolled, nssf_number, nida_number, phone, team_id, custom_number, tin_number, status
+               nssf_enrolled, nssf_number, nida_number, phone, team_id, custom_number, tin_number, status,
+               sick_subsidy_exempt
         FROM employees ORDER BY CAST(id AS INTEGER)
     """).fetchall()
     conn.close()
@@ -1156,6 +1157,7 @@ def load_employees_from_db(data_folder):
             'nssf_enrolled': bool(r['nssf_enrolled']),
             'nssf_number': r['nssf_number'] or '',
             'nida_number': r['nida_number'] or '',
+            'sick_subsidy_exempt': bool(r['sick_subsidy_exempt']),
             'team_id': r['team_id'] or 0,
             'custom_number': r['custom_number'] or '',
             'tin_number': r['tin_number'] or '',
