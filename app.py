@@ -7513,6 +7513,17 @@ def get_daily_wages():
                 key = f"{r[0]}|{r[1]}"
                 att_ov[key] = True
         except: pass
+        # 部门口径统一为员工档案最新部门（employees 表当前值）：
+        # 明细行自带的是"当月基线部门"（历史月基线未随部门重整回溯），与薪资总表/员工档案的
+        # 主档最新部门筛选口径不一致（2026-10-31 用户明令：两页都按档案最新部门筛）
+        try:
+            _dept_now = {str(r[0]): (r[1] or '') for r in conn.execute(
+                "SELECT id, department FROM employees").fetchall()}
+            for eid, e in result.items():
+                _dn = _dept_now.get(str(eid))
+                if _dn:
+                    e['department'] = _dn
+        except: pass
         conn.close()
     # 构建每个员工的 att_override_dates
     for eid, e in result.items():
