@@ -5352,6 +5352,12 @@ def collection_submit():
                     return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中（仅 P/A 人员可标记驾驶，L/SK/T 已转审批）',
                                     'error_key': 'col_driver_not_in_marks',
                                     'error_params': {'driver': d}}), 400
+        # P56: 同班组每日驾驶勾选 ≤2 —— UG 出勤采集硬校验（超限整批拒绝，前端同步拦截）
+        if is_ug_att and len(drivers) > 2:
+            return jsonify({'ok': False,
+                            'error': '同一班组同一天最多勾选 2 名驾驶员',
+                            'error_key': 'col_driver_limit',
+                            'error_params': {'count': len(drivers)}}), 400
         # 余额预检：任一 T 员工调休余额不足则整体失败，避免部分写入（routing 事件/
         # 前序 override/扣减已落库但提交审计缺失的孤儿数据，见 2026-09-05 petro 案例）
         from core.database import get_leave_balance as _glb
@@ -5989,6 +5995,12 @@ def collection_edit(submission_id):
                     return jsonify({'ok': False, 'error': f'驾驶员 {d} 不在当天出勤名单中',
                                     'error_key': 'col_driver_not_in_marks',
                                     'error_params': {'driver': d}}), 400
+        # P56: 同班组每日驾驶勾选 ≤2（编辑路径与 submit 同口径）
+        if is_ug_edit and len(drivers_edit) > 2:
+            return jsonify({'ok': False,
+                            'error': '同一班组同一天最多勾选 2 名驾驶员',
+                            'error_key': 'col_driver_limit',
+                            'error_params': {'count': len(drivers_edit)}}), 400
         from core.database import get_attendance_status
         for m in (payload.get('marks') or []):
             eid = m.get('employee_id', '')

@@ -9308,6 +9308,16 @@ function updateEmpPickerCountFromDom(showDriver) {
     : t('col_selected_count').replace('{n}', checked.length);
 }
 
+/* P56: UG 出勤驾驶勾选 ≤2/班组/日 —— 勾第 3 个时回弹并提示（提交时后端兜底） */
+function onAttDrvToggle(cb) {
+  if (!cb.checked) return;
+  const row = cb.closest('.att-row');
+  const tid = row ? (row.getAttribute('data-team-id') || '') : '';
+  const drvRows = [...document.querySelectorAll('#colAttForm .att-row')].filter(r => (r.getAttribute('data-team-id') || '') === tid);
+  const drvChecked = drvRows.filter(r => { const c = r.querySelector('input[id^="attDrv"]'); return c && c.checked; });
+  if (drvChecked.length > 2) { cb.checked = false; showToast(t('col_driver_limit'), 'error'); }
+}
+
 function confirmEmpPicker() {
   const checks = [...document.querySelectorAll('#empPickerCol .picker-check:checked')].map(c => c.value);
   const t = _pickerTarget;
@@ -9945,7 +9955,7 @@ async function renderAttCollectionForm(payload) {
     return `<div class="picker-row att-row" data-dept="${escHtml(ugDeptExact)}" data-team-id="${escHtml(String(e.team_id||''))}" data-emp-id="${escHtml(e.id)}">
         <select id="attSt${escHtml(e.id)}" style="padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);font-size:12px;flex-shrink:0;">${attStatusOpts(st)}</select>
         <span style="flex:1;min-width:0;">${escHtml(e.name)} <span style="color:var(--text-muted);font-size:11px;">#${escHtml(e.custom_number || e.id)}</span></span>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${isDrv ? 'checked' : ''}> ${t('col_att_driver')}</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv${escHtml(e.id)}" ${isDrv ? 'checked' : ''} onchange="onAttDrvToggle(this)"> ${t('col_att_driver')}</label>
       </div>`;
   }).join('');
   const rosterHtml = (otherHtml + ugHtml) || '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + t('no_other_dept') + '</div>';
@@ -10136,6 +10146,8 @@ async function submitAttCollection() {
       oldDrivers.forEach(d => { if (!drivers.map(String).includes(d) && submitted.has(d)) drivers.push(d); });
     }
   }
+  // P56: 同班组每日驾驶 ≤2 —— 提交前兜底拦截（勾选时已实时回弹，此处覆盖编辑合并等路径）
+  if (isUg && drivers.length > 2) { showToast(t('col_driver_limit'), 'error'); return; }
   const payload = isUg ? { department: dept, team_id: teamId, marks, drivers } : { marks, department: dept };
   // P55g: LAMBA(1)/SAKA(2) 2026-10-30 司机奖金取消——提交前英文提醒弹窗（确认后提交仍继续）
   const doSubmitAtt = async () => { await submitColPayload('attendance', date, payload, 'colAttHistory'); };

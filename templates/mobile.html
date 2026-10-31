@@ -2813,12 +2813,18 @@
       const stSel = onLeave
         ? '<span class="att-leave-st">'+esc(t('col_on_leave'))+'</span>'
         : '<select id="attSt'+esc(e.id)+'" style="width:72px;min-height:44px;flex-shrink:0;padding:4px 4px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--background);color:var(--foreground);"><option value="">'+t('att_status_placeholder')+'</option>'+['P','A','T','L','SK'].map(s=>{ if(s==='P'){ return '<option value="P" '+(s===mv?'selected':'')+'>P</option>'; } const noteKey=s==='A'?'att_note_a':s==='T'?'att_note_t':s==='L'?'att_note_l':'att_note_sk'; return '<option value="'+s+'" '+(s===mv?'selected':'')+'>'+s+' · '+esc(t(noteKey))+'</option>';}).join('')+'</select>';
-      const drvCb = (isUg && !onLeave) ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+'> '+t('col_att_driver')+'</label>' : '';
+      const drvCb = (isUg && !onLeave) ? '<label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;"><input type="checkbox" id="attDrv'+esc(e.id)+'"'+chk+' onchange="onMobAttDrvToggle(this)"> '+t('col_att_driver')+'</label>' : '';
       return '<div class="worker-item'+(onLeave?' att-leave':'')+'" style="gap:6px;"><span class="'+nameCls+'" style="flex:1;">'+esc(e.name||'')+' <span class="worker-item__id">#'+esc(e.custom_number||e.id)+'</span>'+leaveTag+'</span>'
         + stSel
         + drvCb
         + '</div>'; }).join('');
     if(countEl) countEl.textContent=t('col_total_count',{n:list.length});
+  }
+  /* P56: UG 出勤驾驶勾选 ≤2/班组/日 —— 勾第 3 个时回弹并提示（提交时后端兜底） */
+  function onMobAttDrvToggle(cb){
+    if(!cb.checked) return;
+    const drv=[...document.querySelectorAll('#attRoster input[id^="attDrv"]:checked')];
+    if(drv.length>2){ cb.checked=false; colFailMsg('attendance', t('col_driver_limit')); }
   }
   async function attBatchAll(status){
     const deptSel=document.getElementById('attColDept')?.value || '';
@@ -2858,6 +2864,8 @@
     if(isUg){
       const team_id=parseInt(document.getElementById('attTeamSel').value,10)||0;
       const drivers=list.filter(e=>{ const cb=document.getElementById('attDrv'+e.id); return cb && cb.checked; }).map(e=>String(e.id));
+      // P56: 同班组每日驾驶 ≤2 —— 提交前兜底拦截（勾选时已实时回弹）
+      if(drivers.length>2){ colFailMsg('attendance', t('col_driver_limit')); return; }
       const doSubmitAtt=()=>colSubmit('attendance', { submission_date:date, department:deptEl.value, team_id, marks, drivers }, null);
       // P55g: LAMBA(1)/SAKA(2) 2026-10-30 司机奖金取消——提交前英文提醒弹窗（确认后提交仍继续）
       if(date==='2026-10-30' && (team_id===1 || team_id===2)){ p55gDriverCancelConfirm(doSubmitAtt); } else { doSubmitAtt(); }
