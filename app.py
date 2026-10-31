@@ -1341,6 +1341,27 @@ def _filter_dismissed_empty_salary(result, employees, month, data_folder=None):
         return result
 
 
+def _attach_current_department(result, data_folder=None):
+    """薪资行附加 current_department（employees 表最新主档部门，含离职者）。
+    部门重整期间历史月基线未回溯，行内 department（当月基线）与员工档案页显示的
+    最新部门可能不同；前端薪资总表部门筛选统一按档案最新部门口径（2026-10-31
+    用户明令），与 /daily-wages 端点的部门改写同源（employees 表），不依赖
+    /api/employees（不含离职者）导致离职保留行漏筛。"""
+    try:
+        from core.database import get_conn
+        conn = get_conn(data_folder or app.config.get('DATA_FOLDER'))
+        _dept = {str(r['id']): (r['department'] or '')
+                 for r in conn.execute("SELECT id, department FROM employees").fetchall()}
+        conn.close()
+    except Exception:
+        return result
+    for _e in (result or {}).get('employees', []):
+        _dn = _dept.get(str(_e.get('employee_id') or _e.get('id')))
+        if _dn:
+            _e['current_department'] = _dn
+    return result
+
+
 def _run_pipeline(month_filter=None):
     """
     纯采集模式：从数据库重建并计算，落 MONTH_CACHE 并同步 APP_STATE 别名。
@@ -1464,6 +1485,8 @@ def _run_pipeline(month_filter=None):
 
     # P38: 输出层过滤——离职且当月无任何工资/记录的员工行剔除（有出勤/计薪的离职者保留）
     _filter_dismissed_empty_salary(result, employees, month_filter, app.config.get('DATA_FOLDER'))
+    # 薪资行附加主档最新部门（前端部门筛选口径，2026-10-31）
+    _attach_current_department(result, app.config.get('DATA_FOLDER'))
 
     # P44: headless 判定与日期生成已前置到 calculate_all 之前（保证 month_prefix 正确），
     # 此处不再重复处理。

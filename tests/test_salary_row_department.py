@@ -108,3 +108,11 @@ def test_salary_row_department_fallback_current_dept(app_ctx):
         data_folder=data_folder, bonus_penalties={})
     row = next(r for r in res['employees'] if r['employee_id'] == 'EMP2')
     assert row['department'] == 'Mining Department'
+
+
+def test_attach_current_department(app_ctx):
+    """薪资行附加 current_department = employees 表最新主档部门（含离职者）"""
+    appmod, data_folder = app_ctx
+    result = {'employees': [{'employee_id': 'EMP1', 'name': 'EMP1'}]}
+    appmod._attach_current_department(result, data_folder)
+    assert result['employees'][0]['current_department'] == 'Crushing Team'
