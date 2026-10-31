@@ -4382,7 +4382,9 @@ def rebuild_main_data_from_collections(main_data):
 def _reapply_driver_flags_for_date(data_folder, date):
     """C4: 清除某日 driver 标志后从所有来源重设：
     (a) 旧 underground payload day/night.drivers
-    (b) attendance submissions drivers array"""
+    (b) attendance submissions drivers array
+    P55g(2026-10-31): 命中 DRIVER_ALLOWANCE_CANCELLED 的（日期,班组）不重设 driver
+    标志——司机奖金取消（出勤照常提交落库，前端提交时弹英文提醒）"""
     from core.database import get_collection_submissions, mark_driver_flag, clear_driver_flags_for_date
     clear_driver_flags_for_date(data_folder, date)
     subs = get_collection_submissions(data_folder)
@@ -4393,15 +4395,25 @@ def _reapply_driver_flags_for_date(data_folder, date):
             payload = json.loads(s.get('payload', '{}'))
         except (TypeError, ValueError):
             continue
+        _cancelled = (date, int(s.get('team_id') or 0)) in DRIVER_ALLOWANCE_CANCELLED
         if s.get('form_type') == 'underground':
+            if _cancelled:
+                continue
             drivers = []
             for _shift in ('day', 'night'):
                 drivers += (payload.get(_shift) or {}).get('drivers') or []
             for _eid in drivers:
                 mark_driver_flag(data_folder, _eid, date)
         elif s.get('form_type') == 'attendance':
+            if _cancelled:
+                continue
             for _eid in (payload.get('drivers') or []):
                 mark_driver_flag(data_folder, _eid, date)
+
+# P55g(2026-10-31): 司机奖金取消规则——(date, team_id) 集合。命中的出勤提交不设置
+# driver 标志（出勤照常提交落库，前端提交时弹英文提醒，如有疑问联系 BASIKILI）。
+# 当前规则：LAMBA LAMBA(team 1)/SAKA SAKA(team 2) 的 2026-10-30 司机奖金取消（用户指令）。
+DRIVER_ALLOWANCE_CANCELLED = {('2026-10-30', 1), ('2026-10-30', 2)}
 
 def _reapply_driver_flags():
     """B1: 全量重建 main_data 后重设井下 driver 标志（遍历日期委托到单日 helper）"""
@@ -5394,7 +5406,8 @@ def collection_submit():
             except ValueError as e:
                 return jsonify({'ok': False, 'error': str(e)}), 400
         # 标记 driver flag（通过 helper 重设，保证与旧地下 drivers 合并一致）
-        if drivers:
+        # P55g: 命中司机奖金取消规则（LAMBA/SAKA 10-30）的提交不设置 driver 标志
+        if drivers and (date, int(payload.get('team_id') or 0)) not in DRIVER_ALLOWANCE_CANCELLED:
             for _eid in drivers:
                 try:
                     mark_driver_flag(app.config['DATA_FOLDER'], str(_eid), date)

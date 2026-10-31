@@ -1905,6 +1905,21 @@
   }
   // 班组名注入（对齐 web 端 colRowTeam）：井下部门历史行后追加「· 班组名」
   function _mobNormDept(s){ return (s||'').replace(/\s+/g,'').replace(/（/g,'(').replace(/）/g,')').toUpperCase(); }
+  /* P55g: 司机奖金取消确认弹窗（英文，用户指定文案 BASIKILI）——确认后执行 onOk */
+  function p55gDriverCancelConfirm(onOk){
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    ov.innerHTML='<div style="background:#fff;color:#111;max-width:320px;width:86%;border-radius:14px;padding:20px;font-size:14px;box-shadow:0 10px 40px rgba(0,0,0,.3);text-align:center;">'
+      +'<div style="font-weight:700;font-size:15px;margin-bottom:10px;color:#b45309;">&#9888; Driver Allowance Cancelled</div>'
+      +'<div style="line-height:1.6;margin-bottom:16px;">Driver allowance has been cancelled for today.<br>If you have any questions, please contact <b>BASIKILI</b>.</div>'
+      +'<div style="display:flex;gap:10px;">'
+      +'<button id="p55gCancel" style="flex:1;padding:10px;border-radius:9px;border:1px solid #ddd;background:#f3f4f6;color:#111;font-size:13px;">Cancel</button>'
+      +'<button id="p55gOk" style="flex:1;padding:10px;border-radius:9px;border:none;background:#b45309;color:#fff;font-size:13px;font-weight:600;">OK, Submit</button>'
+      +'</div></div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#p55gCancel').onclick=()=>ov.remove();
+    ov.querySelector('#p55gOk').onclick=()=>{ ov.remove(); onOk(); };
+  }
   // P55c: 搜索空白归一——双空格名字(如 ALLY  MUSSA ALLY)用单空格也能命中
   function _normWs(s){ return (s||'').toLowerCase().trim().replace(/\s+/g,' '); }
   // 2026-11 组织重组：井下/破碎部门新旧名双名集合（历史月调岗时间线仍携带旧名，必须兼容）
@@ -2843,7 +2858,9 @@
     if(isUg){
       const team_id=parseInt(document.getElementById('attTeamSel').value,10)||0;
       const drivers=list.filter(e=>{ const cb=document.getElementById('attDrv'+e.id); return cb && cb.checked; }).map(e=>String(e.id));
-      colSubmit('attendance', { submission_date:date, department:deptEl.value, team_id, marks, drivers }, null);
+      const doSubmitAtt=()=>colSubmit('attendance', { submission_date:date, department:deptEl.value, team_id, marks, drivers }, null);
+      // P55g: LAMBA(1)/SAKA(2) 2026-10-30 司机奖金取消——提交前英文提醒弹窗（确认后提交仍继续）
+      if(date==='2026-10-30' && (team_id===1 || team_id===2)){ p55gDriverCancelConfirm(doSubmitAtt); } else { doSubmitAtt(); }
     } else {
       colSubmit('attendance', { submission_date:date, marks, department:deptEl.value }, null);
     } }

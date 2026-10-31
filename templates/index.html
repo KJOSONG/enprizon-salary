@@ -10137,6 +10137,16 @@ async function submitAttCollection() {
     }
   }
   const payload = isUg ? { department: dept, team_id: teamId, marks, drivers } : { marks, department: dept };
+  // P55g: LAMBA(1)/SAKA(2) 2026-10-30 司机奖金取消——提交前英文提醒弹窗（确认后提交仍继续）
+  const doSubmitAtt = async () => { await submitColPayload('attendance', date, payload, 'colAttHistory'); };
+  if (date === '2026-10-30' && isUg && (teamId === 1 || teamId === 2)) {
+    p55gDriverCancelConfirm(doSubmitAtt);
+    return;
+  }
+  // P55g: LAMBA(1)/SAKA(2) 2026-10-30 司机奖金取消——提交前英文提醒（提交仍可继续）
+  if (date === '2026-10-30' && isUg && (teamId === 1 || teamId === 2)) {
+    if (!confirm('Driver allowance has been cancelled for today. If you have any questions, please contact BASIKILI.')) return;
+  }
   // P37: 调休余额预检——标记 T 的员工余额不足则整单阻断，明确提示改选其他出勤状态（后端预检仍兜底）
   const tMarks = marks.filter(m => m.status === 'T');
   if (tMarks.length) {
@@ -10154,7 +10164,23 @@ async function submitAttCollection() {
     }
     if (noBal.length) { showToast(t('col_t_balance_block') + noBal.join('、'), 'error'); return; }
   }
-  await submitColPayload('attendance', date, payload, 'colAttHistory');
+  await doSubmitAtt();
+}
+
+/* P55g: 司机奖金取消确认弹窗（英文，用户指定文案 BASIKILI）——确认后执行 onOk */
+function p55gDriverCancelConfirm(onOk) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML = '<div style="background:#fff;color:#111;max-width:360px;width:88%;border-radius:14px;padding:20px;font-size:14px;box-shadow:0 10px 40px rgba(0,0,0,.3);text-align:center;">'
+    + '<div style="font-weight:700;font-size:15px;margin-bottom:10px;color:#b45309;">&#9888; Driver Allowance Cancelled</div>'
+    + '<div style="line-height:1.6;margin-bottom:16px;">Driver allowance has been cancelled for today.<br>If you have any questions, please contact <b>BASIKILI</b>.</div>'
+    + '<div style="display:flex;gap:10px;">'
+    + '<button id="p55gCancel" style="flex:1;padding:9px;border-radius:9px;border:1px solid #ddd;background:#f3f4f6;color:#111;font-size:13px;">Cancel</button>'
+    + '<button id="p55gOk" style="flex:1;padding:9px;border-radius:9px;border:none;background:#b45309;color:#fff;font-size:13px;font-weight:600;">OK, Submit</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#p55gCancel').onclick = () => ov.remove();
+  ov.querySelector('#p55gOk').onclick = () => { ov.remove(); onOk(); };
 }
 
 async function submitUgCollection() {
