@@ -6054,8 +6054,14 @@ async function renderSalaryTable(result) {
   // 懒初始化：首次渲染薪资表时填充部门下拉框（2026-11 两级化）
   const deptSel = document.getElementById('salaryFilterDept');
   if (deptSel && deptSel.options.length === 1) {
+    // 部门下拉改用行内当月基线部门（与逐日明细同口径）；旧缓存行无 department 时回退主档
+    const _empDeptMap = {};
+    (STATE._empAll || []).forEach(e => { _empDeptMap[String(e.id)] = e.department || ''; });
     const depts = new Set();
-    (STATE._empAll || result.employees).forEach(e => { if (e.department) depts.add(e.department); });
+    (result.employees || []).forEach(e => {
+      const d = e.department || _empDeptMap[String(e.employee_id || e.id)] || '';
+      if (d) depts.add(d);
+    });
     deptSel.innerHTML += buildDeptOptionsHTML(filterTreeDepts([...depts]), '');
   }
   // R3: show team filter when UG dept selected
@@ -6099,7 +6105,8 @@ function filterSalaryTable() {
       if (!nameHit && !aliasHit && !numHit) return false;
     }
     if (ft && e.salary_type !== ft) return false;
-    if (fd && (deptMap[e.employee_id || e.id]||'') !== fd) return false;
+    // 部门筛选优先用行内当月基线部门（与逐日明细/实际计薪归属同口径）；旧缓存行回退主档映射
+    if (fd && ((e.department || (deptMap[e.employee_id || e.id] || '')) !== fd)) return false;
     // R3: team filter
     if (salaryTeamFilter && STATE._teamData) {
       const eid = e.employee_id || e.id;

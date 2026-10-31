@@ -1732,6 +1732,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
         result_employees.append({
             'employee_id': eid, 'name': emp['name'], 'salary_type': eff_type,
+            'department': emp.get('department', ''),
             'piece_underground': pu, 'piece_driller': pd_val,
             'piece_crush': cr_total, 'day_rate': dr_total, 'monthly': ms_total,
             'overtime': ot, 'bonus': bonus, 'driver_allowance': driver_allowance,
