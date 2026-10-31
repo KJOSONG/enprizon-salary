@@ -16,6 +16,44 @@ PRICES_UNDERGROUND = {'NICKEL（H）': 6000, 'NICKEL（L）': 5000, 'MAWE': 4000
 PRICES_DRILLER = {'NICKEL（H）': 5000, 'NICKEL（L）': 4000, 'MAWE': 3000}
 PRICE_CRUSH = 300  # TZS/bag
 
+
+# ── P57: MW 1.5× 增量奖金（2026-10 BARAKA LAIZER 确认清单）─────────────
+# settings 键 mw_15x_bonus_<YYYY-MM>：{"per_trip_extra": 1500,
+#   "entries": [{"date": "2026-10-13", "team_id": 1, "trips": 11}, ...]}
+# 语义：确认清单车次的 MW 按 4500/车（=正常 MW 价 3000×1.5）计酬，增量 1500/车
+# 平坦叠加到当日班组池之后、按同一 _valid 出勤名单均分；
+# 不乘当日加速倍数（总车数/40），也不计入总车数（不影响原倍数计算）。
+def _load_mw15x_month(data_folder, month_prefix):
+    """读取 settings 确认清单 → {(date, team_id): trips×per_trip_extra}。无配置返回空 dict。"""
+    out = {}
+    if not data_folder:
+        return out
+    db_path = os.path.join(data_folder, 'kilwa.db')
+    if not os.path.exists(db_path):
+        return out
+    try:
+        import sqlite3
+        import json as _json
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT value FROM settings WHERE key=?",
+                           (f'mw_15x_bonus_{month_prefix}',)).fetchone()
+        conn.close()
+        if row and row[0]:
+            data = _json.loads(row[0])
+            per = float(data.get('per_trip_extra') or 0)
+            for e in (data.get('entries') or []):
+                try:
+                    key = (str(e.get('date') or ''), int(e.get('team_id') or 0))
+                    if not key[0] or key[1] <= 0:
+                        continue
+                    out[key] = out.get(key, 0) + int(e.get('trips') or 0) * per
+                except (TypeError, ValueError):
+                    continue
+    except Exception:
+        return {}
+    return out
+
+
 # P21 R4: 井下计件目标部门（注意 DB 实际值含空格 + 全角括号，匹配一律经 _norm_dept 规范化）
 # 2026-11 组织重组：DB 值改为 'Production TEAM'，历史 dept_day_map/月台账仍携带旧名，
 # 故判定一律用 _UG_DEPT_SET 双名兼容（历史月薪资逐分不变），禁止裸字符串比较。
@@ -294,6 +332,7 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
     daily = defaultdict(lambda: defaultdict(float))
     daily_shifts = defaultdict(lambda: defaultdict(set))  # daily_shifts[eid][date] = {'D','N'}
     v2_warnings = []  # V2: team_id==0 shifts skipped
+    _mw15x_maps = {}  # P57: 月度 MW 1.5× 增量映射 memo（月键 → {(date, team_id): 增量总额}）
 
     v2_active = (mode == 'v2' and pricing is not None)
     v2_accel_target = int(pricing.get('accel_target', 40) or 40) if v2_active else 40
@@ -442,6 +481,19 @@ def calc_underground_piece(shift_data, exclusions, override_excludes, data_folde
                         result[_eid] += _per
                         daily[_eid][date_str] += _per
                         daily_shifts[_eid][date_str].add(str(_tid))
+                # P57: MW 1.5× 增量平坦叠加（不乘加速倍数、不计入总车数），
+                # 与当日班组池同一 _valid 名单均分；池为 0 的日子随上方 continue 跳过
+                _mp = date_str[:7]
+                if _mp not in _mw15x_maps:
+                    _mw15x_maps[_mp] = _load_mw15x_month(data_folder, _mp)
+                _extra_amt = _mw15x_maps[_mp].get((date_str, _tid))
+                if _extra_amt:
+                    _per_x = _extra_amt / len(_valid)
+                    for _e in _valid:
+                        _eid = make_employee_id(_e)
+                        if _eid:
+                            result[_eid] += _per_x
+                            daily[_eid][date_str] += _per_x
             continue
         day_emps = day.get('day_emps', [])
         night_emps = day.get('night_emps', [])
