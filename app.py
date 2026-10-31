@@ -4257,6 +4257,40 @@ def _apply_transfer_day_view(data_folder, employees, date):
         out.append(e2)
     return out
 
+def _crush_slot_of(sub):
+    """P57: 读取一条破碎提交的组别（payload.slot，缺省 1）"""
+    try:
+        return max(int((json.loads(sub.get('payload') or '{}')).get('slot') or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _crush_slot_taken(data_folder, date, slot, exclude_id=None):
+    """P57: 破碎同日同组别占用检查（exclude_id=编辑中的提交 id）。存量 payload 无 slot 视为组 1。"""
+    from core.database import get_conn
+    conn = get_conn(data_folder)
+    try:
+        rows = conn.execute(
+            "SELECT id, payload FROM collection_submissions WHERE form_type='crush' AND submission_date=?",
+            (date,)).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        if exclude_id is not None and str(r['id']) == str(exclude_id):
+            continue
+        try:
+            p = json.loads(r['payload'] or '{}')
+        except (TypeError, ValueError):
+            p = {}
+        try:
+            s = max(int(p.get('slot') or 1), 1)
+        except (TypeError, ValueError):
+            s = 1
+        if s == int(slot):
+            return True
+    return False
+
+
 def _merge_collection_to_main_data(main_data, form_type, date, payload):
     """P9: 单条采集提交合并进 main_data（Web 采集覆盖 Excel 同日期）"""
     _, _names = _collection_payload_names(payload, form_type)
@@ -4350,10 +4384,16 @@ def _merge_collection_to_main_data(main_data, form_type, date, payload):
             else:
                 driller.append(rec)
     elif form_type == 'crush':
+        # P57: 破碎同日多组（slot 1/2，镜像钻工 P54）——按 (date, slot) 独立成池；
+        # 存量 payload 无 slot → 1；同人两组金额由 calc_crush_piece 各自均分后相加
+        try:
+            _slot = max(int(payload.get('slot') or 1), 1)
+        except (TypeError, ValueError):
+            _slot = 1
         crush = main_data.setdefault('crush_production', [])
-        rec = {'date': date, 'bags': payload.get('bags', 0), 'personnel': _names(payload.get('emps'))}
+        rec = {'date': date, 'slot': _slot, 'bags': payload.get('bags', 0), 'personnel': _names(payload.get('emps'))}
         for i, x in enumerate(crush):
-            if x.get('date') == date:
+            if x.get('date') == date and int(x.get('slot', 1) or 1) == _slot:
                 crush[i] = rec
                 return
         crush.append(rec)
@@ -5188,6 +5228,13 @@ def collection_submit():
         return jsonify({'ok': False, 'error': '缺少日期', 'error_key': 'val_date'}), 400
     if date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期', 'error_key': 'col_future_date'}), 400
+    # P57: 破碎同日多组（slot 1/2，镜像钻工 P54）——归一化组别（存量无 slot 视为组 1）；
+    # 同组重提=替换（走下方 ex 匹配）、异组=独立新池（ex 按 (日期,slot) 匹配自然错开）
+    if form_type == 'crush':
+        try:
+            payload['slot'] = max(int(payload.get('slot') or 1), 1)
+        except (TypeError, ValueError):
+            payload['slot'] = 1
     # P38: 井下出渣新格式 teams 中豁免班组必须带非空备注（旧格式 day/night 历史数据零改动）
     if form_type == 'underground':
         _exempt_err = _ug_exempt_remark_error(payload)
@@ -5501,6 +5548,7 @@ def collection_submit():
                         'submission_ids': _dsids, 'team_ids': []})
 
     existing = get_collection_submissions(app.config['DATA_FOLDER'], form_type=form_type)
+    # P57: crush 的 ex 匹配含 slot 维度——同日同组=替换（编辑语义），同日异组=无 ex → 新插入独立成池
     if form_type == 'attendance' and dept:
         if _is_ug_dept(dept) and att_team_id is not None:
             ex = next((e for e in existing if e['submission_date'] == date
@@ -5508,6 +5556,9 @@ def collection_submit():
         else:
             ex = next((e for e in existing if e['submission_date'] == date
                        and (e.get('department') or '') == dept), None)
+    elif form_type == 'crush':
+        ex = next((e for e in existing if e['submission_date'] == date
+                   and _crush_slot_of(e) == int(payload.get('slot') or 1)), None)
     else:
         ex = next((e for e in existing if e['submission_date'] == date), None)
     # P39-b: 混合格式守卫（submit 侧对称）——旧格式 underground 提交命中同日新版班组行时拒绝
@@ -5653,6 +5704,12 @@ def collection_history():
                     s['team_slot'] = int(_teams[0].get('slot') or 0)
             except (TypeError, ValueError):
                 s['team_slot'] = 0
+        elif s.get('form_type') == 'crush':
+            # P57: 破碎同日多组——历史行组别角标（组 1/组 2，存量无 slot 视为 1）
+            try:
+                s['team_slot'] = max(int(_pl.get('slot') or 1), 1)
+            except (TypeError, ValueError):
+                s['team_slot'] = 1
     from core.database import load_dismissed
     try:
         dismissed_ids = sorted(load_dismissed(app.config['DATA_FOLDER']))
@@ -6274,6 +6331,18 @@ def collection_edit(submission_id):
                 _reapply_driver_flags_for_date(app.config['DATA_FOLDER'], old_date)
         except Exception:
             pass
+    # P57: 破碎同日多组——编辑落库前组别占用校验（排除本提交自身；日期变更按新日期查）
+    if form_type == 'crush':
+        try:
+            payload['slot'] = max(int(payload.get('slot') or 1), 1)
+        except (TypeError, ValueError):
+            payload['slot'] = 1
+        if _crush_slot_taken(app.config['DATA_FOLDER'], new_date, payload['slot'],
+                             exclude_id=submission_id):
+            return jsonify({'ok': False,
+                            'error': f'该日期「组 {payload["slot"]}」已有提交，请改选另一组或编辑原提交',
+                            'error_key': 'col_crush_slot_taken',
+                            'error_params': {'n': payload['slot']}}), 400
     # 落库：marks 处理（OA routing/预检/直写）全部通过后才更新提交行（防 T 预检失败 payload 被改写）
     if new_date != old_date:
         if _merge_target_id is not None:

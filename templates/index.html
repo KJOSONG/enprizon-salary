@@ -3700,7 +3700,12 @@ function renderCrushTable() {
 
   const dates = data.crush_production.map(d => d.date).sort();
   const dateMap = {};
-  data.crush_production.forEach(d => { dateMap[d.date] = d; });
+  // P57: 破碎同日多组——聚合（袋数累加、人数累加），不再按日覆盖
+  data.crush_production.forEach(d => {
+    const m = dateMap[d.date];
+    if (m) { m.bags = (m.bags || 0) + (d.bags || 0); m.personnel_count = (m.personnel_count || 0) + (d.personnel_count || 0); }
+    else dateMap[d.date] = { bags: d.bags || 0, personnel_count: d.personnel_count || 0 };
+  });
 
   let headHtml = '<tr><th class="crush-col-date" data-i18n="dash_crush_item">项目</th>';
   let bagsHtml = '<tr><td class="crush-col-date crush-label" data-i18n="dash_crush_bags">袋数</td>';
@@ -8897,9 +8902,12 @@ async function loadColHistory(formType, containerId) {
           }
         } catch(e) {}
         // P55: 钻工/出渣历史行部门列直显队伍——department 恒空，用后端解析的 team_label（钻工=队长名，出渣=班组名）+ Team N 角标
-        const drLabel = (!d && s.team_label && (formType === 'driller' || formType === 'underground'))
+        // P57: 破碎同日多组——破碎行部门列直显组别角标（组 1/组 2）
+        const drLabel = (!d && formType === 'crush' && s.team_slot > 0)
+          ? escHtml(t('col_group_n').replace('{n}', s.team_slot))
+          : ((!d && s.team_label && (formType === 'driller' || formType === 'underground'))
           ? escHtml(s.team_label) + (formType === 'driller' && s.team_slot > 0 ? ' <span style="color:var(--text-muted);font-size:11px;">· ' + escHtml(t('dr_team_n').replace('{n}', s.team_slot)) + '</span>' : '')
-          : '';
+          : '');
         return `
         <tr style="cursor:pointer;" onclick="previewColSubmission('${formType}','${s.id}','${containerId}')">
           <td>${s.submission_date}${exemptBadges}</td>
@@ -9039,7 +9047,9 @@ function renderColPayloadPreview(formType, payload, _sub, _containerId) {
     ).join('<div style="margin-top:4px;"></div>') + '</div>';
   }
   if (formType === 'crush') {
+    let _sl = 1; try { _sl = Math.max(parseInt(payload.slot || 1, 10) || 1, 1); } catch (e) {}
     return '<div style="font-size:12px;line-height:1.9;">'
+      + '<div>' + t('col_group') + ': ' + escHtml(t('col_group_n').replace('{n}', _sl)) + '</div>'
       + '<div>' + t('bags') + ': ' + fmt(payload.bags) + '</div>'
       + '<div>' + t('col_attendance') + ': ' + names(payload.emps) + '</div>'
       + (payload.remark ? '<div>' + t('remark') + ': ' + escHtml(payload.remark) + '</div>' : '')
@@ -9839,6 +9849,7 @@ function renderCrCollectionForm(payload) {
   const emps = payload.emps || [];
   document.getElementById('colCrForm').innerHTML = `
     <div class="form-row"><label style="min-width:70px;">${t('col_date')}</label><input type="date" id="crDate" value="${date}" max="${new Date().toISOString().slice(0, 10)}" style="${colInStyle(true)}"></div>
+    <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">${t('col_group')}</label><select id="crSlot" style="${colInStyle(true)}"><option value="1" ${((payload.slot||1)==1)?'selected':''}>${t('col_group_n').replace('{n}',1)}</option><option value="2" ${((payload.slot||1)==2)?'selected':''}>${t('col_group_n').replace('{n}',2)}</option></select></div>
     <div class="form-row" style="margin-top:10px;"><label style="min-width:70px;">Bags</label><input type="number" id="crBags" value="${payload.bags || 0}" min="0" step="1" style="${colInStyle(true)}"></div>
     <div class="form-row" style="margin-top:10px;align-items:center;">
       <label style="min-width:70px;">${t('col_attendance')}</label>
@@ -9861,6 +9872,7 @@ async function submitCrCollection() {
   if (!date) { showToast(t('pick_date'), 'error'); return; }
   const payload = {
     bags: parseInt(document.getElementById('crBags').value) || 0,
+    slot: Math.max(parseInt((document.getElementById('crSlot')||{}).value,10)||1,1),
     emps: (document.getElementById('crEmpsVal').value || '').split(',').filter(Boolean),
   };
   await submitColPayload('crush', date, payload, 'colCrHistory');

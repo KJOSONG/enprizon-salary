@@ -2037,7 +2037,10 @@
         // P55: 出渣/钻工行直显队伍——department 恒空，用后端解析的 team_label（出渣=班组名/多班组串联，钻工=队长名）+ Team N 角标；后端旧版无此字段时回退既有链路
         const _slotN = (s.form_type==='driller' && s.team_slot>0)
           ? '<span class="hist-sep">·</span><span class="hist-team">'+esc(t('dr_team_n').replace('{n}', s.team_slot))+'</span>' : '';
-        if((s.form_type==='underground' || s.form_type==='driller') && s.team_label){
+        // P57: 破碎同日多组——历史行直显组别角标（组 1/组 2）
+        if(s.form_type==='crush' && s.team_slot>0){
+          placeHTML='<span class="hist-team">'+esc(t('col_group_n').replace('{n}', s.team_slot))+'</span>';
+        } else if((s.form_type==='underground' || s.form_type==='driller') && s.team_label){
           placeHTML='<span class="hist-team">'+esc(s.team_label)+'</span>'+_slotN;
         } else if(isUG){
           const tid=_mobSubTeam(s);
@@ -2115,7 +2118,9 @@
           + '<div class="detail-line">'+t('col_members')+': '+esc(names(tm.members))+'</div>').join('');
     }
     if(ty==='crush'){
-      return '<div class="detail-line">'+t('bags')+': '+esc(p.bags||0)+'</div>'
+      let sl=1; try{ sl=Math.max(parseInt(p.slot||1,10)||1,1);}catch(e){}
+      return '<div class="detail-line">'+t('col_group')+': '+esc(t('col_group_n').replace('{n}', sl))+'</div>'
+        + '<div class="detail-line">'+t('bags')+': '+esc(p.bags||0)+'</div>'
         + '<div class="detail-line">'+t('col_attendance')+': '+esc(names(p.emps))+'</div>'
         + ((p.remark)?'<div class="detail-line">'+t('remark')+': '+esc(p.remark)+'</div>':'');
     }
@@ -2607,8 +2612,12 @@
 
   // 破碎计件
   async function renderCrForm(init){ const d=(init&&init.submission_date)||'';
+    // P57: 破碎同日多组（组 1/组 2）——组别选择器随日期动态重算占用（后端仍兜底 400）
+    const _editSid = (STATE._colEditing && STATE._colEditing.ty==='crush') ? String(STATE._colEditing.id) : '';
+    const _curSlot = Math.max(parseInt((init&&init.slot)||0,10)||0,0);
     document.getElementById('col-form').innerHTML='<div class="form-head"><span class="form-head__title">'+t('col_cr')+'</span></div>'
       + '<div class="field"><label class="field__label">'+t('date')+'</label><input type="date" id="colDate" value="'+d+'" max="'+new Date().toISOString().slice(0,10)+'" onchange="onMobColDateChange()"></div>'
+      + '<div class="field"><label class="field__label">'+t('col_group')+'</label><select id="crSlot"></select></div>'
       + '<div class="form-message" id="colFormMsg"></div>'
       + '<div class="field"><label class="field__label">'+t('bags')+'</label><input type="number" id="crBags" value="'+((init&&init.bags)||0)+'" min="0" inputmode="numeric" pattern="[0-9]*"></div>'
       + '<div class="field"><label class="field__label">'+t('crush_crew')+'</label><input type="hidden" id="crEmps"><div class="col-count-hint" id="crEmps-count">'+t('col_selected_count',{n:((init&&init.emps)||[]).length})+'</div><div id="crEmpsBox"></div></div>'
@@ -2617,6 +2626,28 @@
     // P40-g: 池按提交日期归属；P40-g2: 日期未选池为空并提示"请先选择日期"
     STATE._crDatePool = await mobDateViewPool(d);
     STATE._crEditEmps = (init && init.emps) || [];
+    // P57: 组别选择器随日期动态重算占用——已被同日其他提交占用的组置灰；
+    // 默认选中第一个空闲组（编辑模式锁定原组并豁免自身占用）
+    window._renderCrSlotOpts = function(){
+      const sel=document.getElementById('crSlot'); if(!sel) return;
+      const dd=((document.getElementById('colDate')||{}).value)||'';
+      const occ={};
+      (STATE._colSubs||[]).forEach(s=>{
+        if(s.form_type==='crush' && s.submission_date===dd && String(s.id)!==_editSid){
+          let sl=1; try{ sl=Math.max(parseInt((JSON.parse(s.payload||'{}').slot)||1,10)||1,1);}catch(e){}
+          occ[sl]=1;
+        }
+      });
+      let def=_curSlot;
+      if(!def || occ[def]){ def=[1,2].find(n=>!occ[n]) || def || 1; }
+      sel.innerHTML=[1,2].map(n=>{
+        const dis=occ[n] && n!==def;
+        return '<option value="'+n+'" '+(String(def)===String(n)?'selected':'')+(dis?' disabled':'')+'>'+esc(t('col_group_n').replace('{n}',n))+(dis?' · '+t('col_group_taken'):'')+'</option>';
+      }).join('');
+      sel.value=String(def);
+    };
+    _renderCrSlotOpts();
+    document.getElementById('colDate').addEventListener('change', ()=>setTimeout(window._renderCrSlotOpts, 400));
     renderCrEmpsBox();
   }
   // 破碎队员清单（日期变更后可重渲）；编辑模式员工池 = 原 emps 员工 ∪ crush 池,避免编辑保存时历史 Sort Crush 父部门员工丢失
@@ -2633,7 +2664,8 @@
     const bags=+document.getElementById('crBags').value||0;
     if(bags<=0){ colFailMsg('crush', t('val_bags')); return; }
     if(!ck('crEmps').length){ colFailMsg('crush', t('val_workers')); return; }
-    colSubmit('crush', { submission_date:date, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
+    const slot=Math.max(parseInt((document.getElementById('crSlot')||{}).value,10)||1,1);
+    colSubmit('crush', { submission_date:date, slot, bags, emps:ck('crEmps'), remark:document.getElementById('crRemark').value.trim() }, null); }
 
   // 出勤收集（需求5: 仅"其他"部门 — 除井下/钻工/破碎/分拣; C3: UG属单独分支带 team_id+drivers）
   // P32: 当日已批假期排除（NU/T/SK/L 已审批通过）——不显示、不提交
