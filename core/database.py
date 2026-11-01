@@ -4309,6 +4309,51 @@ def save_scoring_config(data_folder, data):
     conn.close()
 
 
+# ── 月度关账（closed_months） ─────────────────────────
+
+def get_closed_months(data_folder):
+    """关账月列表（settings.closed_months，JSON 数组，元素 'YYYY-MM'）。无记录返回 []。"""
+    conn = get_conn(data_folder)
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='closed_months'").fetchone()
+        if not row:
+            return []
+        try:
+            v = json.loads(row['value'])
+            return sorted(str(m) for m in v if isinstance(m, str) and len(m) == 7)
+        except Exception:
+            return []
+    finally:
+        conn.close()
+
+
+def set_month_closed(data_folder, month, closed, operator=''):
+    """关账（closed=True）/解锁（closed=False）某月，写审计 month_close/month_open。"""
+    if not (isinstance(month, str) and len(month) == 7):
+        raise ValueError('月份格式应为 YYYY-MM')
+    conn = get_conn(data_folder)
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='closed_months'").fetchone()
+        cur = []
+        if row:
+            try:
+                cur = [str(m) for m in json.loads(row['value']) if isinstance(m, str)]
+            except Exception:
+                cur = []
+        if closed:
+            if month not in cur:
+                cur.append(month)
+        else:
+            cur = [m for m in cur if m != month]
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('closed_months', ?)",
+                     (json.dumps(sorted(cur)),))
+        conn.commit()
+    finally:
+        conn.close()
+    log_audit(data_folder, 'month_open' if not closed else 'month_close', '',
+              json.dumps({'month': month}), operator=operator)
+
+
 # ── P4: 全局搜索 ──────────────────
 
 def search_all(data_folder, query, scope='all', include_dismissed=False):

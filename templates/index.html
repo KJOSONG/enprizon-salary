@@ -887,10 +887,21 @@
 
 <!-- ─── 页面: 薪资 ─── -->
 <div class="page" id="page-salary">
+  <div id="monthCloseBanner" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:var(--radius);background:var(--warning-bg,#FEF3C7);color:var(--warning,#B45309);font-size:13px;font-weight:600;border:1px solid var(--warning,#F59E0B);"></div>
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <h2 style="margin-bottom:0;" data-i18n="salary_title">全员工资表</h2>
-      <span id="salaryFilterStats" style="font-size:12px;color:var(--text-muted);"></span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span id="salaryFilterStats" style="font-size:12px;color:var(--text-muted);"></span>
+        <button id="btnMonthClose" onclick="toggleMonthClose()" style="display:none;padding:5px 12px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-secondary);color:var(--text);cursor:pointer;font-weight:600;"></button>
+      </div>
+    </div>
+    <div id="monthCloseConfirm" style="display:none;margin-bottom:12px;padding:12px;border:1px solid var(--warning,#F59E0B);border-radius:var(--radius);background:var(--bg-secondary);">
+      <div id="monthCloseConfirmText" style="font-size:13px;color:var(--text);margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-primary" onclick="confirmMonthClose()" style="padding:6px 14px;font-size:12px;" data-i18n="btn_confirm">确认</button>
+        <button class="btn-cancel" onclick="document.getElementById('monthCloseConfirm').style.display='none'" style="padding:6px 14px;font-size:12px;" data-i18n="btn_cancel">取消</button>
+      </div>
     </div>
     <div class="filter-bar" style="margin-bottom:12px;">
       <input type="text" id="salaryTableSearch" data-i18n-placeholder="ph_search" placeholder="搜索姓名..." oninput="filterSalaryTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg-secondary);color:var(--text);">
@@ -1759,6 +1770,8 @@ function _startNotifWatch() {
 const STATE = {
   employees: [],
   salaryResult: null,
+  closedMonths: [],
+  _monthClosePending: null,
   productionData: null,
   charts: {},
   currentOverrideEmp: null,
@@ -2153,6 +2166,7 @@ async function submitLogin() {
           const er = await fetch(api('/api/employees'));
           const ed = await er.json();
           STATE._empAll = STATE.employees = ed.employees;
+          refreshClosedMonths();
           renderSalaryTable(sd.result);
           renderEmployeeTable();
           populateMonthSelect(sd.result);
@@ -2846,6 +2860,7 @@ async function loadDashboard() {
           const er = await fetch(api('/api/employees'));
           const ed = await er.json();
           STATE._empAll = STATE.employees = ed.employees;
+          refreshClosedMonths();
           renderSalaryTable(sd.result);
           renderEmployeeTable();
           populateMonthSelect(sd.result);
@@ -6018,10 +6033,68 @@ async function recalculate() {
 }
 
 // ════════════════════════════════════════════════
+//  月度关账（2026-11-01）
+// ════════════════════════════════════════════════
+async function refreshClosedMonths() {
+  try {
+    const res = await fetch(api('/api/months/closed'));
+    const d = await res.json();
+    STATE.closedMonths = d.closed_months || [];
+  } catch(e) {}
+  updateMonthCloseUI();
+}
+function isMonthClosed(m) { return (STATE.closedMonths || []).includes(m); }
+function updateMonthCloseUI() {
+  const banner = document.getElementById('monthCloseBanner');
+  const btn = document.getElementById('btnMonthClose');
+  const conf = document.getElementById('monthCloseConfirm');
+  if (!banner || !btn) return;
+  const m = STATE.currentMonth;
+  const closed = isMonthClosed(m);
+  if (closed && m) {
+    banner.style.display = 'block';
+    banner.textContent = t('month_closed_banner').replace('{m}', m);
+  } else banner.style.display = 'none';
+  if (conf) conf.style.display = 'none';
+  if (isSuperAdmin() && m) {
+    btn.style.display = '';
+    btn.textContent = t(closed ? 'mc_btn_open' : 'mc_btn_close');
+  } else btn.style.display = 'none';
+}
+function toggleMonthClose() {
+  const m = STATE.currentMonth;
+  if (!m) return;
+  const closed = isMonthClosed(m);
+  const box = document.getElementById('monthCloseConfirm');
+  const txt = document.getElementById('monthCloseConfirmText');
+  STATE._monthClosePending = !closed;
+  txt.textContent = t(closed ? 'mc_confirm_open' : 'mc_confirm_close').replace('{m}', m);
+  box.style.display = 'block';
+}
+async function confirmMonthClose() {
+  const m = STATE.currentMonth;
+  const closed = STATE._monthClosePending;
+  try {
+    const res = await authFetch(api('/api/months/close'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({month: m, closed})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      STATE.closedMonths = d.closed_months || [];
+      showToast(t('mc_done'));
+    } else showToast(d.message || d.error || t('toast_operation_fail'), 'error');
+  } catch(e) { showToast(t('toast_operation_fail'), 'error'); }
+  document.getElementById('monthCloseConfirm').style.display = 'none';
+  updateMonthCloseUI();
+}
+
+// ════════════════════════════════════════════════
 //  薪资表
 // ════════════════════════════════════════════════
 async function renderSalaryTable(result) {
   STATE._salaryResult = result;
+  updateMonthCloseUI();
   const tbody = document.querySelector('#salaryTable tbody');
   const salaryDa = (result.employees || []).reduce((s, e) => s + (e.driver_allowance || 0), 0);
   document.getElementById('salaryStats').innerHTML = `

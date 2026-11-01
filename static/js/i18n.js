@@ -226,6 +226,12 @@ const I18N_DICT = {
 
     /* ── 薪资 ── */
     salary_title: '全员工资表',
+    month_closed_banner: '🔒 {m} 已关账（只读）：采集提交、出勤标记、奖金/罚款/预支、改薪资及 OA 申请/审批均已锁定，如需修改请联系超管解锁',
+    mc_btn_close: '🔒 关账',
+    mc_btn_open: '🔓 解锁',
+    mc_confirm_close: '确认关账 {m}？关账后该月所有薪资相关操作将被锁定（采集提交、出勤标记、奖金/罚款/预支、改薪资、临时例外、OA 申请与审批），查看与导出不受影响。可随时由超管解锁。',
+    mc_confirm_open: '确认解锁 {m}？解锁后该月恢复所有写操作，改动将立即反映在薪资重算中。',
+    mc_done: '操作成功',
     salary_all_types: '全部类型',
     th_type: '类型',
     th_ug_piece: '生产薪资',
@@ -1615,6 +1621,12 @@ const I18N_DICT = {
 
     /* ── Salary ── */
     salary_title: 'Salary Table',
+    month_closed_banner: '🔒 {m} is CLOSED (read-only): collection submissions, attendance marks, bonus/penalty/advance, salary changes and OA apply/approve are locked. Contact a super admin to reopen.',
+    mc_btn_close: '🔒 Close Month',
+    mc_btn_open: '🔓 Reopen',
+    mc_confirm_close: 'Close {m}? All salary-related operations for this month will be locked (collection, attendance marks, bonus/penalty/advance, salary changes, temp overrides, OA apply/approve). Viewing and export remain available. A super admin can reopen anytime.',
+    mc_confirm_open: 'Reopen {m}? All write operations for this month will be unlocked and changes will be reflected immediately in payroll recalculation.',
+    mc_done: 'Done',
     salary_all_types: 'All Types',
     th_type: 'Type',
     th_ug_piece: 'Underground Piece Rate',

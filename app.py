@@ -1341,6 +1341,100 @@ def _filter_dismissed_empty_salary(result, employees, month, data_folder=None):
         return result
 
 
+def _closed_months():
+    """关账月列表（settings.closed_months）。读失败容错返回 []（不阻塞业务）。"""
+    try:
+        from core.database import get_closed_months
+        return get_closed_months(app.config.get('DATA_FOLDER')) or []
+    except Exception:
+        return []
+
+
+def _guard_months_closed(months):
+    """月度关账闸门：任一月份已关账 → (jsonify 响应, 409)；未关 → None。
+    months 为受影响的 'YYYY-MM' 集合（日期或月份均可，内部归一为前 7 位）。"""
+    try:
+        _ms = {str(m)[:7] for m in (months or []) if m}
+    except Exception:
+        _ms = set()
+    if not _ms:
+        return None
+    _hit = sorted(_ms & set(_closed_months()))
+    if _hit:
+        return jsonify({'ok': False, 'error': 'month_closed', 'months': _hit,
+                        'message': '月份 %s 已关账（只读），如需修改请联系超管先解锁' % ', '.join(_hit)}), 409
+    return None
+
+
+def _guard_any_closed():
+    """存在任一关账月即拒绝（用于永久覆盖类写操作——会影响历史月重算）。"""
+    _hit = _closed_months()
+    if _hit:
+        return jsonify({'ok': False, 'error': 'month_closed', 'months': _hit,
+                        'message': '存在已关账月份（%s），该操作会改变历史月薪资，请先解锁' % ', '.join(_hit)}), 409
+    return None
+
+
+def _event_closed_months(event):
+    """从 OA 事件提取受影响月份集合：effective_date + payload 日期 + 假期天数展开（有界）。"""
+    _ms = set()
+    try:
+        _eff = (event.get('effective_date') or '')[:7]
+        if _eff:
+            _ms.add(_eff)
+        _pl = {}
+        try:
+            _pl = json.loads(event.get('payload') or '{}')
+        except Exception:
+            _pl = event.get('payload') or {}
+        for _k in ('date', 'start_date'):
+            _v = (str(_pl.get(_k) or ''))[:7]
+            if len(_v) == 7:
+                _ms.add(_v)
+        # 假期类：start(effective_date) + days 展开跨月判定（clamp 62 天防哨兵值）
+        _days = _pl.get('days')
+        _base = str(event.get('effective_date') or _pl.get('date') or _pl.get('start_date') or '')
+        if _days and _base and len(_base) >= 10:
+            from datetime import date as _date, timedelta as _td
+            try:
+                _d0 = _date(int(_base[:4]), int(_base[5:7]), int(_base[8:10]))
+                for _i in range(min(int(_days), 62)):
+                    _ms.add((_d0 + _td(days=_i)).strftime('%Y-%m'))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return _ms
+
+
+def _month_span_months(s, e, cap=24):
+    """[s, e] 日期区间覆盖的月份集合（cap 封顶 24 个月防远期哨兵值 9999-12-31）。
+    s/e 为日期或月份，缺失取另一方；都缺返回空集。"""
+    try:
+        s = (s or '')[:7]; e = (e or '')[:7]
+        if len(s) != 7 and len(e) != 7:
+            return set()
+        if len(s) != 7:
+            s = e
+        if len(e) != 7:
+            e = s
+        if s > e:
+            s, e = e, s
+        out = set()
+        y, m = int(s[:4]), int(s[5:7])
+        ey, em = int(e[:4]), int(e[5:7])
+        for _ in range(cap):
+            out.add('%04d-%02d' % (y, m))
+            if (y, m) >= (ey, em):
+                break
+            m += 1
+            if m > 12:
+                y, m = y + 1, 1
+        return out
+    except Exception:
+        return set()
+
+
 def _attach_current_department(result, data_folder=None):
     """薪资行附加 current_department（employees 表最新主档部门，含离职者）。
     部门重整期间历史月基线未回溯，行内 department（当月基线）与员工档案页显示的
@@ -1854,6 +1948,16 @@ def save_override():
     except Exception:
         vm = resolve_month(request) if request else ''
     affected_month = (data.get('effective_from') or (data.get('start_date') or '')[:7] or vm)
+    # 月度关账闸门（2026-11-01）：临时例外按区间判；永久覆盖/ exclusion 在存在关账月时拒绝
+    if data.get('type') == 'exclusion':
+        resp = _guard_months_closed([((data.get('start_date') or data.get('date') or affected_month) or '')[:7]])
+    elif data.get('start_date') or data.get('end_date'):
+        resp = _guard_months_closed(_month_span_months(data.get('start_date') or data.get('end_date'),
+                                                        data.get('end_date') or data.get('start_date')))
+    else:
+        resp = _guard_any_closed()
+    if resp:
+        return resp
     if data.get('type') == 'exclusion':
         from core.exceptions import save_exclusion
         save_exclusion(app.config['DATA_FOLDER'], data)
@@ -1886,10 +1990,20 @@ def remove_override():
         vm = g.view_month
     except Exception:
         vm = resolve_month(request) if request else APP_STATE.get('month')
+    # 月度关账闸门（2026-11-01）：当前查看月已关账时禁止删除覆盖
+    resp = _guard_months_closed([vm])
+    if resp:
+        return resp
     remove_override(app.config['DATA_FOLDER'], data.get('employee_id'), data.get('index'))
     # perf-batch2 C1: 响应不依赖刷新后数据，失效后由下个读请求单飞重建
     _invalidate_month_cache(vm)
     _audit('remove_override', data.get('employee_id',''), json.dumps({'month': vm}))
+    return jsonify({'ok': True})
+
+
+@app.route('/employees/remove-override-gate', methods=['POST'])
+def _remove_override_gate():
+    """internal no-op placeholder (unused)"""
     return jsonify({'ok': True})
 
 @app.route('/employees/remove-temp-override', methods=['POST'])
@@ -1905,6 +2019,10 @@ def remove_temp_override():
         vm = g.view_month
     except Exception:
         vm = resolve_month(request) if request else APP_STATE.get('month')
+    # 月度关账闸门（2026-11-01）：批量删除临时例外影响所有区间月，存在关账月即拒绝
+    resp = _guard_any_closed()
+    if resp:
+        return resp
     import sqlite3, os
     db_path = os.path.join(app.config['DATA_FOLDER'], 'kilwa.db')
     conn = sqlite3.connect(db_path)
@@ -1929,8 +2047,17 @@ def remove_override_by_id():
     db_path = os.path.join(app.config['DATA_FOLDER'], 'kilwa.db')
     conn = sqlite3.connect(db_path)
     # capture affected month before delete for per-month invalidation
-    row = conn.execute("SELECT effective_from, start_date FROM overrides WHERE id=?", (oid,)).fetchone()
+    row = conn.execute("SELECT effective_from, start_date, end_date FROM overrides WHERE id=?", (oid,)).fetchone()
     affected = (row[0] if row and row[0] else (row[1][:7] if row and row[1] else '')) if row else ''
+    # 月度关账闸门（2026-11-01）：按该覆盖行影响的月份判（永久覆盖→存在关账月即拒绝）
+    if row:
+        if not (row[0] or row[1] or row[2]):
+            resp = _guard_any_closed()
+        else:
+            resp = _guard_months_closed(_month_span_months(row[0] or row[1], row[2] or row[1] or row[0]))
+        if resp:
+            conn.close()
+            return resp
     try:
         vm = g.view_month
     except Exception:
@@ -1974,6 +2101,10 @@ def save_bonus_penalty():
     penalty = data.get('penalty', 0)
     if not eid or not month:
         return jsonify({'ok': False, 'error': '缺少 employee_id 或 month'}), 400
+    # 月度关账闸门（2026-11-01）：关账月禁止改奖金/罚款
+    resp = _guard_months_closed([month])
+    if resp:
+        return resp
     from core.database import save_bonus_penalty as _save_bp
     _save_bp(app.config['DATA_FOLDER'], eid, month, bonus, penalty)
     _invalidate_month_cache(month[:7])
@@ -2252,6 +2383,10 @@ def api_create_employee_event(employee_id):
     
     if not effective_date:
         return jsonify({'ok': False, 'error': 'Date required'}), 400
+    # 月度关账闸门（2026-11-01）：事件生效日落关账月即拒绝
+    resp = _guard_months_closed([effective_date])
+    if resp:
+        return resp
     
     conn = get_conn(app.config['DATA_FOLDER'])
     conn.execute(
@@ -2426,6 +2561,16 @@ def api_employee_update(employee_id):
     """编辑员工基本信息（P21 M5/R6: 支持改名，旧名自动入 alias 并重建索引）"""
     from core.database import update_employee_fields, log_audit, get_conn
     data = request.get_json() or {}
+    # 月度关账闸门（2026-11-01）：薪资基数/类型直改在存在关账月时拒绝（会泄漏进历史月重算）；
+    # 部门/班组直改走基线台账月度隔离，仅按当前月判
+    if any(_k in data for _k in ('default_type', 'day_rate', 'monthly_salary')):
+        resp = _guard_any_closed()
+        if resp:
+            return resp
+    if any(_k in data for _k in ('department', 'team_id')):
+        resp = _guard_months_closed([datetime.now(EAT).strftime('%Y-%m')])
+        if resp:
+            return resp
     # 部门仅超级管理员可直改；非超管改不同部门值 → 拒绝（须走 OA 调岗审批）
     if 'department' in data and session.get('role') != 'super_admin':
         conn = get_conn(app.config['DATA_FOLDER'])
@@ -2496,6 +2641,10 @@ def api_employee_salary_type(employee_id):
     from datetime import datetime
     data = request.get_json() or {}
     st = data.get('salary_type', '')
+    # 月度关账闸门（2026-11-01）：直改薪资生效日落关账月即拒绝
+    resp = _guard_months_closed([(data.get('effective_month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m')])
+    if resp:
+        return resp
     if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
         return jsonify({'ok': False, 'error': '无效的薪资类别'}), 400
     # 基数必须为数字，否则 400（避免 int() 抛 ValueError → 500）
@@ -2843,6 +2992,13 @@ def oa_create_event():
             data['payload'] = _pl
     if not data.get('employee_id'):
         return jsonify({'ok': False, 'error': '缺少必填字段'}), 400
+    # 月度关账闸门（2026-11-01）：申请生效日落在关账月即拒绝（申请端拦截）
+    resp = _guard_months_closed(_event_closed_months({
+        'effective_date': data.get('effective_date'),
+        'payload': json.dumps(data.get('payload') or {}),
+    }))
+    if resp:
+        return resp
     # P40: 离职类事件（dismiss/resign）权威防护——
     # ① 员工已离职（employees.status='dismissed'）→ 拒绝；
     # ② 同员工已有 pending/approved 的 dismiss/resign 事件 → 拒绝重复提交。
@@ -3227,6 +3383,10 @@ def oa_approve_event(event_id):
                 return jsonify({'ok': False, 'error': 'transfer_salary_base_required'}), 400
         if _changed:
             event['payload'] = json.dumps(_pl, ensure_ascii=False)
+    # 月度关账闸门（2026-11-01）：批准会把假期/覆盖写进关账月
+    resp = _guard_months_closed(_event_closed_months(event))
+    if resp:
+        return resp
     # P28: 须在 approve_event 抢占状态之前入账——放后面会把批准卡死在无法回退的半途
     from core.database import accrue_comp_leave_monthly
     try:
@@ -3290,6 +3450,12 @@ def oa_reject_event(event_id):
     if not reason:
         return jsonify({'ok': False, 'error': '驳回原因不能为空'}), 400
     username = session.get('username', '')
+    # 月度关账闸门（2026-11-01）：驳回会把关账月日期落旷工 A
+    _ev_g = get_event(app.config['DATA_FOLDER'], event_id)
+    if _ev_g:
+        resp = _guard_months_closed(_event_closed_months(_ev_g))
+        if resp:
+            return resp
     ok = reject_event(app.config['DATA_FOLDER'], event_id, username, reason)
     if ok:
         event = get_event(app.config['DATA_FOLDER'], event_id)
@@ -3439,6 +3605,10 @@ def oa_revoke_event(event_id):
         return jsonify({'ok': False, 'error': '事件不存在'}), 404
     if event['status'] not in ('approved', 'pending'):
         return jsonify({'ok': False, 'error': '该事件状态不可撤销'}), 400
+    # 月度关账闸门（2026-11-01）：撤销会把关账月的假期/覆盖回退掉
+    resp = _guard_months_closed(_event_closed_months(event))
+    if resp:
+        return resp
     # 权限分支
     if event['status'] == 'approved':
         if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
@@ -3479,6 +3649,10 @@ def oa_edit_event(event_id):
         return jsonify({'ok': False, 'error': '事件不存在'}), 404
     if event['event_type'] not in ('annual_leave', 'comp_leave', 'sick', 'casual', 'overtime'):
         return jsonify({'ok': False, 'error': '该类型事件不支持修改'}), 400
+    # 月度关账闸门（2026-11-01）：修改/撤销涉及关账月日期的事件（含改期到关账月）
+    resp = _guard_months_closed(_event_closed_months(event))
+    if resp:
+        return resp
     # 权限（同 revoke）
     if event['status'] == 'approved':
         if not check_permission(app.config['DATA_FOLDER'], username, 'oa', 'approve'):
@@ -3753,6 +3927,10 @@ def attendance_batch_submit():
     if not data or 'date' not in data or 'marks' not in data:
         return jsonify({'ok': False, 'error': '缺少 date 或 marks'}), 400
     date = data['date']
+    # 月度关账闸门（2026-11-01）：关账月禁止批量出勤标记
+    resp = _guard_months_closed([date])
+    if resp:
+        return resp
     count = 0
     for m in data['marks']:
         eid = m.get('employee_id', '')
@@ -3893,6 +4071,13 @@ def oa_submit_leave():
                                       data.get('effective_date', ''), data.get('days', 1))
         if _ov:
             return _leave_overlap_400(_ov)
+    # 月度关账闸门（2026-11-01）：申请生效日/假期区间落在关账月即拒绝（申请端拦截）
+    resp = _guard_months_closed(_event_closed_months({
+        'effective_date': data.get('effective_date'),
+        'payload': json.dumps({'days': data.get('days', 1), 'date': data.get('effective_date')}),
+    }))
+    if resp:
+        return resp
     data['operator_id'] = session.get('username', 'unknown')
     data['payload'] = json.dumps({
         'days': data.get('days', 1),
@@ -3945,6 +4130,10 @@ def leave_sick():
     date = data.get('effective_date', '')
     if not eid or not date:
         return jsonify({'ok': False, 'error': '缺少员工或日期'}), 400
+    # 月度关账闸门（2026-11-01）：关账月禁止病假申请
+    resp = _guard_months_closed([date])
+    if resp:
+        return resp
     if not get_employee_profile(app.config['DATA_FOLDER'], eid):
         return jsonify({'ok': False, 'error': '员工不存在'}), 404
     try:
@@ -5251,6 +5440,10 @@ def collection_submit():
         return jsonify({'ok': False, 'error': '缺少日期', 'error_key': 'val_date'}), 400
     if date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期', 'error_key': 'col_future_date'}), 400
+    # 月度关账闸门（2026-11-01）：关账月禁止采集提交
+    resp = _guard_months_closed([date])
+    if resp:
+        return resp
     # P57: 破碎同日多组（slot 1/2，镜像钻工 P54）——归一化组别（存量无 slot 视为组 1）；
     # 同组重提=替换（走下方 ex 匹配）、异组=独立新池（ex 按 (日期,slot) 匹配自然错开）
     if form_type == 'crush':
@@ -5801,6 +5994,10 @@ def collection_edit(submission_id):
     sub = get_collection_submission(app.config['DATA_FOLDER'], submission_id)
     if not sub:
         return jsonify({'ok': False, 'error': '提交不存在'}), 404
+    # 月度关账闸门（2026-11-01）：关账月禁止编辑采集提交
+    resp = _guard_months_closed([(sub.get('submission_date') or '')[:7]])
+    if resp:
+        return resp
     # P29 T4 A8: 编辑者（含 admin）须持该表单键 collection:<form_type>，先于 owner-or-admin 判定
     from core.database import check_permission as _check_perm
     if not _check_perm(app.config['DATA_FOLDER'], username, 'collection', sub['form_type']):
@@ -6495,6 +6692,10 @@ def api_collection_exempt(submission_id):
         return jsonify({'ok': False, 'error': '提交不存在'}), 404
     if sub.get('form_type') != 'underground':
         return jsonify({'ok': False, 'error': '仅井下采集支持豁免切换'}), 404
+    # 月度关账闸门（2026-11-01）：关账月禁止豁免编辑
+    resp = _guard_months_closed([(sub.get('submission_date') or '')[:7]])
+    if resp:
+        return resp
     data = request.get_json() or {}
     # 判定新/旧格式：新含 team_id，旧含 shift
     try:
@@ -6580,6 +6781,10 @@ def api_collection_exempt(submission_id):
 @editor_required
 def production_shift_entry():
     data = request.get_json()
+    # 月度关账闸门（2026-11-01）：关账月禁止手动班次录入
+    resp = _guard_months_closed([(data.get('date') or '')[:7]])
+    if resp:
+        return resp
     from core.database import get_conn, log_audit
     conn = get_conn(app.config['DATA_FOLDER'])
     conn.execute(
@@ -7227,6 +7432,28 @@ def get_salary():
         res = {**res, 'month': month}
     return jsonify({'result': res, 'month': month, 'headless': bool(md.get('headless', False))})
 
+@app.route('/api/months/closed', methods=['GET'])
+@login_required
+def api_closed_months():
+    """关账月列表（前端横幅/按钮态用）"""
+    return jsonify({'ok': True, 'closed_months': _closed_months()})
+
+
+@app.route('/api/months/close', methods=['POST'])
+@super_admin_required
+def api_month_close():
+    """关账/解锁某月（仅超管）。body: {month: 'YYYY-MM', closed: bool}
+    关账后该月采集/出勤/薪资手动项/OA 申请与审批全部 409 拒绝（只读查看+导出不受影响）。"""
+    from core.database import set_month_closed
+    data = request.get_json(silent=True) or {}
+    month = (data.get('month') or '').strip()[:7]
+    closed = bool(data.get('closed', True))
+    if not MONTH_RE.match(month):
+        return jsonify({'ok': False, 'error': '月份格式应为 YYYY-MM'}), 400
+    set_month_closed(app.config['DATA_FOLDER'], month, closed, session.get('username', ''))
+    _invalidate_month_cache(month)
+    return jsonify({'ok': True, 'month': month, 'closed': closed, 'closed_months': _closed_months()})
+
 @app.route('/api/salary/inline-edit', methods=['POST'])
 @login_required
 @require_permission('employees', 'edit')
@@ -7248,6 +7475,10 @@ def api_salary_inline_edit():
         return jsonify({'ok': False, 'error': '不支持的字段'}), 400
     if not eid:
         return jsonify({'ok': False, 'error': '缺少 employee_id'}), 400
+    # 月度关账闸门（2026-11-01）：关账月禁止行内编辑奖金/罚款/预支
+    resp = _guard_months_closed([month])
+    if resp:
+        return resp
     old = None
     conn = get_conn(app.config['DATA_FOLDER'])
     row = conn.execute('SELECT 1 FROM employees WHERE id=?', (eid,)).fetchone()
@@ -7784,6 +8015,10 @@ def toggle_attendance():
         return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
     if get_attendance_status(app.config['DATA_FOLDER'], eid, date) == 'NU':
         return jsonify({'ok': False, 'error': 'NU（年假）状态由审批管理，禁止手动修改'}), 403
+    # 月度关账闸门（2026-11-01）：关账月禁止手动标记
+    resp = _guard_months_closed([date])
+    if resp:
+        return resp
     try:
         save_attendance_override(app.config['DATA_FOLDER'], eid, date, status, source=1)
     except ValueError as e:
