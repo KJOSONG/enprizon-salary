@@ -7941,11 +7941,15 @@ def export_salary():
     headers = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                'Day Rate(TZS)', 'Monthly(TZS)', 'Overtime(TZS)', 'Bonus(TZS)', 'Driver Allowance(TZS)',
                'Gross Total(TZS)', 'NSSF(TZS)', 'PAYE(TZS)', 'Company PAYE (50%)(TZS)',
-               'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)']
+               'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)', 'TIN Number', 'NSSF Number']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(1, col, h)
         cell.font = header_font; cell.fill = header_fill
         cell.alignment = header_align; cell.border = thin_border
+
+    # 证件号映射：薪资行不带 TIN/NSSF 号，从当月花名册（employees 表全量，含离职者）补齐
+    _idmap = {str(_e.get('id')): (_e.get('tin_number', '') or '', _e.get('nssf_number', '') or '')
+              for _e in (md_wrap.get('employees') if md_wrap else []) or []}
 
     type_map = {'piece_crush': 'Crush Piece', 'piece_underground': 'Underground Piece Rate', 'piece_driller': 'Driller Piece',
                 'day_rate': 'Day Rate', 'monthly': 'Monthly', 'both': 'Unspecified', 'advance_only': 'Advance Only', 'address_book': 'Address Book'}
@@ -7970,10 +7974,12 @@ def export_salary():
             paye, paye_half, penalty, int(emp.get('advance', 0) or 0),
             int(emp.get('net', 0) or 0),
         ]
+        _tin, _nssf_no = _idmap.get(str(emp.get('employee_id') or ''), ('', ''))
+        vals += [_tin, _nssf_no]
         for col, v in enumerate(vals, 1):
             cell = ws.cell(i, col, v); cell.border = thin_border
-            cell.alignment = Alignment(horizontal='left' if col == 1 else 'right')
-            if col > 1: cell.number_format = '#,##0'
+            cell.alignment = Alignment(horizontal='left' if col == 1 or col >= 18 else 'right')
+            if 1 < col < 18: cell.number_format = '#,##0'
 
     total_row = len(result['employees']) + 2
     ws.cell(total_row, 1, 'Total').font = Font(bold=True, size=11)
@@ -7992,7 +7998,7 @@ def export_salary():
     ws.cell(total_row, 17).fill = total_fill; ws.cell(total_row, 17).border = thin_border
     ws.cell(total_row, 17).number_format = '#,##0'
 
-    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16], 1):
+    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16, 20, 18], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     # Sheet 2: 产量（2026-10-26: 新格式按井下班组分组 NH/NL/MW；旧格式月保持原样）
@@ -8342,9 +8348,13 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         headers2 = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                     'Day Rate(TZS)', 'Monthly(TZS)', 'Overtime(TZS)', 'Bonus(TZS)', 'Driver Allowance(TZS)',
                     'Gross Total(TZS)', 'NSSF(TZS)', 'PAYE(TZS)', 'Company PAYE (50%)(TZS)',
-                    'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)']
+                    'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)', 'TIN Number', 'NSSF Number']
         for ci, h in enumerate(headers2, 1):
             c = ws2.cell(1, ci, h); c.font = hfont; c.fill = hfill; c.alignment = ha; c.border = tb
+
+        # 证件号映射：薪资行不带 TIN/NSSF 号，从当月花名册补齐（与 /export 同口径）
+        _idmap = {str(_e.get('id')): (_e.get('tin_number', '') or '', _e.get('nssf_number', '') or '')
+                  for _e in employees or []}
 
         _type_map2 = {'piece_crush':'Crush Piece','piece_underground':'Underground Piece Rate','piece_driller':'Driller Piece',
                       'day_rate':'Day Rate','monthly':'Monthly','both':'Unspecified','advance_only':'Advance Only','address_book':'Address Book'}
@@ -8367,10 +8377,12 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                 paye, paye_half, penalty, int(emp.get('advance',0) or 0),
                 int(emp.get('net', 0) or 0),
             ]
+            _tin, _nssf_no = _idmap.get(str(emp.get('employee_id') or ''), ('', ''))
+            vals += [_tin, _nssf_no]
             for ci, v in enumerate(vals, 1):
                 c = ws2.cell(i, ci, v); c.border = tb
-                c.alignment = Alignment(horizontal='left' if ci == 1 else 'right')
-                if ci > 1: c.number_format = '#,##0'
+                c.alignment = Alignment(horizontal='left' if ci == 1 or ci >= 18 else 'right')
+                if 1 < ci < 18: c.number_format = '#,##0'
 
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
@@ -8384,7 +8396,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         ws2.cell(tr, 17).font = Font(bold=True)
         ws2.cell(tr, 17).fill = total_fill; ws2.cell(tr, 17).border = tb
         ws2.cell(tr, 17).number_format = '#,##0'
-        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16], 1):
+        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16, 20, 18], 1):
             ws2.column_dimensions[chr(64+i)].width = w
         ws2.freeze_panes = 'A2'
 
