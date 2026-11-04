@@ -5038,6 +5038,32 @@ def _ug_exempt_remark_error(payload):
     return None
 
 
+def _ug_mzigo_remark_error(payload):
+    """MZIGO 备注必填（2026-11-04）：井下出渣备注必须注明 MZIGO 来自哪个钻工班组。
+
+    新格式：teams 中每个班组的 remark 必填；
+    旧格式：day/night 有产量（nh+nl+mw>0）的班次 remark 必填。
+    返回错误文案或 None。
+    """
+    _MZ = 'Please fill MZIGO from which driller team'
+    if not isinstance(payload, dict):
+        return None
+    if 'teams' in payload:
+        for _tm in (payload.get('teams') or []):
+            if isinstance(_tm, dict) and not str(_tm.get('remark') or '').strip():
+                return _MZ
+        return None
+    for _k in ('day', 'night'):
+        _sh = payload.get(_k) or {}
+        try:
+            _prod = float(_sh.get('nh') or 0) + float(_sh.get('nl') or 0) + float(_sh.get('mw') or 0)
+        except (TypeError, ValueError):
+            _prod = 0
+        if _prod > 0 and not str(_sh.get('remark') or '').strip():
+            return _MZ
+    return None
+
+
 # ── P39: 井下出渣新格式按班组分用户提交（班组级归属保护 + 按班组一行 upsert）──
 
 def _ug_team_tid(team_item):
@@ -5457,6 +5483,10 @@ def collection_submit():
         if _exempt_err:
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
+        # MZIGO 备注必填（2026-11-04）：井下出渣备注必须注明来自哪个钻工班组
+        _mzigo_err = _ug_mzigo_remark_error(payload)
+        if _mzigo_err:
+            return jsonify({'ok': False, 'error': _mzigo_err}), 400
         # P41: 设备故障豁免仅管理员可设——非管理员新提交任何豁免勾选 → 整单拒绝（治理采集人滥用）
         _ex41_err = _ug_exempt_role_error(payload, session.get('role') in ('admin', 'super_admin'))
         if _ex41_err:
@@ -6021,6 +6051,10 @@ def collection_edit(submission_id):
         if _exempt_err:
             return jsonify({'ok': False, 'error': _exempt_err,
                             'error_key': 'col_ug_exempt_remark_required'}), 400
+        # MZIGO 备注必填（2026-11-04）：井下出渣备注必须注明来自哪个钻工班组
+        _mzigo_err = _ug_mzigo_remark_error(payload)
+        if _mzigo_err:
+            return jsonify({'ok': False, 'error': _mzigo_err}), 400
         # P41: 设备故障豁免仅管理员可改——非管理员相对原记录的任何豁免变更 → 拒绝；
         # 存量已豁免记录原样保留放行，保证历史行日常补录不被挡
         try:

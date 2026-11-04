@@ -9496,7 +9496,7 @@ function renderUgTeamRows() {
         <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">NICKEL(L)</label><input type="number" data-idx="${idx}" class="ugTeamNl" value="${+row.nl || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].nl=parseFloat(this.value)||0"></div>
         <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" data-idx="${idx}" class="ugTeamMw" value="${+row.mw || 0}" min="0" step="0.1" style="${colInStyle()}" oninput="_ugTeamRows[${idx}].mw=parseFloat(this.value)||0"></div>
       </div>
-      <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:50px;">${t('remark')}${_exOn && !canUgExempt() ? ' · ' + t('col_readonly') : ''}</label><input data-idx="${idx}" class="ugTeamRemark" value="${escHtml(row.remark||'')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"${_exOn && !canUgExempt() ? ' disabled title="' + t('col_ug_exempt_readonly_hint') + '"' : ''} oninput="_ugTeamRows[${idx}].remark=this.value"></div>
+      <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:50px;">${t('remark')}<span style="color:#C00000;"> *</span>${_exOn && !canUgExempt() ? ' · ' + t('col_readonly') : ''}</label><input data-idx="${idx}" class="ugTeamRemark" value="${escHtml(row.remark||'')}" placeholder="Please fill MZIGO from which driller team" style="${colInStyle(true)}"${_exOn && !canUgExempt() ? ' disabled title="' + t('col_ug_exempt_readonly_hint') + '"' : ''} oninput="_ugTeamRows[${idx}].remark=this.value"></div>
       ${(() => {
         const _bx = 'margin-top:8px;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;';
         if (!canUgExempt()) {
@@ -9537,7 +9537,7 @@ async function _renderUgLegacyForm(payload) {
       <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">MAWE</label><input type="number" id="${prefix}Mw" value="${+data.mw || 0}" min="0" step="0.1" style="${colInStyle()}"></div>
     </div>`;
   const remarkRow = (prefix, label, locked) => `
-    <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}${locked ? ' · ' + t('col_readonly') : ''}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="${t('ph_optional')}" style="${colInStyle(true)}"${locked ? ' disabled' : ''}></div>`;
+    <div class="form-row" style="margin-top:6px;"><label style="font-size:12px;min-width:70px;">${label}<span style="color:#C00000;"> *</span>${locked ? ' · ' + t('col_readonly') : ''}</label><input id="${prefix}Remark" value="${escHtml((payload[prefix==='ugDay'?'day':'night']||{}).remark || '')}" placeholder="Please fill MZIGO from which driller team" style="${colInStyle(true)}"${locked ? ' disabled' : ''}></div>`;
   const attRow = (prefix, label, kw, dataKey) => `
     <div class="form-row" style="margin-top:6px;align-items:flex-start;">
       <label style="font-size:12px;min-width:70px;padding-top:4px;">${label} ${t('col_attendance')}</label>
@@ -10324,6 +10324,8 @@ async function submitUgCollection() {
     if (!payloadTeams.some(x=> (x.nh+x.nl+x.mw)>0 )) { showToast(t('pick_date'), 'error'); return; }
     // P38: 豁免班组必须填写豁免原因（备注）
     for (const tm of payloadTeams) { if (tm.exempt && !String(tm.remark||'').trim()) { showToast(t('col_ug_exempt_remark_required'), 'error'); return; } }
+    // MZIGO 备注必填（2026-11-04）：每个班组备注必须注明 MZIGO 来自哪个钻工班组
+    for (const tm of payloadTeams) { if (!String(tm.remark||'').trim()) { showToast('Please fill MZIGO from which driller team', 'error'); return; } }
     // P41: 设备故障豁免仅管理员可设——非管理员拦截（存量豁免继承行 _lockedExempt 的勾选与原因备注均须保持原值；后端另有硬校验）
     if (!canUgExempt()) {
       for (const r of _ugTeamRows) {
@@ -10381,6 +10383,9 @@ async function submitUgCollection() {
   }
   const pool = _colEmpPool || STATE._empAll || [];
   for (const shift of [{ label: 'DAY', data: payload.day }, { label: 'NIGHT', data: payload.night }]) {
+    // MZIGO 备注必填（2026-11-04）：旧格式有产量的班次备注必填
+    const _prod = (parseFloat(shift.data.nh)||0) + (parseFloat(shift.data.nl)||0) + (parseFloat(shift.data.mw)||0);
+    if (_prod > 0 && !String(shift.data.remark || '').trim()) { showToast('Please fill MZIGO from which driller team', 'error'); return; }
     if (shift.data.emps.length && !shift.data.team_id) {
       showToast(t('col_ug_team_required'), 'error'); return;
     }
