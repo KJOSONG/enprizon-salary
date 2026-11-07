@@ -312,9 +312,6 @@ def _ug_exception_active(eid, dt, ug_exc_intervals):
 
 # 业务时区：坦桑尼亚 UTC+3（服务器可能为其他时区，全系统统一以此为准）
 EAT = timezone(timedelta(hours=3))
-TODAY = datetime.now(EAT).date()
-CURRENT_MONTH = TODAY.month
-CURRENT_YEAR = TODAY.year
 
 # ═══════════════════════════════════════════════════════════
 #  1. 生产薪资计算
@@ -1339,7 +1336,8 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
         all_dates = sorted(set(
             list(d['date'] for d in shift_data if d.get('date')) +
             list(d['date'] for d in driller_data if d.get('date')) +
-            list(d['date'] for d in attendance_data if d.get('date'))
+            list(d['date'] for d in attendance_data if d.get('date')) +
+            list(d['date'] for d in crush_data if d.get('date'))
         ))
         for eid, ovs in overrides.items():
             for o in ovs:
@@ -1361,7 +1359,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
                         if end and dt > end: continue
                         range_exclusions.add((eid, dt))
 
-        # 临时计件例外：检查该员工当天是否有实际出勤记录（三个数据源都查）
+        # 临时计件例外：检查该员工当天是否有实际出勤记录（四个数据源都查，与 compute_daily_breakdown 对齐）
         for eid in list(per_date_type.keys()):
             for dt, dtype in list(per_date_type[eid].items()):
                 if dtype in ('piece_underground', 'piece_driller', 'piece_crush'):
@@ -1413,6 +1411,7 @@ def calculate_all(main_data, employees, overrides=None, exclusions=None, pricing
 
         all_shift_dates = sorted(set(
             list(d['date'] for d in shift_data if d.get('date')) +
+            list(d['date'] for d in driller_data if d.get('date')) +
             list(d['date'] for d in crush_data if d.get('date'))
         ))
         ug_type_excl = set()
@@ -2444,8 +2443,15 @@ def compute_scoring_pool(main_data, pricing):
     threshold = int(pricing.get('scoring_nh_threshold', 600) or 600)
     price     = int(pricing.get('scoring_nh_price', 20000) or 20000)
     # 采集产量允许一位小数（2026-08-24）：float 累加防逐日 int() 截断失真，末尾统一取整
+    # P30 格式分支：'teams' in day = 新格式（班组产量制），逐队累加 NICKEL（H）；
+    # 'day_prod' in day = 旧格式，白/夜班路径保留
     nh_count = 0.0
     for day in main_data.get('shift_production', []):
+        if 'teams' in day:
+            for _team in (day.get('teams') or []):
+                _prod = _team.get('prod') or {}
+                nh_count += float(_prod.get('NICKEL（H）', 0) or 0)
+            continue
         dp = day.get('day_prod') or {}
         np = day.get('night_prod') or {}
         nh_count += float(dp.get('NICKEL（H）', 0) or 0) + float(np.get('NICKEL（H）', 0) or 0)

@@ -2568,7 +2568,10 @@ def api_employee_update(employee_id):
         if resp:
             return resp
     if any(_k in data for _k in ('department', 'team_id')):
-        resp = _guard_months_closed([datetime.now(EAT).strftime('%Y-%m')])
+        # 审计修复#8（2026-11）：guard 月份与 _record_direct_base_change 落库口径一致
+        # （effective_month or 当前月），堵住"生效月=关账月但 guard 只判当前月"的绕过
+        resp = _guard_months_closed([(data.get('effective_month') or '')[:7]
+                                     or datetime.now(EAT).strftime('%Y-%m')])
         if resp:
             return resp
     # 部门仅超级管理员可直改；非超管改不同部门值 → 拒绝（须走 OA 调岗审批）
@@ -2613,7 +2616,11 @@ def api_employee_update(employee_id):
                   operator=session.get('username',''))
     # P23 R4: 基本字段/月薪基数变更后需刷新——perf-batch2 C1: 响应不依赖刷新后数据，
     # 改按原覆盖面（APP_STATE.month）失效，重建移交下个读请求
-    _invalidate_current_view_month()
+    # 审计修复#8（2026-11）：改按生效月份失效（effective_month or 当前月，与落库口径一致），
+    # 生效月及其后所有已缓存月份一并驱逐；缺省当前月时覆盖面与原 _invalidate_current_view_month()
+    # 为并集不缩小（perf-batch3 F2 helper，遍历现存键有界 ≤6）
+    _invalidate_month_cache_from((data.get('effective_month') or '')[:7]
+                                 or datetime.now(EAT).strftime('%Y-%m'))
     return jsonify({'ok': ok})
 
 def _record_direct_base_change(data, employee_id, old_row, note):
@@ -2641,8 +2648,11 @@ def api_employee_salary_type(employee_id):
     from datetime import datetime
     data = request.get_json() or {}
     st = data.get('salary_type', '')
+    # 审计修复#8（2026-11）：from_month 统一口径（effective_month or 当前月），与
+    # record_base_change 落库、事件 effective_date、缓存失效三处共用同一来源
+    from_month = (data.get('effective_month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m')
     # 月度关账闸门（2026-11-01）：直改薪资生效日落关账月即拒绝
-    resp = _guard_months_closed([(data.get('effective_month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m')])
+    resp = _guard_months_closed([from_month])
     if resp:
         return resp
     if st not in ('day_rate', 'monthly', 'piece_underground', 'piece_driller', 'piece_crush'):
@@ -2671,7 +2681,7 @@ def api_employee_salary_type(employee_id):
         old_salary = 0
     # 月度隔离：直改薪资 → 按生效月份记录基线（须在写主档前，旧值作基线）
     record_base_change(app.config['DATA_FOLDER'], employee_id,
-                       (data.get('effective_month') or '')[:7] or datetime.now(EAT).strftime('%Y-%m'),
+                       from_month,
                        new={'default_type': st, 'day_rate': day_rate, 'monthly_salary': monthly_salary},
                        operator_id=session.get('username', 'unknown'), note='直改薪资')
     ok = update_employee_salary_type(app.config['DATA_FOLDER'], employee_id,
@@ -2682,12 +2692,14 @@ def api_employee_salary_type(employee_id):
     # override_type 优先掩盖新 default_type（HALIMA 案例：day_rate 永久覆盖残留导致改月薪不生效）
     from core.database import clear_permanent_overrides
     clear_permanent_overrides(app.config['DATA_FOLDER'], employee_id)
-    # 写 salary_change 事件（approved，本月 1 号生效）→ 时间线记录 + 下月起覆盖推导
+    # 写 salary_change 事件（approved，生效月 1 号）→ 时间线记录 + 下月起覆盖推导
+    # 审计修复#8（2026-11）：原硬编码当前月 1 号，与 record_base_change 的 effective_month
+    # 口径脱节（选了历史生效月时事件仍落当前月）——改 from_month+'-01' 对齐
     username = session.get('username', 'unknown')
     create_event(app.config['DATA_FOLDER'], {
         'employee_id': employee_id,
         'event_type': 'salary_change',
-        'effective_date': datetime.now(EAT).strftime('%Y-%m-01'),
+        'effective_date': from_month + '-01',
         'snapshot': '{}',
         'payload': json.dumps({'salary_type': st, 'day_rate': day_rate,
                                'monthly_salary': monthly_salary,
@@ -2702,7 +2714,8 @@ def api_employee_salary_type(employee_id):
               operator=session.get('username',''))
     # P23 R4: 薪资类型/基数变更后需刷新——perf-batch2 C1: 响应不依赖刷新后数据，
     # 改按原覆盖面（APP_STATE.month）失效，重建移交下个读请求
-    _invalidate_current_view_month()
+    # 审计修复#8（2026-11）：改按生效月份失效（from_month 及其后已缓存月份一并驱逐）
+    _invalidate_month_cache_from(from_month)
     return jsonify({'ok': True})
 
 # ── P7: 员工头像 ─────────────────────────────
@@ -3671,6 +3684,19 @@ def oa_edit_event(event_id):
         return jsonify({'ok': False, 'error': '缺少生效日期'}), 400
     if new_days is not None and new_days < 1:
         return jsonify({'ok': False, 'error': '天数至少为 1'}), 400
+    if new_days is not None and new_days > 365:
+        return jsonify({'ok': False, 'error': '天数不能超过 365'}), 400
+    # 审计修复#7（2026-11）：改期/改天数后的合成事件也须过关账闸门（与上方原事件 guard
+    # 取并集覆盖）——堵住"改期到关账月"或"延长天数跨入关账月"两条绕过路径
+    try:
+        _orig_days = int(json.loads(event.get('payload') or '{}').get('days', 1) or 1)
+    except (TypeError, ValueError):
+        _orig_days = 1
+    _synthetic = {'effective_date': new_date,
+                  'payload': json.dumps({'days': new_days if new_days is not None else _orig_days})}
+    resp = _guard_months_closed(_event_closed_months(_synthetic))
+    if resp:
+        return resp
 
     if event['status'] == 'pending':
         try:
@@ -6043,6 +6069,10 @@ def collection_edit(submission_id):
     form_type = sub['form_type']
     old_date = sub['submission_date']
     new_date = data.get('submission_date') or old_date
+    # 审计修复#6（2026-11）：改期到已关账月同样拒绝（旧日期 guard 见上方 submission_date 判定）
+    resp = _guard_months_closed([new_date])
+    if resp:
+        return resp
     if new_date > datetime.now(EAT).strftime('%Y-%m-%d'):
         return jsonify({'ok': False, 'error': '不能提交未来日期', 'error_key': 'col_future_date'}), 400
     # P38: 井下出渣新格式 teams 中豁免班组必须带非空备注（旧格式 day/night 历史数据零改动）
@@ -8209,6 +8239,7 @@ def export_salary():
 
     headers = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                'Day Rate(TZS)', 'Monthly(TZS)', 'Overtime(TZS)', 'Bonus(TZS)', 'Driver Allowance(TZS)',
+               'Sick Subsidy(TZS)',
                'Gross Total(TZS)', 'NSSF(TZS)', 'PAYE(TZS)', 'Company PAYE (50%)(TZS)',
                'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)', 'TIN Number', 'NSSF Number']
     for col, h in enumerate(headers, 1):
@@ -8230,6 +8261,7 @@ def export_salary():
         penalty = int(emp.get('penalty', 0) or 0)
         nssf = emp.get('nssf', 0) or 0
         driver = int(emp.get('driver_allowance', 0) or 0)
+        sick = int(emp.get('sick_subsidy', 0) or 0)
         overtime = int(emp.get('overtime', 0) or 0)
         paye = int(emp.get('paye', 0) or 0)
         paye_half = int(emp.get('paye_half', 0) or 0)
@@ -8238,7 +8270,7 @@ def export_salary():
             int(emp.get('piece_underground', 0) or 0), int(emp.get('piece_driller', 0) or 0),
             int(emp.get('piece_crush', 0) or 0),
             int(emp.get('day_rate', 0) or 0), int(emp.get('monthly', 0) or 0),
-            overtime, bonus, driver,
+            overtime, bonus, driver, sick,
             int(gross), int(nssf),
             paye, paye_half, penalty, int(emp.get('advance', 0) or 0),
             int(emp.get('net', 0) or 0),
@@ -8247,27 +8279,27 @@ def export_salary():
         vals += [_tin, _nssf_no]
         for col, v in enumerate(vals, 1):
             cell = ws.cell(i, col, v); cell.border = thin_border
-            cell.alignment = Alignment(horizontal='left' if col == 1 or col >= 18 else 'right')
-            if 1 < col < 18: cell.number_format = '#,##0'
+            cell.alignment = Alignment(horizontal='left' if col == 1 or col >= 19 else 'right')
+            if 1 < col < 19: cell.number_format = '#,##0'
 
     total_row = len(result['employees']) + 2
     ws.cell(total_row, 1, 'Total').font = Font(bold=True, size=11)
     ws.cell(total_row, 1).fill = total_fill; ws.cell(total_row, 1).border = thin_border
 
-    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 加班(H), 奖金(I), 司机(J), 应发(K), NSSF(L), PAYE(M), 公司代付(N), 罚款(O), 预支(P) → SUM公式
-    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
+    # 井下(C), 钻工(D), 破碎(E), 日薪(F), 月薪(G), 加班(H), 奖金(I), 司机(J), 病补(K), 应发(L), NSSF(M), PAYE(N), 公司代付(O), 罚款(P), 预支(Q) → SUM公式
+    for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]:
         letter = chr(64 + ci)
         cell = ws.cell(total_row, ci, f'=SUM({letter}2:{letter}{total_row-1})')
         cell.font = Font(bold=True); cell.fill = total_fill; cell.border = thin_border
         cell.number_format = '#,##0'
 
-    # 实发(17=Q) = Σ逐行后端 net
-    ws.cell(total_row, 17, f'=SUM(Q2:Q{total_row-1})')
-    ws.cell(total_row, 17).font = Font(bold=True)
-    ws.cell(total_row, 17).fill = total_fill; ws.cell(total_row, 17).border = thin_border
-    ws.cell(total_row, 17).number_format = '#,##0'
+    # 实发(18=R) = Σ逐行后端 net
+    ws.cell(total_row, 18, f'=SUM(R2:R{total_row-1})')
+    ws.cell(total_row, 18).font = Font(bold=True)
+    ws.cell(total_row, 18).fill = total_fill; ws.cell(total_row, 18).border = thin_border
+    ws.cell(total_row, 18).number_format = '#,##0'
 
-    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16, 20, 18], 1):
+    for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 16, 14, 16, 16, 16, 16, 16, 20, 18], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     # Sheet 2: 产量（2026-10-26: 新格式按井下班组分组 NH/NL/MW；旧格式月保持原样）
@@ -8616,6 +8648,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         ws2 = wb.create_sheet('Salary Summary')
         headers2 = ['Name', 'Type', 'Underground Piece Rate(TZS)', 'Driller Piece(TZS)', 'Crush Piece(TZS)',
                     'Day Rate(TZS)', 'Monthly(TZS)', 'Overtime(TZS)', 'Bonus(TZS)', 'Driver Allowance(TZS)',
+                    'Sick Subsidy(TZS)',
                     'Gross Total(TZS)', 'NSSF(TZS)', 'PAYE(TZS)', 'Company PAYE (50%)(TZS)',
                     'Penalty(TZS)', 'Advance Deduction(TZS)', 'Net Salary(TZS)', 'TIN Number', 'NSSF Number']
         for ci, h in enumerate(headers2, 1):
@@ -8633,6 +8666,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             penalty = int(emp.get('penalty', 0) or 0)
             nssf = emp.get('nssf', 0) or 0
             driver = int(emp.get('driver_allowance', 0) or 0)
+            sick = int(emp.get('sick_subsidy', 0) or 0)
             overtime = int(emp.get('overtime', 0) or 0)
             paye = int(emp.get('paye', 0) or 0)
             paye_half = int(emp.get('paye_half', 0) or 0)
@@ -8641,7 +8675,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
                 int(emp.get('piece_underground',0) or 0), int(emp.get('piece_driller',0) or 0),
                 int(emp.get('piece_crush',0) or 0),
                 int(emp.get('day_rate',0) or 0), int(emp.get('monthly',0) or 0),
-                overtime, bonus, driver,
+                overtime, bonus, driver, sick,
                 int(gross), int(nssf),
                 paye, paye_half, penalty, int(emp.get('advance',0) or 0),
                 int(emp.get('net', 0) or 0),
@@ -8650,22 +8684,22 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             vals += [_tin, _nssf_no]
             for ci, v in enumerate(vals, 1):
                 c = ws2.cell(i, ci, v); c.border = tb
-                c.alignment = Alignment(horizontal='left' if ci == 1 or ci >= 18 else 'right')
-                if 1 < ci < 18: c.number_format = '#,##0'
+                c.alignment = Alignment(horizontal='left' if ci == 1 or ci >= 19 else 'right')
+                if 1 < ci < 19: c.number_format = '#,##0'
 
         tr = len(result['employees']) + 2
         ws2.cell(tr, 1, 'Total').font = Font(bold=True, size=11)
         ws2.cell(tr, 1).fill = total_fill; ws2.cell(tr, 1).border = tb
-        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]:
+        for ci in [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]:
             lt = chr(64 + ci)
             c = ws2.cell(tr, ci, f'=SUM({lt}2:{lt}{tr-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
             c.number_format = '#,##0'
-        ws2.cell(tr, 17, f'=SUM(Q2:Q{tr-1})')
-        ws2.cell(tr, 17).font = Font(bold=True)
-        ws2.cell(tr, 17).fill = total_fill; ws2.cell(tr, 17).border = tb
-        ws2.cell(tr, 17).number_format = '#,##0'
-        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 14, 16, 16, 16, 16, 16, 20, 18], 1):
+        ws2.cell(tr, 18, f'=SUM(R2:R{tr-1})')
+        ws2.cell(tr, 18).font = Font(bold=True)
+        ws2.cell(tr, 18).fill = total_fill; ws2.cell(tr, 18).border = tb
+        ws2.cell(tr, 18).number_format = '#,##0'
+        for i, w in enumerate([18, 12, 16, 16, 16, 16, 16, 16, 14, 16, 16, 16, 14, 16, 16, 16, 16, 16, 20, 18], 1):
             ws2.column_dimensions[chr(64+i)].width = w
         ws2.freeze_panes = 'A2'
 
@@ -8831,6 +8865,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
         dw_dates = sorted(dw_all_dates)
 
         if dw_dates and dw_result:
+            from openpyxl.utils import get_column_letter as _gcl4
             ws4 = wb.create_sheet('Daily Wages')
             ws4.cell(1, 1, 'Name').font = hfont; ws4.cell(1, 1).fill = hfill
             ws4.cell(1, 1).alignment = ha; ws4.cell(1, 1).border = tb
@@ -8861,9 +8896,7 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
 
                 for di, dt in enumerate(dw_dates):
                     amt = e.get('daily', {}).get(dt, 0)
-                    shift = e.get('daily_shifts', {}).get(dt, '')
-                    label = f"{int(amt)} {shift}" if shift and amt > 0 else (int(amt) if amt > 0 else '')
-                    c = ws4.cell(ri, 3 + di, label if label else None)
+                    c = ws4.cell(ri, 3 + di, int(amt) if amt > 0 else None)
                     c.border = tb
                     c.alignment = Alignment(horizontal='right')
                     if amt > 0: c.number_format = '#,##0'
@@ -8877,12 +8910,8 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
 
                 # 合计 = SUM 公式
                 col_end = 3 + len(dw_dates) - 1
-                col_end_letter = chr(64 + col_end) if col_end <= 26 else ''
-                if col_end_letter:
-                    c_total = ws4.cell(ri, total_col,
-                        f'=SUM(C{ri}:{col_end_letter}{ri})' if col_end >= 3 else None)
-                else:
-                    c_total = ws4.cell(ri, total_col, e.get('total', 0))
+                c_total = ws4.cell(ri, total_col,
+                    f'=SUM(C{ri}:{_gcl4(col_end)}{ri})' if col_end >= 3 else None)
                 c_total.border = tb; c_total.alignment = Alignment(horizontal='right')
                 c_total.number_format = '#,##0'
                 c_total.font = Font(bold=True)
@@ -8894,17 +8923,16 @@ def _do_export_all(eff_month=None, eff_result=None, eff_md=None):
             ws4.cell(ri, 2, '').fill = total_fill; ws4.cell(ri, 2).border = tb
             for di in range(len(dw_dates)):
                 col = 3 + di
-                c = ws4.cell(ri, col, f'=SUM({chr(64+col)}2:{chr(64+col)}{ri-1})' if col <= 26 else 0)
+                c = ws4.cell(ri, col, f'=SUM({_gcl4(col)}2:{_gcl4(col)}{ri-1})')
                 c.font = Font(bold=True); c.fill = total_fill; c.border = tb
                 c.number_format = '#,##0'
-            c = ws4.cell(ri, total_col, f'=SUM({chr(64+total_col)}2:{chr(64+total_col)}{ri-1})' if total_col <= 26 else 0)
+            c = ws4.cell(ri, total_col, f'=SUM({_gcl4(total_col)}2:{_gcl4(total_col)}{ri-1})')
             c.font = Font(bold=True); c.fill = total_fill; c.border = tb
             c.number_format = '#,##0'
 
             ws4.column_dimensions['A'].width = 22
             ws4.column_dimensions['B'].width = 12
-            if total_col <= 26:
-                ws4.column_dimensions[chr(64+total_col)].width = 14
+            ws4.column_dimensions[_gcl4(total_col)].width = 14
             ws4.freeze_panes = 'C2'
 
     # ═══════════════════════════════════════════════════════
@@ -9100,9 +9128,12 @@ def _build_slip_data(emp, salary_result, employees_db, month):
     from core.database import get_employee_profile
     profile = get_employee_profile(app.config['DATA_FOLDER'], emp.get('employee_id', ''))
     
-    gross = (emp.get('piece_underground', 0) or 0) + (emp.get('piece_driller', 0) or 0) + \
-            (emp.get('piece_crush', 0) or 0) + (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0) + \
-            (emp.get('overtime', 0) or 0)
+    # gross 取薪资结果缓存值；旧缓存无 gross 字段时回退手算公式
+    gross = emp.get('gross')
+    if gross is None:
+        gross = (emp.get('piece_underground', 0) or 0) + (emp.get('piece_driller', 0) or 0) + \
+                (emp.get('piece_crush', 0) or 0) + (emp.get('day_rate', 0) or 0) + (emp.get('monthly', 0) or 0) + \
+                (emp.get('overtime', 0) or 0)
     
     type_labels = {
         'piece_underground': 'Underground', 'piece_driller': 'Driller',
@@ -9127,6 +9158,7 @@ def _build_slip_data(emp, salary_result, employees_db, month):
         'overtime': int(emp.get('overtime', 0) or 0),
         'bonus': int(emp.get('bonus', 0) or 0),
         'driver_allowance': int(emp.get('driver_allowance', 0) or 0),
+        'sick_subsidy': int(emp.get('sick_subsidy', 0) or 0),
         'gross': int(gross),
         'nssf': int(emp.get('nssf', 0) or 0),
         'paye': int(emp.get('paye', 0) or 0),
@@ -9175,7 +9207,7 @@ def _render_pdf_fit_pages(template_name, max_pages, **ctx):
 def _count_payslip_rows(slip):
     """统计单张工资单的条目行数（用于估算批量导出的初始缩放）。"""
     earn_keys = ('piece_underground', 'piece_driller', 'piece_crush', 'day_rate',
-                 'monthly', 'overtime', 'bonus', 'driver_allowance')
+                 'monthly', 'overtime', 'sick_subsidy', 'bonus', 'driver_allowance')
     ded_keys = ('paye_half', 'advance', 'penalty')
     earn = sum(1 for k in earn_keys if (slip.get(k) or 0) > 0) + 1        # + GROSS
     ded = 2 + sum(1 for k in ded_keys if (slip.get(k) or 0) > 0) + 1      # NSSF/PAYE + TOTAL
