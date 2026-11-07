@@ -170,6 +170,9 @@ table .subtotal {
     {% if slip.driver_allowance > 0 %}
     <tr><td class="item">Driver Allowance</td><td class="amount">{{ "{:,.0f}".format(slip.driver_allowance) }}</td></tr>
     {% endif %}
+    {% if slip.sick_subsidy > 0 %}
+    <tr><td class="item">Sick Subsidy</td><td class="amount">{{ "{:,.0f}".format(slip.sick_subsidy) }}</td></tr>
+    {% endif %}
     <tr class="subtotal"><td class="item">GROSS PAY</td><td class="amount">{{ "{:,.0f}".format(slip.gross) }}</td></tr>
   </table>
 

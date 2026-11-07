@@ -3264,6 +3264,10 @@ def edit_approved_event(data_folder, event_id, new_date, new_days, operator,
             return False, '生效日期格式无效'
         if not isinstance(new_days, int) or new_days < 1:
             return False, '天数至少为 1'
+        # 审计修复#7（2026-11）数据库层兜底：超长天数会撑爆下游逐日展开
+        # （展开处虽有 800 天 clamp，但余额扣减/覆盖写入仍按原天数），拒绝 >366
+        if new_days > 366:
+            return False, '天数超出上限（最多 366 天）'
 
         eid = ev['employee_id']
         etype = ev['event_type']
