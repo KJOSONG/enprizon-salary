@@ -13,7 +13,7 @@
 | 本地克隆 | `/Users/osong/AI专用分析文件/enprizon-salary` |
 | 远程 | `github.com/KJOSONG/enprizon-salary` |
 | 分支模型 | 一切最终合并 `main`；大改动走 feature 分支 + 团队并行 |
-| **当前 main** | **`a424ac2`**（2026-11-07 审计 9 问题修复，已部署，生产冒烟通过） |
+| **当前 main** | **`68c5a02`**（2026-11-09 记忆/进度体系整合+根目录清理，纯文档/脚本提交，**未 push 未部署**；服务代码最新仍为 `a424ac2`，2026-11-07 审计 9 问题修复，生产冒烟通过） |
 | 服务器 | 阿里云新加坡 `47.236.187.33`，894MB 内存（红线见 `.codebuddy/rules/project-core.md`） |
 | 服务器路径 | `/root/enprizon-salary`，gunicorn `127.0.0.1:8081`，服务 active |
 | 后端直连 | `http://127.0.0.1:8081/api/...`（**不加 `/salary` 前缀**，前缀由 nginx 处理） |
