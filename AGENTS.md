@@ -1,8 +1,10 @@
 # AGENTS.md — ENPRIZON LINDI (enprizon-salary)
 
-> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前 main=2d8228e，服务 active（P30/P31/P32 已部署 2026-09-02；P29 权限 V2.1 于 2026-08-23 部署）**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
+> **TL;DR**：坦桑尼亚矿业薪资系统。纯采集驱动（无 Excel 源）：P9 采集提交 → DB → `_run_pipeline()` 重建 → 五轨计薪 → SPA 展示。部署阿里云新加坡 47.236.187.33:8081（`/salary/` 子路径）。**当前状态（main 哈希/部署/账号/挂起）以 `docs/STATUS.md` 为唯一权威，本文件不再记录状态**。改计算逻辑必读记忆 `salary_calc_logic.md`；协作流程见 §协作流程 + `DEV_WORKFLOW.md`。
 
 ## 相关文档
+
+- **`docs/INDEX.md`：文档地图（找任何文档先查这里）**；`docs/STATUS.md`：当前状态唯一权威；`docs/PROGRESS.md`：批次编年史；`docs/ROADMAP.md`：路线图与遗留清单
 
 - `README.md`：快速上手、部署与命令速查（面向新接手者）
 
@@ -105,7 +107,7 @@ bash test-workflow.sh restore     # 恢复生产库
 bash test-workflow.sh clean       # 删除测试库（`prod_kilwa.db` 存在时拒绝，防止误删）
 ```
 
-`test-workflow.sh` 使用 `$HOME/WorkBuddy/kilwa-system/data` 和 `$HOME/Desktop/enprizon_backups` 路径。
+`test-workflow.sh` 使用相对脚本位置的项目内 `data/` 与 `data/backups/` 路径（2026-11-09 修正，旧 `$HOME/WorkBuddy/kilwa-system` 硬编码已移除）。
 
 ### 测试产物清理（TTL 机制，2026-08-16；任务完成即清理为硬规则，2026-09-02）
 
@@ -583,12 +585,12 @@ app.py (Flask 路由 / 认证 / 数据管线)
 
 - **日期区间展开必 clamp / 哨兵值消费方必设防 / 落库形态=消费方期望**（2026-09-04 OOM 事故三条铁律，详见 §代码修改关键不变量）
 
-## 重构状态（2026-09-02 更新，main=2d8228e；P29/P30/P31/P32 已部署）
+## 重构状态（历史快照，止于 2026-09-02 P32；后续进度见 `docs/PROGRESS.md`，当前状态见 `docs/STATUS.md`）
 
 **分支**: `main`（小改动直接在 main 做；大改动建 feature 分支合并；原 `refactor` 分支已删除）
-**阶段**: **P0-P29 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速 / P26-P28 / **P29 权限体系 V2.1（已部署 2026-08-23，迁移幂等完成）** / **P30 井下班组化（已部署 2026-09-01）** / **P31 数据台班组化（已部署 2026-09-02）** / **P32 出勤采集排除已批假期 + 数据台趋势tooltip班组物料（已部署 2026-09-02）**）
+**阶段（截至本快照）**: **P0-P32 全部完成并部署**（P18 权限框架 / P19 别名搜索 / P20 年假豁免 / P21 年假计薪+TIN / P22 一批需求 / P22-FIX 日明细 / P23 照片加班审计缓存同步 / UI 壳层布局 / P24 安全修复与登录体验 / P25 计件薪资 V2 凸性加速 / P26-P28 / **P29 权限体系 V2.1（2026-08-23）** / **P30 井下班组化（2026-09-01）** / **P31 数据台班组化（2026-09-02）** / **P32 出勤采集排除已批假期 + 数据台趋势tooltip班组物料（2026-09-02）**；P33 及以后见 `docs/PROGRESS.md`）
 **纯采集模式**: 已移除 Excel 数据源依赖。薪资全部由 P9 采集驱动，提交后自动触发计算；employees 从 DB 读取；data/source 目录已清空
-**部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），当前 main=2d8228e，服务 active
+**部署**: 已部署至阿里云 `main` 分支（systemctl restart enprizon-salary），当前 main 哈希与服务状态以 `docs/STATUS.md` 为准
 **团队**: KEJU 团队（designer/dev/qa）并行工作流，复杂任务必用；agentmemory 已整合（开始 recall / 完成 remember）
 
 ### 最近阶段新增功能（P18-P29 摘要）

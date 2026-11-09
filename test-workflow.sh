@@ -11,8 +11,10 @@
 # ═══════════════════════════════════════════════
 set -e
 
-DATA_DIR="$HOME/WorkBuddy/kilwa-system/data"
-BACKUP_DIR="${2:-$HOME/Desktop/enprizon_backups}"
+# 路径相对脚本位置（2026-11-09 修正：旧 $HOME/WorkBuddy/kilwa-system 硬编码已失效）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="$SCRIPT_DIR/data"
+BACKUP_DIR="${2:-$DATA_DIR/backups}"
 DB_FILE="$DATA_DIR/kilwa.db"
 TEST_DB="$DATA_DIR/test_kilwa.db"
 PROD_SAVE="$DATA_DIR/prod_kilwa.db"
@@ -21,7 +23,7 @@ case "${1:-}" in
   start)
     if [ ! -f "$BACKUP_DIR/kilwa_latest.db" ]; then
       echo "❌ 备份文件不存在: $BACKUP_DIR/kilwa_latest.db"
-      echo "   手动备份: cp data/kilwa.db Desktop/enprizon_backups/kilwa_latest.db"
+      echo "   手动备份: cp data/kilwa.db data/backups/kilwa_latest.db"
       exit 1
     fi
     cp "$BACKUP_DIR/kilwa_latest.db" "$TEST_DB"
@@ -37,8 +39,8 @@ case "${1:-}" in
       echo "❌ test.db 不存在。先执行 ./test-workflow.sh start"
       exit 1
     fi
-    echo "🔄 保留生产 DB → prod_kilwa.db"
-    cp "$DB_FILE" "$PROD_SAVE"
+    echo "🔄 保留生产 DB → prod_kilwa.db（sqlite3 .backup 一致性快照，自动含 WAL 未合并写入）"
+    sqlite3 "$DB_FILE" ".backup '$PROD_SAVE'"
     echo "🔄 换入 test.db → kilwa.db"
     cp "$TEST_DB" "$DB_FILE"
     echo "✅ 现在可以运行测试代码了（操作的是 test_kilwa 的数据）"
