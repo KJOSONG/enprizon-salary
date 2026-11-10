@@ -10022,7 +10022,7 @@ async function renderAttCollectionForm(payload) {
     });
   }
   const deptsOther = [...new Set(rosterOther.map(e => e.department).filter(Boolean))].sort();
-  const depts = deptsOther.slice();
+  const depts = withAlwaysDepts(deptsOther);
   if (ugPool.length && !depts.some(d => isUgDept(d))) depts.push(ugDeptExact);
   depts.sort();
   const selDept = payload.department || '';
