@@ -1788,6 +1788,9 @@
   STATE.colType = '';
   function ck(id){ return (document.getElementById(id).value||'').split(',').filter(Boolean); }
   // 部门池工具（2026-11 组织重组后判定走 _mobIs* 双名谓词；deptHas 保留给其他关键字场景）
+  // 2026-11 新增 Warehouse：新部门暂无员工时下拉仍须可选
+  const _MOB_ALWAYS_DEPTS=['Warehouse'];
+  function _mobWithAlways(list){ return [...new Set([...(list||[]),..._MOB_ALWAYS_DEPTS])].sort(); }
   function deptPool(kind, teamId, src){
     return (src||STATE.employees).filter(e=>{
       const d=(e.department||'').toUpperCase();
@@ -1944,6 +1947,7 @@
     { parent: 'Site Operations & Services Department', children: [{ v: 'Site Operations & Services Department' }] },
     { parent: 'Materials & Logistics Department', children: [{ v: 'Sorting Team' }, { v: 'Crushing Team' }, { v: 'Materials & Logistics Department', label: function(){ return t('dept_supervisors'); } }] },
     { parent: 'RIG', children: [{ v: 'RIG' }] },
+    { parent: 'Warehouse', children: [{ v: 'Warehouse' }] },
     { parent: 'ENPRIZON LINDI PROJECT', children: [{ v: 'ENPRIZON LINDI PROJECT' }] },
   ];
   function _mobDeptChildLabel(v){
@@ -2725,6 +2729,7 @@
     // 为下拉去重收集所有部门（含 UG）
     const allDepts=[...new Set([...otherPool,...ugPool].map(e=>e.department).filter(Boolean))].sort();
     // 确保 UG 精确字符串在下拉中（即便当月无 UG 员工，仍显示选项以支持采集）
+    _MOB_ALWAYS_DEPTS.forEach(function(d){ if(!allDepts.includes(d)) allDepts.push(d); });
     if(!allDepts.includes(UG_DEPT)) allDepts.push(UG_DEPT);
     else { /* already present */ }
     allDepts.sort();
@@ -3169,7 +3174,7 @@
   // 入职申请(全字段,对齐桌面端 index.html:5128-5155)
   function openHireApply(){
     if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; }
-    const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
+    const depts=_mobWithAlways([...new Set(STATE.employees.map(e=>e.department).filter(Boolean))]);
     api('/api/employee_groups').then(d=>{ STATE._groups=d.groups||[]; renderHireForm(depts); }).catch(()=>{ STATE._groups=[]; renderHireForm(depts); });
   }
   function renderHireForm(depts){
@@ -3228,7 +3233,7 @@
   function openTransferApply(){
     if(!hasPermission('oa','apply')){ toast(t('need_editor'),'warning'); return; }
     const opts='<option value="">—</option>'+(STATE.employees||[]).map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name||'')+' #'+esc(e.custom_number||e.id)+'</option>').join('');
-    const depts=[...new Set(STATE.employees.map(e=>e.department).filter(Boolean))].sort();
+    const depts=_mobWithAlways([...new Set(STATE.employees.map(e=>e.department).filter(Boolean))]);
     const deptOpts='<option value="">—</option>'+depts.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
     oaFormHTML(
       '<div class="field"><label class="field__label">'+t('emp_list')+'</label><select id="oaTrEid">'+opts+'</select></div>'

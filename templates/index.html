@@ -4068,8 +4068,12 @@ const DEPT_TREE = [
     { v: 'Materials & Logistics Department', label: () => t('dept_supervisors') },
   ]},
   { parent: 'RIG', children: [{ v: 'RIG' }] },
+  { parent: 'Warehouse', children: [{ v: 'Warehouse' }] },
   { parent: 'ENPRIZON LINDI PROJECT', children: [{ v: 'ENPRIZON LINDI PROJECT' }] },
 ];
+/* 2026-11 新增 Warehouse：系统无部门表，下拉选项由在职员工聚合；新部门暂无员工时仍须可选（建档/调岗/改档），故在员工档案下拉强制并入 */
+const ALWAYS_DEPTS = ['Warehouse'];
+function withAlwaysDepts(list) { return [...new Set([...(list || []), ...ALWAYS_DEPTS])].sort(); }
 function deptParentOf(v) {
   for (const g of DEPT_TREE) if (g.children.some(c => c.v === v)) return g.parent;
   return null;
@@ -4176,7 +4180,7 @@ async function renderEmployeeTable() {
     // 填充部门筛选（P13.1: 重建下拉前保留选中值；2026-11 两级化：大部门 optgroup → 子部门）
     const sel = document.getElementById('empFilterDept');
     const prevVal = sel.value;
-    const deps = filterTreeDepts([...new Set(emps.map(e => e.department).filter(Boolean))].sort());
+    const deps = withAlwaysDepts(filterTreeDepts([...new Set(emps.map(e => e.department).filter(Boolean))].sort()));
     sel.innerHTML = '<option value="">' + t('emp_all_depts') + '</option>' + buildDeptOptionsHTML(deps, prevVal);
     if (deps.includes(prevVal)) sel.value = prevVal;
 
@@ -5656,7 +5660,7 @@ function openRehireModal(eid) {
   const now = new Date();
   document.getElementById('rehireDate').value =
     now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
-  const depts = [...new Set([...(STATE._empAll || []).map(e => e.department).filter(Boolean), d.department].filter(Boolean))].sort();
+  const depts = withAlwaysDepts([...new Set([...(STATE._empAll || []).map(e => e.department).filter(Boolean), d.department].filter(Boolean))]);
   document.getElementById('rehireDept').innerHTML =
     depts.map(dep => `<option value="${escHtml(dep)}" ${dep === d.department ? 'selected' : ''}>${escHtml(dep)}</option>`).join('');
   document.getElementById('rehireType').value = d.default_type || 'day_rate';
